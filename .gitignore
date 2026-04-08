@@ -160,6 +160,7 @@ Thumbs.db
 dist/
 build/
 out/
+target/
 
 # Temporary files
 tmp/
