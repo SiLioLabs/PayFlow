@@ -5,7 +5,9 @@
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
-    "typecheck": "cd frontend && npx tsc --noEmit"
+    "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
+    "backend:typecheck": "cd contract && cargo check",
+    "backend:test": "cd contract && cargo test"
   },
   "devDependencies": {
     "husky": "^9.1.7",
