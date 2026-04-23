@@ -180,6 +180,43 @@ fn test_pay_per_use_uses_subscription_token() {
     assert_eq!(tc.balance(&merchant), pay_amount);
 }
 
+/// pay_per_use transfers the correct amount to the merchant.
+#[test]
+fn test_pay_per_use() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+
+    let token = TokenClient::new(&env, &token_addr);
+    let before = token.balance(&merchant);
+    client.pay_per_use(&user, &5_0000000);
+    assert_eq!(token.balance(&merchant), before + 5_0000000);
+}
+
+/// pay_per_use panics when the subscription is inactive.
+#[test]
+#[should_panic]
+fn test_pay_per_use_inactive() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.cancel(&user);
+    client.pay_per_use(&user, &1_0000000);
+}
+
+/// pay_per_use panics when amount is zero.
+#[test]
+#[should_panic]
+fn test_pay_per_use_zero_amount() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.pay_per_use(&user, &0);
+}
+
 /// initialize() still works for backward compat but is not required.
 #[test]
 fn test_initialize_backward_compat() {
