@@ -2,6 +2,7 @@
 
 mod errors;
 mod test;
+mod validation;
 
 use soroban_sdk::{
     contract, contractimpl, contracttype,
