@@ -44,13 +44,13 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700 }}>New Subscription</h2>
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+      <h2 style={{ fontSize: "var(--text-lg)", fontWeight: "var(--font-bold)" }}>New Subscription</h2>
 
-      <label style={{ fontSize: 13, color: "#94a3b8" }}>
+      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
         Merchant address
         <input
-          style={{ marginTop: 6 }}
+          style={{ marginTop: "var(--space-2)" }}
           placeholder="G…"
           value={merchant}
           onChange={(e) => setMerchant(e.target.value)}
@@ -58,10 +58,10 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         />
       </label>
 
-      <label style={{ fontSize: 13, color: "#94a3b8" }}>
+      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
         Amount (XLM per period)
         <input
-          style={{ marginTop: 6 }}
+          style={{ marginTop: "var(--space-2)" }}
           type="number"
           min="0.0000001"
           step="0.0000001"
@@ -72,18 +72,11 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         />
       </label>
 
-      <label style={{ fontSize: 13, color: "#94a3b8" }}>
+      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
         Billing interval
         <select
           style={{
-            marginTop: 6,
-            background: "#1e1e2e",
-            border: "1px solid #2d2d3f",
-            borderRadius: 8,
-            color: "#e2e8f0",
-            padding: "10px 14px",
-            width: "100%",
-            fontSize: 14,
+            marginTop: "var(--space-2)",
           }}
           value={interval}
           onChange={(e) => setInterval(Number(e.target.value))}
@@ -97,13 +90,14 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
       <button
         type="submit"
         disabled={loading}
-        style={{ background: "#7c3aed", color: "#fff", marginTop: 4 }}
+        className="btn-primary"
+        style={{ marginTop: "var(--space-1)" }}
       >
         {loading ? "Signing…" : "Subscribe"}
       </button>
 
       {status && (
-        <p style={{ fontSize: 13, color: status.startsWith("Error") ? "#f87171" : "#4ade80" }}>
+        <p style={{ fontSize: "var(--text-sm)", color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}>
           {status}
         </p>
       )}

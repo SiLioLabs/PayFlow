@@ -66,12 +66,12 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     }
   }
 
-  if (loading) return <p style={{ color: "#64748b" }}>Loading subscription…</p>;
+  if (loading) return <p style={{ color: "var(--color-text-subtle)" }}>Loading subscription…</p>;
 
   if (!sub) {
     return (
       <div className="card">
-        <p style={{ color: "#64748b" }}>No active subscription found.</p>
+        <p style={{ color: "var(--color-text-subtle)" }}>No active subscription found.</p>
       </div>
     );
   }
@@ -80,16 +80,16 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   const xlm = (Number(sub.amount) / 10_000_000).toFixed(7);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700 }}>Your Subscription</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-4)" }}>
+          <h2 style={{ fontSize: "var(--text-lg)", fontWeight: "var(--font-bold)" }}>Your Subscription</h2>
           <span className={`badge ${sub.active ? "badge-active" : "badge-inactive"}`}>
             {sub.active ? "Active" : "Cancelled"}
           </span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", fontSize: "var(--text-base)" }}>
           <Row label="Merchant" value={`${sub.merchant.slice(0, 8)}…${sub.merchant.slice(-6)}`} />
           <Row label="Amount" value={`${xlm} XLM`} />
           <Row label="Interval" value={formatInterval(sub.interval)} />
@@ -99,7 +99,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         {sub.active && (
           <button
             onClick={handleCancel}
-            style={{ background: "#7f1d1d", color: "#fca5a5", marginTop: 20, width: "100%" }}
+            className="btn-danger"
+            style={{ marginTop: "var(--space-5)", width: "100%" }}
           >
             Cancel Subscription
           </button>
@@ -108,8 +109,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
       {sub.active && (
         <div className="card">
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Pay-per-use</h3>
-          <div style={{ display: "flex", gap: 8 }}>
+          <h3 style={{ fontSize: "var(--text-base)", fontWeight: "var(--font-semibold)", marginBottom: "var(--space-3)" }}>Pay-per-use</h3>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
             <input
               type="number"
               min="0.0000001"
@@ -121,7 +122,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
             <button
               onClick={handlePayPerUse}
               disabled={!ppuAmount}
-              style={{ background: "#1d4ed8", color: "#fff", whiteSpace: "nowrap" }}
+              className="btn-info"
+              style={{ whiteSpace: "nowrap" }}
             >
               Pay now
             </button>
@@ -130,7 +132,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       )}
 
       {actionStatus && (
-        <p style={{ fontSize: 13, color: actionStatus.startsWith("Error") ? "#f87171" : "#4ade80" }}>
+        <p style={{ fontSize: "var(--text-sm)", color: actionStatus.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}>
           {actionStatus}
         </p>
       )}
@@ -141,7 +143,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between" }}>
-      <span style={{ color: "#64748b" }}>{label}</span>
+      <span style={{ color: "var(--color-text-subtle)" }}>{label}</span>
       <span style={{ fontFamily: "monospace" }}>{value}</span>
     </div>
   );
