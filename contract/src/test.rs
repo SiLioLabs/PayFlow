@@ -204,6 +204,36 @@ fn test_large_amount() {
 }
 
 #[test]
+fn test_user_balance_decreases_after_charge() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 5_0000000; // 5 tokens
+    let interval: u64 = 30 * 24 * 60 * 60; // 30 days in seconds
+
+    client.subscribe(&user, &merchant, &amount, &interval);
+
+    // Record user balance before charge
+    let user_balance_before = token.balance(&user);
+
+    // Advance ledger time past interval
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    client.charge(&user);
+
+    // Assert the exact amount was debited from the user
+    let user_balance_after = token.balance(&user);
+    assert_eq!(
+        user_balance_after,
+        user_balance_before - amount,
+        "user balance should decrease by exactly the subscription amount"
+    );
+}
+
+#[test]
 #[should_panic(expected = "interval not elapsed yet")]
 fn test_charge_too_early() {
     let (_env, contract_id, _token_addr, user, merchant) = setup();
