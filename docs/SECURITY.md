@@ -35,6 +35,8 @@ Every function that mutates user state or moves user funds calls `user.require_a
 | `subscribe()` | `user.require_auth()` |
 | `pay_per_use()` | `user.require_auth()` |
 | `cancel()` | `user.require_auth()` |
+| `pause()` | `user.require_auth()` |
+| `resume()` | `user.require_auth()` |
 | `charge()` | None (intentionally permissionless — see below) |
 | `initialize()` | None (one-time setup) |
 
@@ -77,10 +79,6 @@ Persistent storage entries on Stellar have a TTL (time-to-live). If a subscripti
 ### Single Token Per Contract
 
 Each deployed FlowPay contract is initialized with a single token. Supporting multiple tokens (e.g. both XLM and USDC) requires either deploying multiple contracts or refactoring the storage model. Multi-token support is a planned feature.
-
-### No Subscription Pause
-
-Currently, subscriptions can only be active or cancelled. There is no pause/resume mechanism. A paused subscription would allow users to temporarily stop charges without losing their subscription record.
 
 ### Keeper Centralization
 

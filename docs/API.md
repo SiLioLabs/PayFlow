@@ -17,6 +17,7 @@ pub struct Subscription {
     pub interval: u64,       // Seconds between charges
     pub last_charged: u64,   // Ledger UNIX timestamp of the last successful charge
     pub active: bool,        // false if the subscription has been cancelled
+    pub paused: bool,        // true if the subscription is temporarily paused
 }
 ```
 
@@ -163,6 +164,7 @@ data:   (merchant, amount, timestamp)
 | --- | --- |
 | No subscription exists | `"no subscription found"` |
 | Subscription is cancelled | `"subscription is not active"` |
+| Subscription is paused | `"subscription is paused"` |
 | Interval has not elapsed | `"interval not elapsed yet"` |
 | Contract not initialized | `"not initialized"` |
 | Insufficient allowance | Host error from token contract |
@@ -218,6 +220,7 @@ data:   (merchant, amount)
 | `amount <= 0` | `"amount must be positive"` |
 | No subscription exists | `"no subscription found"` |
 | Subscription is cancelled | `"subscription is not active"` |
+| Subscription is paused | `"subscription is paused"` |
 | Insufficient allowance | Host error from token contract |
 
 **CLI example**
@@ -230,6 +233,94 @@ soroban contract invoke \
   -- pay_per_use \
   --user <USER_ADDRESS> \
   --amount 1000000
+```
+
+---
+
+### `pause`
+
+Temporarily halts charges for a subscription. The subscription record is preserved and can be resumed at any time. Both `charge()` and `pay_per_use()` will panic while paused.
+
+```
+pause(env: Env, user: Address)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber. Must match the transaction signer. |
+
+**Auth:** `user.require_auth()`.
+
+**Events emitted**
+
+```
+topic:  ("paused", user)
+data:   ()
+```
+
+**Errors**
+
+| Condition | Panic message |
+| --- | --- |
+| No subscription exists | `"no subscription found"` |
+| Subscription is cancelled | `"subscription is not active"` |
+| Subscription already paused | `"subscription is already paused"` |
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <USER_KEY> \
+  --network testnet \
+  -- pause \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `resume`
+
+Resumes a paused subscription, re-enabling `charge()` and `pay_per_use()`.
+
+```
+resume(env: Env, user: Address)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber. Must match the transaction signer. |
+
+**Auth:** `user.require_auth()`.
+
+**Events emitted**
+
+```
+topic:  ("resumed", user)
+data:   ()
+```
+
+**Errors**
+
+| Condition | Panic message |
+| --- | --- |
+| No subscription exists | `"no subscription found"` |
+| Subscription is cancelled | `"subscription is not active"` |
+| Subscription is not paused | `"subscription is not paused"` |
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <USER_KEY> \
+  --network testnet \
+  -- resume \
+  --user <USER_ADDRESS>
 ```
 
 ---
@@ -336,3 +427,5 @@ All events can be indexed by listening to the Stellar RPC event stream for the F
 | `charged` | `("charged", user_address)` | `(merchant, amount, timestamp)` |
 | `pay_per_use` | `("pay_per_use", user_address)` | `(merchant, amount)` |
 | `cancelled` | `("cancelled", user_address)` | `()` |
+| `paused` | `("paused", user_address)` | `()` |
+| `resumed` | `("resumed", user_address)` | `()` |
