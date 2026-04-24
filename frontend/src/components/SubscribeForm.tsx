@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
+import { friendlyError } from "../utils/errors";
 
 interface Props {
   userKey: string;
@@ -37,7 +38,8 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
       setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       onSuccess();
     } catch (e: unknown) {
-      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const rawMessage = e instanceof Error ? e.message : String(e);
+      setStatus(`Error: ${friendlyError(rawMessage)}`);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
 
 interface Props {
@@ -51,7 +52,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
       load();
     } catch (e: unknown) {
-      setActionStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const rawMessage = e instanceof Error ? e.message : String(e);
+      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
     }
   }
 
@@ -63,7 +65,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const hash = await onSign(xdr);
       setActionStatus(`Paid! tx: ${hash.slice(0, 12)}…`);
     } catch (e: unknown) {
-      setActionStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const rawMessage = e instanceof Error ? e.message : String(e);
+      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
     }
   }
 
