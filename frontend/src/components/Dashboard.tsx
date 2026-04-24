@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import SubscriptionCardSkeleton from "./Skeleton";
 
 interface Props {
   userKey: string;
@@ -66,7 +67,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     }
   }
 
-  if (loading) return <p style={{ color: "var(--color-text-subtle)" }}>Loading subscription…</p>;
+  if (loading) return <SubscriptionCardSkeleton />;
 
   if (!sub) {
     return (
