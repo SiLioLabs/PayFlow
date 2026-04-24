@@ -21,19 +21,7 @@ export default function App() {
 
       {/* Wallet connect */}
       {!publicKey ? (
-        <div className="card" style={{ textAlign: "center" }}>
-          <p style={{ color: "var(--color-text-muted)", marginBottom: "var(--space-4)", fontSize: "var(--text-base)" }}>
-            Connect your Freighter wallet to get started.
-          </p>
-          <button
-            onClick={connect}
-            className="btn-primary"
-            style={{ width: "100%" }}
-          >
-            Connect Wallet
-          </button>
-          {error && <p style={{ color: "var(--color-danger)", marginTop: "var(--space-3)", fontSize: "var(--text-sm)" }}>{error}</p>}
-        </div>
+        <ConnectWallet onConnect={connect} error={error} />
       ) : (
         <>
           {/* Connected bar */}
