@@ -11,4 +11,5 @@ pub enum ContractError {
     SubscriptionInactive = 5,
     IntervalNotElapsed = 6,
     NotInitialized = 7,
+    InsufficientAllowance = 8,
 }

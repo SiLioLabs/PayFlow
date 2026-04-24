@@ -1,12 +1,14 @@
 #![no_std]
 
 mod errors;
+mod events;
+mod storage;
 mod test;
 mod validation;
 
 use soroban_sdk::{
     contract, contractimpl, contracttype,
-    token, Address, Env,
+    token, Address, Env, Symbol,
 };
 use crate::errors::ContractError;
 
@@ -29,6 +31,7 @@ pub struct Subscription {
     pub interval: u64,      // seconds between charges
     pub last_charged: u64,  // ledger timestamp of last charge
     pub active: bool,
+    pub paused: bool,       // true if paused, false otherwise
     pub token: Address,     // SAC token used for this subscription
 }
 
@@ -66,12 +69,15 @@ impl FlowPay {
     ) {
         user.require_auth();
 
-        if amount <= 0 {
-            env.panic_with_error(ContractError::AmountMustBePositive);
-        }
-        if interval == 0 {
-            env.panic_with_error(ContractError::IntervalMustBePositive);
-        }
+        assert!(amount > 0, "amount must be positive");
+        assert!(interval > 0, "interval must be positive");
+
+        // Verify the user has approved a sufficient allowance — fail early with a
+        // clear error rather than silently storing a subscription that will fail
+        // to charge later.
+        let token_client = token::Client::new(&env, &token);
+        let allowance = token_client.allowance(&user, &env.current_contract_address());
+        assert!(allowance >= amount, "insufficient allowance");
 
         let sub = Subscription {
             merchant,
@@ -79,15 +85,12 @@ impl FlowPay {
             interval,
             last_charged: env.ledger().timestamp(),
             active: true,
+            paused: false,
             token,
         };
 
         storage::set_subscription(&env, &user, &sub);
-
-        env.events().publish(
-            (Symbol::new(&env, "subscribed"), user),
-            (sub.merchant, sub.amount, sub.interval, sub.token),
-        );
+        events::publish_subscribed(&env, &user, &sub);
     }
 
     /// Charge a user's subscription.
@@ -131,9 +134,7 @@ impl FlowPay {
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
         user.require_auth();
 
-        if amount <= 0 {
-            env.panic_with_error(ContractError::AmountMustBePositive);
-        }
+        assert!(amount > 0, "amount must be positive");
 
         let key = DataKey::Subscription(user.clone());
         let sub: Subscription = env

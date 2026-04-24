@@ -262,33 +262,31 @@ input::placeholder {
 .p-6 { padding: var(--space-6); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Connect Wallet Component
+   Skeleton / Shimmer
    ───────────────────────────────────────────────────────────────────────────── */
 
-.connect-wallet {
-  text-align: center;
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 
-.connect-wallet__hint {
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-4);
-  font-size: var(--text-base);
+.skeleton {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  height: var(--space-4);
 }
 
-.connect-wallet__install-link {
-  display: inline-block;
-  text-decoration: none;
-  text-align: center;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   Text Utilities
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.text-error {
-  color: var(--color-danger);
-  font-size: var(--text-sm);
-  margin-top: var(--space-3);
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-raised) 25%,
+      var(--color-border-light)   50%,
+      var(--color-surface-raised) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

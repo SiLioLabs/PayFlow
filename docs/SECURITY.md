@@ -17,11 +17,13 @@ FlowPay is deployed on **Testnet only** and has **not been formally audited**. I
 FlowPay never holds user funds. It uses the Soroban token interface's `transfer_from` mechanism — the same pattern as ERC-20 `approve` + `transferFrom` on Ethereum.
 
 The flow is:
+
 1. User calls `approve()` on the token contract, granting FlowPay a spending allowance
 2. FlowPay calls `transfer_from()` to move funds from user → merchant
 3. The token contract enforces that the transferred amount does not exceed the approved allowance
 
 This means:
+
 - FlowPay cannot move more than the user has approved
 - Users can revoke access at any time by calling `approve()` with `amount = 0` on the token contract
 - Even if the FlowPay contract were compromised, it could only spend up to the approved allowance
@@ -30,15 +32,15 @@ This means:
 
 Every function that mutates user state or moves user funds calls `user.require_auth()`:
 
-| Function | Auth check |
-| --- | --- |
-| `subscribe()` | `user.require_auth()` |
-| `pay_per_use()` | `user.require_auth()` |
-| `cancel()` | `user.require_auth()` |
-| `pause()` | `user.require_auth()` |
-| `resume()` | `user.require_auth()` |
-| `charge()` | None (intentionally permissionless — see below) |
-| `initialize()` | None (one-time setup) |
+| Function        | Auth check                                      |
+| --------------- | ----------------------------------------------- |
+| `subscribe()`   | `user.require_auth()`                           |
+| `pay_per_use()` | `user.require_auth()`                           |
+| `cancel()`      | `user.require_auth()`                           |
+| `pause()`       | `user.require_auth()`                           |
+| `resume()`      | `user.require_auth()`                           |
+| `charge()`      | None (intentionally permissionless — see below) |
+| `initialize()`  | None (one-time setup)                           |
 
 ### Why `charge()` is Permissionless
 
@@ -72,10 +74,6 @@ Persistent storage entries on Stellar have a TTL (time-to-live). If a subscripti
 
 **Mitigation:** On Testnet this is not a concern for development. For Mainnet, ensure a keeper service also extends TTLs regularly.
 
-### No Allowance Validation at Subscribe Time
-
-`subscribe()` does not verify that the user has approved a sufficient allowance before storing the subscription. If the user's allowance is too low, `charge()` will fail at transfer time. A future improvement would check the allowance in `subscribe()` and reject subscriptions with insufficient approval.
-
 ### Single Token Per Contract
 
 Each deployed FlowPay contract is initialized with a single token. Supporting multiple tokens (e.g. both XLM and USDC) requires either deploying multiple contracts or refactoring the storage model. Multi-token support is a planned feature.
@@ -96,6 +94,7 @@ Instead, report it privately:
 - **Subject:** `[FlowPay Security] Brief description`
 
 Please include:
+
 - A description of the vulnerability
 - Steps to reproduce
 - The potential impact

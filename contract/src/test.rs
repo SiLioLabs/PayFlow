@@ -232,3 +232,111 @@ fn test_initialize_backward_compat() {
     // Subscription uses token_b, not the initialized default
     assert_eq!(client.get_subscription(&user).unwrap().token, token_b);
 }
+
+// ── Issue #7: input-validation guards ────────────────────────────────────────
+
+/// subscribe() must panic when amount = 0.
+#[test]
+#[should_panic(expected = "amount must be positive")]
+fn test_zero_amount() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &0, &86400, &token_addr);
+}
+
+/// subscribe() must panic when interval = 0.
+#[test]
+#[should_panic(expected = "interval must be positive")]
+fn test_zero_interval() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &0, &token_addr);
+}
+
+// ── Issue #8: multi-user isolation ───────────────────────────────────────────
+
+/// Two independent users with different merchants/amounts/intervals must not
+/// interfere with each other when one is charged or cancelled.
+#[test]
+fn test_multiple_users() {
+    let (env, contract_id, token_addr, user_a, merchant_a) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Set up a second independent user
+    let user_b = Address::generate(&env);
+    let merchant_b = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user_b, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user_b, &contract_id, &10_000_0000000, &200);
+
+    let amount_a: i128 = 1_0000000;
+    let amount_b: i128 = 2_0000000;
+    let interval_a: u64 = 86400;
+    let interval_b: u64 = 172800;
+
+    client.subscribe(&user_a, &merchant_a, &amount_a, &interval_a, &token_addr);
+    client.subscribe(&user_b, &merchant_b, &amount_b, &interval_b, &token_addr);
+
+    // Charge user_a — user_b must be unaffected
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval_a + 1;
+    });
+    client.charge(&user_a);
+
+    let sub_b = client.get_subscription(&user_b).unwrap();
+    assert!(sub_b.active, "user_b should still be active after charging user_a");
+    assert_eq!(sub_b.amount, amount_b, "user_b amount must not change");
+
+    // Cancel user_a — user_b must remain active
+    client.cancel(&user_a);
+
+    let sub_a_after = client.get_subscription(&user_a).unwrap();
+    let sub_b_after = client.get_subscription(&user_b).unwrap();
+    assert!(!sub_a_after.active, "user_a should be cancelled");
+    assert!(sub_b_after.active, "user_b should remain active after user_a cancel");
+}
+
+// ── Issue #9: charge after cancel ────────────────────────────────────────────
+
+/// charge() must panic with "subscription is not active" after cancel().
+#[test]
+#[should_panic(expected = "subscription is not active")]
+fn test_charge_after_cancel() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.cancel(&user);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 86401;
+    });
+    client.charge(&user);
+}
+
+// ── Issue #10: allowance validation at subscribe time ────────────────────────
+
+/// subscribe() must panic when the user's token allowance is below amount.
+#[test]
+#[should_panic(expected = "insufficient allowance")]
+fn test_subscribe_insufficient_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
+    let contract_id = env.register_contract(None, FlowPay);
+
+    let user = Address::generate(&env);
+    let merchant = Address::generate(&env);
+
+    // Mint tokens but approve only 1 stroop (< subscription amount)
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user, &10_000_0000000);
+
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &1, &200); // allowance = 1, amount = 1_0000000
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+}

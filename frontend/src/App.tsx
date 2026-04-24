@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useWallet } from "./hooks/useWallet";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
-import ConnectWallet from "./components/ConnectWallet";
+import TabBar from "./components/TabBar";
 
 export default function App() {
   const { publicKey, connect, signAndSubmit, error } = useWallet();
@@ -36,18 +36,11 @@ export default function App() {
           </div>
 
           {/* Tabs */}
-          <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-5)" }}>
-            {(["dashboard", "subscribe"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={tab === t ? "btn-primary" : "btn-secondary"}
-                style={{ flex: 1 }}
-              >
-                {t === "dashboard" ? "Dashboard" : "Subscribe"}
-              </button>
-            ))}
-          </div>
+          <TabBar
+            tabs={["dashboard", "subscribe"]}
+            activeTab={tab}
+            onTabChange={setTab}
+          />
 
           {/* Content */}
           <div className="card">
