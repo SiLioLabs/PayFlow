@@ -255,6 +255,11 @@ fn test_next_charge_at() {
 /// next_charge_at() must return None for a nonexistent subscription.
 #[test]
 fn test_next_charge_at_nonexistent() {
+// ── Issue #13: get_subscription for nonexistent subscription ─────────────────
+
+/// get_subscription() must return None for an address with no subscription.
+#[test]
+fn test_get_subscription_nonexistent() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     
@@ -296,6 +301,37 @@ fn test_next_charge_at_updates_after_charge() {
     let new_next_charge = client.next_charge_at(&user).unwrap();
     assert!(new_next_charge > initial_next_charge, "next_charge_at should increase after charge");
     assert_eq!(new_next_charge, env.ledger().timestamp() + interval);
+    assert!(client.get_subscription(&random).is_none(), "get_subscription should return None for unknown address");
+// ── Issue #12: last_charged timestamp update ─────────────────────────────────
+
+/// charge() must update last_charged to the current ledger timestamp.
+#[test]
+fn test_charge_updates_last_charged() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 30 * 24 * 60 * 60; // 30 days
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr);
+
+    // Record the timestamp before advancing time
+    let subscribe_time = env.ledger().timestamp();
+
+    // Advance ledger time past interval
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1000; // advance by interval + 1000 seconds
+    });
+
+    // Record the timestamp right before charge
+    let charge_time = env.ledger().timestamp();
+    assert!(charge_time > subscribe_time, "charge time should be after subscribe time");
+
+    client.charge(&user);
+
+    let sub_after = client.get_subscription(&user).unwrap();
+    // Verify last_charged is exactly equal to the charge_time
+    assert_eq!(sub_after.last_charged, charge_time, "last_charged should equal the ledger timestamp at charge time");
 }
 
 // ── Issue #7: input-validation guards ────────────────────────────────────────
