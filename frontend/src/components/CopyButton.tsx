@@ -1,3 +1,4 @@
+// CopyButton: copies a Stellar address to clipboard with a 200ms fade-in checkmark feedback (#56)
 import React from "react";
 import { useClipboard } from "../hooks/useClipboard";
 
