@@ -10,11 +10,11 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
 
   return (
-    <div style={{ maxWidth: 480, margin: "60px auto", padding: "0 16px" }}>
+    <div className="app-shell">
       {/* Header */}
-      <div style={{ marginBottom: "var(--space-8)", textAlign: "center" }}>
-        <h1 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-extrabold)", color: "var(--color-primary)" }}>⚡ FlowPay</h1>
-        <p style={{ color: "var(--color-text-subtle)", marginTop: "var(--space-2)", fontSize: "var(--text-base)" }}>
+      <div className="app-header">
+        <h1 className="app-header__title">⚡ FlowPay</h1>
+        <p className="app-header__subtitle">
           Decentralized recurring payments on Stellar
         </p>
       </div>
@@ -25,12 +25,9 @@ export default function App() {
       ) : (
         <>
           {/* Connected bar */}
-          <div
-            className="card"
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-5)", padding: "var(--space-3) var(--space-4)" }}
-          >
-            <span style={{ fontSize: "var(--text-sm)", color: "var(--color-text-subtle)" }}>Connected</span>
-            <span style={{ fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--color-primary)" }}>
+          <div className="card wallet-bar">
+            <span className="wallet-bar__label">Connected</span>
+            <span className="wallet-bar__address">
               {publicKey.slice(0, 6)}…{publicKey.slice(-4)}
             </span>
           </div>

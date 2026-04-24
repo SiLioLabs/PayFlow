@@ -72,7 +72,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   if (!sub) {
     return (
       <div className="card">
-        <p style={{ color: "var(--color-text-subtle)" }}>No active subscription found.</p>
+        <p className="no-sub-text">No active subscription found.</p>
       </div>
     );
   }
@@ -81,16 +81,16 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   const xlm = (Number(sub.amount) / 10_000_000).toFixed(7);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+    <div className="dashboard">
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-4)" }}>
-          <h2 style={{ fontSize: "var(--text-lg)", fontWeight: "var(--font-bold)" }}>Your Subscription</h2>
+        <div className="subscription-card__header">
+          <h2 className="subscription-card__title">Your Subscription</h2>
           <span className={`badge ${sub.active ? "badge-active" : "badge-inactive"}`}>
             {sub.active ? "Active" : "Cancelled"}
           </span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", fontSize: "var(--text-base)" }}>
+        <div className="subscription-rows">
           <Row label="Merchant" value={`${sub.merchant.slice(0, 8)}…${sub.merchant.slice(-6)}`} />
           <Row label="Amount" value={`${xlm} XLM`} />
           <Row label="Interval" value={formatInterval(sub.interval)} />
@@ -98,11 +98,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         </div>
 
         {sub.active && (
-          <button
-            onClick={handleCancel}
-            className="btn-danger"
-            style={{ marginTop: "var(--space-5)", width: "100%" }}
-          >
+          <button onClick={handleCancel} className="btn-danger cancel-btn">
             Cancel Subscription
           </button>
         )}
@@ -110,8 +106,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
       {sub.active && (
         <div className="card">
-          <h3 style={{ fontSize: "var(--text-base)", fontWeight: "var(--font-semibold)", marginBottom: "var(--space-3)" }}>Pay-per-use</h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <h3 className="ppu-card__title">Pay-per-use</h3>
+          <div className="ppu-card__row">
             <input
               type="number"
               min="0.0000001"
@@ -123,8 +119,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
             <button
               onClick={handlePayPerUse}
               disabled={!ppuAmount}
-              className="btn-info"
-              style={{ whiteSpace: "nowrap" }}
+              className="btn-info ppu-card__pay-btn"
             >
               Pay now
             </button>
@@ -133,7 +128,11 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       )}
 
       {actionStatus && (
-        <p style={{ fontSize: "var(--text-sm)", color: actionStatus.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}>
+        /* Dynamic: color is error/success state-driven — inline color is intentional */
+        <p
+          className="action-status"
+          style={{ color: actionStatus.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}
+        >
           {actionStatus}
         </p>
       )}
@@ -143,9 +142,9 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between" }}>
-      <span style={{ color: "var(--color-text-subtle)" }}>{label}</span>
-      <span style={{ fontFamily: "monospace" }}>{value}</span>
+    <div className="subscription-row">
+      <span className="subscription-row__label">{label}</span>
+      <span className="subscription-row__value">{value}</span>
     </div>
   );
 }

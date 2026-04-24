@@ -44,13 +44,12 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <h2 style={{ fontSize: "var(--text-lg)", fontWeight: "var(--font-bold)" }}>New Subscription</h2>
+    <form onSubmit={handleSubmit} className="subscribe-form">
+      <h2 className="subscribe-form__title">New Subscription</h2>
 
-      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
-        Merchant address
+      <label className="form-group">
+        <span className="form-label">Merchant address</span>
         <input
-          style={{ marginTop: "var(--space-2)" }}
           placeholder="G…"
           value={merchant}
           onChange={(e) => setMerchant(e.target.value)}
@@ -58,10 +57,9 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         />
       </label>
 
-      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
-        Amount (XLM per period)
+      <label className="form-group">
+        <span className="form-label">Amount (XLM per period)</span>
         <input
-          style={{ marginTop: "var(--space-2)" }}
           type="number"
           min="0.0000001"
           step="0.0000001"
@@ -72,12 +70,9 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         />
       </label>
 
-      <label style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>
-        Billing interval
+      <label className="form-group">
+        <span className="form-label">Billing interval</span>
         <select
-          style={{
-            marginTop: "var(--space-2)",
-          }}
           value={interval}
           onChange={(e) => setInterval(Number(e.target.value))}
         >
@@ -87,17 +82,16 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         </select>
       </label>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="btn-primary"
-        style={{ marginTop: "var(--space-1)" }}
-      >
+      <button type="submit" disabled={loading} className="btn-primary subscribe-form__submit">
         {loading ? "Signing…" : "Subscribe"}
       </button>
 
       {status && (
-        <p style={{ fontSize: "var(--text-sm)", color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}>
+        /* Dynamic: color is error/success state-driven — inline color is intentional */
+        <p
+          className="form-status"
+          style={{ color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}
+        >
           {status}
         </p>
       )}
