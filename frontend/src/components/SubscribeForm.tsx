@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
+import { friendlyError } from "../utils/errors";
 
 interface Props {
   userKey: string;
@@ -27,17 +28,13 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
     try {
       // Convert XLM → stroops (1 XLM = 10_000_000)
       const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
-      const xdr = await buildSubscribeTx(
-        userKey,
-        merchant,
-        stroops,
-        BigInt(interval)
-      );
+      const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
       setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       onSuccess();
     } catch (e: unknown) {
-      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const rawMessage = e instanceof Error ? e.message : String(e);
+      setStatus(`Error: ${friendlyError(rawMessage)}`);
     } finally {
       setLoading(false);
     }
@@ -72,12 +69,11 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
 
       <label className="form-group">
         <span className="form-label">Billing interval</span>
-        <select
-          value={interval}
-          onChange={(e) => setInterval(Number(e.target.value))}
-        >
+        <select value={interval} onChange={(e) => setInterval(Number(e.target.value))}>
           {INTERVALS.map((i) => (
-            <option key={i.value} value={i.value}>{i.label}</option>
+            <option key={i.value} value={i.value}>
+              {i.label}
+            </option>
           ))}
         </select>
       </label>
@@ -90,7 +86,9 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         /* Dynamic: color is error/success state-driven — inline color is intentional */
         <p
           className="form-status"
-          style={{ color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)" }}
+          style={{
+            color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)",
+          }}
         >
           {status}
         </p>

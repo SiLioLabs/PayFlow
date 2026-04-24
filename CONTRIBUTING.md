@@ -122,6 +122,8 @@ Branch naming conventions:
 - Do not add external UI component libraries — keep the bundle minimal
 - Use TypeScript strictly — no `any` unless absolutely necessary and commented
 - Keep components small and focused on a single responsibility
+- Run `npm run lint` to check for ESLint errors before submitting
+- Run `npm run format` to auto-format all source files with Prettier
 - Run `npm run build` to confirm there are no TypeScript errors before submitting
 
 ---
@@ -145,6 +147,7 @@ refactor: extract token client helper in lib.rs
 Before opening a PR, confirm:
 
 - [ ] `cargo test` passes (contract changes)
+- [ ] `npm run lint` passes with no errors (frontend changes)
 - [ ] `npm run build` passes (frontend changes)
 - [ ] New functions have tests
 - [ ] No secrets or `.env` files committed

@@ -3,9 +3,10 @@ import { useWallet } from "./hooks/useWallet";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import TabBar from "./components/TabBar";
+import ConnectWallet from "./components/ConnectWallet";
 
 export default function App() {
-  const { publicKey, connect, signAndSubmit, error } = useWallet();
+  const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
   const [tab, setTab] = useState<"subscribe" | "dashboard">("dashboard");
   const [refresh, setRefresh] = useState(0);
 
@@ -14,9 +15,7 @@ export default function App() {
       {/* Header */}
       <div className="app-header">
         <h1 className="app-header__title">⚡ FlowPay</h1>
-        <p className="app-header__subtitle">
-          Decentralized recurring payments on Stellar
-        </p>
+        <p className="app-header__subtitle">Decentralized recurring payments on Stellar</p>
       </div>
 
       {/* Wallet connect */}
@@ -24,20 +23,10 @@ export default function App() {
         <ConnectWallet onConnect={connect} error={error} />
       ) : (
         <>
-          {/* Connected bar */}
-          <div className="card wallet-bar">
-            <span className="wallet-bar__label">Connected</span>
-            <span className="wallet-bar__address">
-              {publicKey.slice(0, 6)}…{publicKey.slice(-4)}
-            </span>
-          </div>
+          <WalletBar publicKey={publicKey} onDisconnect={disconnect} />
 
           {/* Tabs */}
-          <TabBar
-            tabs={["dashboard", "subscribe"]}
-            activeTab={tab}
-            onTabChange={setTab}
-          />
+          <TabBar tabs={["dashboard", "subscribe"]} activeTab={tab} onTabChange={setTab} />
 
           {/* Content */}
           <div className="card">
@@ -45,14 +34,13 @@ export default function App() {
               <SubscribeForm
                 userKey={publicKey}
                 onSign={signAndSubmit}
-                onSuccess={() => { setTab("dashboard"); setRefresh((r) => r + 1); }}
+                onSuccess={() => {
+                  setTab("dashboard");
+                  setRefresh((r) => r + 1);
+                }}
               />
             ) : (
-              <Dashboard
-                userKey={publicKey}
-                onSign={signAndSubmit}
-                refreshTrigger={refresh}
-              />
+              <Dashboard userKey={publicKey} onSign={signAndSubmit} refreshTrigger={refresh} />
             )}
           </div>
         </>

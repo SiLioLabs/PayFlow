@@ -18,7 +18,8 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export const RPC_URL = "https://soroban-testnet.stellar.org";
-export const NETWORK_PASSPHRASE = Networks.TESTNET;
+export const NETWORK_PASSPHRASE = 
+  import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
 // Replace with your deployed contract ID after `soroban contract deploy`
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
@@ -87,14 +88,8 @@ export async function buildCancelTx(user: string): Promise<string> {
 }
 
 /** Returns the XDR of a `pay_per_use` transaction ready for wallet signing. */
-export async function buildPayPerUseTx(
-  user: string,
-  amount: bigint
-): Promise<string> {
-  return buildTx(user, "pay_per_use", [
-    addressVal(user),
-    nativeToScVal(amount, { type: "i128" }),
-  ]);
+export async function buildPayPerUseTx(user: string, amount: bigint): Promise<string> {
+  return buildTx(user, "pay_per_use", [addressVal(user), nativeToScVal(amount, { type: "i128" })]);
 }
 
 /** Read-only: fetch a user's subscription from the contract. */
@@ -106,9 +101,7 @@ export async function getSubscription(user: string) {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(
-      contract.call("get_subscription", addressVal(user))
-    )
+    .addOperation(contract.call("get_subscription", addressVal(user)))
     .setTimeout(30)
     .build();
 
@@ -116,7 +109,7 @@ export async function getSubscription(user: string) {
   if ("error" in result) throw new Error(result.error);
 
   // result.result?.retval is an xdr.ScVal — parse it
-  const retval = (result as any).result?.retval;
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
   if (!retval) return null;
 
   // ScVal Option<Subscription> — void means None

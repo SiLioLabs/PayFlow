@@ -125,6 +125,7 @@ Open `http://localhost:5173`. Make sure Freighter is set to **Testnet**.
 | Variable | Required | Description |
 | --- | --- | --- |
 | `VITE_CONTRACT_ID` | Yes | The deployed FlowPay contract ID |
+| `VITE_NETWORK_PASSPHRASE` | No | The Stellar network passphrase (defaults to Testnet). Use `"Test SDF Network ; September 2015"` for testnet or `"Public Global Stellar Network ; September 2015"` for mainnet. |
 
 ---
 
@@ -234,11 +235,12 @@ Run this on a schedule using cron, AWS Lambda, GitHub Actions scheduled workflow
 
 > ⚠️ FlowPay has not been audited. Deploy to Mainnet at your own risk.
 
-The steps are identical to Testnet with two changes:
+The steps are identical to Testnet with these changes:
 
 1. Use `--network mainnet` instead of `--network testnet`
 2. Use the Mainnet native XLM SAC address (verify from the [Stellar documentation]())
 3. Fund your deployer account with real XLM instead of Friendbot
+4. **For the frontend:** Set `VITE_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015` in your `.env.local` file
 
 ```bash
 soroban contract deploy \

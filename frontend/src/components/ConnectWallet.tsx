@@ -14,9 +14,7 @@ export default function ConnectWallet({ onConnect, error }: Props) {
 
   return (
     <div className="card connect-wallet">
-      <p className="connect-wallet__hint">
-        Connect your Freighter wallet to get started.
-      </p>
+      <p className="connect-wallet__hint">Connect your Freighter wallet to get started.</p>
 
       {freighterAvailable ? (
         <button onClick={onConnect} className="btn-primary w-full">
