@@ -49,5 +49,10 @@ export function useWallet() {
     return result.hash;
   }, []);
 
-  return { publicKey, connect, signAndSubmit, error };
+  const disconnect = useCallback(() => {
+    setPublicKey(null);
+    setError(null);
+  }, []);
+
+  return { publicKey, connect, signAndSubmit, disconnect, error };
 }

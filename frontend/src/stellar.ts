@@ -18,7 +18,8 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export const RPC_URL = "https://soroban-testnet.stellar.org";
-export const NETWORK_PASSPHRASE = Networks.TESTNET;
+export const NETWORK_PASSPHRASE = 
+  import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
 // Replace with your deployed contract ID after `soroban contract deploy`
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
