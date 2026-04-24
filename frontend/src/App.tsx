@@ -3,6 +3,7 @@ import { useWallet } from "./hooks/useWallet";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import TabBar from "./components/TabBar";
+import ConnectWallet from "./components/ConnectWallet";
 
 export default function App() {
   const { publicKey, connect, signAndSubmit, error } = useWallet();

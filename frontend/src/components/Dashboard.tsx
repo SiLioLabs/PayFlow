@@ -1,20 +1,13 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useState } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import SubscriptionCardSkeleton from "./Skeleton";
+import { useSubscription } from "../hooks/useSubscription";
 
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
 }
-
-type Sub = {
-  merchant: string;
-  amount: string;
-  interval: number;
-  last_charged: number;
-  active: boolean;
-};
 
 function formatInterval(secs: number): string {
   if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
@@ -24,24 +17,9 @@ function formatInterval(secs: number): string {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const [sub, setSub] = useState<Sub | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuAmount, setPpuAmount] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
-
-  useEffect(() => { load(); }, [load, refreshTrigger]);
 
   async function handleCancel() {
     setActionStatus(null);
