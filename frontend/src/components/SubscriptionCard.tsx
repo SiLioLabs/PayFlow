@@ -1,4 +1,5 @@
 import React from "react";
+import { formatAddress, formatXlm } from "../utils/format";
 
 interface SubscriptionCardProps {
   subscription: {
@@ -26,7 +27,6 @@ export default function SubscriptionCard({
   const nextCharge = new Date(
     (last_charged + interval) * 1000
   ).toLocaleDateString();
-  const xlm = (Number(amount) / 10_000_000).toFixed(7);
 
   return (
     <div className="card">
@@ -40,9 +40,9 @@ export default function SubscriptionCard({
       <div className="subscription-rows">
         <Row
           label="Merchant"
-          value={`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
+          value={formatAddress(merchant, 8, 6)}
         />
-        <Row label="Amount" value={`${xlm} XLM`} />
+        <Row label="Amount" value={formatXlm(amount)} />
         <Row label="Interval" value={formatInterval(interval)} />
         <Row label="Next charge" value={active ? nextCharge : "—"} />
       </div>
