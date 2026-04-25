@@ -1,3 +1,4 @@
+// useClipboard: writes text to the system clipboard and exposes a timed `copied` flag (#56)
 import { useState, useCallback } from "react";
 
 export function useClipboard(timeout = 2000) {
