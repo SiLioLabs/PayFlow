@@ -1,4 +1,5 @@
 import React from "react";
+import CopyButton from "./CopyButton";
 
 interface SubscriptionCardProps {
   subscription: {
@@ -38,10 +39,15 @@ export default function SubscriptionCard({
       </div>
 
       <div className="subscription-rows">
-        <Row
-          label="Merchant"
-          value={`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
-        />
+        <div className="subscription-row">
+          <span className="subscription-row__label">Merchant</span>
+          <div className="merchant-row">
+            <span className="merchant-row__address">
+              {`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
+            </span>
+            <CopyButton text={merchant} />
+          </div>
+        </div>
         <Row label="Amount" value={`${xlm} XLM`} />
         <Row label="Interval" value={formatInterval(interval)} />
         <Row label="Next charge" value={active ? nextCharge : "—"} />
