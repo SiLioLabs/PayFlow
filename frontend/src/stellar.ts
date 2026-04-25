@@ -65,7 +65,7 @@ async function buildTx(
  * Returns the XDR of a `subscribe` transaction ready for wallet signing.
  * @param user        subscriber public key
  * @param merchant    merchant public key
- * @param amount      amount in stroops (1 XLM = 10_000_000 stroops)
+ * @param amount      amount in stroops (1 XLM = STROOPS_PER_XLM stroops)
  * @param intervalSec seconds between charges (e.g. 2_592_000 = 30 days)
  */
 export async function buildSubscribeTx(

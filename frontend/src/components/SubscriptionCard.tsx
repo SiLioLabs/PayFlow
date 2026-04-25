@@ -1,4 +1,6 @@
 import React from "react";
+import { formatAddress, formatXlm } from "../utils/format";
+import { BILLING_INTERVALS } from "../constants";
 
 interface SubscriptionCardProps {
   subscription: {
@@ -12,9 +14,12 @@ interface SubscriptionCardProps {
 }
 
 function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
+  const monthly = BILLING_INTERVALS[2].value;
+  const weekly = BILLING_INTERVALS[1].value;
+  const daily = BILLING_INTERVALS[0].value;
+  if (secs >= monthly) return `${Math.round(secs / monthly)}mo`;
+  if (secs >= weekly) return `${Math.round(secs / weekly)}w`;
+  if (secs >= daily) return `${Math.round(secs / daily)}d`;
   return `${secs}s`;
 }
 
@@ -26,7 +31,6 @@ export default function SubscriptionCard({
   const nextCharge = new Date(
     (last_charged + interval) * 1000
   ).toLocaleDateString();
-  const xlm = (Number(amount) / 10_000_000).toFixed(7);
 
   return (
     <div className="card">
@@ -40,9 +44,9 @@ export default function SubscriptionCard({
       <div className="subscription-rows">
         <Row
           label="Merchant"
-          value={`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
+          value={formatAddress(merchant, 8, 6)}
         />
-        <Row label="Amount" value={`${xlm} XLM`} />
+        <Row label="Amount" value={formatXlm(amount)} />
         <Row label="Interval" value={formatInterval(interval)} />
         <Row label="Next charge" value={active ? nextCharge : "—"} />
       </div>
