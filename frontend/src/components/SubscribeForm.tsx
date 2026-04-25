@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
+import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
 
 interface Props {
   userKey: string;
@@ -8,16 +9,10 @@ interface Props {
   onSuccess: () => void;
 }
 
-const INTERVALS = [
-  { label: "Daily", value: 86_400 },
-  { label: "Weekly", value: 604_800 },
-  { label: "Monthly (~30d)", value: 2_592_000 },
-];
-
 export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
-  const [interval, setInterval] = useState(INTERVALS[2].value);
+  const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -26,8 +21,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
     setStatus(null);
     setLoading(true);
     try {
-      // Convert XLM → stroops (1 XLM = 10_000_000)
-      const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
+      const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
       setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
@@ -70,7 +64,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
       <label className="form-group">
         <span className="form-label">Billing interval</span>
         <select value={interval} onChange={(e) => setInterval(Number(e.target.value))}>
-          {INTERVALS.map((i) => (
+          {BILLING_INTERVALS.map((i) => (
             <option key={i.value} value={i.value}>
               {i.label}
             </option>

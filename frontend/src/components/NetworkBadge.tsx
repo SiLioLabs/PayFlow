@@ -1,8 +1,8 @@
 import React from "react";
 
 /**
- * Display the current Stellar network
- * Reads from VITE_NETWORK_PASSPHRASE environment variable (defaults to testnet)
+ * NetworkBadge: displays Testnet or Mainnet label derived from NETWORK_PASSPHRASE (#59)
+ * Uses .badge-testnet / .badge-mainnet CSS classes — zero inline styles.
  */
 export default function NetworkBadge() {
   const passphrase = import.meta.env.VITE_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015";

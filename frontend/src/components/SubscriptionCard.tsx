@@ -1,5 +1,5 @@
 import React from "react";
-import type { Subscription } from "../types";
+import CopyButton from "./CopyButton";
 
 interface SubscriptionCardProps {
   subscription: Subscription;
@@ -7,9 +7,12 @@ interface SubscriptionCardProps {
 }
 
 function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
+  const monthly = BILLING_INTERVALS[2].value;
+  const weekly = BILLING_INTERVALS[1].value;
+  const daily = BILLING_INTERVALS[0].value;
+  if (secs >= monthly) return `${Math.round(secs / monthly)}mo`;
+  if (secs >= weekly) return `${Math.round(secs / weekly)}w`;
+  if (secs >= daily) return `${Math.round(secs / daily)}d`;
   return `${secs}s`;
 }
 
@@ -21,7 +24,6 @@ export default function SubscriptionCard({
   const nextCharge = new Date(
     (last_charged + interval) * 1000
   ).toLocaleDateString();
-  const xlm = (Number(amount) / 10_000_000).toFixed(7);
 
   return (
     <div className="card">
@@ -33,10 +35,15 @@ export default function SubscriptionCard({
       </div>
 
       <div className="subscription-rows">
-        <Row
-          label="Merchant"
-          value={`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
-        />
+        <div className="subscription-row">
+          <span className="subscription-row__label">Merchant</span>
+          <div className="merchant-row">
+            <span className="merchant-row__address">
+              {`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
+            </span>
+            <CopyButton text={merchant} />
+          </div>
+        </div>
         <Row label="Amount" value={`${xlm} XLM`} />
         <Row label="Interval" value={formatInterval(interval)} />
         <Row label="Next charge" value={active ? nextCharge : "—"} />

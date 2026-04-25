@@ -1,9 +1,8 @@
-/**
- * Format a Stellar address for display (truncate to first 6 and last 4 chars)
- * @param address The full Stellar address
- * @returns Formatted address like "GABC...WXYZ"
- */
-export function formatAddress(address: string): string {
-  if (address.length <= 10) return address;
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+export function formatAddress(addr: string, prefixLen = 6, suffixLen = 4): string {
+  if (addr.length <= prefixLen + suffixLen) return addr;
+  return `${addr.slice(0, prefixLen)}…${addr.slice(-suffixLen)}`;
+}
+
+export function formatXlm(stroops: string | bigint): string {
+  return `${(Number(BigInt(stroops)) / 10_000_000).toFixed(7)} XLM`;
 }

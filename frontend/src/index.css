@@ -72,6 +72,29 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   Light Theme Overrides
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="light"] {
+  --color-surface: #f8fafc;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #f1f5f9;
+
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-text-subtle: #64748b;
+
+  --color-border: #e2e8f0;
+  --color-border-light: #cbd5e1;
+
+  --color-success-bg: #dcfce7;
+  --color-success-text: #166534;
+
+  --color-danger-bg: #fee2e2;
+  --color-danger-text: #991b1b;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    Global Styles
    ───────────────────────────────────────────────────────────────────────────── */
 
@@ -417,4 +440,90 @@ input::placeholder {
 }
 .text-center {
   text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Micro-interaction: Fade-in (Issue #34 pattern)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn var(--transition-base) ease-in-out;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Confirmation Modal (Issue #58)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes modal-enter {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 15, 20, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-card {
+  max-width: 400px;
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .modal-card {
+    animation: modal-enter 200ms ease-out;
+  }
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Theme Toggle Button (Issue #52)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Copy Button (Issue #56)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  line-height: 1;
+}
+
+.merchant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.merchant-row__address {
+  font-family: monospace;
+  font-size: var(--text-sm);
+  color: var(--color-text);
 }
