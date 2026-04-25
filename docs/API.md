@@ -30,6 +30,11 @@ Internal storage keys. Not part of the public API but useful for understanding s
 pub enum DataKey {
     Subscription(Address),  // persistent — one entry per subscriber
     Token,                  // instance — the token contract address
+    GracePeriod,            // instance — seconds allowed for charge window
+    MerchantWhitelist(Address), // persistent — true if merchant is whitelisted
+    WhitelistEnabled,       // instance — true if whitelist is active
+    FeeCollector,           // instance — fee collector address
+    FeeBps,                 // instance — protocol fee in basis points
 }
 ```
 
@@ -81,7 +86,7 @@ soroban contract invoke \
 Creates or overwrites a subscription for the calling user.
 
 ```
-subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u64)
+subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u64, token: Address, trial_period: Option<u64>)
 ```
 
 **Parameters**
@@ -92,10 +97,14 @@ subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u6
 | `merchant` | `Address` | The payment recipient. |
 | `amount` | `i128` | Stroops to transfer per period. Must be > 0. |
 | `interval` | `u64` | Seconds between charges. Must be > 0. Common values: `86400` (1 day), `604800` (1 week), `2592000` (~30 days). |
+| `token` | `Address` | The SAC address of the token to use for this subscription. |
+| `trial_period` | `Option<u64>` | Optional seconds to delay the first charge. If set, `last_charged` is initialized to `now + trial_period`. |
 
 **Auth:** `user.require_auth()` — the transaction must be signed by `user`.
 
-**Storage written:** `DataKey::Subscription(user)` in persistent storage. `last_charged` is set to the current ledger timestamp.
+**Whitelist:** If the merchant whitelist is enabled, the `merchant` address must have been previously added by an admin via `add_merchant`.
+
+**Storage written:** `DataKey::Subscription(user)` in persistent storage. `last_charged` is set to the current ledger timestamp (or `now + trial_period` if provided).
 
 **Events emitted**
 
@@ -149,8 +158,10 @@ charge(env: Env, user: Address)
 1. Loads the subscription for `user`
 2. Asserts `active == true`
 3. Asserts `now >= last_charged + interval`
-4. Calls `transfer_from(contract, user, merchant, amount)` on the token contract
-5. Updates `last_charged = now`
+4. If a `grace_period` is set, asserts `now <= last_charged + interval + grace_period`
+5. If a protocol fee is set, splits `amount` between `FeeCollector` and `merchant`
+6. Calls `transfer_from(contract, user, recipient, amount)` on the token contract
+7. Updates `last_charged = now`
 
 **Events emitted**
 
@@ -167,6 +178,7 @@ data:   (merchant, amount, timestamp)
 | Subscription is cancelled | `"subscription is not active"` |
 | Subscription is paused | `"subscription is paused"` |
 | Interval has not elapsed | `"interval not elapsed yet"` |
+| Grace period elapsed | `"grace period elapsed"` |
 | Contract not initialized | `"not initialized"` |
 | Insufficient allowance | Host error from token contract |
 

@@ -57,7 +57,7 @@ fn test_subscribe_and_charge() {
     let amount: i128 = 5_0000000;
     let interval: u64 = 30 * 24 * 60 * 60;
 
-    client.subscribe(&user, &merchant, &amount, &interval, &token_addr);
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None);
 
     let sub = client.get_subscription(&user).unwrap();
     assert!(sub.active);
@@ -79,7 +79,7 @@ fn test_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
     client.cancel(&user);
 
     let sub = client.get_subscription(&user).unwrap();
@@ -149,7 +149,7 @@ fn test_pay_per_use() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
 
     let token = TokenClient::new(&env, &token_addr);
     let before = token.balance(&merchant);
@@ -165,7 +165,7 @@ fn test_pay_per_use_inactive() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
     client.cancel(&user);
     client.pay_per_use(&user, &1_0000000);
 }
@@ -188,7 +188,7 @@ fn test_initialize_backward_compat() {
     client.initialize(&token_addr);
 
     let token_b = setup_second_token(&env, &contract_id, &user);
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_b);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_b, &None);
 
     // Subscription uses token_b, not the initialized default
     assert_eq!(client.get_subscription(&user).unwrap().token, token_b);
@@ -222,7 +222,7 @@ fn test_charge_updates_last_charged() {
     let amount: i128 = 5_0000000;
     let interval: u64 = 30 * 24 * 60 * 60; // 30 days
 
-    client.subscribe(&user, &merchant, &amount, &interval, &token_addr);
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None);
 
     // Record the timestamp before advancing time
     let subscribe_time = env.ledger().timestamp();

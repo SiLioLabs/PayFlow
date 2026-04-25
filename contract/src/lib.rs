@@ -1,10 +1,15 @@
 #![no_std]
 
+mod admin;
 mod errors;
 mod events;
+mod fee;
+mod grace;
 mod storage;
 mod test;
+mod trial;
 mod validation;
+mod whitelist;
 
 use crate::errors::ContractError;
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol};
@@ -60,8 +65,15 @@ impl FlowPay {
         amount: i128,
         interval: u64,
         token: Address,
+        trial_period: Option<u64>,
     ) {
         user.require_auth();
+
+        if whitelist::is_whitelist_enabled(&env) {
+            if !whitelist::is_whitelisted(&env, &merchant) {
+                env.panic_with_error(ContractError::MerchantNotWhitelisted);
+            }
+        }
 
         assert!(amount > 0, "amount must be positive");
         assert!(interval > 0, "interval must be positive");
@@ -70,11 +82,17 @@ impl FlowPay {
         let allowance = token_client.allowance(&user, &env.current_contract_address());
         assert!(allowance >= amount, "insufficient allowance");
 
+        let now = env.ledger().timestamp();
+        let last_charged = match trial_period {
+            Some(period) => now + period,
+            None => now,
+        };
+
         let sub = Subscription {
             merchant,
             amount,
             interval,
-            last_charged: env.ledger().timestamp(),
+            last_charged,
             active: true,
             paused: false,
             token,
@@ -103,6 +121,11 @@ impl FlowPay {
 
         if now < sub.last_charged + sub.interval {
             env.panic_with_error(ContractError::IntervalNotElapsed);
+        }
+
+        let grace_period = grace::get_grace_period(&env);
+        if grace_period > 0 && now > sub.last_charged + sub.interval + grace_period {
+            env.panic_with_error(ContractError::GracePeriodElapsed);
         }
 
         let token = token::Client::new(&env, &sub.token);
@@ -227,5 +250,42 @@ impl FlowPay {
         } else {
             Some(sub.last_charged + sub.interval)
         }
+    }
+
+    /// Returns the trial end timestamp if the user is in a trial period.
+    pub fn get_trial_end(env: Env, user: Address) -> Option<u64> {
+        trial::get_trial_end(env, user)
+    }
+
+    /// Sets the contract-wide grace period for charges.
+    /// Only the contract admin can call this.
+    pub fn set_grace_period(env: Env, seconds: u64) {
+        admin::require_admin(&env);
+        grace::set_grace_period(&env, seconds);
+    }
+
+    /// Adds a merchant to the whitelist.
+    pub fn add_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        whitelist::add_merchant(&env, &merchant);
+    }
+
+    /// Removes a merchant from the whitelist.
+    pub fn remove_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        whitelist::remove_merchant(&env, &merchant);
+    }
+
+    /// Enables or disables the merchant whitelist.
+    pub fn set_whitelist_enabled(env: Env, enabled: bool) {
+        admin::require_admin(&env);
+        whitelist::set_whitelist_enabled(&env, enabled);
+    }
+
+    /// Sets the protocol fee collection settings.
+    /// Only the contract admin can call this.
+    pub fn set_fee(env: Env, collector: Address, bps: u32) {
+        admin::require_admin(&env);
+        fee::set_fee(&env, collector, bps);
     }
 }
