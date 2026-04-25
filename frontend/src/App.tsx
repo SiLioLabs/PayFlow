@@ -5,6 +5,9 @@ import Dashboard from "./components/Dashboard";
 import TabBar from "./components/TabBar";
 import ConnectWallet from "./components/ConnectWallet";
 
+// ✅ FIX: Add missing import
+import WalletBar from "./components/WalletBar";
+
 export default function App() {
   const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
   const [tab, setTab] = useState<"subscribe" | "dashboard">("dashboard");
@@ -15,7 +18,9 @@ export default function App() {
       {/* Header */}
       <div className="app-header">
         <h1 className="app-header__title">⚡ FlowPay</h1>
-        <p className="app-header__subtitle">Decentralized recurring payments on Stellar</p>
+        <p className="app-header__subtitle">
+          Decentralized recurring payments on Stellar
+        </p>
       </div>
 
       {/* Wallet connect */}
@@ -26,7 +31,11 @@ export default function App() {
           <WalletBar publicKey={publicKey} onDisconnect={disconnect} />
 
           {/* Tabs */}
-          <TabBar tabs={["dashboard", "subscribe"]} activeTab={tab} onTabChange={setTab} />
+          <TabBar
+            tabs={["dashboard", "subscribe"]}
+            activeTab={tab}
+            onTabChange={setTab}
+          />
 
           {/* Content */}
           <div className="card">
@@ -40,7 +49,11 @@ export default function App() {
                 }}
               />
             ) : (
-              <Dashboard userKey={publicKey} onSign={signAndSubmit} refreshTrigger={refresh} />
+              <Dashboard
+                userKey={publicKey}
+                onSign={signAndSubmit}
+                refreshTrigger={refresh}
+              />
             )}
           </div>
         </>

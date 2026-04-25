@@ -1,8 +1,17 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useEffect, useState } from "react";
+import {
+  getSubscription,
+  buildCancelTx,
+  buildPayPerUseTx,
+  getEvents,
+} from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
 import { useSubscription } from "../hooks/useSubscription";
+
+// ✅ FIX: Missing imports added
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
 
 interface Props {
   userKey: string;
@@ -18,25 +27,38 @@ function formatInterval(secs: number): string {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
+  const {
+    subscription: sub,
+    loading,
+    refresh,
+  } = useSubscription(userKey, refreshTrigger);
+
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
+  // 🔥 Transaction history state
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
 
+  // 🔥 Fetch events
   useEffect(() => {
-    load();
-  }, [load, refreshTrigger]);
+    async function fetchEvents() {
+      if (!userKey) return;
+
+      setEventsLoading(true);
+      try {
+        const data = await getEvents(userKey);
+        setEvents(data);
+      } catch (e) {
+        console.error("Failed to fetch events:", e);
+        setEvents([]);
+      } finally {
+        setEventsLoading(false);
+      }
+    }
+
+    fetchEvents();
+  }, [userKey, refreshTrigger]);
 
   async function handleCancel() {
     setActionStatus(null);
@@ -44,7 +66,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
-      load();
+      refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
@@ -61,29 +83,30 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+    } finally {
+      setPpuLoading(false);
     }
   }
 
   if (loading) return <SubscriptionCardSkeleton />;
 
-  if (!sub) {
-    return (
-      <div className="card">
-        <p className="no-sub-text">No active subscription found.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="dashboard">
-      <SubscriptionCard subscription={sub} onCancel={handleCancel} />
+      {!sub ? (
+        <div className="card">
+          <p className="no-sub-text">No active subscription found.</p>
+        </div>
+      ) : (
+        <>
+          <SubscriptionCard subscription={sub} onCancel={handleCancel} />
 
-      {sub.active && (
-        <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          {sub.active && (
+            <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          )}
+        </>
       )}
 
       {actionStatus && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
         <p
           className="action-status"
           style={{
@@ -95,6 +118,29 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
           {actionStatus}
         </p>
       )}
+
+      {/* 🔥 Transaction History */}
+      <div className="transaction-history">
+        <h3>Transaction History</h3>
+
+        {eventsLoading ? (
+          <p>Loading...</p>
+        ) : events.length === 0 ? (
+          <p>No transactions yet.</p>
+        ) : (
+          <div className="history-list">
+            {events.map((event, index) => (
+              <div key={index} className="history-item">
+                <span className="type">{event.type}</span>
+                <span className="amount">{event.amount}</span>
+                <span className="time">
+                  {new Date(event.timestamp).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
