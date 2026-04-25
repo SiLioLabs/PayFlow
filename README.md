@@ -174,19 +174,13 @@ soroban contract invoke \
 
 For full deployment instructions including mainnet, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-### 4 — Run the frontend
+### 4. Frontend Setup
 
 ```bash
 cd frontend
 npm install
-
-# Set your deployed contract ID
-echo "VITE_CONTRACT_ID=<CONTRACT_ID>" > .env.local
-
+cp .env.example .env.local
 npm run dev
-```
-
-Open `http://localhost:5173`, connect Freighter (set to Testnet), and subscribe.
 
 ---
 
