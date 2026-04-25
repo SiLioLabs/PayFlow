@@ -12,4 +12,6 @@ pub enum ContractError {
     IntervalNotElapsed = 6,
     NotInitialized = 7,
     InsufficientAllowance = 8,
+    GracePeriodElapsed = 9,
+    MerchantNotWhitelisted = 10,
 }
