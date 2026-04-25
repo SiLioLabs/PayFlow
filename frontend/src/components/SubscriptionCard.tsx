@@ -13,9 +13,12 @@ interface SubscriptionCardProps {
 }
 
 function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
+  const monthly = BILLING_INTERVALS[2].value;
+  const weekly = BILLING_INTERVALS[1].value;
+  const daily = BILLING_INTERVALS[0].value;
+  if (secs >= monthly) return `${Math.round(secs / monthly)}mo`;
+  if (secs >= weekly) return `${Math.round(secs / weekly)}w`;
+  if (secs >= daily) return `${Math.round(secs / daily)}d`;
   return `${secs}s`;
 }
 
