@@ -1,6 +1,5 @@
 import React from "react";
-import { formatAddress, formatXlm } from "../utils/format";
-import { BILLING_INTERVALS } from "../constants";
+import CopyButton from "./CopyButton";
 
 interface SubscriptionCardProps {
   subscription: {
@@ -42,11 +41,16 @@ export default function SubscriptionCard({
       </div>
 
       <div className="subscription-rows">
-        <Row
-          label="Merchant"
-          value={formatAddress(merchant, 8, 6)}
-        />
-        <Row label="Amount" value={formatXlm(amount)} />
+        <div className="subscription-row">
+          <span className="subscription-row__label">Merchant</span>
+          <div className="merchant-row">
+            <span className="merchant-row__address">
+              {`${merchant.slice(0, 8)}…${merchant.slice(-6)}`}
+            </span>
+            <CopyButton text={merchant} />
+          </div>
+        </div>
+        <Row label="Amount" value={`${xlm} XLM`} />
         <Row label="Interval" value={formatInterval(interval)} />
         <Row label="Next charge" value={active ? nextCharge : "—"} />
       </div>

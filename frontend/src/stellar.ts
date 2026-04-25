@@ -18,7 +18,7 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export const RPC_URL = "https://soroban-testnet.stellar.org";
-export const NETWORK_PASSPHRASE = 
+export const NETWORK_PASSPHRASE =
   import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
 // Replace with your deployed contract ID after `soroban contract deploy`
@@ -53,7 +53,6 @@ async function buildTx(
   const simResult = await server.simulateTransaction(tx);
   if ("error" in simResult) throw new Error(simResult.error);
 
-  // assembleTransaction attaches the soroban data / auth entries
   const { assembleTransaction } = await import("@stellar/stellar-sdk/rpc");
   const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
   return assembled.toXDR();
@@ -61,13 +60,6 @@ async function buildTx(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Returns the XDR of a `subscribe` transaction ready for wallet signing.
- * @param user        subscriber public key
- * @param merchant    merchant public key
- * @param amount      amount in stroops (1 XLM = STROOPS_PER_XLM stroops)
- * @param intervalSec seconds between charges (e.g. 2_592_000 = 30 days)
- */
 export async function buildSubscribeTx(
   user: string,
   merchant: string,
@@ -82,17 +74,17 @@ export async function buildSubscribeTx(
   ]);
 }
 
-/** Returns the XDR of a `cancel` transaction ready for wallet signing. */
 export async function buildCancelTx(user: string): Promise<string> {
   return buildTx(user, "cancel", [addressVal(user)]);
 }
 
-/** Returns the XDR of a `pay_per_use` transaction ready for wallet signing. */
 export async function buildPayPerUseTx(user: string, amount: bigint): Promise<string> {
-  return buildTx(user, "pay_per_use", [addressVal(user), nativeToScVal(amount, { type: "i128" })]);
+  return buildTx(user, "pay_per_use", [
+    addressVal(user),
+    nativeToScVal(amount, { type: "i128" }),
+  ]);
 }
 
-/** Read-only: fetch a user's subscription from the contract. */
 export async function getSubscription(user: string) {
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(user);
@@ -108,19 +100,18 @@ export async function getSubscription(user: string) {
   const result = await server.simulateTransaction(tx);
   if ("error" in result) throw new Error(result.error);
 
-  // result.result?.retval is an xdr.ScVal — parse it
   const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
   if (!retval) return null;
 
-  // ScVal Option<Subscription> — void means None
   if (retval.switch().name === "scvVoid") return null;
 
-  // Unwrap the Option and map struct fields
-  const inner = retval.value(); // ScVal of the inner struct
+  const inner = retval.value();
   const fields: Record<string, unknown> = {};
+
   for (const entry of inner.map() ?? []) {
     const key = entry.key().sym().toString();
     const val = entry.val();
+
     switch (key) {
       case "merchant":
         fields[key] = Address.fromScVal(val).toString();
@@ -137,6 +128,7 @@ export async function getSubscription(user: string) {
         break;
     }
   }
+
   return fields as {
     merchant: string;
     amount: string;
@@ -144,4 +136,58 @@ export async function getSubscription(user: string) {
     last_charged: number;
     active: boolean;
   };
+}
+
+// ── NEW: Event Fetching ───────────────────────────────────────────────────────
+
+export async function getEvents(user: string) {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [
+        {
+          type: "contract",
+          contractIds: [CONTRACT_ID],
+        },
+      ],
+      limit: 50,
+    });
+
+    return response.events
+      .map((event: any) => {
+        let type = "unknown";
+        let amount = "0";
+
+        try {
+          // Attempt to extract event topics (event name)
+          if (event.topic && event.topic.length > 0) {
+            type = event.topic[0]?.toString() || "unknown";
+          }
+
+          // Attempt to extract amount from data
+          if (event.value) {
+            const val = event.value;
+
+            if (val?._value?.amount) {
+              amount = val._value.amount.toString();
+            }
+          }
+        } catch (e) {
+          console.warn("Event parsing failed:", e);
+        }
+
+        return {
+          type,
+          amount,
+          timestamp: event.ledgerCloseTime
+            ? new Date(event.ledgerCloseTime * 1000).toISOString()
+            : new Date().toISOString(),
+        };
+      })
+      // Filter only events related to this user (important!)
+      .filter((event: any) => event.type.toLowerCase().includes(user.slice(0, 5)));
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    return [];
+  }
 }
