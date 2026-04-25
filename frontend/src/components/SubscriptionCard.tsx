@@ -27,7 +27,6 @@ export default function SubscriptionCard({
   const nextCharge = new Date(
     (last_charged + interval) * 1000
   ).toLocaleDateString();
-  const xlm = (Number(amount) / 10_000_000).toFixed(7);
 
   return (
     <div className="card">
