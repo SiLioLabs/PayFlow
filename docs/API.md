@@ -18,6 +18,7 @@ pub struct Subscription {
     pub last_charged: u64,   // Ledger UNIX timestamp of the last successful charge
     pub active: bool,        // false if the subscription has been cancelled
     pub paused: bool,        // true if the subscription is temporarily paused
+    pub token: Address,      // SAC token address used for this subscription
 }
 ```
 
@@ -409,12 +410,12 @@ soroban contract invoke \
 
 ---
 
-### `get_trial_end`
+### `next_charge_at`
 
-Returns the timestamp when a user's free trial ends.
+Read-only view function. Returns the Unix timestamp of the next scheduled charge for a user.
 
 ```
-get_trial_end(env: Env, user: Address) -> Option<u64>
+next_charge_at(env: Env, user: Address) -> Option<u64>
 ```
 
 **Parameters**
@@ -425,7 +426,11 @@ get_trial_end(env: Env, user: Address) -> Option<u64>
 
 **Auth:** None.
 
-**Returns:** `Option<u64>` — The UNIX timestamp of the trial end, or `None` if the user is not in a trial period.
+**Returns:** `Option<u64>` — Returns `None` if:
+- No subscription exists for the user
+- The subscription is inactive (cancelled)
+
+Returns `Some(last_charged + interval)` if the subscription is active.
 
 **CLI example**
 
@@ -433,122 +438,8 @@ get_trial_end(env: Env, user: Address) -> Option<u64>
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --network testnet \
-  -- get_trial_end \
+  -- next_charge_at \
   --user <USER_ADDRESS>
-```
-
----
-
-### `set_grace_period`
-
-Sets the contract-wide grace period for charges. Only the admin can call this.
-
-```
-set_grace_period(env: Env, seconds: u64)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `seconds` | `u64` | The number of seconds allowed after the interval elapses to attempt a charge. Set to 0 to disable the restriction. |
-
-**Auth:** `admin.require_auth()`.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_KEY> \
-  --network testnet \
-  -- set_grace_period \
-  --seconds 3600
-```
-
----
-
-### `add_merchant`
-
-Adds a merchant address to the whitelist. Only the admin can call this.
-
-```
-add_merchant(env: Env, merchant: Address)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `merchant` | `Address` | The merchant address to whitelist. |
-
-**Auth:** `admin.require_auth()`.
-
----
-
-### `remove_merchant`
-
-Removes a merchant address from the whitelist. Only the admin can call this.
-
-```
-remove_merchant(env: Env, merchant: Address)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `merchant` | `Address` | The merchant address to remove. |
-
-**Auth:** `admin.require_auth()`.
-
----
-
-### `set_whitelist_enabled`
-
-Enables or disables the merchant whitelist globally. Only the admin can call this.
-
-```
-set_whitelist_enabled(env: Env, enabled: bool)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `enabled` | `bool` | `true` to enable merchant validation, `false` to disable. |
-
-**Auth:** `admin.require_auth()`.
-
----
-
-### `set_fee`
-
-Sets the protocol fee collection settings. Only the admin can call this.
-
-```
-set_fee(env: Env, collector: Address, bps: u32)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `collector` | `Address` | The address to receive the protocol fee. |
-| `bps` | `u32` | Protocol fee in basis points (1 bps = 0.01%). Example: `250` for 2.5%. |
-
-**Auth:** `admin.require_auth()`.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_KEY> \
-  --network testnet \
-  -- set_fee \
-  --collector <COLLECTOR_ADDRESS> \
-  --bps 100
 ```
 
 ---

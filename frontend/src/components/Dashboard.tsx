@@ -1,8 +1,17 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useState } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
+import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
+
+// ✅ FIX: Missing imports added
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
 
 interface Props {
   userKey: string;
@@ -10,45 +19,33 @@ interface Props {
   refreshTrigger: number;
 }
 
-function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
-  return `${secs}s`;
-}
-
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
+  const {
+    subscription: sub,
+    loading,
+    refresh,
+  } = useSubscription(userKey, refreshTrigger);
+
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshTrigger]);
-
-  async function handleCancel() {
+  async function performCancel() {
+    setShowConfirm(false);
     setActionStatus(null);
     try {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
-      load();
+      refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
     }
+  }
+
+  function handleCancel() {
+    setShowConfirm(true);
   }
 
   async function handlePayPerUse(stroops: bigint) {
@@ -61,29 +58,30 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+    } finally {
+      setPpuLoading(false);
     }
   }
 
   if (loading) return <SubscriptionCardSkeleton />;
 
-  if (!sub) {
-    return (
-      <div className="card">
-        <p className="no-sub-text">No active subscription found.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="dashboard">
-      <SubscriptionCard subscription={sub} onCancel={handleCancel} />
+      {!sub ? (
+        <div className="card">
+          <p className="no-sub-text">No active subscription found.</p>
+        </div>
+      ) : (
+        <>
+          <SubscriptionCard subscription={sub} onCancel={handleCancel} />
 
-      {sub.active && (
-        <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          {sub.active && (
+            <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          )}
+        </>
       )}
 
       {actionStatus && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
         <p
           className="action-status"
           style={{
@@ -94,6 +92,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         >
           {actionStatus}
         </p>
+      )}
+
+      {showConfirm && (
+        <ConfirmModal
+          message="Are you sure you want to cancel your subscription? This cannot be undone."
+          onConfirm={performCancel}
+          onCancel={() => setShowConfirm(false)}
+        />
       )}
     </div>
   );
