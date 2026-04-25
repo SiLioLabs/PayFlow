@@ -1,7 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useState } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
+import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 
 interface Props {
@@ -10,35 +13,14 @@ interface Props {
   refreshTrigger: number;
 }
 
-function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
-  return `${secs}s`;
-}
-
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshTrigger]);
-
-  async function handleCancel() {
+  async function performCancel() {
+    setShowConfirm(false);
     setActionStatus(null);
     try {
       const xdr = await buildCancelTx(userKey);
@@ -51,6 +33,10 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     }
   }
 
+  function handleCancel() {
+    setShowConfirm(true);
+  }
+
   async function handlePayPerUse(stroops: bigint) {
     setActionStatus(null);
     setPpuLoading(true);
@@ -61,6 +47,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+    } finally {
+      setPpuLoading(false);
     }
   }
 
@@ -94,6 +82,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         >
           {actionStatus}
         </p>
+      )}
+
+      {showConfirm && (
+        <ConfirmModal
+          message="Are you sure you want to cancel your subscription? This cannot be undone."
+          onConfirm={performCancel}
+          onCancel={() => setShowConfirm(false)}
+        />
       )}
     </div>
   );
