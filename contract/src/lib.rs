@@ -1,18 +1,24 @@
 #![no_std]
 
 mod admin;
+mod batch;
 mod errors;
 mod events;
 mod fee;
 mod grace;
+mod merchant_stats;
+mod spending_limit;
 mod storage;
+mod subscription_count;
 mod test;
 mod trial;
 mod validation;
 mod whitelist;
 
 use crate::errors::ContractError;
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec};
+
+pub use batch::ChargeResult;
 
 // ─────────────────────────────────────────────────────────────
 // Storage keys
@@ -23,6 +29,23 @@ use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Sym
 pub enum DataKey {
     Subscription(Address),
     Token,
+    // Admin
+    Admin,
+    // Grace period
+    GracePeriod,
+    // Merchant whitelist
+    MerchantWhitelist(Address),
+    WhitelistEnabled,
+    // Protocol fee
+    FeeCollector,
+    FeeBps,
+    // Feature: subscription count
+    ActiveCount,
+    // Feature: merchant revenue stats
+    MerchantRevenue(Address),
+    // Feature: daily spending limits (temporary storage)
+    DailyLimit(Address),
+    DailySpent(Address),
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -102,6 +125,7 @@ impl FlowPay {
             .persistent()
             .set(&DataKey::Subscription(user.clone()), &sub);
 
+        subscription_count::increment(&env);
         events::publish_subscribed(&env, &user, &sub);
     }
 
@@ -137,6 +161,8 @@ impl FlowPay {
             &sub.amount,
         );
 
+        merchant_stats::increment_revenue(&env, &sub.merchant, sub.amount);
+
         sub.last_charged = now;
 
         env.storage().persistent().set(&key, &sub);
@@ -160,6 +186,8 @@ impl FlowPay {
         assert!(sub.active, "subscription is not active");
         assert!(!sub.paused, "subscription is paused");
 
+        spending_limit::enforce_limit(&env, &user, amount);
+
         let token = token::Client::new(&env, &sub.token);
 
         token.transfer_from(
@@ -168,6 +196,9 @@ impl FlowPay {
             &sub.merchant,
             &amount,
         );
+
+        merchant_stats::increment_revenue(&env, &sub.merchant, amount);
+        spending_limit::record_spend(&env, &user, amount);
 
         events::publish_pay_per_use(&env, &user, &sub.merchant, amount);
     }
@@ -187,6 +218,7 @@ impl FlowPay {
 
         env.storage().persistent().set(&key, &sub);
 
+        subscription_count::decrement(&env);
         events::publish_cancelled(&env, &user);
     }
 
@@ -287,5 +319,49 @@ impl FlowPay {
     pub fn set_fee(env: Env, collector: Address, bps: u32) {
         admin::require_admin(&env);
         fee::set_fee(&env, collector, bps);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Batch charge
+    // ─────────────────────────────────────────────────────────────
+
+    /// Charges multiple subscribers in a single transaction.
+    ///
+    /// Each user is processed independently — individual failures (inactive,
+    /// paused, interval not elapsed, etc.) are recorded as a `ChargeResult`
+    /// variant and do **not** abort the batch.
+    pub fn batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
+        batch::batch_charge(&env, users)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Subscription count
+    // ─────────────────────────────────────────────────────────────
+
+    /// Returns the current number of active subscriptions.
+    pub fn get_active_count(env: Env) -> u64 {
+        subscription_count::get_active_count(&env)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Merchant revenue
+    // ─────────────────────────────────────────────────────────────
+
+    /// Returns the total amount charged to a merchant's subscribers
+    /// (sum of all successful `charge()` and `pay_per_use()` calls).
+    pub fn get_merchant_revenue(env: Env, merchant: Address) -> i128 {
+        merchant_stats::get_merchant_revenue(&env, &merchant)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Daily spending limits
+    // ─────────────────────────────────────────────────────────────
+
+    /// Sets a daily spending cap for `pay_per_use()` for the calling user.
+    /// Stored in temporary storage; resets automatically after ~1 day.
+    pub fn set_daily_limit(env: Env, user: Address, limit: i128) {
+        user.require_auth();
+        assert!(limit > 0, "limit must be positive");
+        spending_limit::set_daily_limit(&env, &user, limit);
     }
 }

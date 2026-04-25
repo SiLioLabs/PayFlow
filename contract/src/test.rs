@@ -92,7 +92,7 @@ fn test_charge_too_early() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
     client.charge(&user);
 }
 
@@ -111,8 +111,8 @@ fn test_multi_token_independent_subscriptions() {
     let amount: i128 = 1_0000000;
     let interval: u64 = 86400;
 
-    client.subscribe(&user_a, &merchant, &amount, &interval, &token_a);
-    client.subscribe(&user_b, &merchant, &amount, &interval, &token_b);
+    client.subscribe(&user_a, &merchant, &amount, &interval, &token_a, &None);
+    client.subscribe(&user_b, &merchant, &amount, &interval, &token_b, &None);
 
     let sub_a = client.get_subscription(&user_a).unwrap();
     let sub_b = client.get_subscription(&user_b).unwrap();
@@ -136,8 +136,8 @@ fn test_user_can_switch_token() {
     let token_b = setup_second_token(&env, &contract_id, &user);
     let interval: u64 = 86400;
 
-    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_a);
-    client.subscribe(&user, &merchant, &2_0000000, &interval, &token_b);
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_a, &None);
+    client.subscribe(&user, &merchant, &2_0000000, &interval, &token_b, &None);
 
     let sub = client.get_subscription(&user).unwrap();
     assert_eq!(sub.token, token_b);
@@ -174,7 +174,13 @@ fn test_pay_per_use_inactive() {
 // Edge cases
 // ─────────────────────────────────────────────
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+#[test]
+#[should_panic(expected = "amount must be positive")]
+fn test_pay_per_use_zero_amount() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
     client.pay_per_use(&user, &0);
 }
 
@@ -200,6 +206,12 @@ fn test_initialize_backward_compat() {
 #[test]
 #[should_panic(expected = "no subscription found")]
 fn test_cancel_nonexistent() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let random = Address::generate(&env);
+    client.cancel(&random);
+}
+
 // ── Issue #13: get_subscription for nonexistent subscription ─────────────────
 
 /// get_subscription() must return None for an address with no subscription.
@@ -209,8 +221,8 @@ fn test_get_subscription_nonexistent() {
     let client = FlowPayClient::new(&env, &contract_id);
     
     let random = Address::generate(&env);
-    client.cancel(&random);
     assert!(client.get_subscription(&random).is_none(), "get_subscription should return None for unknown address");
+}
 // ── Issue #12: last_charged timestamp update ─────────────────────────────────
 
 /// charge() must update last_charged to the current ledger timestamp.
@@ -249,7 +261,7 @@ fn test_zero_amount() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &0, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &0, &86400, &token_addr, &None);
 }
 
 #[test]
@@ -258,7 +270,7 @@ fn test_zero_interval() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &0, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &0, &token_addr, &None);
 }
 
 // ─────────────────────────────────────────────
@@ -283,8 +295,8 @@ fn test_multiple_users() {
     let amount_b: i128 = 2_0000000;
     let interval: u64 = 86400;
 
-    client.subscribe(&user_a, &merchant_a, &amount_a, &interval, &token_addr);
-    client.subscribe(&user_b, &merchant_b, &amount_b, &interval, &token_addr);
+    client.subscribe(&user_a, &merchant_a, &amount_a, &interval, &token_addr, &None);
+    client.subscribe(&user_b, &merchant_b, &amount_b, &interval, &token_addr, &None);
 
     env.ledger().with_mut(|l| {
         l.timestamp += interval + 1;
@@ -303,7 +315,7 @@ fn test_charge_after_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
     client.cancel(&user);
 
     env.ledger().with_mut(|l| {
@@ -311,4 +323,212 @@ fn test_charge_after_cancel() {
     });
 
     client.charge(&user);
+}
+
+// ─────────────────────────────────────────────
+// batch_charge tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_batch_charge_charged_and_skipped() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user_b, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user_b, &contract_id, &10_000_0000000, &200);
+
+    let interval: u64 = 86400;
+    client.subscribe(&user_a, &merchant, &1_0000000, &interval, &token_addr, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &interval, &token_addr, &None);
+
+    // Only advance past interval for user_a
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+
+    // user_b re-subscribes at the new timestamp so their interval hasn't elapsed
+    client.subscribe(&user_b, &merchant, &1_0000000, &interval, &token_addr, &None);
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user_a.clone());
+    users.push_back(user_b.clone());
+
+    let results = client.batch_charge(&users);
+    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Charged);
+    assert_eq!(results.get(1).unwrap(), crate::ChargeResult::Skipped);
+}
+
+#[test]
+fn test_batch_charge_no_subscription() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let unknown = Address::generate(&env);
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(unknown);
+
+    let results = client.batch_charge(&users);
+    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::NoSubscription);
+}
+
+#[test]
+fn test_batch_charge_inactive() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None);
+    client.cancel(&user);
+
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+
+    let results = client.batch_charge(&users);
+    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Inactive);
+}
+
+// ─────────────────────────────────────────────
+// subscription_count tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_active_count_increments_on_subscribe() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_active_count(), 0);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    assert_eq!(client.get_active_count(), 1);
+}
+
+#[test]
+fn test_active_count_decrements_on_cancel() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    assert_eq!(client.get_active_count(), 1);
+    client.cancel(&user);
+    assert_eq!(client.get_active_count(), 0);
+}
+
+#[test]
+fn test_active_count_multiple_users() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user_b, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user_b, &contract_id, &10_000_0000000, &200);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None);
+    assert_eq!(client.get_active_count(), 2);
+
+    client.cancel(&user_a);
+    assert_eq!(client.get_active_count(), 1);
+}
+
+// ─────────────────────────────────────────────
+// merchant_stats tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_merchant_revenue_from_charge() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None);
+
+    assert_eq!(client.get_merchant_revenue(&merchant), 0);
+
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+    client.charge(&user);
+
+    assert_eq!(client.get_merchant_revenue(&merchant), amount);
+}
+
+#[test]
+fn test_merchant_revenue_from_pay_per_use() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.pay_per_use(&user, &3_0000000);
+
+    assert_eq!(client.get_merchant_revenue(&merchant), 3_0000000);
+}
+
+#[test]
+fn test_merchant_revenue_accumulates() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 2_0000000;
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None);
+
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+    client.charge(&user);
+
+    client.pay_per_use(&user, &1_0000000);
+
+    assert_eq!(client.get_merchant_revenue(&merchant), 3_0000000);
+}
+
+// ─────────────────────────────────────────────
+// spending_limit tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_daily_limit_allows_spend_within_limit() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.set_daily_limit(&user, &10_0000000);
+    // Should not panic
+    client.pay_per_use(&user, &5_0000000);
+}
+
+#[test]
+#[should_panic(expected = "daily spending limit exceeded")]
+fn test_daily_limit_blocks_overspend() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.set_daily_limit(&user, &3_0000000);
+    client.pay_per_use(&user, &5_0000000);
+}
+
+#[test]
+fn test_daily_limit_accumulates_across_calls() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.set_daily_limit(&user, &5_0000000);
+    client.pay_per_use(&user, &2_0000000);
+    client.pay_per_use(&user, &2_0000000);
+    // 4 total, limit is 5 — should pass
+}
+
+#[test]
+#[should_panic(expected = "daily spending limit exceeded")]
+fn test_daily_limit_blocks_cumulative_overspend() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None);
+    client.set_daily_limit(&user, &5_0000000);
+    client.pay_per_use(&user, &3_0000000);
+    client.pay_per_use(&user, &3_0000000); // 6 total > 5 limit
 }
