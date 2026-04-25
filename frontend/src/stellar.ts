@@ -14,6 +14,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import type { Subscription } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -137,11 +138,5 @@ export async function getSubscription(user: string) {
         break;
     }
   }
-  return fields as {
-    merchant: string;
-    amount: string;
-    interval: number;
-    last_charged: number;
-    active: boolean;
-  };
+  return fields as unknown as Subscription;
 }

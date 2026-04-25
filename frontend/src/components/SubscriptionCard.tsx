@@ -1,13 +1,8 @@
 import React from "react";
+import type { Subscription } from "../types";
 
 interface SubscriptionCardProps {
-  subscription: {
-    merchant: string;
-    amount: string;
-    interval: number;
-    last_charged: number;
-    active: boolean;
-  };
+  subscription: Subscription;
   onCancel: () => void;
 }
 
