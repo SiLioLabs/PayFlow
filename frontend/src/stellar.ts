@@ -14,6 +14,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import type { Subscription } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
