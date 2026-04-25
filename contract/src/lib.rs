@@ -223,4 +223,20 @@ impl FlowPay {
     pub fn get_subscription(env: Env, user: Address) -> Option<Subscription> {
         storage::get_subscription(&env, &user)
     }
+
+    /// Returns the Unix timestamp of the next scheduled charge for a user.
+    ///
+    /// Returns `None` if:
+    /// - No subscription exists for the user
+    /// - The subscription is inactive (cancelled)
+    ///
+    /// Returns `Some(last_charged + interval)` if the subscription is active.
+    pub fn next_charge_at(env: Env, user: Address) -> Option<u64> {
+        let sub = storage::get_subscription(&env, &user)?;
+        if !sub.active {
+            None
+        } else {
+            Some(sub.last_charged + sub.interval)
+        }
+    }
 }
