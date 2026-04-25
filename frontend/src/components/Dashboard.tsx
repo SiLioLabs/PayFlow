@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
 import { useSubscription } from "../hooks/useSubscription";
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
 
 interface Props {
   userKey: string;
@@ -18,25 +20,20 @@ function formatInterval(secs: number): string {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
+  const { subscription: sub, loading, refresh } =
+    useSubscription(userKey, refreshTrigger);
+
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
+  // Optional manual refresh wrapper (NO name conflict anymore)
+  const reload = useCallback(async () => {
+    await refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    load();
-  }, [load, refreshTrigger]);
+    reload();
+  }, [reload, refreshTrigger]);
 
   async function handleCancel() {
     setActionStatus(null);
@@ -44,7 +41,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
-      load();
+      reload();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
@@ -61,6 +58,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+    } finally {
+      setPpuLoading(false);
     }
   }
 
@@ -83,7 +82,6 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       )}
 
       {actionStatus && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
         <p
           className="action-status"
           style={{
