@@ -28,13 +28,17 @@ Internal storage keys. Not part of the public API but useful for understanding s
 
 ```rust
 pub enum DataKey {
-    Subscription(Address),  // persistent — one entry per subscriber
-    Token,                  // instance — the token contract address
-    GracePeriod,            // instance — seconds allowed for charge window
+    Subscription(Address),      // persistent — one entry per subscriber
+    Token,                      // instance — the token contract address
+    GracePeriod,                // instance — seconds allowed for charge window
     MerchantWhitelist(Address), // persistent — true if merchant is whitelisted
-    WhitelistEnabled,       // instance — true if whitelist is active
-    FeeCollector,           // instance — fee collector address
-    FeeBps,                 // instance — protocol fee in basis points
+    WhitelistEnabled,           // instance — true if whitelist is active
+    FeeCollector,               // instance — fee collector address
+    FeeBps,                     // instance — protocol fee in basis points
+    ActiveCount,                // instance — running total of active subscriptions
+    MerchantRevenue(Address),   // persistent — cumulative revenue per merchant
+    DailyLimit(Address),        // temporary — user-set daily pay_per_use cap
+    DailySpent(Address),        // temporary — amount spent today via pay_per_use
 }
 ```
 
@@ -440,6 +444,151 @@ soroban contract invoke \
   --network testnet \
   -- next_charge_at \
   --user <USER_ADDRESS>
+```
+
+---
+
+### `batch_charge`
+
+Charges multiple subscribers in a single transaction. Individual failures do not abort the batch — every address is processed and its outcome is returned.
+
+```
+batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `users` | `Vec<Address>` | List of subscriber addresses to attempt charging. |
+
+**Auth:** None. Same permissionless model as `charge()`.
+
+**Returns:** `Vec<ChargeResult>` — one entry per input address, in order.
+
+```rust
+pub enum ChargeResult {
+    Charged,            // funds transferred successfully
+    Skipped,            // interval has not elapsed yet
+    NoSubscription,     // no subscription found for this address
+    Inactive,           // subscription is cancelled
+    Paused,             // subscription is paused
+    GracePeriodElapsed, // charge window has closed
+}
+```
+
+**Storage written:** `DataKey::Subscription(user)` updated for each `Charged` result. `DataKey::MerchantRevenue(merchant)` incremented for each `Charged` result.
+
+**Events emitted:** `("charged", user)` for each successfully charged user.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <KEEPER_KEY> \
+  --network testnet \
+  -- batch_charge \
+  --users '["<USER_A>","<USER_B>","<USER_C>"]'
+```
+
+---
+
+### `get_active_count`
+
+Returns the current number of active subscriptions. Incremented by `subscribe()`, decremented by `cancel()`.
+
+```
+get_active_count(env: Env) -> u64
+```
+
+**Auth:** None.
+
+**Returns:** `u64` — total active subscriptions.
+
+**Storage read:** `DataKey::ActiveCount` in instance storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_active_count
+```
+
+---
+
+### `get_merchant_revenue`
+
+Returns the cumulative amount charged to a merchant's subscribers across all `charge()` and `pay_per_use()` calls.
+
+```
+get_merchant_revenue(env: Env, merchant: Address) -> i128
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `merchant` | `Address` | The merchant address to query. |
+
+**Auth:** None.
+
+**Returns:** `i128` — total stroops received by this merchant. Returns `0` if no charges have occurred.
+
+**Storage read:** `DataKey::MerchantRevenue(merchant)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_merchant_revenue \
+  --merchant <MERCHANT_ADDRESS>
+```
+
+---
+
+### `set_daily_limit`
+
+Sets a daily spending cap for `pay_per_use()` for the calling user. The limit is stored in temporary storage and resets automatically after approximately one day (~17,280 ledgers at 5 s/ledger).
+
+```
+set_daily_limit(env: Env, user: Address, limit: i128)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber. Must match the transaction signer. |
+| `limit` | `i128` | Maximum stroops spendable via `pay_per_use()` per day. Must be > 0. |
+
+**Auth:** `user.require_auth()`.
+
+**Storage written:** `DataKey::DailyLimit(user)` in temporary storage with TTL of ~1 day.
+
+**Enforcement:** Every `pay_per_use()` call checks `DailySpent(user) + amount <= DailyLimit(user)` before transferring. The running total is tracked in `DataKey::DailySpent(user)` (also temporary, same TTL).
+
+**Errors**
+
+| Condition | Panic message |
+| --- | --- |
+| `limit <= 0` | `"limit must be positive"` |
+| Spend would exceed limit | `"daily spending limit exceeded"` |
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <USER_KEY> \
+  --network testnet \
+  -- set_daily_limit \
+  --user <USER_ADDRESS> \
+  --limit 50000000
 ```
 
 ---
