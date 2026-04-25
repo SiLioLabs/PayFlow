@@ -1,3 +1,4 @@
+// ConfirmModal: accessible confirmation dialog with fade+scale entrance animation (#58)
 import React from "react";
 
 interface Props {
