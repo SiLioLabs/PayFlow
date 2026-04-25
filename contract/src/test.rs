@@ -233,7 +233,12 @@ fn test_initialize_backward_compat() {
     assert_eq!(client.get_subscription(&user).unwrap().token, token_b);
 }
 
-<<<<<<< test/get-subscription-none
+// ── Issue #14: cancel nonexistent subscription ───────────────────────────────
+
+/// cancel() must panic with "no subscription found" when called on a user with no subscription.
+#[test]
+#[should_panic(expected = "no subscription found")]
+fn test_cancel_nonexistent() {
 // ── Issue #13: get_subscription for nonexistent subscription ─────────────────
 
 /// get_subscription() must return None for an address with no subscription.
@@ -243,8 +248,8 @@ fn test_get_subscription_nonexistent() {
     let client = FlowPayClient::new(&env, &contract_id);
     
     let random = Address::generate(&env);
+    client.cancel(&random);
     assert!(client.get_subscription(&random).is_none(), "get_subscription should return None for unknown address");
-=======
 // ── Issue #12: last_charged timestamp update ─────────────────────────────────
 
 /// charge() must update last_charged to the current ledger timestamp.
@@ -275,8 +280,7 @@ fn test_charge_updates_last_charged() {
     let sub_after = client.get_subscription(&user).unwrap();
     // Verify last_charged is exactly equal to the charge_time
     assert_eq!(sub_after.last_charged, charge_time, "last_charged should equal the ledger timestamp at charge time");
->>>>>>> master
-}
+  }
 
 // ── Issue #7: input-validation guards ────────────────────────────────────────
 

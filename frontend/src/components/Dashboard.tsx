@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from "react";
-import {
-  getSubscription,
-  buildCancelTx,
-  buildPayPerUseTx,
-  getEvents,
-} from "../stellar";
+import React, { useState } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
+import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 
 // ✅ FIX: Missing imports added
@@ -19,13 +17,6 @@ interface Props {
   refreshTrigger: number;
 }
 
-function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
-  return `${secs}s`;
-}
-
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   const {
     subscription: sub,
@@ -35,32 +26,10 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  // 🔥 Transaction history state
-  const [events, setEvents] = useState<any[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(true);
-
-  // 🔥 Fetch events
-  useEffect(() => {
-    async function fetchEvents() {
-      if (!userKey) return;
-
-      setEventsLoading(true);
-      try {
-        const data = await getEvents(userKey);
-        setEvents(data);
-      } catch (e) {
-        console.error("Failed to fetch events:", e);
-        setEvents([]);
-      } finally {
-        setEventsLoading(false);
-      }
-    }
-
-    fetchEvents();
-  }, [userKey, refreshTrigger]);
-
-  async function handleCancel() {
+  async function performCancel() {
+    setShowConfirm(false);
     setActionStatus(null);
     try {
       const xdr = await buildCancelTx(userKey);
@@ -71,6 +40,10 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
     }
+  }
+
+  function handleCancel() {
+    setShowConfirm(true);
   }
 
   async function handlePayPerUse(stroops: bigint) {
@@ -119,28 +92,13 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         </p>
       )}
 
-      {/* 🔥 Transaction History */}
-      <div className="transaction-history">
-        <h3>Transaction History</h3>
-
-        {eventsLoading ? (
-          <p>Loading...</p>
-        ) : events.length === 0 ? (
-          <p>No transactions yet.</p>
-        ) : (
-          <div className="history-list">
-            {events.map((event, index) => (
-              <div key={index} className="history-item">
-                <span className="type">{event.type}</span>
-                <span className="amount">{event.amount}</span>
-                <span className="time">
-                  {new Date(event.timestamp).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {showConfirm && (
+        <ConfirmModal
+          message="Are you sure you want to cancel your subscription? This cannot be undone."
+          onConfirm={performCancel}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ pub struct Subscription {
     pub last_charged: u64,   // Ledger UNIX timestamp of the last successful charge
     pub active: bool,        // false if the subscription has been cancelled
     pub paused: bool,        // true if the subscription is temporarily paused
+    pub token: Address,      // SAC token address used for this subscription
 }
 ```
 
@@ -392,6 +393,40 @@ soroban contract invoke \
   --id <CONTRACT_ID> \
   --network testnet \
   -- get_subscription \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `next_charge_at`
+
+Read-only view function. Returns the Unix timestamp of the next scheduled charge for a user.
+
+```
+next_charge_at(env: Env, user: Address) -> Option<u64>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to look up. |
+
+**Auth:** None.
+
+**Returns:** `Option<u64>` — Returns `None` if:
+- No subscription exists for the user
+- The subscription is inactive (cancelled)
+
+Returns `Some(last_charged + interval)` if the subscription is active.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- next_charge_at \
   --user <USER_ADDRESS>
 ```
 
