@@ -166,7 +166,7 @@ impl FlowPay {
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+            .expect("no subscription found");
 
         sub.active = false;
         storage::set_subscription(&env, &user, &sub);
