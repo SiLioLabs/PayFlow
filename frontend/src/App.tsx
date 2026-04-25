@@ -31,6 +31,9 @@ function MoonIcon() {
   );
 }
 
+// ✅ FIX: Add missing import
+import WalletBar from "./components/WalletBar";
+
 export default function App() {
   const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
   const { theme, toggle } = useTheme();
@@ -58,7 +61,11 @@ export default function App() {
           <WalletBar publicKey={publicKey} onDisconnect={disconnect} />
 
           {/* Tabs */}
-          <TabBar tabs={["dashboard", "subscribe"]} activeTab={tab} onTabChange={setTab} />
+          <TabBar
+            tabs={["dashboard", "subscribe"]}
+            activeTab={tab}
+            onTabChange={setTab}
+          />
 
           {/* Content */}
           <div className="card">
@@ -72,7 +79,11 @@ export default function App() {
                 }}
               />
             ) : (
-              <Dashboard userKey={publicKey} onSign={signAndSubmit} refreshTrigger={refresh} />
+              <Dashboard
+                userKey={publicKey}
+                onSign={signAndSubmit}
+                refreshTrigger={refresh}
+              />
             )}
           </div>
         </>

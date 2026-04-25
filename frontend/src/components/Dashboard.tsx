@@ -7,6 +7,10 @@ import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 
+// ✅ FIX: Missing imports added
+import SubscriptionCard from "./SubscriptionCard";
+import PayPerUseForm from "./PayPerUseForm";
+
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
@@ -14,7 +18,12 @@ interface Props {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
+  const {
+    subscription: sub,
+    loading,
+    refresh,
+  } = useSubscription(userKey, refreshTrigger);
+
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -26,7 +35,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
-      load();
+      refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
@@ -54,24 +63,23 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   if (loading) return <SubscriptionCardSkeleton />;
 
-  if (!sub) {
-    return (
-      <div className="card">
-        <p className="no-sub-text">No active subscription found.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="dashboard">
-      <SubscriptionCard subscription={sub} onCancel={handleCancel} />
+      {!sub ? (
+        <div className="card">
+          <p className="no-sub-text">No active subscription found.</p>
+        </div>
+      ) : (
+        <>
+          <SubscriptionCard subscription={sub} onCancel={handleCancel} />
 
-      {sub.active && (
-        <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          {sub.active && (
+            <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+          )}
+        </>
       )}
 
       {actionStatus && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
         <p
           className="action-status"
           style={{
