@@ -20,3 +20,33 @@ Verify your setup:
 rustc --version        # rustc 1.70+
 soroban --version      # soroban 21.x
 node --version         # v18+
+
+```
+
+---
+
+## State Migration
+
+FlowPay uses a `SchemaVersion` key in instance storage to track the storage schema version. When upgrading the contract WASM to a new version that introduces storage layout changes, call `migrate()` once after deployment:
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- migrate
+```
+
+### Migration History
+
+| Version | Changes |
+| --- | --- |
+| v1 | Initial schema (no version key) |
+| v2 | Introduced `SchemaVersion` tracking, `Referral`, `SubscriptionMeta`, `ChargeHistory` keys |
+
+### How It Works
+
+- `get_schema_version()` returns `1` by default (pre-versioning contracts).
+- `migrate()` checks the current version and applies any pending upgrades sequentially.
+- Subsequent calls to `migrate()` are no-ops once the contract is at the latest version.
+- Future schema changes should add a new `if version < N { ... }` block in `migration.rs`.

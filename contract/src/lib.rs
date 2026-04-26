@@ -7,16 +7,20 @@ mod events;
 mod fee;
 mod grace;
 mod merchant_stats;
+mod migration;
+mod referral;
 mod spending_limit;
 mod storage;
 mod subscription_count;
+mod subscription_history;
+mod subscription_metadata;
 mod test;
 mod trial;
 mod validation;
 mod whitelist;
 
 use crate::errors::ContractError;
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
 pub use batch::ChargeResult;
 
@@ -46,6 +50,14 @@ pub enum DataKey {
     // Feature: daily spending limits (temporary storage)
     DailyLimit(Address),
     DailySpent(Address),
+    // Feature: referral tracking
+    Referral(Address),
+    // Feature: state migration
+    SchemaVersion,
+    // Feature: subscription metadata labels
+    SubscriptionMeta(Address),
+    // Feature: charge history
+    ChargeHistory(Address),
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -89,6 +101,7 @@ impl FlowPay {
         interval: u64,
         token: Address,
         trial_period: Option<u64>,
+        referrer: Option<Address>,
     ) {
         user.require_auth();
 
@@ -126,6 +139,7 @@ impl FlowPay {
             .set(&DataKey::Subscription(user.clone()), &sub);
 
         subscription_count::increment(&env);
+        referral::store_referral(&env, &user, &referrer);
         events::publish_subscribed(&env, &user, &sub);
     }
 
@@ -167,6 +181,7 @@ impl FlowPay {
 
         env.storage().persistent().set(&key, &sub);
 
+        subscription_history::record_charge(&env, &user, now);
         events::publish_charged(&env, &user, &sub, now);
     }
 
@@ -363,5 +378,54 @@ impl FlowPay {
         user.require_auth();
         assert!(limit > 0, "limit must be positive");
         spending_limit::set_daily_limit(&env, &user, limit);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Referral tracking
+    // ─────────────────────────────────────────────────────────────
+
+    /// Returns the referrer address for a given subscriber, or `None`.
+    pub fn get_referrer(env: Env, user: Address) -> Option<Address> {
+        referral::get_referrer(&env, &user)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // State migration
+    // ─────────────────────────────────────────────────────────────
+
+    /// Migrates contract storage to the latest schema version.
+    /// Safe to call multiple times — subsequent calls are no-ops.
+    pub fn migrate(env: Env) {
+        migration::migrate(&env);
+    }
+
+    /// Returns the current storage schema version.
+    pub fn get_schema_version(env: Env) -> u32 {
+        migration::get_schema_version(&env)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Subscription metadata
+    // ─────────────────────────────────────────────────────────────
+
+    /// Attaches a short label (e.g. plan name) to the caller's subscription.
+    pub fn set_metadata(env: Env, user: Address, label: String) {
+        user.require_auth();
+        subscription_metadata::set_metadata(&env, &user, label);
+    }
+
+    /// Returns the metadata label for a subscriber, or `None` if not set.
+    pub fn get_metadata(env: Env, user: Address) -> Option<String> {
+        subscription_metadata::get_metadata(&env, &user)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Charge history
+    // ─────────────────────────────────────────────────────────────
+
+    /// Returns the last (up to 12) charge timestamps for a subscriber,
+    /// ordered oldest → newest.
+    pub fn get_charge_history(env: Env, user: Address) -> Vec<u64> {
+        subscription_history::get_charge_history(&env, &user)
     }
 }
