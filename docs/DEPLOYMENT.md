@@ -25,6 +25,18 @@ node --version         # v18+
 
 ---
 
+## Frontend Environment Variables
+
+Set these in `frontend/.env` for your target network and deployment:
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `VITE_CONTRACT_ID` | Yes | `""` | Deployed Soroban contract ID used by the frontend. |
+| `VITE_RPC_URL` | No | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint URL. Set this for mainnet or custom RPC providers. |
+| `VITE_NETWORK_PASSPHRASE` | No | `Networks.TESTNET` | Stellar network passphrase used when building/signing transactions. |
+
+---
+
 ## State Migration
 
 FlowPay uses a `SchemaVersion` key in instance storage to track the storage schema version. When upgrading the contract WASM to a new version that introduces storage layout changes, call `migrate()` once after deployment:

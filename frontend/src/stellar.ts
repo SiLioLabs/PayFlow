@@ -18,7 +18,8 @@ import type { Subscription } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-export const RPC_URL = "https://soroban-testnet.stellar.org";
+export const RPC_URL =
+  import.meta.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
 export const NETWORK_PASSPHRASE =
   import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
