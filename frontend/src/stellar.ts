@@ -28,6 +28,15 @@ export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
 
 export const server = new Server(RPC_URL);
 
+export interface MerchantSubscriber {
+  subscriber: string;
+  amount: string;
+  interval: number;
+  lastCharged: number;
+  nextChargeAt: number;
+  nextChargeDate: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Convert a Stellar public key string to an ScVal Address */
@@ -138,6 +147,80 @@ export async function getSubscription(user: string) {
     last_charged: number;
     active: boolean;
   };
+}
+
+function parseEventTopic(event: any, index: number): string | null {
+  const topic = event?.topic;
+  if (!Array.isArray(topic) || topic.length <= index) return null;
+
+  const raw = topic[index];
+  if (raw == null) return null;
+  if (typeof raw === "string") return raw;
+
+  if (typeof raw?.toString === "function") {
+    const value = raw.toString();
+    if (value && value !== "[object Object]") return value;
+  }
+
+  return null;
+}
+
+export async function getMerchantSubscribers(
+  merchant: string
+): Promise<MerchantSubscriber[]> {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [
+        {
+          type: "contract",
+          contractIds: [CONTRACT_ID],
+        },
+      ],
+      limit: 200,
+    });
+
+    const subscriberSet = new Set<string>();
+
+    for (const event of response.events ?? []) {
+      const eventType = parseEventTopic(event, 0)?.toLowerCase();
+      const subscriber = parseEventTopic(event, 1);
+
+      if (!subscriber) continue;
+      if (eventType === "subscribed" || eventType === "cancelled") {
+        subscriberSet.add(subscriber);
+      }
+    }
+
+    const subscribers = await Promise.all(
+      [...subscriberSet].map(async (subscriber) => {
+        try {
+          const sub = await getSubscription(subscriber);
+          if (!sub || !sub.active) return null;
+          if (sub.merchant !== merchant) return null;
+
+          const nextChargeAt = sub.last_charged + sub.interval;
+          return {
+            subscriber,
+            amount: sub.amount,
+            interval: sub.interval,
+            lastCharged: sub.last_charged,
+            nextChargeAt,
+            nextChargeDate: new Date(nextChargeAt * 1000).toISOString(),
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return subscribers
+      .filter((entry): entry is MerchantSubscriber => entry !== null)
+      .sort((a, b) => a.nextChargeAt - b.nextChargeAt);
+  } catch (error) {
+    console.error("Error fetching merchant subscribers:", error);
+    return [];
+  }
 }
 
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────
