@@ -283,6 +283,11 @@ input::placeholder {
   color: white;
 }
 
+.badge-warning {
+  background: #451a03;
+  color: #fbbf24;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Typography Utilities
    ───────────────────────────────────────────────────────────────────────────── */
@@ -290,21 +295,27 @@ input::placeholder {
 .text-xs {
   font-size: var(--text-xs);
 }
+
 .text-sm {
   font-size: var(--text-sm);
 }
+
 .text-base {
   font-size: var(--text-base);
 }
+
 .text-lg {
   font-size: var(--text-lg);
 }
+
 .text-xl {
   font-size: var(--text-xl);
 }
+
 .text-2xl {
   font-size: var(--text-2xl);
 }
+
 .text-3xl {
   font-size: var(--text-3xl);
 }
@@ -312,9 +323,11 @@ input::placeholder {
 .text-muted {
   color: var(--color-text-muted);
 }
+
 .text-subtle {
   color: var(--color-text-subtle);
 }
+
 .text-mono {
   font-family: monospace;
 }
@@ -322,15 +335,19 @@ input::placeholder {
 .font-normal {
   font-weight: var(--font-normal);
 }
+
 .font-medium {
   font-weight: var(--font-medium);
 }
+
 .font-semibold {
   font-weight: var(--font-semibold);
 }
+
 .font-bold {
   font-weight: var(--font-bold);
 }
+
 .font-extrabold {
   font-weight: var(--font-extrabold);
 }
@@ -342,12 +359,15 @@ input::placeholder {
 .gap-2 {
   gap: var(--space-2);
 }
+
 .gap-3 {
   gap: var(--space-3);
 }
+
 .gap-4 {
   gap: var(--space-4);
 }
+
 .gap-6 {
   gap: var(--space-6);
 }
@@ -355,12 +375,15 @@ input::placeholder {
 .mb-2 {
   margin-bottom: var(--space-2);
 }
+
 .mb-3 {
   margin-bottom: var(--space-3);
 }
+
 .mb-4 {
   margin-bottom: var(--space-4);
 }
+
 .mb-6 {
   margin-bottom: var(--space-6);
 }
@@ -368,9 +391,11 @@ input::placeholder {
 .mt-2 {
   margin-top: var(--space-2);
 }
+
 .mt-4 {
   margin-top: var(--space-4);
 }
+
 .mt-6 {
   margin-top: var(--space-6);
 }
@@ -378,6 +403,7 @@ input::placeholder {
 .p-4 {
   padding: var(--space-4);
 }
+
 .p-6 {
   padding: var(--space-6);
 }
@@ -390,6 +416,7 @@ input::placeholder {
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -403,12 +430,10 @@ input::placeholder {
 
 @media (prefers-reduced-motion: no-preference) {
   .skeleton {
-    background: linear-gradient(
-      90deg,
-      var(--color-surface-raised) 25%,
-      var(--color-border-light) 50%,
-      var(--color-surface-raised) 75%
-    );
+    background: linear-gradient(90deg,
+        var(--color-surface-raised) 25%,
+        var(--color-border-light) 50%,
+        var(--color-surface-raised) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }
@@ -421,14 +446,17 @@ input::placeholder {
 .flex {
   display: flex;
 }
+
 .flex-col {
   flex-direction: column;
 }
+
 .flex-between {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+
 .flex-center {
   display: flex;
   justify-content: center;
@@ -438,6 +466,7 @@ input::placeholder {
 .w-full {
   width: 100%;
 }
+
 .text-center {
   text-align: center;
 }
@@ -447,8 +476,13 @@ input::placeholder {
    ───────────────────────────────────────────────────────────────────────────── */
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .fade-in {
@@ -460,8 +494,15 @@ input::placeholder {
    ───────────────────────────────────────────────────────────────────────────── */
 
 @keyframes modal-enter {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .modal-overlay {
@@ -513,6 +554,23 @@ input::placeholder {
   justify-content: center;
   padding: var(--space-1) var(--space-2);
   line-height: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Network Warning Banner (Issue #128)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.network-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: #451a03;
+  color: #fbbf24;
+  border: 1px solid #92400e;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
 }
 
 .merchant-row {

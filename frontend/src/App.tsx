@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { useWallet } from "./hooks/useWallet";
 import { useTheme } from "./hooks/useTheme";
+import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
+import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import TabBar from "./components/TabBar";
@@ -31,12 +33,11 @@ function MoonIcon() {
   );
 }
 
-// ✅ FIX: Add missing import
-import WalletBar from "./components/WalletBar";
-
 export default function App() {
   const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
   const { theme, toggle } = useTheme();
+  const { available: freighterAvailable, installUrl } = useFreighterAvailable();
+  const { networkMatch, walletNetwork } = useNetworkCheck();
   const [tab, setTab] = useState<"subscribe" | "dashboard">("dashboard");
   const [refresh, setRefresh] = useState(0);
 
@@ -53,10 +54,41 @@ export default function App() {
         </button>
       </div>
 
-      {/* Wallet connect */}
-      {!publicKey ? (
+      {/* Network mismatch warning */}
+      {publicKey && !networkMatch && (
+        <div className="network-warning" role="alert">
+          <span>⚠️</span>
+          <span>
+            Wallet is on <strong>{walletNetwork}</strong> — app expects a
+            different network. Switch networks in Freighter to continue.
+          </span>
+        </div>
+      )}
+
+      {/* Freighter not installed — show install prompt */}
+      {!freighterAvailable && !publicKey && (
+        <div className="card connect-wallet">
+          <p className="connect-wallet__hint">
+            Freighter wallet is required to use FlowPay.
+          </p>
+          <a
+            href={installUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary w-full connect-wallet__install-link"
+          >
+            Install Freighter
+          </a>
+        </div>
+      )}
+
+      {/* Freighter installed but not connected */}
+      {freighterAvailable && !publicKey && (
         <ConnectWallet onConnect={connect} error={error} />
-      ) : (
+      )}
+
+      {/* Connected */}
+      {publicKey && (
         <>
           <WalletBar publicKey={publicKey} onDisconnect={disconnect} />
 
