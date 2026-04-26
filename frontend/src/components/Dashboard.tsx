@@ -6,6 +6,7 @@ import SubscriptionCard from "./SubscriptionCard";
 import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
+import { usePolling } from "../hooks/usePolling";
 
 interface Props {
   userKey: string;
@@ -23,6 +24,12 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  usePolling({
+    callback: refresh,
+    interval: 30000,
+    enabled: !!sub?.active,
+  });
 
   async function performCancel() {
     setShowConfirm(false);
