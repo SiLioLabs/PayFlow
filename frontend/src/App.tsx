@@ -3,6 +3,8 @@ import { useWallet } from "./hooks/useWallet";
 import { useTheme } from "./hooks/useTheme";
 import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
+import { useContractId } from "./hooks/useContractId";
+import { useRpcHealth } from "./hooks/useRpcHealth";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import TabBar from "./components/TabBar";
@@ -38,6 +40,8 @@ export default function App() {
   const { theme, toggle } = useTheme();
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
+  const { valid: contractIdValid, error: contractIdError } = useContractId();
+  const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
   const [tab, setTab] = useState<"subscribe" | "dashboard">("dashboard");
   const [refresh, setRefresh] = useState(0);
 
@@ -54,7 +58,21 @@ export default function App() {
         </button>
       </div>
 
-      {/* Network mismatch warning */}
+      {/* Contract ID error */}
+      {!contractIdValid && contractIdError && (
+        <div className="network-warning" role="alert">
+          <span>❌</span>
+          <span>{contractIdError}</span>
+        </div>
+      )}
+
+      {/* RPC health warning */}
+      {!rpcHealthy && rpcError && (
+        <div className="network-warning" role="alert">
+          <span>⚠️</span>
+          <span>RPC endpoint unreachable: {rpcError}</span>
+        </div>
+      )}
       {publicKey && !networkMatch && (
         <div className="network-warning" role="alert">
           <span>⚠️</span>
