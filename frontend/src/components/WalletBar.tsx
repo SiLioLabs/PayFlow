@@ -1,6 +1,7 @@
 import React from "react";
 import { formatAddress } from "../utils/format";
 import NetworkBadge from "./NetworkBadge";
+import BalanceDisplay from "./BalanceDisplay";
 
 interface WalletBarProps {
   publicKey: string;
@@ -20,6 +21,7 @@ export default function WalletBar({
             {formatAddress(publicKey)}
           </span>
         </div>
+        <BalanceDisplay publicKey={publicKey} />
         <NetworkBadge />
       </div>
       <button onClick={onDisconnect} className="btn-secondary">

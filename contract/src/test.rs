@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
@@ -647,4 +647,51 @@ fn test_charge_history_capped_at_12() {
     }
 
     assert_eq!(client.get_charge_history(&user).len(), 12);
+}
+
+#[test]
+fn test_ttl_extension() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    
+    // We can't easily assert the exact TTL in the test environment without more complex mock_all_auths 
+    // or internal access, but we can verify the function exists and doesn't panic.
+    client.extend_subscription_ttl(&user);
+}
+
+#[test]
+#[should_panic(expected = "already initialized")]
+fn test_double_initialize() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.initialize(&token_addr); // first call
+    client.initialize(&token_addr); // second call — should panic
+}
+
+#[test]
+fn test_resubscribe() {
+    let (env, contract_id, token_addr, user, merchant_a) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let merchant_b = Address::generate(&env);
+
+    // Initial subscription
+    client.subscribe(&user, &merchant_a, &1_0000000, &86400, &token_addr, &None, &None);
+    let sub1 = client.get_subscription(&user).unwrap();
+    assert_eq!(sub1.merchant, merchant_a);
+    assert_eq!(sub1.amount, 1_0000000);
+
+    // Subscribe again with different parameters
+    client.subscribe(&user, &merchant_b, &2_0000000, &172800, &token_addr, &None, &None);
+    let sub2 = client.get_subscription(&user).unwrap();
+    
+    assert_eq!(sub2.merchant, merchant_b);
+    assert_eq!(sub2.amount, 2_0000000);
+    assert_eq!(sub2.interval, 172800);
+    
+    // Verify old merchant is gone
+    assert_ne!(sub2.merchant, merchant_a);
 }

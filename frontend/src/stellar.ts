@@ -139,6 +139,19 @@ export async function getSubscription(user: string) {
   };
 }
 
+export async function getBalance(publicKey: string): Promise<string> {
+  try {
+    const horizonUrl = "https://horizon-testnet.stellar.org";
+    const resp = await fetch(`${horizonUrl}/accounts/${publicKey}`);
+    const data = await resp.json();
+    const nativeBalance = data.balances.find((b: any) => b.asset_type === "native");
+    return nativeBalance ? nativeBalance.balance : "0";
+  } catch (error) {
+    console.error("Error fetching balance:", error);
+    return "0";
+  }
+}
+
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────
 
 export async function getEvents(user: string) {
