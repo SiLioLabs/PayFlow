@@ -1,5 +1,8 @@
 import React from "react";
 import CopyButton from "./CopyButton";
+import NextChargeCountdown from "./NextChargeCountdown";
+import { Subscription } from "../types";
+import { BILLING_INTERVALS, STROOPS_PER_XLM } from "../constants";
 
 interface SubscriptionCardProps {
   subscription: Subscription;
@@ -21,9 +24,8 @@ export default function SubscriptionCard({
   onCancel,
 }: SubscriptionCardProps) {
   const { merchant, amount, interval, last_charged, active } = subscription;
-  const nextCharge = new Date(
-    (last_charged + interval) * 1000
-  ).toLocaleDateString();
+  const nextChargeTimestamp = last_charged + interval;
+  const xlm = (Number(amount) / STROOPS_PER_XLM).toFixed(2);
 
   return (
     <div className="card">
@@ -46,7 +48,16 @@ export default function SubscriptionCard({
         </div>
         <Row label="Amount" value={`${xlm} XLM`} />
         <Row label="Interval" value={formatInterval(interval)} />
-        <Row label="Next charge" value={active ? nextCharge : "—"} />
+        <div className="subscription-row">
+          <span className="subscription-row__label">Next charge</span>
+          <span className="subscription-row__value">
+            {active ? (
+              <NextChargeCountdown nextChargeTimestamp={nextChargeTimestamp} />
+            ) : (
+              "—"
+            )}
+          </span>
+        </div>
       </div>
 
       {active && (
