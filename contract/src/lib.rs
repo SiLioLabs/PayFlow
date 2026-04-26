@@ -61,6 +61,12 @@ pub enum DataKey {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────
+
+pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
+
+// ─────────────────────────────────────────────────────────────
 // Data types
 // ─────────────────────────────────────────────────────────────
 
@@ -87,7 +93,7 @@ pub struct FlowPay;
 impl FlowPay {
     pub fn initialize(env: Env, token: Address) {
         if env.storage().instance().has(&DataKey::Token) {
-            env.panic_with_error(ContractError::AlreadyInitialized);
+            panic!("already initialized");
         }
 
         env.storage().instance().set(&DataKey::Token, &token);
@@ -138,6 +144,8 @@ impl FlowPay {
             .persistent()
             .set(&DataKey::Subscription(user.clone()), &sub);
 
+        extend_subscription_ttl(&env, &user);
+
         subscription_count::increment(&env);
         referral::store_referral(&env, &user, &referrer);
         events::publish_subscribed(&env, &user, &sub);
@@ -180,9 +188,14 @@ impl FlowPay {
         sub.last_charged = now;
 
         env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
 
         subscription_history::record_charge(&env, &user, now);
         events::publish_charged(&env, &user, &sub, now);
+    }
+
+    pub fn extend_subscription_ttl(env: Env, user: Address) {
+        extend_subscription_ttl(&env, &user);
     }
 
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
@@ -428,4 +441,12 @@ impl FlowPay {
     pub fn get_charge_history(env: Env, user: Address) -> Vec<u64> {
         subscription_history::get_charge_history(&env, &user)
     }
+}
+
+fn extend_subscription_ttl(env: &Env, user: &Address) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::Subscription(user.clone()),
+        SUBSCRIPTION_TTL_LEDGERS,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
 }
