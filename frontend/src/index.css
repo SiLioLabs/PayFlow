@@ -428,6 +428,10 @@ input::placeholder {
   height: var(--space-4);
 }
 
+.balance-skeleton {
+  width: 80px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .skeleton {
     background: linear-gradient(90deg,

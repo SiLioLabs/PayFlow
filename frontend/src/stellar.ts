@@ -18,7 +18,8 @@ import type { Subscription } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-export const RPC_URL = "https://soroban-testnet.stellar.org";
+export const RPC_URL =
+  import.meta.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
 export const NETWORK_PASSPHRASE =
   import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
@@ -26,6 +27,15 @@ export const NETWORK_PASSPHRASE =
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
 
 export const server = new Server(RPC_URL);
+
+export interface MerchantSubscriber {
+  subscriber: string;
+  amount: string;
+  interval: number;
+  lastCharged: number;
+  nextChargeAt: number;
+  nextChargeDate: string;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -137,6 +147,19 @@ export async function getSubscription(user: string) {
     last_charged: number;
     active: boolean;
   };
+}
+
+export async function getBalance(publicKey: string): Promise<string> {
+  try {
+    const horizonUrl = "https://horizon-testnet.stellar.org";
+    const resp = await fetch(`${horizonUrl}/accounts/${publicKey}`);
+    const data = await resp.json();
+    const nativeBalance = data.balances.find((b: any) => b.asset_type === "native");
+    return nativeBalance ? nativeBalance.balance : "0";
+  } catch (error) {
+    console.error("Error fetching balance:", error);
+    return "0";
+  }
 }
 
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────

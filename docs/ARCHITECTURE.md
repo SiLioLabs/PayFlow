@@ -115,10 +115,10 @@ Soroban has three storage tiers. FlowPay uses all three:
 | Tier | Used For | Why |
 | --- | --- | --- |
 | `instance` | `DataKey::Token`, `DataKey::ActiveCount` | Contract-wide config and counters. Always needed, tied to the contract's own TTL. |
-| `persistent` | `DataKey::Subscription(user)`, `DataKey::MerchantRevenue(merchant)` | Records that must survive indefinitely. Persistent storage has its own TTL that can be extended. |
+| `persistent` | `DataKey::Subscription(user)`, `DataKey::MerchantRevenue(merchant)` | Records that must survive indefinitely. Persistent storage has its own TTL that is automatically extended. |
 | `temporary` | `DataKey::DailyLimit(user)`, `DataKey::DailySpent(user)` | Ephemeral per-user data. Daily spending limits and the running daily spend counter are stored here with a TTL of ~1 day (17,280 ledgers). They expire automatically — no cleanup needed. |
 
-**TTL note:** Persistent storage entries have a TTL on Stellar. In production, a keeper or the frontend should call `extend_ttl` on active subscriptions to prevent them from being evicted by the network. This is a planned improvement.
+**TTL note:** Persistent storage entries have a TTL on Stellar. FlowPay automatically calls `extend_ttl` on active subscriptions during `subscribe()` and `charge()` to prevent them from being evicted by the network.
 
 ---
 
