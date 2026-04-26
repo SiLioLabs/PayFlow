@@ -9,6 +9,7 @@ declare global {
     freighter?: {
       isConnected: () => Promise<boolean>;
       getPublicKey: () => Promise<string>;
+      getNetwork: () => Promise<{ network: string; networkPassphrase: string }>;
       signTransaction: (xdr: string, opts: { networkPassphrase: string }) => Promise<string>;
     };
   }
