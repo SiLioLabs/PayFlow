@@ -28,6 +28,15 @@ export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
 
 export const server = new Server(RPC_URL);
 
+export interface MerchantSubscriber {
+  subscriber: string;
+  amount: string;
+  interval: number;
+  lastCharged: number;
+  nextChargeAt: number;
+  nextChargeDate: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Convert a Stellar public key string to an ScVal Address */
