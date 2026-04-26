@@ -625,3 +625,122 @@ All events can be indexed by listening to the Stellar RPC event stream for the F
 | `cancelled` | `("cancelled", user_address)` | `()` |
 | `paused` | `("paused", user_address)` | `()` |
 | `resumed` | `("resumed", user_address)` | `()` |
+
+---
+
+## New Modules (Issues #96–#99)
+
+---
+
+### `subscribe` (updated)
+
+The `subscribe` function now accepts an optional `referrer` parameter:
+
+```
+subscribe(env, user, merchant, amount, interval, token, trial_period, referrer: Option<Address>)
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `referrer` | `Option<Address>` | Optional address of the referrer who introduced this subscriber. Stored in `DataKey::Referral(user)` and emits a `("referred", user)` event. |
+
+---
+
+### `get_referrer`
+
+Returns the referrer address recorded for a subscriber.
+
+```
+get_referrer(env: Env, user: Address) -> Option<Address>
+```
+
+**Auth:** None.
+
+**Returns:** `Option<Address>` — `None` if no referrer was recorded.
+
+**Storage read:** `DataKey::Referral(user)` in persistent storage.
+
+---
+
+### `migrate`
+
+Upgrades contract storage to the latest schema version. Safe to call multiple times.
+
+```
+migrate(env: Env)
+```
+
+**Auth:** None (admin restriction can be added in future versions).
+
+**Storage written:** `DataKey::SchemaVersion` in instance storage.
+
+---
+
+### `get_schema_version`
+
+Returns the current storage schema version.
+
+```
+get_schema_version(env: Env) -> u32
+```
+
+**Auth:** None.
+
+**Returns:** `u32` — defaults to `1` before the first `migrate()` call.
+
+---
+
+### `set_metadata`
+
+Attaches a short label string (e.g. plan name) to the caller's subscription.
+
+```
+set_metadata(env: Env, user: Address, label: String)
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber. Must match the transaction signer. |
+| `label` | `String` | Short display label (e.g. `"pro"`, `"basic"`). |
+
+**Auth:** `user.require_auth()`.
+
+**Storage written:** `DataKey::SubscriptionMeta(user)` in persistent storage.
+
+---
+
+### `get_metadata`
+
+Returns the metadata label for a subscriber.
+
+```
+get_metadata(env: Env, user: Address) -> Option<String>
+```
+
+**Auth:** None.
+
+**Returns:** `Option<String>` — `None` if no label has been set.
+
+---
+
+### `get_charge_history`
+
+Returns the last (up to 12) charge timestamps for a subscriber, ordered oldest → newest.
+
+```
+get_charge_history(env: Env, user: Address) -> Vec<u64>
+```
+
+**Auth:** None.
+
+**Returns:** `Vec<u64>` — UNIX timestamps of successful `charge()` calls. Empty if no charges have occurred.
+
+**Storage read:** `DataKey::ChargeHistory(user)` in persistent storage.
+
+---
+
+### Updated Events Reference
+
+| Event name | Topic | Data |
+| --- | --- | --- |
+| `referred` | `("referred", user_address)` | `referrer_address` |
