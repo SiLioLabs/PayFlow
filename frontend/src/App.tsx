@@ -41,6 +41,8 @@ export default function App() {
   const { theme, toggle } = useTheme();
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
+  const { valid: contractIdValid, error: contractIdError } = useContractId();
+  const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
   const [tab, setTab] = useState<"subscribe" | "dashboard" | "merchant">("dashboard");
   const [refresh, setRefresh] = useState(0);
 

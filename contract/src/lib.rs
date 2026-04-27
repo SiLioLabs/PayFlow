@@ -209,7 +209,7 @@ impl FlowPay {
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+            .expect("no subscription found");
 
         assert!(sub.active, "subscription is not active");
         assert!(!sub.paused, "subscription is paused");

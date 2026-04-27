@@ -170,6 +170,15 @@ fn test_pay_per_use_inactive() {
     client.pay_per_use(&user, &1_0000000);
 }
 
+#[test]
+#[should_panic(expected = "no subscription found")]
+fn test_pay_per_use_nonexistent() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let random = Address::generate(&env);
+    client.pay_per_use(&random, &1_0000000);
+}
+
 // ─────────────────────────────────────────────
 // Edge cases
 // ─────────────────────────────────────────────
@@ -672,6 +681,22 @@ fn test_double_initialize() {
 }
 
 #[test]
+fn test_initialize_without_valid_token() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Using a user address instead of a token contract address.
+    // The contract currently does not validate if the address is a valid token contract
+    // or even if it's a contract at all.
+    let invalid_token = Address::generate(&env);
+    
+    client.initialize(&invalid_token);
+    
+    // Success means it didn't panic, which is the current expected behavior.
+}
+
+#[test]
 fn test_resubscribe() {
     let (env, contract_id, token_addr, user, merchant_a) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -694,4 +719,26 @@ fn test_resubscribe() {
     
     // Verify old merchant is gone
     assert_ne!(sub2.merchant, merchant_a);
+}
+
+#[test]
+fn test_subscribe_overwrites_cancelled_subscription() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // 1. Subscribe
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    
+    // 2. Cancel
+    client.cancel(&user);
+    let sub_cancelled = client.get_subscription(&user).unwrap();
+    assert!(!sub_cancelled.active);
+
+    // 3. Subscribe again
+    client.subscribe(&user, &merchant, &2_0000000, &172800, &token_addr, &None, &None);
+    
+    // 4. Verify new subscription is active
+    let sub_new = client.get_subscription(&user).unwrap();
+    assert!(sub_new.active);
+    assert_eq!(sub_new.amount, 2_0000000);
 }
