@@ -170,6 +170,15 @@ fn test_pay_per_use_inactive() {
     client.pay_per_use(&user, &1_0000000);
 }
 
+#[test]
+#[should_panic(expected = "no subscription found")]
+fn test_pay_per_use_nonexistent() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let random = Address::generate(&env);
+    client.pay_per_use(&random, &1_0000000);
+}
+
 // ─────────────────────────────────────────────
 // Edge cases
 // ─────────────────────────────────────────────
