@@ -720,3 +720,25 @@ fn test_resubscribe() {
     // Verify old merchant is gone
     assert_ne!(sub2.merchant, merchant_a);
 }
+
+#[test]
+fn test_subscribe_overwrites_cancelled_subscription() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // 1. Subscribe
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    
+    // 2. Cancel
+    client.cancel(&user);
+    let sub_cancelled = client.get_subscription(&user).unwrap();
+    assert!(!sub_cancelled.active);
+
+    // 3. Subscribe again
+    client.subscribe(&user, &merchant, &2_0000000, &172800, &token_addr, &None, &None);
+    
+    // 4. Verify new subscription is active
+    let sub_new = client.get_subscription(&user).unwrap();
+    assert!(sub_new.active);
+    assert_eq!(sub_new.amount, 2_0000000);
+}
