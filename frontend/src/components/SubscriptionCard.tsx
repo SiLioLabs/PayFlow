@@ -30,7 +30,12 @@ export default function SubscriptionCard({
   return (
     <div className="card">
       <div className="subscription-card__header">
-        <h2 className="subscription-card__title">Your Subscription</h2>
+        <div>
+          <h2 className="subscription-card__title">Your Subscription</h2>
+          {subscription.label && (
+            <p className="subscription-card__label">{subscription.label}</p>
+          )}
+        </div>
         <span className={`badge ${active ? "badge-active" : "badge-inactive"}`}>
           {active ? "Active" : "Cancelled"}
         </span>

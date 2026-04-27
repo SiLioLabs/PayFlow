@@ -589,3 +589,55 @@ input::placeholder {
   font-size: var(--text-sm);
   color: var(--color-text);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Subscription Card Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.subscription-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-6);
+}
+
+.subscription-card__title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--color-text);
+}
+
+.subscription-card__label {
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+  margin-top: var(--space-1);
+}
+
+.subscription-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.subscription-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.subscription-row__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.subscription-row__value {
+  font-size: var(--text-base);
+  color: var(--color-text);
+  font-weight: var(--font-medium);
+}
+
+.cancel-btn {
+  width: 100%;
+}

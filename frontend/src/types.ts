@@ -4,4 +4,5 @@ export interface Subscription {
   interval: number;
   last_charged: number;
   active: boolean;
+  label?: string;
 }

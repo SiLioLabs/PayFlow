@@ -140,13 +140,52 @@ export async function getSubscription(user: string) {
     }
   }
 
-  return fields as {
-    merchant: string;
-    amount: string;
-    interval: number;
-    last_charged: number;
-    active: boolean;
+  const label = await getSubscriptionMetadata(user);
+
+  return {
+    ...(fields as {
+      merchant: string;
+      amount: string;
+      interval: number;
+      last_charged: number;
+      active: boolean;
+    }),
+    label: label || undefined,
   };
+}
+
+export async function getSubscriptionMetadata(user: string): Promise<string | null> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const account = await server.getAccount(user);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call("get_metadata", addressVal(user)))
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return null;
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval || retval.switch().name === "scvVoid") return null;
+
+    // According to Soroban SDK, strings are returned as ScVal string
+    return retval.str().toString();
+  } catch (error) {
+    console.error("Error fetching subscription metadata:", error);
+    return null;
+  }
+}
+
+export async function getMerchantSubscribers(merchant: string): Promise<MerchantSubscriber[]> {
+  // Placeholder: this would ideally fetch from an indexer or contract events.
+  // For now return empty to satisfy build.
+  console.log("Fetching subscribers for merchant:", merchant);
+  return [];
 }
 
 export async function getBalance(publicKey: string): Promise<string> {
