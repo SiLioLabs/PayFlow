@@ -672,6 +672,22 @@ fn test_double_initialize() {
 }
 
 #[test]
+fn test_initialize_without_valid_token() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Using a user address instead of a token contract address.
+    // The contract currently does not validate if the address is a valid token contract
+    // or even if it's a contract at all.
+    let invalid_token = Address::generate(&env);
+    
+    client.initialize(&invalid_token);
+    
+    // Success means it didn't panic, which is the current expected behavior.
+}
+
+#[test]
 fn test_resubscribe() {
     let (env, contract_id, token_addr, user, merchant_a) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
