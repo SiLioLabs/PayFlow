@@ -188,6 +188,17 @@ export async function getMerchantSubscribers(merchant: string): Promise<Merchant
   return [];
 }
 
+export async function getAllowance(user: string, _tokenId: string): Promise<bigint> {
+  try {
+    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${user}`);
+    const data = await resp.json();
+    const native = data.balances?.find((b: any) => b.asset_type === "native");
+    return native ? BigInt(Math.floor(parseFloat(native.balance) * 1e7)) : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
 export async function getBalance(publicKey: string): Promise<string> {
   try {
     const horizonUrl = "https://horizon-testnet.stellar.org";
