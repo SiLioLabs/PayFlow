@@ -74,6 +74,42 @@ fn test_subscribe_and_charge() {
     assert!(sub_after.last_charged > 0);
 }
 
+/// charge() must decrease user balance and increase merchant balance by exactly the subscription amount.
+#[test]
+fn test_charge_exact_transfer_amount() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let user_balance_before = token.balance(&user);
+    let merchant_balance_before = token.balance(&merchant);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    client.charge(&user);
+
+    let user_balance_after = token.balance(&user);
+    let merchant_balance_after = token.balance(&merchant);
+
+    assert_eq!(
+        user_balance_before - user_balance_after,
+        amount,
+        "user balance should decrease by exactly the subscription amount"
+    );
+    assert_eq!(
+        merchant_balance_after - merchant_balance_before,
+        amount,
+        "merchant balance should increase by exactly the subscription amount"
+    );
+}
+
 /// subscribe() must store all Subscription fields exactly as provided.
 #[test]
 fn test_subscription_struct_fields_match_input() {
