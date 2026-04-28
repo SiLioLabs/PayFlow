@@ -1,39 +1,48 @@
 import { useState, useCallback } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 
-interface ValidationErrors {
+export interface FormFields {
+  merchant: string;
+  amount: string;
+  interval: number;
+}
+
+export interface FormErrors {
   merchant?: string;
   amount?: string;
   interval?: string;
 }
 
-export function useFormValidation() {
-  const [errors, setErrors] = useState<ValidationErrors>({});
+interface UseFormValidationResult {
+  errors: FormErrors;
+  validate: (fields: FormFields) => boolean;
+  isValid: boolean;
+}
 
-  const validate = useCallback((data: { merchant: string; amount: string; interval: number }) => {
-    const newErrors: ValidationErrors = {};
+export function useFormValidation(): UseFormValidationResult {
+  const [errors, setErrors] = useState<FormErrors>({});
 
-    if (!data.merchant) {
-      newErrors.merchant = "Merchant address is required";
-    } else if (!StrKey.isValidEd25519PublicKey(data.merchant)) {
-      newErrors.merchant = "Invalid Stellar address";
+  const validate = useCallback((fields: FormFields): boolean => {
+    const next: FormErrors = {};
+
+    if (!fields.merchant) {
+      next.merchant = "Merchant address is required.";
+    } else if (!StrKey.isValidEd25519PublicKey(fields.merchant)) {
+      next.merchant = "Invalid Stellar address.";
     }
 
-    if (!data.amount) {
-      newErrors.amount = "Amount is required";
-    } else if (parseFloat(data.amount) <= 0) {
-      newErrors.amount = "Amount must be greater than 0";
+    const amt = parseFloat(fields.amount);
+    if (!fields.amount || isNaN(amt) || amt <= 0) {
+      next.amount = "Amount must be greater than 0.";
     }
 
-    if (data.interval <= 0) {
-      newErrors.interval = "Interval must be greater than 0";
+    if (!fields.interval || fields.interval <= 0) {
+      next.interval = "Interval must be greater than 0.";
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(next);
+    return Object.keys(next).length === 0;
   }, []);
 
-  const isValid = Object.keys(errors).length === 0;
-
-  return { errors, validate, isValid };
+  return { errors, validate, isValid: Object.keys(errors).length === 0 };
 }

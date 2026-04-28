@@ -8,9 +8,10 @@ interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   onSuccess: () => void;
+  announce: (message: string) => void;
 }
 
-export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
+export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
@@ -20,6 +21,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!validate({ merchant, amount, interval })) return;
     setStatus(null);
 
     if (!validate({ merchant, amount, interval })) {
@@ -27,15 +29,21 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
     }
 
     setLoading(true);
+    announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
-      setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
+      const msg = `Subscribed! tx: ${hash.slice(0, 12)}…`;
+      setStatus(msg);
+      announce("Transaction confirmed");
       onSuccess();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setStatus(`Error: ${friendlyError(rawMessage)}`);
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setStatus(msg);
+      announce(msg);
     } finally {
       setLoading(false);
     }

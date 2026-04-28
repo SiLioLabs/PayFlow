@@ -84,7 +84,8 @@ If you discover a security vulnerability in FlowPay, please do **not** open a pu
 
 Instead, report it privately:
 
-- **Email:** [leave blank — add your contact email]
+- **GitHub Security Advisories:** Use the "Security" tab in this repository to report a vulnerability privately
+- **Email:** security@payflow.dev (for urgent or sensitive reports)
 - **Subject:** `[FlowPay Security] Brief description`
 
 Please include:
@@ -94,7 +95,7 @@ Please include:
 - The potential impact
 - Any suggested mitigations
 
-We will acknowledge your report within 48 hours and aim to release a fix within 7 days for critical issues.
+We will acknowledge your report within 48 hours and aim to release a fix within 14 days for critical issues, depending on complexity.
 
 We appreciate responsible disclosure and will credit researchers in the release notes unless they prefer to remain anonymous.
 
