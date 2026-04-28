@@ -8,6 +8,7 @@ import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
+import { useAccessibility } from "../hooks/useAccessibility";
 
 interface Props {
   userKey: string;
@@ -26,6 +27,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const { announce } = useAccessibility();
 
   usePolling({
     callback: refresh,
@@ -38,6 +40,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
     setActionStatus(null);
     announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       const msg = `Cancelled. tx: ${hash.slice(0, 12)}…`;
@@ -61,6 +64,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
     setPpuLoading(true);
     announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const xdr = await buildPayPerUseTx(userKey, stroops);
       const hash = await onSign(xdr);
       const msg = `Paid! tx: ${hash.slice(0, 12)}…`;

@@ -26,6 +26,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
     setLoading(true);
     announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
