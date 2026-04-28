@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useWallet } from "./hooks/useWallet";
 import { useTheme } from "./hooks/useTheme";
+import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useContractId } from "./hooks/useContractId";
@@ -43,7 +44,7 @@ export default function App() {
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
   const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
-  const [tab, setTab] = useState<"subscribe" | "dashboard" | "merchant">("dashboard");
+  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_active_tab", "dashboard");
   const [refresh, setRefresh] = useState(0);
 
   return (
