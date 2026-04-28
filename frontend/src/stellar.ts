@@ -14,7 +14,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
-import type { Subscription } from "./types";
+import type { Subscription, ChargeEvent } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -251,6 +251,81 @@ export async function getEvents(user: string) {
       .filter((event: any) => event.type.toLowerCase().includes(user.slice(0, 5)));
   } catch (error) {
     console.error("Error fetching events:", error);
+    return [];
+  }
+}
+
+// ── Charge History ──────────────────────────────────────────────────────────────
+
+export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [
+        {
+          type: "contract",
+          contractIds: [CONTRACT_ID],
+        },
+      ],
+      limit: 50,
+    });
+
+    return response.events
+      .filter((event: any) => {
+        // Filter for "charged" events
+        if (!event.topic || event.topic.length < 2) return false;
+        const eventType = event.topic[0]?.toString();
+        if (eventType !== "charged") return false;
+
+        // Filter for events related to this user
+        const eventUser = event.topic[1]?.toString();
+        return eventUser === user;
+      })
+      .map((event: any) => {
+        let merchant = "";
+        let amount = "0";
+        let timestamp = 0;
+
+        try {
+          // Extract data from event.value
+          // Contract event data structure: (merchant: Address, amount: i128, charged_at: u64)
+          if (event.value) {
+            const val = event.value;
+
+            // Extract merchant from data
+            if (val?._value?.merchant) {
+              merchant = val._value.merchant.toString();
+            }
+
+            // Extract amount from data
+            if (val?._value?.amount) {
+              amount = val._value.amount.toString();
+            }
+
+            // Extract timestamp (charged_at) from data
+            if (val?._value?.charged_at) {
+              timestamp = Number(val._value.charged_at);
+            }
+          }
+
+          // Fallback: use ledgerCloseTime if no charged_at in data
+          if (timestamp === 0 && event.ledgerCloseTime) {
+            timestamp = event.ledgerCloseTime;
+          }
+        } catch (e) {
+          console.warn("Charge event parsing failed:", e);
+        }
+
+        return {
+          date: new Date(timestamp * 1000),
+          amount,
+          txHash: event.txHash || event.id || "",
+          merchant,
+        };
+      })
+      .sort((a: ChargeEvent, b: ChargeEvent) => b.date.getTime() - a.date.getTime());
+  } catch (error) {
+    console.error("Error fetching charge history:", error);
     return [];
   }
 }
