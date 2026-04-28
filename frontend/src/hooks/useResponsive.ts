@@ -1,31 +1,18 @@
 import { useState, useEffect } from "react";
 
-interface Breakpoints {
-  isMobile: boolean;
-  isTablet: boolean;
-  isDesktop: boolean;
-}
-
-export function useResponsive(): Breakpoints {
-  const [breakpoints, setBreakpoints] = useState<Breakpoints>({
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
+export function useResponsive() {
+  const getBreakpoints = () => ({
+    isMobile: window.matchMedia("(max-width: 639px)").matches,
+    isTablet: window.matchMedia("(min-width: 640px) and (max-width: 1023px)").matches,
+    isDesktop: window.matchMedia("(min-width: 1024px)").matches,
   });
 
-  useEffect(() => {
-    const updateBreakpoints = () => {
-      const width = window.innerWidth;
-      setBreakpoints({
-        isMobile: width < 768,
-        isTablet: width >= 768 && width < 1024,
-        isDesktop: width >= 1024,
-      });
-    };
+  const [breakpoints, setBreakpoints] = useState(getBreakpoints);
 
-    updateBreakpoints();
-    window.addEventListener("resize", updateBreakpoints);
-    return () => window.removeEventListener("resize", updateBreakpoints);
+  useEffect(() => {
+    const handler = () => setBreakpoints(getBreakpoints());
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
   }, []);
 
   return breakpoints;
