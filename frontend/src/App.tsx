@@ -5,6 +5,7 @@ import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useContractId } from "./hooks/useContractId";
 import { useRpcHealth } from "./hooks/useRpcHealth";
+import { useSubscriberCount } from "./hooks/useSubscriberCount";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import MerchantDashboard from "./components/MerchantDashboard";
@@ -43,6 +44,7 @@ export default function App() {
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
   const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
+  const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();
   const [tab, setTab] = useState<"subscribe" | "dashboard" | "merchant">("dashboard");
   const [refresh, setRefresh] = useState(0);
 
@@ -52,7 +54,14 @@ export default function App() {
       <div className="app-header">
         <div>
           <h1 className="app-header__title">⚡ FlowPay</h1>
-          <p className="app-header__subtitle">Decentralized recurring payments on Stellar</p>
+          <p className="app-header__subtitle">
+            Decentralized recurring payments on Stellar
+            {!subscriberCountLoading && (
+              <span style={{ marginLeft: "8px", opacity: 0.7 }}>
+                • {subscriberCount} active subscriber{subscriberCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </p>
         </div>
         <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
           {theme === "dark" ? <SunIcon /> : <MoonIcon />}
