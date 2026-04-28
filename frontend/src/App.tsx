@@ -5,6 +5,7 @@ import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useContractId } from "./hooks/useContractId";
 import { useRpcHealth } from "./hooks/useRpcHealth";
+import { useResponsive } from "./hooks/useResponsive";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import MerchantDashboard from "./components/MerchantDashboard";
@@ -43,6 +44,7 @@ export default function App() {
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
   const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
+  const { isMobile } = useResponsive();
   const [tab, setTab] = useState<"subscribe" | "dashboard" | "merchant">("dashboard");
   const [refresh, setRefresh] = useState(0);
 

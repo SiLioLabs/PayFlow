@@ -641,3 +641,74 @@ input::placeholder {
 .cancel-btn {
   width: 100%;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive Design
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Mobile: < 768px */
+@media (max-width: 767px) {
+  .app-shell {
+    padding: var(--space-3);
+  }
+
+  .app-header {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .card {
+    padding: var(--space-4);
+  }
+
+  .wallet-bar__content {
+    flex-direction: column;
+    gap: var(--space-4);
+    align-items: flex-start;
+  }
+
+  .card.wallet-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  button {
+    width: 100%;
+  }
+
+  .subscription-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+}
+
+/* Tablet: 768px - 1023px */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-shell {
+    padding: var(--space-4);
+  }
+
+  .card {
+    padding: var(--space-5);
+  }
+
+  .wallet-bar__content {
+    gap: var(--space-6);
+  }
+}
+
+/* Desktop: >= 1024px */
+@media (min-width: 1024px) {
+  .app-shell {
+    padding: var(--space-6);
+  }
+
+  .card {
+    padding: var(--space-6);
+  }
+
+  .wallet-bar__content {
+    gap: var(--space-8);
+  }
+}
