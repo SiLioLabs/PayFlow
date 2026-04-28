@@ -9,6 +9,7 @@ import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useContractId } from "./hooks/useContractId";
 import { useRpcHealth } from "./hooks/useRpcHealth";
 import { useSubscriberCount } from "./hooks/useSubscriberCount";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import MerchantDashboard from "./components/MerchantDashboard";
@@ -40,6 +41,16 @@ function MoonIcon() {
   );
 }
 
+function HelpIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
 export default function App() {
   const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
   const { theme, toggle } = useTheme();
@@ -51,6 +62,34 @@ export default function App() {
   const { announcement, announce } = useAccessibility();
   const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_tab", "dashboard");
   const [refresh, setRefresh] = useState(0);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Keyboard shortcuts
+  const shortcuts = useKeyboardShortcuts({
+    enabled: !!publicKey,
+    shortcuts: [
+      {
+        key: "d",
+        description: "Switch to Dashboard",
+        action: () => setTab("dashboard"),
+      },
+      {
+        key: "s",
+        description: "Switch to Subscribe",
+        action: () => setTab("subscribe"),
+      },
+      {
+        key: "m",
+        description: "Switch to Merchant",
+        action: () => setTab("merchant"),
+      },
+      {
+        key: "?",
+        description: "Show keyboard shortcuts",
+        action: () => setShowHelp((prev) => !prev),
+      },
+    ],
+  });
 
   return (
     <div className={`app-shell${isMobile ? " app-shell--mobile" : ""}`}>
@@ -72,10 +111,85 @@ export default function App() {
             )}
           </p>
         </div>
-        <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          {publicKey && (
+            <button
+              className="btn-secondary theme-toggle"
+              onClick={() => setShowHelp((prev) => !prev)}
+              aria-label="Show keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+            >
+              <HelpIcon />
+            </button>
+          )}
+          <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+        </div>
       </div>
+
+      {/* Keyboard shortcuts help */}
+      {showHelp && publicKey && (
+        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+          <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Keyboard Shortcuts</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {shortcuts.map((shortcut) => (
+                <div
+                  key={shortcut.key}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "16px",
+                  }}
+                >
+                  <span>{shortcut.description}</span>
+                  <kbd
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      backgroundColor: "var(--color-bg-secondary)",
+                      border: "1px solid var(--color-border)",
+                      fontFamily: "monospace",
+                      fontSize: "14px",
+                    }}
+                  >
+                    {shortcut.key}
+                  </kbd>
+                </div>
+              ))}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "16px",
+                }}
+              >
+                <span>Close modals</span>
+                <kbd
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                    backgroundColor: "var(--color-bg-secondary)",
+                    border: "1px solid var(--color-border)",
+                    fontFamily: "monospace",
+                    fontSize: "14px",
+                  }}
+                >
+                  Esc
+                </kbd>
+              </div>
+            </div>
+            <div style={{ marginTop: "16px", textAlign: "right" }}>
+              <button className="btn-secondary" onClick={() => setShowHelp(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Contract ID error */}
       {!contractIdValid && contractIdError && (
