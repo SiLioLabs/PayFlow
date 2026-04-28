@@ -3,6 +3,7 @@ import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCardSkeleton from "./Skeleton";
 import SubscriptionCard from "./SubscriptionCard";
+import SubscriptionHistory from "./SubscriptionHistory";
 import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
@@ -77,7 +78,10 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
           <SubscriptionCard subscription={sub} onCancel={handleCancel} />
 
           {sub.active && (
-            <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+            <>
+              <SubscriptionHistory userKey={userKey} />
+              <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+            </>
           )}
         </>
       )}

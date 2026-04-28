@@ -6,3 +6,10 @@ export interface Subscription {
   active: boolean;
   label?: string;
 }
+
+export interface ChargeEvent {
+  date: Date;
+  amount: string;
+  txHash: string;
+  merchant: string;
+}
