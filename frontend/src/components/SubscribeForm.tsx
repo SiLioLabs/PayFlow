@@ -23,6 +23,11 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
     e.preventDefault();
     if (!validate({ merchant, amount, interval })) return;
     setStatus(null);
+
+    if (!validate({ merchant, amount, interval })) {
+      return;
+    }
+
     setLoading(true);
     announce("Transaction submitted");
     try {
@@ -82,6 +87,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
             </option>
           ))}
         </select>
+        {errors.interval && <span className="text-error">{errors.interval}</span>}
       </label>
 
       <button type="submit" disabled={loading} className="btn-primary subscribe-form__submit">
