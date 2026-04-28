@@ -170,6 +170,33 @@ fn test_pay_per_use_inactive() {
     client.pay_per_use(&user, &1_0000000);
 }
 
+/// pay_per_use() must not update last_charged, confirming it is independent of the recurring billing cycle.
+#[test]
+fn test_pay_per_use_does_not_update_last_charged() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let sub_before = client.get_subscription(&user).unwrap();
+    let last_charged_before = sub_before.last_charged;
+
+    // Advance ledger time so we can verify last_charged isn't simply matching the current time
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1000;
+    });
+
+    client.pay_per_use(&user, &5_0000000);
+
+    let sub_after = client.get_subscription(&user).unwrap();
+    assert_eq!(
+        sub_after.last_charged, last_charged_before,
+        "pay_per_use should not update last_charged"
+    );
+}
+
 #[test]
 #[should_panic(expected = "no subscription found")]
 fn test_pay_per_use_nonexistent() {
