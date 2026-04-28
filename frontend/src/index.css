@@ -641,3 +641,10 @@ input::placeholder {
 .cancel-btn {
   width: 100%;
 }
+
+.text-error {
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  margin-top: var(--space-1);
+  display: block;
+}
