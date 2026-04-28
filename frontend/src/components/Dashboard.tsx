@@ -13,9 +13,10 @@ interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
+  announce: (message: string) => void;
 }
 
-export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
+export default function Dashboard({ userKey, onSign, refreshTrigger, announce }: Props) {
   const {
     subscription: sub,
     loading,
@@ -35,14 +36,19 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   async function performCancel() {
     setShowConfirm(false);
     setActionStatus(null);
+    announce("Transaction submitted");
     try {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
-      setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
+      const msg = `Cancelled. tx: ${hash.slice(0, 12)}…`;
+      setActionStatus(msg);
+      announce("Transaction confirmed");
       refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setActionStatus(msg);
+      announce(msg);
     }
   }
 
@@ -53,13 +59,18 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   async function handlePayPerUse(stroops: bigint) {
     setActionStatus(null);
     setPpuLoading(true);
+    announce("Transaction submitted");
     try {
       const xdr = await buildPayPerUseTx(userKey, stroops);
       const hash = await onSign(xdr);
-      setActionStatus(`Paid! tx: ${hash.slice(0, 12)}…`);
+      const msg = `Paid! tx: ${hash.slice(0, 12)}…`;
+      setActionStatus(msg);
+      announce("Transaction confirmed");
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setActionStatus(msg);
+      announce(msg);
     } finally {
       setPpuLoading(false);
     }

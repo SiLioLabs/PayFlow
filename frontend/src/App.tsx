@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { useWallet } from "./hooks/useWallet";
 import { useTheme } from "./hooks/useTheme";
+import { useLocalStorage } from "./hooks/useLocalStorage";
+import { useResponsive } from "./hooks/useResponsive";
+import { useAccessibility } from "./hooks/useAccessibility";
 import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useContractId } from "./hooks/useContractId";
@@ -43,11 +46,18 @@ export default function App() {
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
   const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
-  const [tab, setTab] = useState<"subscribe" | "dashboard" | "merchant">("dashboard");
+  const { isMobile } = useResponsive();
+  const { announcement, announce } = useAccessibility();
+  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_tab", "dashboard");
   const [refresh, setRefresh] = useState(0);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isMobile ? " app-shell--mobile" : ""}`}>
+      {/* ARIA live region for screen reader announcements */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
+
       {/* Header */}
       <div className="app-header">
         <div>
@@ -128,6 +138,7 @@ export default function App() {
                   setTab("dashboard");
                   setRefresh((r) => r + 1);
                 }}
+                announce={announce}
               />
             ) : tab === "merchant" ? (
               <MerchantDashboard
@@ -139,6 +150,7 @@ export default function App() {
                 userKey={publicKey}
                 onSign={signAndSubmit}
                 refreshTrigger={refresh}
+                announce={announce}
               />
             )}
           </div>
