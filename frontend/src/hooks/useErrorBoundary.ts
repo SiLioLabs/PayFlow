@@ -1,13 +1,21 @@
 import { useState, useCallback } from "react";
 
-export function useErrorBoundary() {
+interface UseErrorBoundaryResult {
+  error: Error | null;
+  captureError: (error: Error) => void;
+  reset: () => void;
+}
+
+export function useErrorBoundary(): UseErrorBoundaryResult {
   const [error, setError] = useState<Error | null>(null);
 
-  const throwError = useCallback((err: unknown) => {
-    setError(err instanceof Error ? err : new Error(String(err)));
+  const captureError = useCallback((err: Error) => {
+    setError(err);
   }, []);
 
-  if (error) throw error;
+  const reset = useCallback(() => {
+    setError(null);
+  }, []);
 
-  return { throwError };
+  return { error, captureError, reset };
 }

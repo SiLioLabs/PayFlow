@@ -16,22 +16,22 @@ export function useContractEvents(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchEvents(eventName, address);
-      setEvents(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      const result = await fetchEvents(eventName, address);
+      setEvents(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch events");
     } finally {
       setLoading(false);
     }
   }, [eventName, address]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    load();
+  }, [load]);
 
-  return { events, loading, error, refresh };
+  return { events, loading, error, refresh: load };
 }

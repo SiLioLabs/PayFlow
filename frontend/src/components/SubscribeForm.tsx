@@ -2,34 +2,47 @@ import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
-import { useToast } from "../hooks/useToast";
-import ToastContainer from "./Toast";
+import { useFormValidation } from "../hooks/useFormValidation";
 
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   onSuccess: () => void;
+  announce: (message: string) => void;
 }
 
-export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
+export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [loading, setLoading] = useState(false);
-  const { toasts, addToast, removeToast } = useToast();
+  const { errors, validate } = useFormValidation();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!validate({ merchant, amount, interval })) return;
+    setStatus(null);
+
+    if (!validate({ merchant, amount, interval })) {
+      return;
+    }
+
     setLoading(true);
+    announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
-      addToast(`Subscribed! tx: ${hash.slice(0, 12)}…`, "success");
+      const msg = `Subscribed! tx: ${hash.slice(0, 12)}…`;
+      setStatus(msg);
+      announce("Transaction confirmed");
       onSuccess();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      addToast(friendlyError(rawMessage), "error");
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setStatus(msg);
+      announce(msg);
     } finally {
       setLoading(false);
     }
@@ -47,6 +60,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
           onChange={(e) => setMerchant(e.target.value)}
           required
         />
+        {errors.merchant && <span className="text-error">{errors.merchant}</span>}
       </label>
 
       <label className="form-group">
@@ -60,6 +74,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
           onChange={(e) => setAmount(e.target.value)}
           required
         />
+        {errors.amount && <span className="text-error">{errors.amount}</span>}
       </label>
 
       <label className="form-group">
@@ -71,6 +86,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
             </option>
           ))}
         </select>
+        {errors.interval && <span className="text-error">{errors.interval}</span>}
       </label>
 
       <button type="submit" disabled={loading} className="btn-primary subscribe-form__submit">

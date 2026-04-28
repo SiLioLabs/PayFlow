@@ -1,5 +1,5 @@
 // ConfirmModal: accessible confirmation dialog with fade+scale entrance animation (#58)
-import React from "react";
+import React, { useEffect } from "react";
 
 interface Props {
   message: string;
@@ -8,6 +8,17 @@ interface Props {
 }
 
 export default function ConfirmModal({ message, onConfirm, onCancel }: Props) {
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onCancel]);
+
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-card card" onClick={(e) => e.stopPropagation()}>

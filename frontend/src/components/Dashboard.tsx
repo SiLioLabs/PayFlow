@@ -8,16 +8,16 @@ import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
-import { useToast } from "../hooks/useToast";
-import ToastContainer from "./Toast";
+import { useAccessibility } from "../hooks/useAccessibility";
 
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
+  announce: (message: string) => void;
 }
 
-export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
+export default function Dashboard({ userKey, onSign, refreshTrigger, announce }: Props) {
   const {
     subscription: sub,
     loading,
@@ -26,7 +26,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const { toasts, addToast, removeToast } = useToast();
+  const { announce } = useAccessibility();
 
   usePolling({
     callback: refresh,
@@ -36,14 +36,21 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   async function performCancel() {
     setShowConfirm(false);
+    setActionStatus(null);
+    announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
-      addToast(`Cancelled. tx: ${hash.slice(0, 12)}…`, "info");
+      const msg = `Cancelled. tx: ${hash.slice(0, 12)}…`;
+      setActionStatus(msg);
+      announce("Transaction confirmed");
       refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      addToast(friendlyError(rawMessage), "error");
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setActionStatus(msg);
+      announce(msg);
     }
   }
 
@@ -53,13 +60,19 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   async function handlePayPerUse(stroops: bigint) {
     setPpuLoading(true);
+    announce("Transaction submitted");
     try {
+      announce("Transaction submitted");
       const xdr = await buildPayPerUseTx(userKey, stroops);
       const hash = await onSign(xdr);
-      addToast(`Paid! tx: ${hash.slice(0, 12)}…`, "success");
+      const msg = `Paid! tx: ${hash.slice(0, 12)}…`;
+      setActionStatus(msg);
+      announce("Transaction confirmed");
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      addToast(friendlyError(rawMessage), "error");
+      const msg = `Error: ${friendlyError(rawMessage)}`;
+      setActionStatus(msg);
+      announce(msg);
     } finally {
       setPpuLoading(false);
     }
