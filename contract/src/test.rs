@@ -74,6 +74,31 @@ fn test_subscribe_and_charge() {
     assert!(sub_after.last_charged > 0);
 }
 
+/// subscribe() must store all Subscription fields exactly as provided.
+#[test]
+fn test_subscription_struct_fields_match_input() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 30 * 24 * 60 * 60; // 30 days
+
+    let subscribe_time = env.ledger().timestamp();
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let sub = client.get_subscription(&user).unwrap();
+
+    assert_eq!(sub.merchant, merchant, "merchant should match");
+    assert_eq!(sub.amount, amount, "amount should match");
+    assert_eq!(sub.interval, interval, "interval should match");
+    assert!(sub.active, "subscription should be active");
+    assert!(!sub.paused, "subscription should not be paused");
+    assert_eq!(sub.token, token_addr, "token should match");
+    // last_charged is set to subscribe time when no trial period
+    assert_eq!(sub.last_charged, subscribe_time, "last_charged should be set to subscribe time");
+}
+
 #[test]
 fn test_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
