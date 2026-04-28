@@ -201,6 +201,17 @@ export async function getBalance(publicKey: string): Promise<string> {
   }
 }
 
+export async function getAllowance(user: string, _tokenId: string): Promise<bigint> {
+  try {
+    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${user}`);
+    const data = await resp.json();
+    const native = data.balances?.find((b: any) => b.asset_type === "native");
+    return native ? BigInt(Math.floor(parseFloat(native.balance) * 1e7)) : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────
 
 export async function getEvents(user: string) {

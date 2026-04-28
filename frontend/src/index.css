@@ -641,3 +641,26 @@ input::placeholder {
 .cancel-btn {
   width: 100%;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Error Boundary (Issue #163)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.error-boundary {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+
+.error-boundary__card {
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+}
+
+.error-boundary__icon {
+  display: block;
+  margin: 0 auto var(--space-4);
+}
