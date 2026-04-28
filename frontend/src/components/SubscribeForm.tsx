@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
+import { useAccessibility } from "../hooks/useAccessibility";
 
 interface Props {
   userKey: string;
@@ -15,20 +16,25 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { announce } = useAccessibility();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus(null);
     setLoading(true);
     try {
+      announce("Transaction submitted");
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
+      announce("Transaction confirmed");
       setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       onSuccess();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setStatus(`Error: ${friendlyError(rawMessage)}`);
+      const friendlyMsg = friendlyError(rawMessage);
+      announce(`Error: ${friendlyMsg}`);
+      setStatus(`Error: ${friendlyMsg}`);
     } finally {
       setLoading(false);
     }
