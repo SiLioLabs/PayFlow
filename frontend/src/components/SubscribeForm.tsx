@@ -15,7 +15,6 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { errors, validate } = useFormValidation();
 
@@ -94,17 +93,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
         {loading ? "Signing…" : "Subscribe"}
       </button>
 
-      {status && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
-        <p
-          className="form-status"
-          style={{
-            color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)",
-          }}
-        >
-          {status}
-        </p>
-      )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </form>
   );
 }

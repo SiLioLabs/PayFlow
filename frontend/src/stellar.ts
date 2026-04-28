@@ -270,6 +270,48 @@ export async function fetchEvents(
 
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────
 
+export interface ContractEvent {
+  type: string;
+  address: string;
+  amount: string;
+  timestamp: string;
+  txHash: string;
+}
+
+export async function fetchEvents(
+  eventName: string,
+  address?: string
+): Promise<ContractEvent[]> {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
+      limit: 50,
+    });
+
+    return response.events
+      .filter((event: any) => {
+        if (!event.topic || event.topic.length < 1) return false;
+        const name = event.topic[0]?.toString() ?? "";
+        if (name !== eventName) return false;
+        if (address && event.topic[1]?.toString() !== address) return false;
+        return true;
+      })
+      .map((event: any) => ({
+        type: event.topic[0]?.toString() ?? "unknown",
+        address: event.topic[1]?.toString() ?? "",
+        amount: event.value?._value?.amount?.toString() ?? "0",
+        timestamp: event.ledgerCloseTime
+          ? new Date(event.ledgerCloseTime * 1000).toISOString()
+          : new Date().toISOString(),
+        txHash: event.txHash ?? event.id ?? "",
+      }));
+  } catch (error) {
+    console.error("fetchEvents error:", error);
+    return [];
+  }
+}
+
 export async function getEvents(user: string) {
   try {
     const response = await server.getEvents({
@@ -319,6 +361,40 @@ export async function getEvents(user: string) {
   } catch (error) {
     console.error("Error fetching events:", error);
     return [];
+  }
+}
+
+// ── Allowance ────────────────────────────────────────────────────────────────
+
+export async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
+  try {
+    const tokenContract = new Contract(tokenId);
+    const account = await server.getAccount(owner);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(
+        tokenContract.call(
+          "allowance",
+          addressVal(owner),
+          nativeToScVal(CONTRACT_ID, { type: "address" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return 0n;
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval || retval.switch().name === "scvVoid") return 0n;
+
+    return BigInt(retval.i128().toString());
+  } catch (error) {
+    console.error("Error fetching allowance:", error);
+    return 0n;
   }
 }
 

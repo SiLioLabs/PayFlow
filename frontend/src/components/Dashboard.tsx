@@ -24,7 +24,6 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
     refresh,
   } = useSubscription(userKey, refreshTrigger);
 
-  const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const { announce } = useAccessibility();
@@ -60,7 +59,6 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
   }
 
   async function handlePayPerUse(stroops: bigint) {
-    setActionStatus(null);
     setPpuLoading(true);
     announce("Transaction submitted");
     try {
@@ -101,18 +99,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
         </>
       )}
 
-      {actionStatus && (
-        <p
-          className="action-status"
-          style={{
-            color: actionStatus.startsWith("Error")
-              ? "var(--color-danger)"
-              : "var(--color-success)",
-          }}
-        >
-          {actionStatus}
-        </p>
-      )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       {showConfirm && (
         <ConfirmModal
