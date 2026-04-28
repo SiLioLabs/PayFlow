@@ -203,13 +203,58 @@ export async function getBalance(publicKey: string): Promise<string> {
 
 export async function getAllowance(user: string, _tokenId: string): Promise<bigint> {
   try {
-    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${user}`);
+    const horizonUrl = "https://horizon-testnet.stellar.org";
+    const resp = await fetch(`${horizonUrl}/accounts/${user}`);
     const data = await resp.json();
     const native = data.balances?.find((b: any) => b.asset_type === "native");
     return native ? BigInt(Math.floor(parseFloat(native.balance) * 1e7)) : 0n;
   } catch {
     return 0n;
   }
+}
+
+// ── Unified Event Fetching ────────────────────────────────────────────────────
+
+export interface ContractEvent {
+  eventName: string;
+  address: string;
+  data: unknown;
+  ledger: number;
+  timestamp: string;
+  txHash: string;
+}
+
+/**
+ * Fetch contract events by event name, optionally filtered by address.
+ * eventName matches the first topic (e.g. "subscribed", "charged", "cancelled", "pay_per_use").
+ */
+export async function fetchEvents(
+  eventName: string,
+  address?: string
+): Promise<ContractEvent[]> {
+  const response = await server.getEvents({
+    startLedger: undefined,
+    filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
+    limit: 100,
+  });
+
+  return response.events
+    .filter((event: any) => {
+      if (!event.topic || event.topic.length < 1) return false;
+      if (event.topic[0]?.toString() !== eventName) return false;
+      if (address && event.topic[1]?.toString() !== address) return false;
+      return true;
+    })
+    .map((event: any) => ({
+      eventName,
+      address: event.topic[1]?.toString() ?? "",
+      data: event.value,
+      ledger: event.ledger ?? 0,
+      timestamp: event.ledgerCloseTime
+        ? new Date(event.ledgerCloseTime * 1000).toISOString()
+        : new Date().toISOString(),
+      txHash: event.txHash ?? event.id ?? "",
+    }));
 }
 
 // ── NEW: Event Fetching ───────────────────────────────────────────────────────

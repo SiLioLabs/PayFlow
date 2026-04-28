@@ -643,24 +643,63 @@ input::placeholder {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Error Boundary (Issue #163)
+   Screen Reader Only Utility (Issue #169)
    ───────────────────────────────────────────────────────────────────────────── */
 
-.error-boundary {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive Layout (Issue #168)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.app-shell {
+  max-width: 680px;
+  margin: 0 auto;
   padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.error-boundary__card {
-  max-width: 480px;
-  width: 100%;
-  text-align: center;
+.app-shell--mobile {
+  padding: var(--space-3);
 }
 
-.error-boundary__icon {
-  display: block;
-  margin: 0 auto var(--space-4);
+.app-shell--mobile .card {
+  padding: var(--space-4);
+}
+
+.app-shell--mobile .app-header__title {
+  font-size: var(--text-xl);
+}
+
+@media (max-width: 639px) {
+  .app-shell {
+    padding: var(--space-3);
+  }
+
+  .card {
+    padding: var(--space-4);
+  }
+
+  .wallet-bar__content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .card.wallet-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
