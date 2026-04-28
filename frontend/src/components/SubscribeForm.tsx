@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
+import { useFormValidation } from "../hooks/useFormValidation";
 
 interface Props {
   userKey: string;
@@ -16,9 +17,11 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { errors, validate } = useFormValidation();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!validate({ merchant, amount, interval })) return;
     setStatus(null);
     setLoading(true);
     announce("Transaction submitted");
@@ -52,6 +55,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
           onChange={(e) => setMerchant(e.target.value)}
           required
         />
+        {errors.merchant && <span className="text-error">{errors.merchant}</span>}
       </label>
 
       <label className="form-group">
@@ -65,6 +69,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
           onChange={(e) => setAmount(e.target.value)}
           required
         />
+        {errors.amount && <span className="text-error">{errors.amount}</span>}
       </label>
 
       <label className="form-group">
