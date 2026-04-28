@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
+import { useToast } from "../hooks/useToast";
+import ToastContainer from "./Toast";
 
 interface Props {
   userKey: string;
@@ -13,22 +15,21 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { toasts, addToast, removeToast } = useToast();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setStatus(null);
     setLoading(true);
     try {
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
       const hash = await onSign(xdr);
-      setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
+      addToast(`Subscribed! tx: ${hash.slice(0, 12)}…`, "success");
       onSuccess();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setStatus(`Error: ${friendlyError(rawMessage)}`);
+      addToast(friendlyError(rawMessage), "error");
     } finally {
       setLoading(false);
     }
@@ -76,17 +77,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess }: Props) {
         {loading ? "Signing…" : "Subscribe"}
       </button>
 
-      {status && (
-        /* Dynamic: color is error/success state-driven — inline color is intentional */
-        <p
-          className="form-status"
-          style={{
-            color: status.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)",
-          }}
-        >
-          {status}
-        </p>
-      )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </form>
   );
 }

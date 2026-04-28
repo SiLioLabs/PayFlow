@@ -8,6 +8,8 @@ import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
 import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
+import { useToast } from "../hooks/useToast";
+import ToastContainer from "./Toast";
 
 interface Props {
   userKey: string;
@@ -22,9 +24,9 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
     refresh,
   } = useSubscription(userKey, refreshTrigger);
 
-  const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const { toasts, addToast, removeToast } = useToast();
 
   usePolling({
     callback: refresh,
@@ -34,15 +36,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   async function performCancel() {
     setShowConfirm(false);
-    setActionStatus(null);
     try {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
-      setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
+      addToast(`Cancelled. tx: ${hash.slice(0, 12)}…`, "info");
       refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+      addToast(friendlyError(rawMessage), "error");
     }
   }
 
@@ -51,15 +52,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
   }
 
   async function handlePayPerUse(stroops: bigint) {
-    setActionStatus(null);
     setPpuLoading(true);
     try {
       const xdr = await buildPayPerUseTx(userKey, stroops);
       const hash = await onSign(xdr);
-      setActionStatus(`Paid! tx: ${hash.slice(0, 12)}…`);
+      addToast(`Paid! tx: ${hash.slice(0, 12)}…`, "success");
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
-      setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+      addToast(friendlyError(rawMessage), "error");
     } finally {
       setPpuLoading(false);
     }
@@ -86,18 +86,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
         </>
       )}
 
-      {actionStatus && (
-        <p
-          className="action-status"
-          style={{
-            color: actionStatus.startsWith("Error")
-              ? "var(--color-danger)"
-              : "var(--color-success)",
-          }}
-        >
-          {actionStatus}
-        </p>
-      )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       {showConfirm && (
         <ConfirmModal
