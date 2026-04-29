@@ -60,6 +60,7 @@ export default function App() {
   const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const { announcement, announce } = useAccessibility();
+  const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();
   const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_tab", "dashboard");
   const [refresh, setRefresh] = useState(0);
   const [showHelp, setShowHelp] = useState(false);

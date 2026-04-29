@@ -3,6 +3,9 @@ import { buildSubscribeTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
 import { useFormValidation } from "../hooks/useFormValidation";
+import { useToast } from "../hooks/useToast";
+import { useTransaction } from "../hooks/useTransaction";
+import ToastContainer from "./Toast";
 
 interface Props {
   userKey: string;
@@ -15,38 +18,33 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const [loading, setLoading] = useState(false);
   const { errors, validate } = useFormValidation();
+  const { toasts, addToast, removeToast } = useToast();
+  const tx = useTransaction();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate({ merchant, amount, interval })) return;
-    setStatus(null);
 
-    if (!validate({ merchant, amount, interval })) {
-      return;
-    }
-
-    setLoading(true);
     announce("Transaction submitted");
-    try {
-      announce("Transaction submitted");
+    const hash = await tx.submit(async () => {
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
       const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
-      const hash = await onSign(xdr);
-      const msg = `Subscribed! tx: ${hash.slice(0, 12)}…`;
-      setStatus(msg);
+      return onSign(xdr);
+    });
+
+    if (hash) {
+      addToast(`Subscribed! tx: ${hash.slice(0, 12)}…`, "success");
       announce("Transaction confirmed");
       onSuccess();
-    } catch (e: unknown) {
-      const rawMessage = e instanceof Error ? e.message : String(e);
-      const msg = `Error: ${friendlyError(rawMessage)}`;
-      setStatus(msg);
+    } else if (tx.error) {
+      const msg = `Error: ${friendlyError(tx.error)}`;
+      addToast(msg, "error");
       announce(msg);
-    } finally {
-      setLoading(false);
     }
   }
+
+  const pending = tx.status === "pending";
 
   return (
     <form onSubmit={handleSubmit} className="subscribe-form">
@@ -89,8 +87,8 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
         {errors.interval && <span className="text-error">{errors.interval}</span>}
       </label>
 
-      <button type="submit" disabled={loading} className="btn-primary subscribe-form__submit">
-        {loading ? "Signing…" : "Subscribe"}
+      <button type="submit" disabled={pending} className="btn-primary subscribe-form__submit">
+        {pending ? "Confirming…" : "Subscribe"}
       </button>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />

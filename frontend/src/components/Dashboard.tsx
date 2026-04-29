@@ -6,9 +6,11 @@ import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionHistory from "./SubscriptionHistory";
 import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
+import ToastContainer from "./Toast";
 import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
-import { useAccessibility } from "../hooks/useAccessibility";
+import { useToast } from "../hooks/useToast";
+import { useTransaction } from "../hooks/useTransaction";
 
 interface Props {
   userKey: string;
@@ -18,67 +20,52 @@ interface Props {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger, announce }: Props) {
-  const {
-    subscription: sub,
-    loading,
-    refresh,
-  } = useSubscription(userKey, refreshTrigger);
-
-  const [ppuLoading, setPpuLoading] = useState(false);
+  const { subscription: sub, loading, refresh } = useSubscription(userKey, refreshTrigger);
+  const { toasts, addToast, removeToast } = useToast();
+  const cancelTx = useTransaction();
+  const ppuTx = useTransaction();
   const [showConfirm, setShowConfirm] = useState(false);
-  const { announce } = useAccessibility();
 
-  usePolling({
-    callback: refresh,
-    interval: 30000,
-    enabled: !!sub?.active,
-  });
+  usePolling({ callback: refresh, interval: 30000, enabled: !!sub?.active });
 
   async function performCancel() {
     setShowConfirm(false);
-    setActionStatus(null);
     announce("Transaction submitted");
-    try {
-      announce("Transaction submitted");
+    const hash = await cancelTx.submit(async () => {
       const xdr = await buildCancelTx(userKey);
-      const hash = await onSign(xdr);
-      const msg = `Cancelled. tx: ${hash.slice(0, 12)}…`;
-      setActionStatus(msg);
+      return onSign(xdr);
+    });
+    if (hash) {
+      addToast(`Cancelled. tx: ${hash.slice(0, 12)}…`, "success");
       announce("Transaction confirmed");
       refresh();
-    } catch (e: unknown) {
-      const rawMessage = e instanceof Error ? e.message : String(e);
-      const msg = `Error: ${friendlyError(rawMessage)}`;
-      setActionStatus(msg);
+    } else if (cancelTx.error) {
+      const msg = `Error: ${friendlyError(cancelTx.error)}`;
+      addToast(msg, "error");
       announce(msg);
     }
   }
 
-  function handleCancel() {
-    setShowConfirm(true);
-  }
-
   async function handlePayPerUse(stroops: bigint) {
-    setPpuLoading(true);
     announce("Transaction submitted");
-    try {
-      announce("Transaction submitted");
+    const hash = await ppuTx.submit(async () => {
       const xdr = await buildPayPerUseTx(userKey, stroops);
-      const hash = await onSign(xdr);
-      const msg = `Paid! tx: ${hash.slice(0, 12)}…`;
-      setActionStatus(msg);
+      return onSign(xdr);
+    });
+    if (hash) {
+      addToast(`Paid! tx: ${hash.slice(0, 12)}…`, "success");
       announce("Transaction confirmed");
-    } catch (e: unknown) {
-      const rawMessage = e instanceof Error ? e.message : String(e);
-      const msg = `Error: ${friendlyError(rawMessage)}`;
-      setActionStatus(msg);
+    } else if (ppuTx.error) {
+      const msg = `Error: ${friendlyError(ppuTx.error)}`;
+      addToast(msg, "error");
       announce(msg);
-    } finally {
-      setPpuLoading(false);
     }
   }
 
   if (loading) return <SubscriptionCardSkeleton />;
+
+  const cancelPending = cancelTx.status === "pending";
+  const ppuPending = ppuTx.status === "pending";
 
   return (
     <div className="dashboard">
@@ -88,12 +75,22 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
         </div>
       ) : (
         <>
-          <SubscriptionCard subscription={sub} onCancel={handleCancel} />
+          <SubscriptionCard
+            subscription={sub}
+            onCancel={() => setShowConfirm(true)}
+          />
+
+          {cancelPending && (
+            <p className="status-text status-text--pending">Confirming cancellation…</p>
+          )}
 
           {sub.active && (
             <>
               <SubscriptionHistory userKey={userKey} />
-              <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
+              <PayPerUseForm onPay={handlePayPerUse} loading={ppuPending} />
+              {ppuPending && (
+                <p className="status-text status-text--pending">Confirming payment…</p>
+              )}
             </>
           )}
         </>
