@@ -173,7 +173,6 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
 
-    // According to Soroban SDK, strings are returned as ScVal string
     return retval.str().toString();
   } catch (error) {
     console.error("Error fetching subscription metadata:", error);
@@ -182,189 +181,21 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
 }
 
 export async function getMerchantSubscribers(merchant: string): Promise<MerchantSubscriber[]> {
-  // Placeholder: this would ideally fetch from an indexer or contract events.
-  // For now return empty to satisfy build.
   console.log("Fetching subscribers for merchant:", merchant);
   return [];
 }
 
-export async function getAllowance(user: string, _tokenId: string): Promise<bigint> {
-  try {
-    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${user}`);
-    const data = await resp.json();
-    const native = data.balances?.find((b: any) => b.asset_type === "native");
-    return native ? BigInt(Math.floor(parseFloat(native.balance) * 1e7)) : 0n;
-  } catch {
-    return 0n;
-  }
-}
-
 export async function getBalance(publicKey: string): Promise<string> {
   try {
-    const horizonUrl = "https://horizon-testnet.stellar.org";
-    const resp = await fetch(`${horizonUrl}/accounts/${publicKey}`);
+    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}`);
     const data = await resp.json();
-    const nativeBalance = data.balances.find((b: any) => b.asset_type === "native");
+    const nativeBalance = data.balances.find((b: { asset_type: string }) => b.asset_type === "native");
     return nativeBalance ? nativeBalance.balance : "0";
   } catch (error) {
     console.error("Error fetching balance:", error);
     return "0";
   }
 }
-
-export async function getAllowance(user: string, _tokenId: string): Promise<bigint> {
-  try {
-    const horizonUrl = "https://horizon-testnet.stellar.org";
-    const resp = await fetch(`${horizonUrl}/accounts/${user}`);
-    const data = await resp.json();
-    const native = data.balances?.find((b: any) => b.asset_type === "native");
-    return native ? BigInt(Math.floor(parseFloat(native.balance) * 1e7)) : 0n;
-  } catch {
-    return 0n;
-  }
-}
-
-// ── Unified Event Fetching ────────────────────────────────────────────────────
-
-export interface ContractEvent {
-  eventName: string;
-  address: string;
-  data: unknown;
-  ledger: number;
-  timestamp: string;
-  txHash: string;
-}
-
-/**
- * Fetch contract events by event name, optionally filtered by address.
- * eventName matches the first topic (e.g. "subscribed", "charged", "cancelled", "pay_per_use").
- */
-export async function fetchEvents(
-  eventName: string,
-  address?: string
-): Promise<ContractEvent[]> {
-  const response = await server.getEvents({
-    startLedger: undefined,
-    filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
-    limit: 100,
-  });
-
-  return response.events
-    .filter((event: any) => {
-      if (!event.topic || event.topic.length < 1) return false;
-      if (event.topic[0]?.toString() !== eventName) return false;
-      if (address && event.topic[1]?.toString() !== address) return false;
-      return true;
-    })
-    .map((event: any) => ({
-      eventName,
-      address: event.topic[1]?.toString() ?? "",
-      data: event.value,
-      ledger: event.ledger ?? 0,
-      timestamp: event.ledgerCloseTime
-        ? new Date(event.ledgerCloseTime * 1000).toISOString()
-        : new Date().toISOString(),
-      txHash: event.txHash ?? event.id ?? "",
-    }));
-}
-
-// ── NEW: Event Fetching ───────────────────────────────────────────────────────
-
-export interface ContractEvent {
-  type: string;
-  address: string;
-  amount: string;
-  timestamp: string;
-  txHash: string;
-}
-
-export async function fetchEvents(
-  eventName: string,
-  address?: string
-): Promise<ContractEvent[]> {
-  try {
-    const response = await server.getEvents({
-      startLedger: undefined,
-      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
-      limit: 50,
-    });
-
-    return response.events
-      .filter((event: any) => {
-        if (!event.topic || event.topic.length < 1) return false;
-        const name = event.topic[0]?.toString() ?? "";
-        if (name !== eventName) return false;
-        if (address && event.topic[1]?.toString() !== address) return false;
-        return true;
-      })
-      .map((event: any) => ({
-        type: event.topic[0]?.toString() ?? "unknown",
-        address: event.topic[1]?.toString() ?? "",
-        amount: event.value?._value?.amount?.toString() ?? "0",
-        timestamp: event.ledgerCloseTime
-          ? new Date(event.ledgerCloseTime * 1000).toISOString()
-          : new Date().toISOString(),
-        txHash: event.txHash ?? event.id ?? "",
-      }));
-  } catch (error) {
-    console.error("fetchEvents error:", error);
-    return [];
-  }
-}
-
-export async function getEvents(user: string) {
-  try {
-    const response = await server.getEvents({
-      startLedger: undefined,
-      filters: [
-        {
-          type: "contract",
-          contractIds: [CONTRACT_ID],
-        },
-      ],
-      limit: 50,
-    });
-
-    return response.events
-      .map((event: any) => {
-        let type = "unknown";
-        let amount = "0";
-
-        try {
-          // Attempt to extract event topics (event name)
-          if (event.topic && event.topic.length > 0) {
-            type = event.topic[0]?.toString() || "unknown";
-          }
-
-          // Attempt to extract amount from data
-          if (event.value) {
-            const val = event.value;
-
-            if (val?._value?.amount) {
-              amount = val._value.amount.toString();
-            }
-          }
-        } catch (e) {
-          console.warn("Event parsing failed:", e);
-        }
-
-        return {
-          type,
-          amount,
-          timestamp: event.ledgerCloseTime
-            ? new Date(event.ledgerCloseTime * 1000).toISOString()
-            : new Date().toISOString(),
-        };
-      })
-      // Filter only events related to this user (important!)
-      .filter((event: any) => event.type.toLowerCase().includes(user.slice(0, 5)));
-  } catch (error) {
-    console.error("Error fetching events:", error);
-    return [];
-  }
-}
-
-// ── Allowance ────────────────────────────────────────────────────────────────
 
 export async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
   try {
@@ -398,31 +229,63 @@ export async function getAllowance(owner: string, tokenId: string): Promise<bigi
   }
 }
 
-// ── Charge History ──────────────────────────────────────────────────────────────
+// ── Events ────────────────────────────────────────────────────────────────────
+
+export interface ContractEvent {
+  type: string;
+  address: string;
+  amount: string;
+  timestamp: string;
+  txHash: string;
+}
+
+export async function fetchEvents(
+  eventName: string,
+  address?: string
+): Promise<ContractEvent[]> {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
+      limit: 100,
+    });
+
+    return response.events
+      .filter((event: any) => {
+        if (!event.topic || event.topic.length < 1) return false;
+        if (event.topic[0]?.toString() !== eventName) return false;
+        if (address && event.topic[1]?.toString() !== address) return false;
+        return true;
+      })
+      .map((event: any) => ({
+        type: event.topic[0]?.toString() ?? "unknown",
+        address: event.topic[1]?.toString() ?? "",
+        amount: event.value?._value?.amount?.toString() ?? "0",
+        timestamp: event.ledgerCloseTime
+          ? new Date(event.ledgerCloseTime * 1000).toISOString()
+          : new Date().toISOString(),
+        txHash: event.txHash ?? event.id ?? "",
+      }));
+  } catch (error) {
+    console.error("fetchEvents error:", error);
+    return [];
+  }
+}
+
+// ── Charge History ────────────────────────────────────────────────────────────
 
 export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
   try {
     const response = await server.getEvents({
       startLedger: undefined,
-      filters: [
-        {
-          type: "contract",
-          contractIds: [CONTRACT_ID],
-        },
-      ],
+      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
       limit: 50,
     });
 
     return response.events
       .filter((event: any) => {
-        // Filter for "charged" events
         if (!event.topic || event.topic.length < 2) return false;
-        const eventType = event.topic[0]?.toString();
-        if (eventType !== "charged") return false;
-
-        // Filter for events related to this user
-        const eventUser = event.topic[1]?.toString();
-        return eventUser === user;
+        return event.topic[0]?.toString() === "charged" && event.topic[1]?.toString() === user;
       })
       .map((event: any) => {
         let merchant = "";
@@ -430,31 +293,10 @@ export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
         let timestamp = 0;
 
         try {
-          // Extract data from event.value
-          // Contract event data structure: (merchant: Address, amount: i128, charged_at: u64)
-          if (event.value) {
-            const val = event.value;
-
-            // Extract merchant from data
-            if (val?._value?.merchant) {
-              merchant = val._value.merchant.toString();
-            }
-
-            // Extract amount from data
-            if (val?._value?.amount) {
-              amount = val._value.amount.toString();
-            }
-
-            // Extract timestamp (charged_at) from data
-            if (val?._value?.charged_at) {
-              timestamp = Number(val._value.charged_at);
-            }
-          }
-
-          // Fallback: use ledgerCloseTime if no charged_at in data
-          if (timestamp === 0 && event.ledgerCloseTime) {
-            timestamp = event.ledgerCloseTime;
-          }
+          if (event.value?._value?.merchant) merchant = event.value._value.merchant.toString();
+          if (event.value?._value?.amount) amount = event.value._value.amount.toString();
+          if (event.value?._value?.charged_at) timestamp = Number(event.value._value.charged_at);
+          if (timestamp === 0 && event.ledgerCloseTime) timestamp = event.ledgerCloseTime;
         } catch (e) {
           console.warn("Charge event parsing failed:", e);
         }
