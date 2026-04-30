@@ -3,6 +3,8 @@
  * https://www.freighter.app/
  */
 import { useState, useCallback } from "react";
+import { Transaction } from "@stellar/stellar-sdk";
+import { NETWORK_PASSPHRASE, server } from "../stellar";
 
 declare global {
   interface Window {
@@ -40,11 +42,9 @@ export function useWallet() {
 
   const signAndSubmit = useCallback(async (xdr: string): Promise<string> => {
     if (!window.freighter) throw new Error("Freighter not available");
-    const { NETWORK_PASSPHRASE, server } = await import("../stellar");
     const signed = await window.freighter.signTransaction(xdr, {
       networkPassphrase: NETWORK_PASSPHRASE,
     });
-    const { Transaction } = await import("@stellar/stellar-sdk");
     const tx = new Transaction(signed, NETWORK_PASSPHRASE);
     const result = await server.sendTransaction(tx);
     return result.hash;

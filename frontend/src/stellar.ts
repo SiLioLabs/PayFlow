@@ -8,12 +8,13 @@ import {
   Contract,
   Networks,
   TransactionBuilder,
+  Transaction,
   BASE_FEE,
   nativeToScVal,
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import type { Subscription, ChargeEvent } from "./types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -73,7 +74,6 @@ async function buildTx(
   const simResult = await server.simulateTransaction(tx);
   if ("error" in simResult) throw new Error(simResult.error);
 
-  const { assembleTransaction } = await import("@stellar/stellar-sdk/rpc");
   const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
   return assembled.toXDR();
 }
