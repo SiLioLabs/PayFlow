@@ -37,6 +37,15 @@ export interface MerchantSubscriber {
   nextChargeDate: string;
 }
 
+export interface ContractEvent {
+  eventName: string;
+  address: string;
+  data: unknown;
+  ledger: number;
+  timestamp: string;
+  txHash: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Convert a Stellar public key string to an ScVal Address */
@@ -96,7 +105,7 @@ export async function buildPayPerUseTx(user: string, amount: bigint): Promise<st
   ]);
 }
 
-export async function getSubscription(user: string) {
+export async function getSubscription(user: string): Promise<Subscription | null> {
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(user);
 
@@ -174,14 +183,13 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
     if (!retval || retval.switch().name === "scvVoid") return null;
 
     return retval.str().toString();
-  } catch (error) {
-    console.error("Error fetching subscription metadata:", error);
+  } catch {
     return null;
   }
 }
 
-export async function getMerchantSubscribers(merchant: string): Promise<MerchantSubscriber[]> {
-  console.log("Fetching subscribers for merchant:", merchant);
+export async function getMerchantSubscribers(_merchant: string): Promise<MerchantSubscriber[]> {
+  // Placeholder: this would ideally fetch from an indexer or contract events.
   return [];
 }
 
@@ -189,10 +197,9 @@ export async function getBalance(publicKey: string): Promise<string> {
   try {
     const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}`);
     const data = await resp.json();
-    const nativeBalance = data.balances.find((b: { asset_type: string }) => b.asset_type === "native");
+    const nativeBalance = data.balances?.find((b: { asset_type: string }) => b.asset_type === "native");
     return nativeBalance ? nativeBalance.balance : "0";
-  } catch (error) {
-    console.error("Error fetching balance:", error);
+  } catch {
     return "0";
   }
 }
@@ -223,22 +230,17 @@ export async function getAllowance(owner: string, tokenId: string): Promise<bigi
     if (!retval || retval.switch().name === "scvVoid") return 0n;
 
     return BigInt(retval.i128().toString());
-  } catch (error) {
-    console.error("Error fetching allowance:", error);
+  } catch {
     return 0n;
   }
 }
 
-// ── Events ────────────────────────────────────────────────────────────────────
+// ── Event Fetching ────────────────────────────────────────────────────────────
 
-export interface ContractEvent {
-  type: string;
-  address: string;
-  amount: string;
-  timestamp: string;
-  txHash: string;
-}
-
+/**
+ * Fetch contract events by event name, optionally filtered by address.
+ * eventName matches the first topic (e.g. "subscribed", "charged", "cancelled", "pay_per_use").
+ */
 export async function fetchEvents(
   eventName: string,
   address?: string
@@ -258,16 +260,16 @@ export async function fetchEvents(
         return true;
       })
       .map((event: any) => ({
-        type: event.topic[0]?.toString() ?? "unknown",
+        eventName,
         address: event.topic[1]?.toString() ?? "",
-        amount: event.value?._value?.amount?.toString() ?? "0",
+        data: event.value,
+        ledger: event.ledger ?? 0,
         timestamp: event.ledgerCloseTime
           ? new Date(event.ledgerCloseTime * 1000).toISOString()
           : new Date().toISOString(),
         txHash: event.txHash ?? event.id ?? "",
       }));
-  } catch (error) {
-    console.error("fetchEvents error:", error);
+  } catch {
     return [];
   }
 }
@@ -285,7 +287,9 @@ export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
     return response.events
       .filter((event: any) => {
         if (!event.topic || event.topic.length < 2) return false;
-        return event.topic[0]?.toString() === "charged" && event.topic[1]?.toString() === user;
+        const eventType = event.topic[0]?.toString();
+        if (eventType !== "charged") return false;
+        return event.topic[1]?.toString() === user;
       })
       .map((event: any) => {
         let merchant = "";
@@ -293,9 +297,10 @@ export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
         let timestamp = 0;
 
         try {
-          if (event.value?._value?.merchant) merchant = event.value._value.merchant.toString();
-          if (event.value?._value?.amount) amount = event.value._value.amount.toString();
-          if (event.value?._value?.charged_at) timestamp = Number(event.value._value.charged_at);
+          const val = event.value;
+          if (val?._value?.merchant) merchant = val._value.merchant.toString();
+          if (val?._value?.amount) amount = val._value.amount.toString();
+          if (val?._value?.charged_at) timestamp = Number(val._value.charged_at);
           if (timestamp === 0 && event.ledgerCloseTime) timestamp = event.ledgerCloseTime;
         } catch (e) {
           console.warn("Charge event parsing failed:", e);
@@ -309,8 +314,7 @@ export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
         };
       })
       .sort((a: ChargeEvent, b: ChargeEvent) => b.date.getTime() - a.date.getTime());
-  } catch (error) {
-    console.error("Error fetching charge history:", error);
+  } catch {
     return [];
   }
 }

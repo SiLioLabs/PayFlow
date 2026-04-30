@@ -46,11 +46,11 @@ describe("SubscriptionHistory", () => {
     render(<SubscriptionHistory userKey="GABC123" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Jan 15, 2024/i)).toBeInTheDocument();
+      expect(screen.getByText(/15 Jan 2024/i)).toBeInTheDocument();
     });
 
     expect(screen.getByText(/0.50 XLM/i)).toBeInTheDocument();
-    expect(screen.getByText(/Jan 1, 2024/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 Jan 2024/i)).toBeInTheDocument();
     expect(screen.getByText(/1.00 XLM/i)).toBeInTheDocument();
   });
 
