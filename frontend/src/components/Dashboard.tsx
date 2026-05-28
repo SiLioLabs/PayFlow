@@ -6,6 +6,8 @@ import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionHistory from "./SubscriptionHistory";
 import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
+import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
+import AllowanceDisplay from "./AllowanceDisplay";
 import ToastContainer from "./Toast";
 import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
@@ -25,6 +27,8 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
   const cancelTx = useTransaction();
   const ppuTx = useTransaction();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showIncreaseAllowance, setShowIncreaseAllowance] = useState(false);
+  const [allowanceRefresh, setAllowanceRefresh] = useState(0);
 
   usePolling({ callback: refresh, interval: 30000, enabled: !!sub?.active });
 
@@ -86,6 +90,19 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
 
           {sub.active && (
             <>
+              <div className="card allowance-card">
+                <div className="allowance-card__row">
+                  <AllowanceDisplay
+                    userKey={userKey}
+                    subscriptionAmount={BigInt(sub.amount)}
+                    refreshTrigger={allowanceRefresh}
+                  />
+                  <button className="btn-secondary" onClick={() => setShowIncreaseAllowance(true)}>
+                    Increase Allowance
+                  </button>
+                </div>
+              </div>
+
               <SubscriptionHistory userKey={userKey} />
               <PayPerUseForm onPay={handlePayPerUse} loading={ppuPending} />
               {ppuPending && (
@@ -103,6 +120,21 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
           message="Are you sure you want to cancel your subscription? This cannot be undone."
           onConfirm={performCancel}
           onCancel={() => setShowConfirm(false)}
+        />
+      )}
+
+      {showIncreaseAllowance && sub?.active && (
+        <IncreaseAllowanceModal
+          userKey={userKey}
+          subscriptionAmount={BigInt(sub.amount)}
+          onSign={onSign}
+          onClose={() => setShowIncreaseAllowance(false)}
+          onSuccess={() => {
+            setShowIncreaseAllowance(false);
+            setAllowanceRefresh((value) => value + 1);
+            refresh();
+          }}
+          announce={announce}
         />
       )}
     </div>

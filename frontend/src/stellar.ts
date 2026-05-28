@@ -26,6 +26,7 @@ export const NETWORK_PASSPHRASE =
 
 // Replace with your deployed contract ID after `soroban contract deploy`
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
+export const TOKEN_CONTRACT_ID = import.meta.env.VITE_TOKEN_CONTRACT_ID ?? "";
 
 export const server = new Server(RPC_URL);
 
@@ -103,6 +104,33 @@ export async function buildPayPerUseTx(user: string, amount: bigint): Promise<st
     addressVal(user),
     nativeToScVal(amount, { type: "i128" }),
   ]);
+}
+
+export async function buildApproveTx(user: string, tokenId: string, spender: string, amount: bigint): Promise<string> {
+  const tokenContract = new Contract(tokenId);
+  const account = await server.getAccount(user);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      tokenContract.call(
+        "approve",
+        addressVal(user),
+        addressVal(spender),
+        nativeToScVal(amount, { type: "i128" }),
+        nativeToScVal(999999999n, { type: "u64" })
+      )
+    )
+    .setTimeout(30)
+    .build();
+
+  const simResult = await server.simulateTransaction(tx);
+  if ("error" in simResult) throw new Error(simResult.error);
+
+  const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
+  return assembled.toXDR();
 }
 
 export async function getSubscription(user: string): Promise<Subscription | null> {
@@ -205,7 +233,9 @@ export async function getBalance(publicKey: string): Promise<string> {
   }
 }
 
-export async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
+export async function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promise<bigint> {
+  if (!tokenId) throw new Error("VITE_TOKEN_CONTRACT_ID is not configured.");
+
   try {
     const tokenContract = new Contract(tokenId);
     const account = await server.getAccount(owner);

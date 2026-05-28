@@ -621,6 +621,21 @@ input::placeholder {
   margin-bottom: var(--space-6);
 }
 
+.allowance-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.allowance-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .subscription-row {
   display: flex;
   justify-content: space-between;

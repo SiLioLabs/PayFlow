@@ -4,20 +4,39 @@ import { formatXlm } from "../utils/format";
 
 interface Props {
   userKey: string;
-  tokenId: string;
   subscriptionAmount: bigint;
+  refreshTrigger: number;
 }
 
-export default function AllowanceDisplay({ userKey, tokenId, subscriptionAmount }: Props) {
+export default function AllowanceDisplay({ userKey, subscriptionAmount, refreshTrigger }: Props) {
   const [allowance, setAllowance] = useState<bigint | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getAllowance(userKey, tokenId)
+    setLoading(true);
+    getAllowance(userKey)
       .then(setAllowance)
-      .catch(() => setAllowance(null));
-  }, [userKey, tokenId]);
+      .catch(() => setAllowance(null))
+      .finally(() => setLoading(false));
+  }, [userKey, refreshTrigger]);
 
-  if (allowance === null) return null;
+  if (loading) {
+    return (
+      <div className="allowance-display">
+        <span className="text-muted">Allowance:</span>
+        <span className="text-mono">Loading…</span>
+      </div>
+    );
+  }
+
+  if (allowance === null) {
+    return (
+      <div className="allowance-display">
+        <span className="text-muted">Allowance:</span>
+        <span className="text-error">Unavailable</span>
+      </div>
+    );
+  }
 
   const isLow = allowance < subscriptionAmount;
 
