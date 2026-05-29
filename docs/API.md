@@ -90,7 +90,7 @@ soroban contract invoke \
 Creates or overwrites a subscription for the calling user.
 
 ```
-subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u64, token: Address, trial_period: Option<u64>)
+subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u64, token: Address, trial_period: Option<u64>, referrer: Option<Address>)
 ```
 
 **Parameters**
@@ -103,26 +103,30 @@ subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u6
 | `interval` | `u64` | Seconds between charges. Must be > 0. Common values: `86400` (1 day), `604800` (1 week), `2592000` (~30 days). |
 | `token` | `Address` | The SAC address of the token to use for this subscription. |
 | `trial_period` | `Option<u64>` | Optional seconds to delay the first charge. If set, `last_charged` is initialized to `now + trial_period`. |
+| `referrer` | `Option<Address>` | Optional address of the referrer who introduced this subscriber. |
 
 **Auth:** `user.require_auth()` — the transaction must be signed by `user`.
 
 **Whitelist:** If the merchant whitelist is enabled, the `merchant` address must have been previously added by an admin via `add_merchant`.
 
-**Storage written:** `DataKey::Subscription(user)` in persistent storage. `last_charged` is set to the current ledger timestamp (or `now + trial_period` if provided).
+**Storage written:** `DataKey::Subscription(user)` in persistent storage. `last_charged` is set to the current ledger timestamp (or `now + trial_period` if provided). `DataKey::Referral(user)` in persistent storage if referrer is provided.
 
 **Events emitted**
 
 ```
 topic:  ("subscribed", user)
 data:   (merchant, amount, interval)
+topic:  ("referred", user) if referrer is provided
+data:   referrer_address
 ```
 
 **Errors**
 
-| Condition | Panic message |
+| Condition | Panic message / error |
 | --- | --- |
 | `amount <= 0` | `"amount must be positive"` |
 | `interval == 0` | `"interval must be positive"` |
+| Merchant not whitelisted (if enabled) | `MerchantNotWhitelisted` |
 
 **Pre-condition:** The user must have called `approve()` on the token contract granting the FlowPay contract an allowance of at least `amount` before subscribing.
 
@@ -657,6 +661,430 @@ soroban contract invoke \
 
 ---
 
+### `extend_subscription_ttl`
+
+Extends the TTL of a user's subscription record in persistent storage.
+
+```
+extend_subscription_ttl(env: Env, user: Address)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to extend TTL for. |
+
+**Auth:** None.
+
+**Storage written:** Extends TTL of `DataKey::Subscription(user)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- extend_subscription_ttl \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `get_trial_end`
+
+Returns the trial end timestamp if the user is in a trial period.
+
+```
+get_trial_end(env: Env, user: Address) -> Option<u64>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to query. |
+
+**Auth:** None.
+
+**Returns:** `Option<u64>` — Unix timestamp when trial ends, or `None` if no trial or no subscription.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_trial_end \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `set_grace_period`
+
+Sets the contract-wide grace period for charges. Only the contract admin can call this.
+
+```
+set_grace_period(env: Env, seconds: u64)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `seconds` | `u64` | Number of seconds after the interval elapses during which charge() is still allowed. |
+
+**Auth:** Admin only.
+
+**Storage written:** `DataKey::GracePeriod` in instance storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- set_grace_period \
+  --seconds 86400
+```
+
+---
+
+### `add_merchant`
+
+Adds a merchant to the whitelist. Only the contract admin can call this.
+
+```
+add_merchant(env: Env, merchant: Address)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `merchant` | `Address` | The merchant address to whitelist. |
+
+**Auth:** Admin only.
+
+**Storage written:** `DataKey::MerchantWhitelist(merchant)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- add_merchant \
+  --merchant <MERCHANT_ADDRESS>
+```
+
+---
+
+### `remove_merchant`
+
+Removes a merchant from the whitelist. Only the contract admin can call this.
+
+```
+remove_merchant(env: Env, merchant: Address)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `merchant` | `Address` | The merchant address to remove from the whitelist. |
+
+**Auth:** Admin only.
+
+**Storage written:** Removes `DataKey::MerchantWhitelist(merchant)` from persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- remove_merchant \
+  --merchant <MERCHANT_ADDRESS>
+```
+
+---
+
+### `set_whitelist_enabled`
+
+Enables or disables the merchant whitelist. Only the contract admin can call this.
+
+```
+set_whitelist_enabled(env: Env, enabled: bool)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `enabled` | `bool` | True to enable the whitelist, false to disable. |
+
+**Auth:** Admin only.
+
+**Storage written:** `DataKey::WhitelistEnabled` in instance storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- set_whitelist_enabled \
+  --enabled true
+```
+
+---
+
+### `set_fee`
+
+Sets the protocol fee collection settings. Only the contract admin can call this.
+
+```
+set_fee(env: Env, collector: Address, bps: u32)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `collector` | `Address` | The address that will receive the protocol fees. |
+| `bps` | `u32` | The fee amount in basis points (1 bps = 0.01%). |
+
+**Auth:** Admin only.
+
+**Storage written:** `DataKey::FeeCollector` and `DataKey::FeeBps` in instance storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- set_fee \
+  --collector <COLLECTOR_ADDRESS> \
+  --bps 100
+```
+
+---
+
+### `get_merchant_revenue_history`
+
+Returns per-day revenue for the given merchant for the last `days` days, oldest to newest.
+
+```
+get_merchant_revenue_history(env: Env, merchant: Address, days: u32) -> Vec<i128>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `merchant` | `Address` | The merchant address to query. |
+| `days` | `u32` | The number of days of history to retrieve. |
+
+**Auth:** None.
+
+**Returns:** `Vec<i128>` — Daily revenue in stroops, ordered oldest to newest.
+
+**Storage read:** `DataKey::MerchantRevenueDay(merchant, day)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_merchant_revenue_history \
+  --merchant <MERCHANT_ADDRESS> \
+  --days 7
+```
+
+---
+
+### `get_referrer`
+
+Returns the referrer address recorded for a subscriber.
+
+```
+get_referrer(env: Env, user: Address) -> Option<Address>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to query. |
+
+**Auth:** None.
+
+**Returns:** `Option<Address>` — `None` if no referrer was recorded.
+
+**Storage read:** `DataKey::Referral(user)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_referrer \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `migrate`
+
+Upgrades contract storage to the latest schema version. Safe to call multiple times.
+
+```
+migrate(env: Env)
+```
+
+**Auth:** None (admin restriction can be added in future versions).
+
+**Storage written:** `DataKey::SchemaVersion` in instance storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- migrate
+```
+
+---
+
+### `get_schema_version`
+
+Returns the current storage schema version.
+
+```
+get_schema_version(env: Env) -> u32
+```
+
+**Auth:** None.
+
+**Returns:** `u32` — defaults to `1` before the first `migrate()` call.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_schema_version
+```
+
+---
+
+### `set_metadata`
+
+Attaches a short label string (e.g. plan name) to the caller's subscription.
+
+```
+set_metadata(env: Env, user: Address, label: String)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber. Must match the transaction signer. |
+| `label` | `String` | Short display label (e.g. `"pro"`, `"basic"`). |
+
+**Auth:** `user.require_auth()`.
+
+**Storage written:** `DataKey::SubscriptionMeta(user)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <USER_KEY> \
+  --network testnet \
+  -- set_metadata \
+  --user <USER_ADDRESS> \
+  --label pro
+```
+
+---
+
+### `get_metadata`
+
+Returns the metadata label for a subscriber.
+
+```
+get_metadata(env: Env, user: Address) -> Option<String>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to query. |
+
+**Auth:** None.
+
+**Returns:** `Option<String>` — `None` if no label has been set.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_metadata \
+  --user <USER_ADDRESS>
+```
+
+---
+
+### `get_charge_history`
+
+Returns the last (up to 12) charge timestamps for a subscriber, ordered oldest → newest.
+
+```
+get_charge_history(env: Env, user: Address) -> Vec<u64>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | The subscriber address to query. |
+
+**Auth:** None.
+
+**Returns:** `Vec<u64>` — UNIX timestamps of successful `charge()` calls. Empty if no charges have occurred.
+
+**Storage read:** `DataKey::ChargeHistory(user)` in persistent storage.
+
+**CLI example**
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_charge_history \
+  --user <USER_ADDRESS>
+```
+
+---
+
 ## Units & Conversions
 
 All amounts are in **stroops** — the smallest unit of a Stellar token.
@@ -689,122 +1117,4 @@ All events can be indexed by listening to the Stellar RPC event stream for the F
 | `cancelled` | `("cancelled", user_address)` | `()` |
 | `paused` | `("paused", user_address)` | `()` |
 | `resumed` | `("resumed", user_address)` | `()` |
-
----
-
-## New Modules (Issues #96–#99)
-
----
-
-### `subscribe` (updated)
-
-The `subscribe` function now accepts an optional `referrer` parameter:
-
-```
-subscribe(env, user, merchant, amount, interval, token, trial_period, referrer: Option<Address>)
-```
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `referrer` | `Option<Address>` | Optional address of the referrer who introduced this subscriber. Stored in `DataKey::Referral(user)` and emits a `("referred", user)` event. |
-
----
-
-### `get_referrer`
-
-Returns the referrer address recorded for a subscriber.
-
-```
-get_referrer(env: Env, user: Address) -> Option<Address>
-```
-
-**Auth:** None.
-
-**Returns:** `Option<Address>` — `None` if no referrer was recorded.
-
-**Storage read:** `DataKey::Referral(user)` in persistent storage.
-
----
-
-### `migrate`
-
-Upgrades contract storage to the latest schema version. Safe to call multiple times.
-
-```
-migrate(env: Env)
-```
-
-**Auth:** None (admin restriction can be added in future versions).
-
-**Storage written:** `DataKey::SchemaVersion` in instance storage.
-
----
-
-### `get_schema_version`
-
-Returns the current storage schema version.
-
-```
-get_schema_version(env: Env) -> u32
-```
-
-**Auth:** None.
-
-**Returns:** `u32` — defaults to `1` before the first `migrate()` call.
-
----
-
-### `set_metadata`
-
-Attaches a short label string (e.g. plan name) to the caller's subscription.
-
-```
-set_metadata(env: Env, user: Address, label: String)
-```
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-| `label` | `String` | Short display label (e.g. `"pro"`, `"basic"`). |
-
-**Auth:** `user.require_auth()`.
-
-**Storage written:** `DataKey::SubscriptionMeta(user)` in persistent storage.
-
----
-
-### `get_metadata`
-
-Returns the metadata label for a subscriber.
-
-```
-get_metadata(env: Env, user: Address) -> Option<String>
-```
-
-**Auth:** None.
-
-**Returns:** `Option<String>` — `None` if no label has been set.
-
----
-
-### `get_charge_history`
-
-Returns the last (up to 12) charge timestamps for a subscriber, ordered oldest → newest.
-
-```
-get_charge_history(env: Env, user: Address) -> Vec<u64>
-```
-
-**Auth:** None.
-
-**Returns:** `Vec<u64>` — UNIX timestamps of successful `charge()` calls. Empty if no charges have occurred.
-
-**Storage read:** `DataKey::ChargeHistory(user)` in persistent storage.
-
----
-
-### Updated Events Reference
-
-| Event name | Topic | Data |
-| --- | --- | --- |
 | `referred` | `("referred", user_address)` | `referrer_address` |
