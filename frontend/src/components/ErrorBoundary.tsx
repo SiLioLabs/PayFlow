@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -16,11 +17,21 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("ErrorBoundary caught:", error, info.componentStack);
+    if (process.env.NODE_ENV === "development") {
+      console.error("ErrorBoundary caught:", error, info.componentStack);
+    }
   }
+
+  reset = () => {
+    this.setState({ error: null });
+  };
 
   render() {
     if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
       return (
         <div className="error-boundary">
           <div className="card error-boundary__card">
@@ -49,7 +60,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               Reload
             </button>
           </div>
-        </div>
+          </div>
       );
     }
 

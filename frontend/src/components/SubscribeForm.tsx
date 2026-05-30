@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
-import { StrKey } from "@stellar/stellar-sdk";
-import { buildSubscribeTx, DEFAULT_TOKEN, DEFAULT_TOKEN } from "../stellar";
+import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
 import { useFormValidation } from "../hooks/useFormValidation";
