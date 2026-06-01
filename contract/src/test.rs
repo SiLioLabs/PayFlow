@@ -1016,3 +1016,25 @@ fn test_subscribe_overwrites_cancelled_subscription() {
     assert!(sub_new.active);
     assert_eq!(sub_new.amount, 2_0000000);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Issue #237: get_token() read function tests
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_get_token_returns_none_when_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    assert!(client.get_token().is_none());
+}
+
+#[test]
+fn test_get_token_returns_initialized_token() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.initialize(&token_addr);
+    assert_eq!(client.get_token(), Some(token_addr));
+}

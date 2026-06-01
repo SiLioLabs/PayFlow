@@ -18,6 +18,10 @@ pub fn set_token(env: &Env, token: &Address) {
     env.storage().instance().set(&DataKey::Token, token);
 }
 
+pub fn get_token(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Token)
+}
+
 pub fn get_admin(env: &Env) -> Address {
     env.storage()
         .instance()

@@ -494,6 +494,11 @@ impl FlowPay {
         is_contract_paused(&env)
     }
 
+    /// Returns the default token address set during `initialize()`, or `None` if not initialized.
+    pub fn get_token(env: Env) -> Option<Address> {
+        storage::get_token(&env)
+    }
+
     /// Upgrades the current contract WASM to `new_wasm_hash`.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         upgrade::upgrade(&env, new_wasm_hash);
