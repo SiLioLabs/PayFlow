@@ -590,6 +590,24 @@ fn test_active_count_increments_on_subscribe() {
 }
 
 #[test]
+fn test_active_count_does_not_double_count_on_resubscribe() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let merchant_b = Address::generate(&env);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_active_count(), 1);
+
+    client.subscribe(&user, &merchant_b, &2_0000000, &172800, &token_addr, &None, &None);
+    assert_eq!(client.get_active_count(), 1);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.merchant, merchant_b);
+    assert_eq!(sub.amount, 2_0000000);
+}
+
+#[test]
 fn test_active_count_decrements_on_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
