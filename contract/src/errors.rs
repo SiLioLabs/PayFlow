@@ -1,7 +1,7 @@
 use soroban_sdk::contracterror;
 
 #[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum ContractError {
     /// Returned when attempting to initialize a contract that has already been initialized
@@ -24,4 +24,6 @@ pub enum ContractError {
     GracePeriodElapsed = 9,
     /// Returned when a merchant is not whitelisted
     MerchantNotWhitelisted = 10,
+    /// Returned when the metadata label exceeds the 64-byte length limit
+    MetadataLabelTooLong = 11,
 }
