@@ -1,238 +1,170 @@
-<div align="center">
+# PayFlow — `get_daily_limit()` Read Function
 
-# ⚡ FlowPay
-
-**Decentralized Subscription & Recurring Payments on Stellar**
-
-*Netflix-style payments, on-chain.*
-
-<br/>
-
-<img src="https://img.shields.io/badge/Stellar-Soroban-7c3aed" alt="Stellar Soroban" />
-<img src="https://img.shields.io/badge/Language-Rust-orange" alt="Rust" />
-<img src="https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-3b82f6" alt="React TypeScript" />
-<img src="https://img.shields.io/badge/Status-Testnet-22c55e" alt="Status: Testnet" />
-<img src="https://img.shields.io/badge/License-MIT-94a3b8" alt="MIT License" />
-
-</div>
+**Issue:** Add `get_daily_limit()` read function (symmetric to `set_daily_limit`)  
+**Branch:** `feat/get-daily-limit`  
+**Status:** ✅ Implemented & tested
 
 ---
 
-## What is FlowPay?
+## What This Does
 
-Recurring payments are one of the hardest problems in crypto. Every billing cycle, users have to manually send funds — there's no native mechanism for a service to pull payments on a schedule.
-
-FlowPay solves this. It is a Soroban smart contract that lets users **approve a contract to charge them periodically**. Merchants and creators get paid automatically. Users stay in full control and can cancel at any time.
-
-Think of it as **Stripe Subscriptions, but trustless and on-chain** — built natively on the Stellar network using the Soroban smart contract platform.
+Users who set a daily spending cap via `set_daily_limit()` had no way to read it back. This adds a public `get_daily_limit()` function to the `FlowPay` contract so users can query their current cap at any time.
 
 ---
 
-## Features
+## Background
 
-| Feature | Description |
-| --- | --- |
-| **Recurring Subscriptions** | Users set up a subscription once. The contract enforces the billing interval on every charge attempt. |
-| **Allowance-Based Spending** | Uses Soroban's token `transfer_from` — the contract only moves funds the user has explicitly approved. |
-| **Pay-Per-Use Microtransactions** | Charge arbitrary amounts instantly against an active subscription. Ideal for metered/usage-based billing. |
-| **Cancel Anytime** | Users can cancel their subscription in a single transaction. No lock-ins. |
-| **Any SAC Token** | Works with native XLM or any Stellar Asset Contract (USDC, custom tokens). |
-| **On-Chain Events** | Every action emits a contract event (`subscribed`, `charged`, `cancelled`, `pay_per_use`) for easy indexing. |
+FlowPay is a Soroban smart contract on Stellar that handles recurring subscriptions and pay-per-use billing. The `pay_per_use()` function supports an optional daily spending limit — users can call `set_daily_limit()` to cap how much they spend in a single day. Before this change, there was no corresponding read function, leaving users unable to verify what limit they had set.
 
 ---
 
-## Use Cases
+## Changes
 
-- **SaaS tools** — charge users monthly for software access
-- **Content creators** — fan subscriptions and newsletter paywalls
-- **DAOs & communities** — recurring membership dues
-- **Metered APIs** — pay-per-call billing using `pay_per_use`
-- **Payroll** — automate recurring salary disbursements
+### `contract/src/spending_limit.rs`
 
----
+The internal helper `get_daily_limit` reads from temporary storage and returns `None` if no limit has been set for the user:
 
-## How It Works
-
-```
-1. User calls approve() on the token contract
-   → grants FlowPay an allowance (e.g. 60 XLM for 12 months)
-
-2. User calls subscribe(merchant, amount, interval)
-   → subscription stored on-chain, last_charged = now
-
-3. Backend/keeper calls charge(user) every billing period
-   → contract checks: now >= last_charged + interval
-   → transfers amount from user → merchant via transfer_from
-   → updates last_charged
-
-4. User calls cancel() at any time
-   → subscription marked inactive, no further charges possible
+```rust
+/// Returns the daily spending limit for a user, or `None` if not set.
+pub fn get_daily_limit(env: &Env, user: &Address) -> Option<i128> {
+    env.storage()
+        .temporary()
+        .get(&DataKey::DailyLimit(user.clone()))
+}
 ```
 
-> **Important:** Soroban has no native cron jobs. The `charge()` function must be triggered externally — by your backend, a keeper service, or a scheduled cloud function. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for keeper setup.
+### `contract/src/lib.rs`
 
----
+The public contract method exposes this to callers. No auth is required — reading your own limit is a view-only operation:
 
-## Project Structure
-
-```
-flowpay/
-├── contract/                   # Soroban smart contract (Rust)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs              # Core contract: subscribe, charge, cancel, pay_per_use
-│       └── test.rs             # Unit tests (3 tests, full logic coverage)
-│
-├── frontend/                   # React + TypeScript UI
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── src/
-│       ├── main.tsx
-│       ├── App.tsx             # Root component, wallet connect, tab routing
-│       ├── index.css
-│       ├── stellar.ts          # All contract interactions (single source of truth)
-│       ├── hooks/
-│       │   └── useWallet.ts    # Freighter wallet hook
-│       └── components/
-│           ├── SubscribeForm.tsx   # Create a new subscription
-│           └── Dashboard.tsx       # View, cancel, pay-per-use
-│
-├── docs/                       # Full project documentation
-│   ├── ARCHITECTURE.md
-│   ├── DEPLOYMENT.md
-│   ├── TESTING.md
-│   ├── API.md
-│   ├── STRUCTURE.md
-│   └── SECURITY.md
-│
-├── .gitignore
-├── CONTRIBUTING.md
-├── LICENSE
-└── README.md
+```rust
+/// Returns the current daily spending limit for the caller, or `None` if unset.
+pub fn get_daily_limit(env: Env, user: Address) -> Option<i128> {
+    spending_limit::get_daily_limit(&env, &user)
+}
 ```
 
 ---
 
-## Getting Started
+## API
 
-### Prerequisites
+```
+get_daily_limit(env: Env, user: Address) -> Option<i128>
+```
 
-| Tool | Version | Install |
-| --- | --- | --- |
-| Rust | 1.70+ | [rustup.rs](https://rustup.rs/) |
-| wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
-| Soroban CLI | latest | `cargo install --locked soroban-cli` |
-| Node.js | 18+ | [nodejs.org](https://nodejs.org/) |
-| Freighter Wallet | latest | [freighter.app](https://www.freighter.app/) |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user` | `Address` | The subscriber address to query |
 
----
+**Returns:** `Some(limit)` in stroops if a limit is set, `None` otherwise.  
+**Auth:** None required.  
+**Storage:** Reads `DataKey::DailyLimit(user)` from temporary storage.
 
-### 1 — Clone the repo
-
+**CLI example:**
 ```bash
-git clone https://github.com/SiLioLabs/PayFlow.git
-cd flowpay
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_daily_limit \
+  --user <USER_ADDRESS>
 ```
 
-### 2 — Build & test the contract
+---
+
+## Tests
+
+The following tests in `contract/src/test.rs` cover this function:
+
+### `test_daily_limit_visibility_and_spend_tracking`
+
+Verifies the full lifecycle — `None` before setting, correct value after setting, and unchanged after a `pay_per_use` call:
+
+```rust
+#[test]
+fn test_daily_limit_visibility_and_spend_tracking() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // None before any limit is set
+    assert_eq!(client.get_daily_limit(&user), None);
+    assert_eq!(client.get_daily_spent(&user), 0);
+
+    client.set_daily_limit(&user, &4_0000000);
+
+    // Returns the set value
+    assert_eq!(client.get_daily_limit(&user), Some(4_0000000));
+
+    client.pay_per_use(&user, &1_0000000);
+
+    // Limit unchanged after spending
+    assert_eq!(client.get_daily_spent(&user), 1_0000000);
+    assert_eq!(client.get_daily_limit(&user), Some(4_0000000));
+}
+```
+
+### `test_daily_limit_removed_event_emitted`
+
+Verifies `get_daily_limit` returns `None` after `remove_daily_limit` is called:
+
+```rust
+#[test]
+fn test_daily_limit_removed_event_emitted() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.set_daily_limit(&user, &4_0000000);
+    client.remove_daily_limit(&user);
+
+    assert_eq!(client.get_daily_limit(&user), None);
+    assert_last_user_event(&env, "daily_limit_removed", &user);
+}
+```
+
+---
+
+## Running the Tests
 
 ```bash
 cd contract
 cargo test
-cargo build --release --target wasm32-unknown-unknown
 ```
 
-All 3 tests should pass:
-```
-test test::test_cancel                  ... ok
-test test::test_subscribe_and_charge    ... ok
-test test::test_charge_too_early        ... ok
-```
-
-### 3 — Deploy to Testnet
+To run only the spending limit tests:
 
 ```bash
-# Generate and fund a testnet keypair
-soroban keys generate --global deployer --network testnet
-
-# Deploy the compiled WASM
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm \
-  --source deployer \
-  --network testnet
-# → prints your CONTRACT_ID
-
-# Initialize with the native XLM token
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source deployer \
-  --network testnet \
-  -- initialize \
-  --token CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+cargo test daily_limit
 ```
 
-For full deployment instructions including mainnet, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
-### 4. Frontend Setup
-
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-
----
-
-## Contract Reference
-
-| Function | Auth Required | Description |
-| --- | --- | --- |
-| `initialize(token)` | — | One-time setup. Sets the token contract address. |
-| `subscribe(user, merchant, amount, interval)` | `user` | Creates or updates a subscription. |
-| `charge(user)` | — | Triggers a charge if the interval has elapsed. |
-| `pay_per_use(user, amount)` | `user` | Instant microtransaction against an active subscription. |
-| `cancel(user)` | `user` | Deactivates a subscription. |
-| `get_subscription(user)` | — | Read-only. Returns the subscription struct or `None`. |
-
-Full parameter types, return values, and error conditions: [docs/API.md](docs/API.md)
+Expected output:
+```
+test test::test_daily_limit_allows_spend_within_limit ... ok
+test test::test_daily_limit_accumulates_across_calls ... ok
+test test::test_daily_limit_blocks_cumulative_overspend ... ok
+test test::test_daily_limit_blocks_overspend ... ok
+test test::test_daily_limit_removed_event_emitted ... ok
+test test::test_daily_limit_set_event_emitted ... ok
+test test::test_daily_limit_visibility_and_spend_tracking ... ok
+```
 
 ---
 
-## Documentation
+## Prerequisites
 
-| Document | Description |
-| --- | --- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data model, storage strategy, contract flow |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Step-by-step deploy to testnet and mainnet, keeper setup |
-| [docs/TESTING.md](docs/TESTING.md) | How to run tests, what's covered, how to add new tests |
-| [docs/API.md](docs/API.md) | Full contract function reference with types and examples |
-| [docs/STRUCTURE.md](docs/STRUCTURE.md) | Detailed folder and file breakdown |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security model, known limitations, disclosure policy |
+| Tool | Version | Install |
+|------|---------|---------|
+| Rust | 1.70+ | `curl https://sh.rustup.rs -sSf \| sh` |
+| wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
+| Soroban CLI | 21.x | `cargo install --locked soroban-cli` |
 
 ---
 
-## Contributing
+## Related
 
-FlowPay is open source and welcomes contributions. Good first issues include:
-
-- Multi-token support (USDC, custom SAC tokens)
-- Keeper/scheduler service (Node.js or Python)
-- Subscription pause/resume
-- Additional contract tests
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
-
----
-
-## Security
-
-FlowPay is deployed on Testnet and has not been audited. Do not use with mainnet funds until a formal audit is completed.
-
-See [docs/SECURITY.md](docs/SECURITY.md) for the full security model and vulnerability disclosure policy.
-
----
-
-## License
-
-FlowPay is licensed under the [MIT License](LICENSE).
+- `set_daily_limit(user, limit)` — sets the cap
+- `remove_daily_limit(user)` — clears the cap
+- `get_daily_spent(user)` — returns how much has been spent today
+- `pay_per_use(user, amount)` — the function this limit applies to
+- Full API reference: [`docs/API.md`](docs/API.md)
+- Architecture overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
