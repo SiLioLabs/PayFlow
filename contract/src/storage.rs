@@ -30,6 +30,7 @@ pub fn get_admin(env: &Env) -> Address {
 }
 
 pub fn get_admin_optional(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Admin)
     env.storage()
         .instance()
         .get(&DataKey::Admin)
@@ -37,4 +38,15 @@ pub fn get_admin_optional(env: &Env) -> Option<Address> {
 
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+pub fn is_contract_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::ContractPaused)
+        .unwrap_or(false)
+}
+
+pub fn set_contract_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::ContractPaused, &paused);
 }

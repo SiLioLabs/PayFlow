@@ -1924,6 +1924,67 @@ fn test_charge_history_capped_at_12() {
     assert_eq!(client.get_charge_history(&user).len(), 12);
 }
 
+// ─────────────────────────────────────────────
+// contract_health_check tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_health_check_initialized_unpaused() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr);
+    client.set_initial_admin(&admin);
+
+    let report = client.contract_health_check();
+
+    assert!(report.is_healthy, "initialized and unpaused contract should be healthy");
+    assert!(!report.contract_paused);
+    assert!(report.token_configured);
+    assert!(report.admin_configured);
+}
+
+#[test]
+fn test_health_check_paused() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr);
+    client.set_initial_admin(&admin);
+    client.pause_contract();
+
+    let report = client.contract_health_check();
+
+    assert!(!report.is_healthy, "paused contract should not be healthy");
+    assert!(report.contract_paused);
+}
+
+#[test]
+fn test_health_check_pre_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let report = client.contract_health_check();
+
+    assert!(!report.token_configured, "token should not be configured before initialize");
+    assert!(!report.is_healthy, "uninitialized contract should not be healthy");
+}
+
+#[test]
+fn test_health_check_active_subscription_count() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    let report = client.contract_health_check();
+    assert_eq!(report.active_subscription_count, 1);
+}
+
 #[test]
 fn test_ttl_extension() {
     let (env, contract_id, token_addr, user, merchant) = setup();
@@ -2213,6 +2274,210 @@ fn test_subscribe_overwrites_cancelled_subscription() {
 }
 
 // ─────────────────────────────────────────────
+// min_interval tests
+// ─────────────────────────────────────────────
+
+/// get_min_interval returns 3600 (1 hour) before any admin configuration.
+#[test]
+fn test_get_min_interval_default() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    assert_eq!(client.get_min_interval(), 3600);
+}
+
+/// subscribe panics with IntervalTooShort when interval < default floor of 3600.
+#[test]
+#[should_panic]
+fn test_subscribe_interval_too_short_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    // 1800 seconds (30 min) < 3600 default floor
+    client.subscribe(&user, &merchant, &1_0000000, &1800, &token_addr, &None, &None);
+}
+
+/// Lowering the floor via set_min_interval then subscribing at the new floor succeeds.
+#[test]
+fn test_subscribe_after_set_min_interval_lower_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.set_initial_admin(&admin);
+    client.set_min_interval(&60u64);
+
+    assert_eq!(client.get_min_interval(), 60);
+    // 60 seconds == new floor — should succeed
+    client.subscribe(&user, &merchant, &1_0000000, &60, &token_addr, &None, &None);
+    assert!(client.get_subscription(&user).unwrap().active);
+}
+
+/// set_min_interval(0) panics.
+#[test]
+#[should_panic(expected = "min interval must be positive")]
+fn test_set_min_interval_zero_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.set_initial_admin(&admin);
+    client.set_min_interval(&0u64);
+}
+
+/// Calling set_min_interval without a configured admin panics.
+#[test]
+#[should_panic(expected = "admin not set")]
+fn test_set_min_interval_non_admin_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    // No admin configured — require_admin panics with "admin not set"
+    client.set_min_interval(&7200u64);
+}
+
+// ─────────────────────────────────────────────
+// clear_merchant_revenue_history tests
+// ─────────────────────────────────────────────
+
+/// Admin can clear history; subsequent query returns an empty Vec (zero-length).
+/// Clearing does not affect the cumulative revenue total.
+#[test]
+fn test_clear_merchant_revenue_history_drops_history() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.set_initial_admin(&admin);
+
+    // Produce some history via a charge
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+    client.charge(&user);
+
+    // History should have one entry
+    let history_before = client.get_merchant_revenue_history(&merchant, &10u32);
+    assert_eq!(history_before.len(), 1);
+
+    // Cumulative revenue is present
+    let revenue = client.get_merchant_revenue(&merchant);
+    assert!(revenue > 0);
+
+    // Clear history as admin
+    client.clear_merchant_revenue_history(&merchant);
+
+    // History is now zero-length
+    let history_after = client.get_merchant_revenue_history(&merchant, &10u32);
+    assert_eq!(history_after.len(), 0);
+
+    // Cumulative revenue is untouched
+    assert_eq!(client.get_merchant_revenue(&merchant), revenue);
+}
+
+/// Clearing history for a merchant with no recorded data is idempotent (does not panic).
+#[test]
+fn test_clear_merchant_revenue_history_idempotent() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let unknown_merchant = Address::generate(&env);
+
+    client.set_initial_admin(&admin);
+
+    // First call — no data exists, must not panic
+    client.clear_merchant_revenue_history(&unknown_merchant);
+    // Second call — still no data, must not panic
+    client.clear_merchant_revenue_history(&unknown_merchant);
+
+    assert_eq!(client.get_merchant_revenue_history(&unknown_merchant, &5u32).len(), 0);
+}
+
+/// Calling clear_merchant_revenue_history without an admin configured panics.
+#[test]
+#[should_panic(expected = "admin not set")]
+fn test_clear_merchant_revenue_history_non_admin_panics() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    // No admin configured — require_admin panics
+    client.clear_merchant_revenue_history(&merchant);
+}
+
+// ─────────────────────────────────────────────
+// Subscriber index tests
+// ─────────────────────────────────────────────
+
+fn setup_funded_user(env: &Env, contract_id: &Address, token_addr: &Address) -> Address {
+    let user = Address::generate(env);
+    let sac = StellarAssetClient::new(env, token_addr);
+    sac.mint(&user, &10_000_0000000);
+    let token = TokenClient::new(env, token_addr);
+    token.approve(&user, contract_id, &10_000_0000000, &200);
+    user
+}
+
+#[test]
+fn test_subscriber_index_three_unique_users() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_c = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    assert_eq!(client.get_subscriber_count(), 3);
+
+    let page = client.get_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap(), user_a);
+    assert_eq!(page.get(1).unwrap(), user_b);
+    assert_eq!(page.get(2).unwrap(), user_c);
+}
+
+#[test]
+fn test_get_subscriber_at_returns_first() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    assert_eq!(client.get_subscriber_at(&0u64), Some(user));
+    assert_eq!(client.get_subscriber_at(&1u64), None);
+}
+
+#[test]
+fn test_resubscribe_active_does_not_duplicate_index() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 1);
+
+    // Re-subscribe while still active — must not append a second entry
+    client.subscribe(&user, &merchant, &2_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 1);
+
+    let page = client.get_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 1);
+}
+
+#[test]
+fn test_subscriber_page_offset_beyond_count_returns_empty() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 1);
+
+    let page = client.get_subscriber_page(&1u64, &10u32);
+    assert_eq!(page.len(), 0);
+
+    let page_zero_limit = client.get_subscriber_page(&0u64, &0u32);
+    assert_eq!(page_zero_limit.len(), 0);
+}
+
+#[test]
+fn test_subscriber_page_limit_capped_at_50() {
 // Issue #231: token.rs SAC compatibility test
 // ─────────────────────────────────────────────
 
@@ -3125,6 +3390,10 @@ fn test_next_charge_at_none_for_paused_subscription() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // limit > 50 returns at most 50 (here only 1 entry exists, so we get 1)
+    let page = client.get_subscriber_page(&0u64, &100u32);
+    assert_eq!(page.len(), 1);
     client.pause(&user);
 
     assert!(client.next_charge_at(&user).is_none());
