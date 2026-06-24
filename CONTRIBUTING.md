@@ -1,161 +1,66 @@
-# Contributing to FlowPay
+# ⚡ Contributing to SoroScan
 
-Thank you for considering a contribution to FlowPay. This document covers everything you need to know to get your changes merged cleanly.
-
----
-
-## Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [Ways to Contribute](#ways-to-contribute)
-- [Good First Issues](#good-first-issues)
-- [Development Setup](#development-setup)
-- [Branching & Workflow](#branching--workflow)
-- [Contract Contribution Guidelines](#contract-contribution-guidelines)
-- [Frontend Contribution Guidelines](#frontend-contribution-guidelines)
-- [Commit Style](#commit-style)
-- [Pull Request Checklist](#pull-request-checklist)
-- [Questions](#questions)
+Thank you for your interest in contributing to SoroScan! We welcome contributors of all skill levels to help build the best subscription and indexer ecosystem on Stellar Soroban.
 
 ---
 
-## Code of Conduct
+## 🗺️ Contribution Guide Directory
 
-Be respectful. We welcome contributors of all experience levels. Harassment, gatekeeping, or dismissive behaviour will not be tolerated.
+To keep our guidelines structured, we've broken them down into specialized sub-guides. Please review the relevant documents before submitting your work:
 
----
-
-## Ways to Contribute
-
-- Fix a bug (open an issue first if it's non-trivial)
-- Add a feature from the roadmap
-- Improve documentation or fix typos
-- Write additional contract tests
-- Build a keeper/scheduler service
-- Review open pull requests
+- **[🎨 Code Style Guidelines](file:///workspaces/PayFlow/docs/contributing/code_style.md)**: Python (PEP 8), TypeScript/JavaScript (ESLint/Prettier), Rust (clippy/fmt), Tailwind CSS class sorting, and SQL style.
+- **[🌿 Git Workflow & Commits](file:///workspaces/PayFlow/docs/contributing/git_workflow.md)**: Branching strategy, Conventional Commit formatting, rebasing, squashing, and cherry-picking.
+- **[📥 Pull Requests & Issues](file:///workspaces/PayFlow/docs/contributing/pull_request.md)**: PR templates, peer reviews, change requests, and issue triaging/labels.
+- **[🤝 Community Standards & Swag](file:///workspaces/PayFlow/docs/contributing/community_standards.md)**: Code of conduct, communication norms, conflict resolution, mentorship, swag packages, and maintainership.
+- **[📚 Writing Documentation](file:///workspaces/PayFlow/docs/contributing/documentation.md)**: Formatting rules (GFM), alerts, diagrams, and Docusaurus configuration details.
 
 ---
 
-## Good First Issues
+## ⚡ Development Quickstart
 
-These are well-scoped tasks that don't require deep knowledge of the whole codebase:
+To quickly set up your development environment, follow the steps below:
 
-| Task | Area | Difficulty |
-| --- | --- | --- |
-| Add USDC / custom SAC token support | Contract | Medium |
-| Build a Node.js keeper service that calls `charge()` on a schedule | Backend | Medium |
-| Add subscription pause/resume functions | Contract | Medium |
-| Improve frontend error messages with human-readable contract panics | Frontend | Easy |
-| Add `test_pay_per_use` unit test | Contract | Easy |
-| Add `test_double_initialize` unit test | Contract | Easy |
-| Display transaction history using contract events | Frontend | Hard |
-
----
-
-## Development Setup
-
-### Contract
-
+### 🦀 Smart Contract Environment (Rust)
 ```bash
-# Install Rust
+# 1. Install Rust
 curl https://sh.rustup.rs -sSf | sh
 
-# Add WASM target
+# 2. Add WASM target
 rustup target add wasm32-unknown-unknown
 
-# Install Soroban CLI
+# 3. Install Soroban CLI
 cargo install --locked soroban-cli
 
-# Run tests
+# 4. Clone and test
 cd contract
 cargo test
 ```
 
-### Frontend
-
+### ⚛️ Frontend Environment (React + TS)
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # then fill in VITE_CONTRACT_ID
+cp .env.example .env.local   # Fill in VITE_CONTRACT_ID
 npm run dev
 ```
 
 ---
 
-## Branching & Workflow
+## 🏷️ PR Submission Checklist
 
-1. Fork the repository
-2. Create a feature branch from `main`:
-   ```bash
-   git checkout -b feat/your-feature-name
-   # or
-   git checkout -b fix/bug-description
-   ```
-3. Make your changes
-4. Run tests — they must all pass before opening a PR
-5. Push your branch and open a Pull Request against `main`
-
-Branch naming conventions:
-- `feat/` — new feature
-- `fix/` — bug fix
-- `docs/` — documentation only
-- `test/` — adding or improving tests
-- `refactor/` — code changes with no behaviour change
+Before opening a Pull Request, confirm that:
+- [ ] `cargo test` passes successfully (for contract changes).
+- [ ] `npm run lint` and `npm run build` pass with zero errors (for frontend changes).
+- [ ] Code conforms to the [Code Style Guidelines](file:///workspaces/PayFlow/docs/contributing/code_style.md).
+- [ ] New functionality has corresponding tests in `contract/src/test.rs` or frontend test suites.
+- [ ] No private environment variables or `.env` files are tracked by git.
+- [ ] PR description is filled out using the template in the [Pull Request Guide](file:///workspaces/PayFlow/docs/contributing/pull_request.md).
 
 ---
 
-## Contract Contribution Guidelines
+## 💬 Got Questions?
 
-- Keep `#![no_std]` — Soroban contracts cannot use the Rust standard library
-- Every new public function **must** have at least one test in `test.rs`
-- Any function that moves funds or mutates user state **must** call `user.require_auth()`
-- Use `env.storage().persistent()` for user data, `env.storage().instance()` for contract-wide config
-- Emit an event via `env.events().publish()` for every state-changing action
-- Do not introduce floating point — use integer arithmetic in stroops (1 XLM = 10,000,000 stroops)
-- Run `cargo clippy` and resolve all warnings before submitting
-
----
-
-## Frontend Contribution Guidelines
-
-- All contract calls must go through `src/stellar.ts` — React components should never import `@stellar/stellar-sdk` directly
-- Do not add external UI component libraries — keep the bundle minimal
-- Use TypeScript strictly — no `any` unless absolutely necessary and commented
-- Keep components small and focused on a single responsibility
-- Run `npm run lint` to check for ESLint errors before submitting
-- Run `npm run format` to auto-format all source files with Prettier
-- Run `npm run build` to confirm there are no TypeScript errors before submitting
-
----
-
-## Commit Style
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat: add pause/resume subscription functions
-fix: prevent double-initialize on contract
-docs: expand DEPLOYMENT.md with mainnet steps
-test: add pay_per_use unit test
-refactor: extract token client helper in lib.rs
-```
-
----
-
-## Pull Request Checklist
-
-Before opening a PR, confirm:
-
-- [ ] `cargo test` passes (contract changes)
-- [ ] `npm run lint` passes with no errors (frontend changes)
-- [ ] `npm run build` passes (frontend changes)
-- [ ] New functions have tests
-- [ ] No secrets or `.env` files committed
-- [ ] PR description explains what changed and why
-- [ ] Linked to a relevant issue if one exists
-
----
-
-## Questions
-
-Open a GitHub Discussion or leave a comment on the relevant issue. We're happy to help you get unstuck.
+If you get stuck or have questions:
+1. Search the **[Troubleshooting Guide & FAQ](file:///workspaces/PayFlow/docs/troubleshooting/README.md)**.
+2. Join our Discord server and post in the `#development` channel.
+3. Open a GitHub Discussion under the "Q&A" category.
