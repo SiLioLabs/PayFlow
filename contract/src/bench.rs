@@ -111,7 +111,7 @@ fn bench_subscribe() {
         &None,
     );
 
-    let cpu = env.budget().cpu_instruction_count();
+    let cpu = env.budget().cpu_instruction_cost();
     let mem = env.budget().memory_bytes_cost();
 
     env.budget().reset_default();
@@ -169,7 +169,7 @@ fn bench_charge() {
 
     client.charge(&user);
 
-    let cpu = env.budget().cpu_instruction_count();
+    let cpu = env.budget().cpu_instruction_cost();
     let mem = env.budget().memory_bytes_cost();
 
     env.budget().reset_default();
@@ -218,7 +218,7 @@ fn bench_pay_per_use() {
 
     client.pay_per_use(&user, &5_0000000);
 
-    let cpu = env.budget().cpu_instruction_count();
+    let cpu = env.budget().cpu_instruction_cost();
     let mem = env.budget().memory_bytes_cost();
 
     env.budget().reset_default();
@@ -286,7 +286,7 @@ fn bench_batch_charge_10_users() {
 
     let results = client.batch_charge(&users);
 
-    let cpu = env.budget().cpu_instruction_count();
+    let cpu = env.budget().cpu_instruction_cost();
     let mem = env.budget().memory_bytes_cost();
 
     env.budget().reset_default();

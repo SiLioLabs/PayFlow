@@ -59,6 +59,8 @@ pub fn publish_min_interval_updated(env: &Env, seconds: u64) {
 pub fn publish_merchant_history_cleared(env: &Env, merchant: &Address) {
     env.events()
         .publish((Symbol::new(env, "merch_hist_cleared"),), merchant.clone());
+}
+
 pub fn publish_paused(env: &Env, user: &Address) {
     env.events()
         .publish((Symbol::new(env, "paused"), user.clone()), ());
@@ -123,6 +125,20 @@ pub fn publish_merchant_added(env: &Env, merchant: &Address) {
 pub fn publish_merchant_removed(env: &Env, merchant: &Address) {
     env.events().publish(
         (Symbol::new(env, "merchant_removed"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_merchant_frozen(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_frozen"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_merchant_unfrozen(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_unfrozen"), merchant.clone()),
         (),
     );
 }

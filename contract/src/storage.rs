@@ -31,9 +31,6 @@ pub fn get_admin(env: &Env) -> Address {
 
 pub fn get_admin_optional(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::Admin)
-    env.storage()
-        .instance()
-        .get(&DataKey::Admin)
 }
 
 pub fn set_admin(env: &Env, admin: &Address) {

@@ -1,6 +1,4 @@
-use soroban_sdk::Env;
 use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
-use crate::DataKey;
 use soroban_sdk::Env;
 
 /// Retrieves the contract-wide grace period from instance storage.
@@ -33,7 +31,4 @@ pub fn set_grace_period(env: &Env, seconds: u64) {
     let lower = SUBSCRIPTION_TTL_LEDGERS / 2;
     let upper = SUBSCRIPTION_TTL_LEDGERS;
     env.storage().instance().extend_ttl(lower, upper);
-    env.storage()
-        .instance()
-        .set(&DataKey::GracePeriod, &seconds);
 }

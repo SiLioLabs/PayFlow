@@ -39,3 +39,26 @@ pub fn set_whitelist_enabled(env: &Env, enabled: bool) {
         .instance()
         .set(&DataKey::WhitelistEnabled, &enabled);
 }
+
+/// Checks if a merchant is frozen. Independent of whitelist status.
+pub fn is_frozen(env: &Env, merchant: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::MerchantFrozen(merchant.clone()))
+}
+
+/// Freezes a merchant, blocking new subscriptions. Idempotent.
+pub fn freeze(env: &Env, merchant: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::MerchantFrozen(merchant.clone()), &true);
+    events::publish_merchant_frozen(env, merchant);
+}
+
+/// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
+pub fn unfreeze(env: &Env, merchant: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::MerchantFrozen(merchant.clone()));
+    events::publish_merchant_unfrozen(env, merchant);
+}

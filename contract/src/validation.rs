@@ -69,6 +69,9 @@ mod tests {
     fn test_require_positive_amount_positive() {
         require_positive_amount(1);
         require_positive_amount(100);
+    }
+
+    #[test]
     fn test_require_positive_amount_accepts_positive() {
         require_positive_amount(1);
     }
@@ -76,6 +79,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_require_positive_amount_negative() {
+        require_positive_amount(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
     fn test_require_positive_amount_panics_on_zero() {
         require_positive_amount(0);
     }
@@ -89,6 +97,9 @@ mod tests {
     #[test]
     fn test_require_positive_interval_positive() {
         require_positive_interval(1);
+    }
+
+    #[test]
     fn test_require_positive_interval_accepts_positive() {
         require_positive_interval(60);
     }
@@ -96,12 +107,21 @@ mod tests {
     #[test]
     #[should_panic(expected = "interval must be positive")]
     fn test_require_positive_interval_negative() {
+        require_positive_interval(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "interval must be positive")]
     fn test_require_positive_interval_panics_on_zero() {
         require_positive_interval(0);
     }
 
     #[test]
     fn test_require_active_subscription_positive() {
+        require_active_subscription(true);
+    }
+
+    #[test]
     fn test_require_active_subscription_accepts_true() {
         require_active_subscription(true);
     }
@@ -109,6 +129,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "subscription is not active")]
     fn test_require_active_subscription_negative() {
+        require_active_subscription(false);
+    }
+
+    #[test]
+    #[should_panic(expected = "subscription is not active")]
     fn test_require_active_subscription_panics_on_false() {
         require_active_subscription(false);
     }
@@ -117,6 +142,9 @@ mod tests {
     fn test_require_charge_interval_elapsed_positive() {
         require_charge_interval_elapsed(100, 40, 60);
         require_charge_interval_elapsed(150, 40, 60);
+    }
+
+    #[test]
     fn test_require_charge_interval_elapsed_accepts_elapsed_interval() {
         require_charge_interval_elapsed(100, 40, 60);
     }
@@ -124,6 +152,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "interval not elapsed yet")]
     fn test_require_charge_interval_elapsed_negative() {
+        require_charge_interval_elapsed(99, 40, 60);
+    }
+
+    #[test]
+    #[should_panic(expected = "interval not elapsed yet")]
     fn test_require_charge_interval_elapsed_panics_if_too_early() {
         require_charge_interval_elapsed(99, 40, 60);
     }

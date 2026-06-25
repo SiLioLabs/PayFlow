@@ -47,6 +47,8 @@ pub enum DataKey {
     // Merchant whitelist
     MerchantWhitelist(Address),
     WhitelistEnabled,
+    // Merchant freeze: blocks new subscriptions, independent of whitelist status
+    MerchantFrozen(Address),
     // Protocol fee
     FeeCollector,
     FeeBps,
@@ -76,8 +78,6 @@ pub enum DataKey {
     // Feature: subscriber index (append-only log)
     SubscriberIndex(u64),
     SubscriberIndexSize,
-    // Feature: emergency contract pause
-    ContractPaused,
     // Feature: per-merchant subscriber count
     MerchantSubCount(Address),
     // Pending admin for two-step transfer
@@ -189,6 +189,10 @@ impl FlowPay {
             }
         }
 
+        if whitelist::is_frozen(&env, &merchant) {
+            env.panic_with_error(ContractError::MerchantFrozen);
+        }
+
         if amount <= 0 {
             env.panic_with_error(ContractError::AmountMustBePositive);
         }
@@ -219,9 +223,6 @@ impl FlowPay {
         let now = env.ledger().timestamp();
         let trial_duration = trial_period.unwrap_or(0);
         let last_charged = now + trial_duration;
-
-        let existing = storage::get_subscription(&env, &user);
-        let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
         let sub = Subscription {
             merchant,
@@ -590,7 +591,6 @@ impl FlowPay {
 
     /// Upgrades the current contract WASM to `new_wasm_hash`.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        admin::require_admin(&env);
         upgrade::upgrade(&env, new_wasm_hash);
     }
 
@@ -766,11 +766,6 @@ impl FlowPay {
         min_interval::get_min_interval(&env)
     }
 
-    /// Returns the contract-wide grace period for charges.
-    pub fn get_grace_period(env: Env) -> u64 {
-        grace::get_grace_period(&env)
-    }
-
     /// Adds a merchant to the whitelist.
     pub fn add_merchant(env: Env, merchant: Address) {
         admin::require_admin(&env);
@@ -797,6 +792,25 @@ impl FlowPay {
     /// Returns whether a merchant is whitelisted.
     pub fn is_merchant_whitelisted(env: Env, merchant: Address) -> bool {
         whitelist::is_whitelisted(&env, &merchant)
+    }
+
+    /// Freezes a merchant, blocking new subscriptions while leaving existing
+    /// subscribers' charge and pay_per_use calls unaffected. Independent of
+    /// whitelist status — idempotent.
+    pub fn freeze_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        whitelist::freeze(&env, &merchant);
+    }
+
+    /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
+    pub fn unfreeze_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        whitelist::unfreeze(&env, &merchant);
+    }
+
+    /// Returns whether a merchant is currently frozen.
+    pub fn is_merchant_frozen(env: Env, merchant: Address) -> bool {
+        whitelist::is_frozen(&env, &merchant)
     }
 
     /// Returns the current protocol fee settings, or `None` if unset.
@@ -898,6 +912,8 @@ impl FlowPay {
         admin::require_admin(&env);
         merchant_stats::clear_revenue_history(&env, &merchant);
         events::publish_merchant_history_cleared(&env, &merchant);
+    }
+
     /// Returns the number of active subscribers for a given merchant.
     pub fn get_merchant_subscriber_count(env: Env, merchant: Address) -> u64 {
         merchant_stats::get_merchant_subscriber_count(&env, &merchant)
@@ -1061,22 +1077,6 @@ impl FlowPay {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Contract pause
-    // ─────────────────────────────────────────────────────────────
-
-    /// Pauses the contract. Only the admin can call this.
-    pub fn pause_contract(env: Env) {
-        admin::require_admin(&env);
-        storage::set_contract_paused(&env, true);
-    }
-
-    /// Unpauses the contract. Only the admin can call this.
-    pub fn unpause_contract(env: Env) {
-        admin::require_admin(&env);
-        storage::set_contract_paused(&env, false);
-    }
-
-    // ─────────────────────────────────────────────────────────────
     // Health check
     // ─────────────────────────────────────────────────────────────
 
@@ -1085,7 +1085,7 @@ impl FlowPay {
         let contract_paused = storage::is_contract_paused(&env);
         let token_configured = storage::get_token(&env).is_some();
         let admin_configured = storage::get_admin_optional(&env).is_some();
-        let instance_ttl_ledgers = env.storage().instance().get_ttl();
+        let instance_ttl_ledgers = env.storage().max_ttl();
         let active_subscription_count = subscription_count::get_active_count(&env);
         let schema_version = migration::get_schema_version(&env);
 
@@ -1104,6 +1104,8 @@ impl FlowPay {
             active_subscription_count,
             schema_version,
         }
+    }
+
     /// Clears the charge history for a subscriber.
     pub fn clear_charge_history(env: Env, user: Address) {
         user.require_auth();
