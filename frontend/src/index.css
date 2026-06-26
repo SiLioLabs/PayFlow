@@ -615,16 +615,32 @@ input::placeholder {
 }
 
 .merchant-subscriber-list {
-  gap: var(--space-3);
+  display: block;
+  overflow-y: auto;
+  position: relative;
+}
+
+.merchant-subscriber-list__spacer {
+  position: relative;
+  width: 100%;
+}
+
+.merchant-subscriber-list__window {
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .merchant-subscriber-row {
+  box-sizing: border-box;
+  height: 72px;
   padding: var(--space-4) 0;
   border-bottom: 1px solid var(--color-border);
   align-items: flex-start;
 }
 
-.merchant-subscriber-row:last-child {
+.merchant-subscriber-row--last {
   border-bottom: none;
 }
 

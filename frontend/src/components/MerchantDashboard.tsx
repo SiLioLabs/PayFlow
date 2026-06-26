@@ -3,8 +3,12 @@ import { getMerchantSubscribers, type MerchantSubscriber, buildBatchChargeTx, si
 import { formatAddress, formatXlm } from "../utils/format";
 import { usePolling } from "../hooks/usePolling";
 import { useTransaction } from "../hooks/useTransaction";
+import { useVirtualList } from "../hooks/useVirtualList";
 import CopyButton from "./CopyButton";
 import RevenueSparkline from "./RevenueSparkline";
+
+const SUBSCRIBER_ROW_HEIGHT = 72;
+const SUBSCRIBER_LIST_HEIGHT = 400;
 
 interface Props {
   merchantKey: string;
@@ -33,6 +37,11 @@ export default function MerchantDashboard({
 
   const dueSubscribers = subscribers.filter(
     (s) => s.nextChargeAt <= Math.floor(Date.now() / 1000)
+  );
+  const virtualSubscribers = useVirtualList(
+    subscribers,
+    SUBSCRIBER_ROW_HEIGHT,
+    SUBSCRIBER_LIST_HEIGHT
   );
 
   const refresh = useCallback(async () => {
@@ -85,7 +94,7 @@ export default function MerchantDashboard({
       });
 
       // 3. Success — refresh list to show updated next charge times
-      setTimeout(refresh, 2000);
+      window.setTimeout(refresh, 2000);
     } catch (e) {
       console.error("Batch charge failed:", e);
     }
@@ -98,8 +107,6 @@ export default function MerchantDashboard({
       </div>
     );
   }
-
-  const maxRevenue = revenueHistory.reduce((a, b) => (a > b ? a : b), 1n);
 
   return (
     <div className="dashboard">
@@ -183,32 +190,51 @@ export default function MerchantDashboard({
             </div>
           )}
 
-          <div className="subscription-rows merchant-subscriber-list">
-            {subscribers.map((entry) => (
-              <div className="subscription-row merchant-subscriber-row" key={entry.subscriber}>
-                <div className="merchant-row">
-                  <span className="merchant-row__address">
-                    {formatAddress(entry.subscriber)}
-                  </span>
-                  <CopyButton text={entry.subscriber} />
-                </div>
-                <div className="merchant-subscriber-value">
-                  <span className="subscription-row__value">
-                    {formatXlm(entry.amount)}
-                  </span>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="subscription-row__label">
-                      Next charge {formatNextCharge(entry.nextChargeAt)}
-                    </span>
-                    {outcomes[entry.subscriber] && (
-                      <span className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}>
-                        {outcomes[entry.subscriber]}
+          <div
+            className="subscription-rows merchant-subscriber-list"
+            onScroll={virtualSubscribers.onScroll}
+            style={{ height: SUBSCRIBER_LIST_HEIGHT }}
+          >
+            <div
+              className="merchant-subscriber-list__spacer"
+              style={{ height: virtualSubscribers.totalHeight }}
+            >
+              <div
+                className="merchant-subscriber-list__window"
+                style={{ transform: `translateY(${virtualSubscribers.offsetY}px)` }}
+              >
+                {virtualSubscribers.visibleItems.map(({ item: entry, index }) => (
+                  <div
+                    className={`subscription-row merchant-subscriber-row${
+                      index === subscribers.length - 1 ? " merchant-subscriber-row--last" : ""
+                    }`}
+                    key={entry.subscriber}
+                  >
+                    <div className="merchant-row">
+                      <span className="merchant-row__address">
+                        {formatAddress(entry.subscriber)}
                       </span>
-                    )}
+                      <CopyButton text={entry.subscriber} />
+                    </div>
+                    <div className="merchant-subscriber-value">
+                      <span className="subscription-row__value">
+                        {formatXlm(entry.amount)}
+                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="subscription-row__label">
+                          Next charge {formatNextCharge(entry.nextChargeAt)}
+                        </span>
+                        {outcomes[entry.subscriber] && (
+                          <span className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}>
+                            {outcomes[entry.subscriber]}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       )}
