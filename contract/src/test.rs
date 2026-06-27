@@ -1845,6 +1845,14 @@ fn test_migrate_v1_to_v2() {
 
 #[test]
 fn test_upgrade_event_emitted() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&token_addr, &admin);
+
+    let new_wasm_hash = BytesN::from_array(&env, &[7; 32]);
+    client.upgrade(&new_wasm_hash);
+
     let env = Env::default();
     let contract_id = env.register_contract(None, FlowPay);
     let mock_wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
@@ -2124,7 +2132,6 @@ fn test_health_check_initialized_unpaused() {
     let (env, contract_id, token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-
     client.initialize(&token_addr, &admin);
 
     let report = client.contract_health_check();
@@ -2740,7 +2747,7 @@ fn test_get_min_interval_default() {
 /// subscribe panics with IntervalTooShort when interval < default floor of 3600.
 #[test]
 #[should_panic]
-fn test_subscribe_interval_too_short_panics() {
+fn test_subscribe_interval_too_short_panics_default_floor() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     // 1800 seconds (30 min) < 3600 default floor

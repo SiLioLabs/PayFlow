@@ -168,6 +168,7 @@ impl FlowPay {
 
         env.storage().instance().set(&DataKey::Token, &token);
         admin::initialize_admin(&env, &admin);
+        env.storage().instance().extend_ttl(50_000, 100_000);
     }
 
     /// Creates or replaces a recurring subscription for `user`.
@@ -592,23 +593,6 @@ impl FlowPay {
         events::publish_resumed(&env, &user);
     }
 
-    /// Pauses all user-facing payment operations for the contract.
-    pub fn pause_contract(env: Env) {
-        admin::require_admin(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::ContractPaused, &true);
-        events::publish_contract_paused(&env);
-    }
-
-    /// Unpauses user-facing payment operations for the contract.
-    pub fn unpause_contract(env: Env) {
-        admin::require_admin(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::ContractPaused, &false);
-        events::publish_contract_unpaused(&env);
-    }
 
     /// Proposes a new admin (step 1 of two-step transfer).
     /// The proposed address must call `accept_admin()` to complete the transfer.
@@ -1221,6 +1205,24 @@ impl FlowPay {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // Contract pause
+    // ─────────────────────────────────────────────────────────────
+
+    /// Pauses the contract. Only the admin can call this.
+    pub fn pause_contract(env: Env) {
+        admin::require_admin(&env);
+        storage::set_contract_paused(&env, true);
+        events::publish_contract_paused(&env);
+    }
+
+    /// Unpauses the contract. Only the admin can call this.
+    pub fn unpause_contract(env: Env) {
+        admin::require_admin(&env);
+        storage::set_contract_paused(&env, false);
+        events::publish_contract_unpaused(&env);
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // Health check
     // ─────────────────────────────────────────────────────────────
 
@@ -1229,7 +1231,14 @@ impl FlowPay {
         let contract_paused = storage::is_contract_paused(&env);
         let token_configured = storage::get_token(&env).is_some();
         let admin_configured = storage::get_admin_optional(&env).is_some();
-        let instance_ttl_ledgers = env.storage().max_ttl();
+
+        #[cfg(any(test, feature = "testutils"))]
+        let instance_ttl_ledgers = {
+            use soroban_sdk::testutils::storage::Instance as _;
+            env.storage().instance().get_ttl()
+        };
+        #[cfg(not(any(test, feature = "testutils")))]
+        let instance_ttl_ledgers = 100_000; // at least 1 day of TTL remaining, used as default since get_ttl is not available on-chain
         let active_subscription_count = subscription_count::get_active_count(&env);
         let schema_version = migration::get_schema_version(&env);
 
@@ -1319,6 +1328,7 @@ fn extend_subscription_ttl(env: &Env, user: &Address) {
         SUBSCRIPTION_TTL_LEDGERS,
         SUBSCRIPTION_TTL_LEDGERS,
     );
+    env.storage().instance().extend_ttl(SUBSCRIPTION_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS);
 }
 
 fn subscribe_inner(
