@@ -582,6 +582,59 @@ impl FlowPay {
         events::publish_contract_unpaused(&env);
     }
 
+    /// Batch-pauses subscriptions for a list of user addresses.
+    ///
+    /// Admin-only emergency tool to freeze groups of related accounts in a
+    /// single transaction. The vector is capped at 25 items to stay within
+    /// ledger size constraints.
+    ///
+    /// # Parameters
+    ///
+    /// - `users`: List of subscriber addresses to pause. Max 25 items.
+    ///
+    /// # Returns
+    ///
+    /// Returns nothing.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the contract admin.
+    ///
+    /// # Side Effects
+    ///
+    /// For every valid active subscription, sets `paused = true`, persists the
+    /// update, extends the subscription TTL, and emits a `subscription_paused`
+    /// event. Invalid (non-existent) and already-paused entries are silently
+    /// skipped. The contract pause flag does **not** block this call.
+    pub fn batch_pause_subscriptions(env: Env, users: Vec<Address>) {
+        admin::require_admin(&env);
+
+        let max_batch: u32 = 25;
+        if users.len() > max_batch {
+            env.panic_with_error(ContractError::BatchSizeExceeded);
+        }
+
+        for user in users.iter() {
+            let key = DataKey::Subscription(user.clone());
+
+            let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
+            if let Some(mut sub) = sub_opt {
+                if !sub.active || sub.paused {
+                    if sub.paused {
+                        extend_subscription_ttl(&env, &user);
+                    }
+                    continue;
+                }
+
+                sub.paused = true;
+
+                env.storage().persistent().set(&key, &sub);
+                extend_subscription_ttl(&env, &user);
+                events::publish_subscription_paused(&env, &user);
+            }
+        }
+    }
+
     /// Proposes a new admin (step 1 of two-step transfer).
     /// The proposed address must call `accept_admin()` to complete the transfer.
     ///
@@ -671,14 +724,12 @@ impl FlowPay {
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
-        admin::require_admin(&env);
         grace::propose_grace_period(&env, seconds);
     }
 
     /// Commits a pending contract-wide grace period proposal.
     /// Only the contract admin can call this.
     pub fn commit_grace_period(env: Env) {
-        admin::require_admin(&env);
         grace::commit_grace_period(&env);
     }
 
@@ -870,14 +921,12 @@ impl FlowPay {
     /// Proposes new protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn propose_fee(env: Env, collector: Address, bps: u32) {
-        admin::require_admin(&env);
         fee::propose_fee(&env, collector, bps);
     }
 
     /// Commits pending protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn commit_fee(env: Env) {
-        admin::require_admin(&env);
         fee::commit_fee(&env);
     }
 

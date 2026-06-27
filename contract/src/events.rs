@@ -215,3 +215,8 @@ pub fn publish_min_interval_updated(env: &Env, seconds: u64) {
     env.events()
         .publish((Symbol::new(env, "min_interval_updated"),), seconds);
 }
+
+pub fn publish_subscription_paused(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "subscription_paused"), user.clone()), ());
+}
