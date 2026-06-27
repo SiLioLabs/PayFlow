@@ -90,6 +90,17 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
     }
   }
 
+  function handleConfirmCancel() {
+    setShowConfirm(false);
+    cancelTx.reset();
+  }
+
+  function handleDailyLimitClose() {
+    setShowDailyLimit(false);
+    // Find if there's a tx in DailyLimitModal - looking at it, no, it has its own logic!
+    // But if needed, reset here, but let's keep as is for now!
+  }
+
   const handlePayPerUse = useCallback(async (stroops: bigint) => {
     announce("Transaction submitted");
     try {
@@ -215,7 +226,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
         <ConfirmModal
           message="Are you sure you want to cancel your subscription? This cannot be undone."
           onConfirm={performCancel}
-          onCancel={() => setShowConfirm(false)}
+          onCancel={handleConfirmCancel}
         />
       )}
 

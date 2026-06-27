@@ -2,19 +2,20 @@
  * useWallet — connects to Freighter (Stellar browser wallet)
  * https://www.freighter.app/
  *
- * Persists the last-known public key in localStorage (key: "pf_wallet_pk").
+ * Persists the last-known public key in localStorage (key: "wallet_public_key").
  * On mount it silently re-validates the cached key with Freighter before
  * exposing it to callers, so the wallet appears connected across page reloads
  * without requiring the user to click "Connect" again.
  *
- * A `ready` boolean is false until the re-validation attempt completes,
+ * A `ready` (and `sessionRestored`) boolean is false until the re-validation attempt completes,
  * allowing callers to gate rendering on wallet readiness.
  */
 import { useState, useCallback, useEffect } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import { NETWORK_PASSPHRASE, server } from "../stellar";
+import { useLocalStorage } from "./useLocalStorage";
 
-const STORAGE_KEY = "pf_wallet_pk";
+const STORAGE_KEY = "wallet_public_key";
 const POLL_ATTEMPTS = 3;
 const POLL_INTERVAL_MS = 300;
 
@@ -44,10 +45,10 @@ async function waitForFreighter(
 }
 
 export function useWallet() {
-  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [publicKey, setPublicKey] = useLocalStorage<string | null>(STORAGE_KEY, null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  // `ready` is false until the on-mount re-validation attempt completes.
+  // `ready` (and `sessionRestored`) is false until the on-mount re-validation attempt completes.
   const [ready, setReady] = useState(false);
 
   // On mount: try to restore a previously cached public key.
@@ -55,27 +56,43 @@ export function useWallet() {
     let mounted = true;
 
     async function revalidate() {
-      const cached = localStorage.getItem(STORAGE_KEY);
+      // Read initial cached value directly from localStorage (not from state)
+      let cached: string | null = null;
+      try {
+        const item = window.localStorage.getItem(STORAGE_KEY);
+        cached = item ? JSON.parse(item) : null;
+      } catch {
+        cached = null;
+      }
+
       if (!cached) {
         if (mounted) setReady(true);
         return;
       }
+
+      setConnecting(true);
 
       // Poll for Freighter injection (extension may not yet be present).
       const freighter = await waitForFreighter(POLL_ATTEMPTS, POLL_INTERVAL_MS);
 
       if (!freighter) {
         // Freighter absent after all polls — clear stale cache.
-        localStorage.removeItem(STORAGE_KEY);
-        if (mounted) setReady(true);
+        if (mounted) {
+          setPublicKey(null);
+          setConnecting(false);
+          setReady(true);
+        }
         return;
       }
 
       try {
         const connected = await freighter.isConnected();
         if (!connected) {
-          localStorage.removeItem(STORAGE_KEY);
-          if (mounted) setReady(true);
+          if (mounted) {
+            setPublicKey(null);
+            setConnecting(false);
+            setReady(true);
+          }
           return;
         }
 
@@ -84,15 +101,17 @@ export function useWallet() {
           // Cache is still valid.
           if (mounted) setPublicKey(liveKey);
         } else {
-          // Key changed — update the cache with the current key.
-          localStorage.setItem(STORAGE_KEY, liveKey);
-          if (mounted) setPublicKey(liveKey);
+          // Key changed — clear cache and disconnect.
+          if (mounted) setPublicKey(null);
         }
       } catch {
         // Any error during re-validation: clear cache and stay disconnected.
-        localStorage.removeItem(STORAGE_KEY);
+        if (mounted) setPublicKey(null);
       } finally {
-        if (mounted) setReady(true);
+        if (mounted) {
+          setConnecting(false);
+          setReady(true);
+        }
       }
     }
 
@@ -101,7 +120,7 @@ export function useWallet() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [setPublicKey]); // Empty dependency array except setPublicKey (stable)
 
   const connect = useCallback(async () => {
     setError(null);
@@ -117,14 +136,13 @@ export function useWallet() {
         return;
       }
       const key = await window.freighter.getPublicKey();
-      localStorage.setItem(STORAGE_KEY, key);
       setPublicKey(key);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to connect wallet");
     } finally {
       setConnecting(false);
     }
-  }, []);
+  }, [setPublicKey]);
 
   const signAndSubmit = useCallback(async (xdr: string): Promise<string> => {
     if (!window.freighter) throw new Error("Freighter not available");
@@ -137,10 +155,18 @@ export function useWallet() {
   }, []);
 
   const disconnect = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
     setPublicKey(null);
     setError(null);
-  }, []);
+  }, [setPublicKey]);
 
-  return { publicKey, connect, signAndSubmit, disconnect, error, connecting, ready };
+  return { 
+    publicKey, 
+    connect, 
+    signAndSubmit, 
+    disconnect, 
+    error, 
+    connecting, 
+    ready, 
+    sessionRestored: ready // Alias for backward compatibility as per issue
+  };
 }
