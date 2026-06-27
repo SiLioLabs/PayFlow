@@ -28,6 +28,7 @@ import ConnectWallet from "./components/ConnectWallet";
 import WalletBar from "./components/WalletBar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SubscriptionCardSkeleton from "./components/Skeleton";
+import Spinner from "./components/Spinner";
 
 // Lazy-loaded components — split into separate chunks to keep the main bundle lean.
 // MerchantDashboard gets a dedicated Vite chunk name for easier bundle analysis.
@@ -103,7 +104,7 @@ function TabErrorFallback({ title, onRetry }: { title: string; onRetry: () => vo
 }
 
 export default function App() {
-  const { publicKey, connect, signAndSubmit, disconnect, error, connecting } = useWallet();
+  const { publicKey, connect, signAndSubmit, disconnect, error, connecting, sessionRestored, ready } = useWallet();
   const { theme, toggle } = useTheme();
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
@@ -119,6 +120,9 @@ export default function App() {
   const subscribeErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const dashboardErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const merchantErrorBoundaryRef = useRef<ErrorBoundary>(null);
+
+  // Use sessionRestored if available, otherwise ready (backward compatibility)
+  const isSessionRestored = sessionRestored ?? ready;
 
   // Keyboard shortcuts
   const shortcuts = useKeyboardShortcuts({
@@ -168,6 +172,38 @@ export default function App() {
   async function handleConnectWallet() {
     await connect();
     track({ type: "wallet_connected" });
+  }
+
+  // Render loading state while restoring session
+  if (!isSessionRestored) {
+    return (
+      <div className={`app-shell${isMobile ? " app-shell--mobile" : ""}`}>
+        {/* ARIA live region for screen reader announcements */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {announcement}
+        </div>
+
+        {/* Header */}
+        <div className="app-header">
+          <div>
+            <h1 className="app-header__title">⚡ FlowPay</h1>
+            <p className="app-header__subtitle">
+              Decentralized recurring payments on Stellar
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+          </div>
+        </div>
+
+        {/* Loading spinner */}
+        <div className="card connect-wallet" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "40px" }}>
+          <Spinner size="lg" />
+        </div>
+      </div>
+    );
   }
 
   return (
