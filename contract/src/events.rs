@@ -201,3 +201,118 @@ pub fn publish_subscription_paused(env: &Env, user: &Address) {
     env.events()
         .publish((Symbol::new(env, "subscription_paused"), user.clone()), ());
 }
+
+pub fn publish_paused(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "paused"), user.clone()), ());
+}
+
+pub fn publish_resumed(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "resumed"), user.clone()), ());
+}
+
+pub fn publish_subscription_amount_updated(
+    env: &Env,
+    user: &Address,
+    old_amount: i128,
+    new_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "sub_amount_updated"), user.clone()),
+        (old_amount, new_amount),
+    );
+}
+
+pub fn publish_subscription_interval_updated(
+    env: &Env,
+    user: &Address,
+    old_interval: u64,
+    new_interval: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "sub_interval_updated"), user.clone()),
+        (old_interval, new_interval),
+    );
+}
+
+pub fn publish_merchant_withdrawal(env: &Env, merchant: &Address, amount: i128) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_withdrawal"), merchant.clone()),
+        amount,
+    );
+}
+
+pub fn publish_merchant_history_cleared(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_history_cleared"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_referred(env: &Env, user: &Address, referrer: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "referred"), user.clone()),
+        referrer.clone(),
+    );
+}
+
+pub fn publish_admin_transferred(env: &Env, old_admin: &Address, new_admin: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "admin_transferred"),),
+        (old_admin.clone(), new_admin.clone()),
+    );
+}
+
+pub fn publish_fee_proposed(env: &Env, collector: &Address, bps: u32) {
+    env.events()
+        .publish((Symbol::new(env, "fee_proposed"),), (collector.clone(), bps));
+}
+
+pub fn publish_fee_committed(env: &Env, collector: &Address, bps: u32) {
+    env.events()
+        .publish((Symbol::new(env, "fee_committed"),), (collector.clone(), bps));
+}
+
+pub fn publish_merchant_added(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_added"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_merchant_removed(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_removed"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_merchant_frozen(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_frozen"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_merchant_unfrozen(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_unfrozen"), merchant.clone()),
+        (),
+    );
+}
+
+pub fn publish_grace_period_proposed(env: &Env, seconds: u64) {
+    env.events()
+        .publish((Symbol::new(env, "grace_period_proposed"),), seconds);
+}
+
+pub fn publish_grace_period_committed(env: &Env, seconds: u64) {
+    env.events()
+        .publish((Symbol::new(env, "grace_period_committed"),), seconds);
+}
+
+pub fn publish_min_interval_updated(env: &Env, seconds: u64) {
+    env.events()
+        .publish((Symbol::new(env, "min_interval_updated"),), seconds);
+}
