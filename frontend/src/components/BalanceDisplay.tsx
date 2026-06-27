@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { getBalance } from "../stellar";
+import React from "react";
+import { useStellarBalance } from "../hooks/useStellarBalance";
 import { formatXlm } from "../utils/format";
 
 interface BalanceDisplayProps {
@@ -7,36 +7,9 @@ interface BalanceDisplayProps {
 }
 
 export default function BalanceDisplay({ address }: BalanceDisplayProps) {
-  const [balance, setBalance] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { balance, loading, stale } = useStellarBalance(address);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function fetchBalance() {
-      setLoading(true);
-      try {
-        const bal = await getBalance(address);
-        if (mounted) {
-          setBalance(bal);
-        }
-      } catch (err) {
-        console.error("Failed to fetch balance:", err);
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchBalance();
-
-    return () => {
-      mounted = false;
-    };
-  }, [address]);
-
-  if (loading) {
+  if (loading && !stale) {
     return <div className="skeleton balance-skeleton" />;
   }
 

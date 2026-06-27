@@ -2,6 +2,8 @@
 
 This document is the complete reference for the FlowPay Soroban smart contract. It covers every public function, its parameters, return values, auth requirements, and error conditions.
 
+*See also: [Daily Spending Limits Guide](./DAILY-LIMITS.md) for a conceptual overview of the `pay_per_use` spending cap.*
+
 ---
 
 ## Data Types
@@ -558,6 +560,8 @@ soroban contract invoke \
 ### `set_daily_limit`
 
 Sets a daily spending cap for `pay_per_use()` for the calling user. The limit is stored in temporary storage and resets automatically after approximately one day (~17,280 ledgers at 5 s/ledger).
+
+*For a detailed conceptual guide on how limits and TTL expirations work, see [Daily Spending Limits](./DAILY-LIMITS.md).*
 
 ```
 set_daily_limit(env: Env, user: Address, limit: i128)
