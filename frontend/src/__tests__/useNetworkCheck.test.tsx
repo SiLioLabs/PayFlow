@@ -24,7 +24,7 @@ function mockFreighterNetwork(networkPassphrase: string) {
       networkPassphrase,
     }),
     signTransaction: vi.fn().mockResolvedValue({ signedTxXdr: "mock-xdr" }),
-  } as typeof window.freighter;
+  } as unknown as typeof window.freighter;
 }
 
 describe("useNetworkCheck", () => {
