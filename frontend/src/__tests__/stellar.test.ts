@@ -1,3 +1,6 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { nativeToScVal, xdr, Address } from "@stellar/stellar-sdk";
+import { ScValDecoder, ScValDecodeError } from "../services/scval";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // 1. Intercept the Stellar SDK's Server class safely with a standalone mock implementation
@@ -240,6 +243,129 @@ describe("getChargeHistory", () => {
   });
 });
 
+describe("ScValDecoder", () => {
+  describe("decodeI128", () => {
+    it("decodes valid i128 correctly", () => {
+      const val = nativeToScVal(12345n, { type: "i128" });
+      expect(ScValDecoder.decodeI128(val)).toBe(12345n);
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeI128(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeU64", () => {
+    it("decodes valid u64 correctly", () => {
+      const val = nativeToScVal(67890n, { type: "u64" });
+      expect(ScValDecoder.decodeU64(val)).toBe(67890n);
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeU64(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeBool", () => {
+    it("decodes true correctly", () => {
+      const val = nativeToScVal(true, { type: "bool" });
+      expect(ScValDecoder.decodeBool(val)).toBe(true);
+    });
+
+    it("decodes false correctly", () => {
+      const val = nativeToScVal(false, { type: "bool" });
+      expect(ScValDecoder.decodeBool(val)).toBe(false);
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeBool(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeAddress", () => {
+    it("decodes valid address correctly", () => {
+      const address = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+      const val = nativeToScVal(Address.fromString(address), { type: "address" });
+      expect(ScValDecoder.decodeAddress(val)).toBe(address);
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeAddress(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeString", () => {
+    it("decodes valid string correctly", () => {
+      const val = nativeToScVal("hello world", { type: "string" });
+      expect(ScValDecoder.decodeString(val)).toBe("hello world");
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal(123n, { type: "i128" });
+      expect(() => ScValDecoder.decodeString(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeSymbol", () => {
+    it("decodes valid symbol correctly", () => {
+      const val = nativeToScVal("SYMBOL", { type: "symbol" });
+      expect(ScValDecoder.decodeSymbol(val)).toBe("SYMBOL");
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeSymbol(val)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeOption", () => {
+    it("returns null for scvVoid", () => {
+      const val = nativeToScVal(undefined, { type: "void" });
+      expect(ScValDecoder.decodeOption(val, ScValDecoder.decodeString)).toBeNull();
+    });
+
+    it("decodes non-void option correctly", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(ScValDecoder.decodeOption(val, ScValDecoder.decodeString)).toBe("test");
+    });
+  });
+
+  describe("decodeVec", () => {
+    it("decodes valid vector correctly", () => {
+      const val = nativeToScVal([1n, 2n, 3n], { type: "i128" });
+      const result = ScValDecoder.decodeVec(val, ScValDecoder.decodeI128);
+      expect(result).toEqual([1n, 2n, 3n]);
+    });
+
+    it("throws ScValDecodeError for wrong type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeVec(val, ScValDecoder.decodeI128)).toThrow(ScValDecodeError);
+    });
+  });
+
+  describe("decodeStruct", () => {
+    it("decodes valid struct with correct schema", () => {
+      const val = nativeToScVal({
+        name: nativeToScVal("Alice", { type: "string" }),
+        age: nativeToScVal(30n, { type: "u64" }),
+      });
+      const result = ScValDecoder.decodeStruct(val, {
+        name: ScValDecoder.decodeString,
+        age: (v) => Number(ScValDecoder.decodeU64(v)),
+      });
+      expect(result).toEqual({ name: "Alice", age: 30 });
+    });
+
+    it("throws ScValDecodeError for non-map type", () => {
+      const val = nativeToScVal("test", { type: "string" });
+      expect(() => ScValDecoder.decodeStruct(val, {})).toThrow(ScValDecodeError);
+    });
+  });
+});
 // ── rpcCache integration tests ────────────────────────────────────────────────
 //
 // These tests exercise the deduplication and TTL caching behaviour of

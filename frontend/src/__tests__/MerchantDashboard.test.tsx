@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../stellar");
 vi.mock("../hooks/usePolling", () => ({ usePolling: () => {} }));
@@ -68,6 +68,24 @@ describe("MerchantDashboard", () => {
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
     await waitFor(() => expect(screen.getByText(/No active subscribers found/)).toBeTruthy());
+  });
+
+  it("renders a virtualized window for large subscriber lists", async () => {
+    const manySubscribers = Array.from({ length: 200 }, (_, index) => ({
+      ...SAMPLE_SUBSCRIBER,
+      subscriber: `GUSER${String(index).padStart(51, "0")}`,
+    }));
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue(manySubscribers);
+    const onSign = vi.fn();
+
+    const { container } = render(
+      <MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />
+    );
+
+    await waitFor(() => expect(screen.getByText("200 total")).toBeTruthy());
+
+    const renderedRows = container.querySelectorAll(".merchant-subscriber-row");
+    expect(renderedRows.length).toBeLessThanOrEqual(20);
   });
 
   it("enables the batch charge button when subscribers are due", async () => {

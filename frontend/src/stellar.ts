@@ -16,6 +16,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import type { Subscription, ChargeEvent } from "./types";
+import { ScValDecoder } from "./services/scval";
 import { dedupedCall } from "./services/rpcCache";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -228,6 +229,10 @@ export function getDailyLimit(user: string): Promise<bigint | null> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) throw new Error((result as { error: string }).error);
 
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) return null;
+
+  return ScValDecoder.decodeOption(retval, ScValDecoder.decodeI128);
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
 
@@ -251,6 +256,14 @@ export function getDailySpent(user: string): Promise<bigint> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) throw new Error((result as { error: string }).error);
 
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) return 0n;
+
+  try {
+    return ScValDecoder.decodeI128(retval);
+  } catch {
+    return 0n;
+  }
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return 0n;
 
@@ -301,6 +314,39 @@ export function getSubscription(user: string): Promise<Subscription | null> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) throw new Error(result.error);
 
+  const result = await server.simulateTransaction(tx);
+  if ("error" in result) throw new Error(result.error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) return null;
+
+  if (retval.switch().name === "scvVoid") return null;
+
+  const subscriptionData = ScValDecoder.decodeStruct(retval, {
+    merchant: ScValDecoder.decodeAddress,
+    amount: (v) => ScValDecoder.decodeI128(v).toString(),
+    interval: (v) => Number(ScValDecoder.decodeU64(v)),
+    last_charged: (v) => Number(ScValDecoder.decodeU64(v)),
+    active: ScValDecoder.decodeBool,
+    paused: ScValDecoder.decodeBool,
+    token: ScValDecoder.decodeAddress,
+    referrer: (v) => ScValDecoder.decodeOption(v, ScValDecoder.decodeAddress),
+    label: ScValDecoder.decodeSymbol,
+    trial_duration: (v) => Number(ScValDecoder.decodeU64(v)),
+  });
+
+  const label = await getSubscriptionMetadata(user);
+
+  return {
+    merchant: subscriptionData.merchant,
+    amount: subscriptionData.amount,
+    interval: subscriptionData.interval,
+    last_charged: subscriptionData.last_charged,
+    active: subscriptionData.active,
+    paused: subscriptionData.paused,
+    trial_duration: subscriptionData.trial_duration,
+    label: label || undefined,
+  };
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval) return null;
 
@@ -378,9 +424,9 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
     if ("error" in result) return null;
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
-    if (!retval || retval.switch().name === "scvVoid") return null;
+    if (!retval) return null;
 
-    return retval.str().toString();
+    return ScValDecoder.decodeOption(retval, ScValDecoder.decodeString);
   } catch {
     return null;
   }
@@ -517,14 +563,7 @@ export async function getMerchantRevenueHistory(merchant: string, days = 7): Pro
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval) return [];
 
-    const vecItems =
-      typeof (retval as any).vec === "function"
-        ? ((retval as any).vec() as any[])
-        : (retval as any)._value?.vec ?? (retval as any)._value?.vec;
-
-    if (!Array.isArray(vecItems)) return [];
-
-    return vecItems.map((item: any) => BigInt(item.i128().toString()));
+    return ScValDecoder.decodeVec(retval, ScValDecoder.decodeI128);
   } catch {
     return [];
   }
@@ -552,6 +591,17 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
       const result = await server.simulateTransaction(tx);
       if ("error" in result) return 0n;
 
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return 0n;
+
+    try {
+      return ScValDecoder.decodeI128(retval);
+    } catch {
+      return 0n;
+    }
+  } catch {
+    return 0n;
+  }
       const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
       if (!retval || retval.switch().name === "scvVoid") return 0n;
 
@@ -599,6 +649,17 @@ export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promis
       const result = await server.simulateTransaction(tx);
       if ("error" in result) return 0n;
 
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return 0n;
+
+    try {
+      return ScValDecoder.decodeI128(retval);
+    } catch {
+      return 0n;
+    }
+  } catch {
+    return 0n;
+  }
       const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
       if (!retval || retval.switch().name === "scvVoid") return 0n;
 
@@ -617,16 +678,17 @@ export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promis
  */
 export async function fetchEvents(
   eventName: string,
-  address?: string
-): Promise<ContractEvent[]> {
+  address?: string,
+  cursor?: string
+): Promise<{ events: ContractEvent[]; nextCursor?: string }> {
   try {
     const response = await server.getEvents({
-      startLedger: undefined,
+      cursor,
       filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
       limit: 100,
     });
 
-    return response.events
+    const events = response.events
       .filter((event: any) => {
         if (!event.topic || event.topic.length < 1) return false;
         if (event.topic[0]?.toString() !== eventName) return false;
@@ -643,8 +705,13 @@ export async function fetchEvents(
           : new Date().toISOString(),
         txHash: event.txHash ?? event.id ?? "",
       }));
+
+    return {
+      events,
+      nextCursor: response.latestLedger > 0 ? response.cursor : undefined,
+    };
   } catch {
-    return [];
+    return { events: [] };
   }
 }
 

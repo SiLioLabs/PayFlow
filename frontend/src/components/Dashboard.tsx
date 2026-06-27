@@ -90,7 +90,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
     }
   }
 
-  async function handlePayPerUse(stroops: bigint) {
+  const handlePayPerUse = useCallback(async (stroops: bigint) => {
     announce("Transaction submitted");
     try {
       const hash = await ppuTx.submit(async () => {
@@ -105,7 +105,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
       addToast(msg, "error");
       announce(msg);
     }
-  }
+  }, [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]);
 
   if (loading)
     return (
