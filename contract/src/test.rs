@@ -4472,3 +4472,80 @@ fn test_batch_pause_subscriptions_exceeds_max_size_panics() {
     }
     client.batch_pause_subscriptions(&users);
 }
+
+// ─────────────────────────────────────────────
+// CONTRACT-07: get_merchant_sub_count tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_merchant_sub_count_two_users_cancel_one() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user_b, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user_b, &contract_id, &10_000_0000000, &200);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user_a, &merchant, &amount, &interval, &token_addr, &None, &None);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 1);
+
+    client.subscribe(&user_b, &merchant, &amount, &interval, &token_addr, &None, &None);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 2);
+
+    client.cancel(&user_a);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 1);
+}
+
+#[test]
+fn test_merchant_sub_count_resubscribe_different_merchant() {
+    let (env, contract_id, token_addr, user, merchant_a) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let merchant_b = Address::generate(&env);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+
+    // Subscribe user to merchant A
+    client.subscribe(&user, &merchant_a, &amount, &interval, &token_addr, &None, &None);
+    assert_eq!(client.get_merchant_sub_count(&merchant_a), 1);
+    assert_eq!(client.get_merchant_sub_count(&merchant_b), 0);
+
+    // Re-subscribe user to merchant B
+    client.subscribe(&user, &merchant_b, &amount, &interval, &token_addr, &None, &None);
+    assert_eq!(client.get_merchant_sub_count(&merchant_a), 0);
+    assert_eq!(client.get_merchant_sub_count(&merchant_b), 1);
+}
+
+#[test]
+fn test_merchant_sub_count_never_subscribed_returns_zero() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let unknown_merchant = Address::generate(&env);
+    assert_eq!(client.get_merchant_sub_count(&unknown_merchant), 0);
+}
+
+#[test]
+fn test_merchant_sub_count_double_cancel_no_underflow() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 1);
+
+    client.cancel(&user);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 0);
+
+    // Second cancel must not underflow
+    client.cancel(&user);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 0);
+}

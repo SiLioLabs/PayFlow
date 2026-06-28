@@ -948,6 +948,11 @@ impl FlowPay {
         merchant_stats::get_merchant_subscriber_count(&env, &merchant)
     }
 
+    /// Returns the number of active subscribers for a given merchant (as u32).
+    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u32 {
+        subscription_count::get_merchant_sub_count(&env, &merchant)
+    }
+
     /// Resets a merchant's cumulative revenue counter to zero.
     /// Only the contract admin can call this.
     pub fn reset_merchant_revenue(env: Env, merchant: Address) {
@@ -1321,6 +1326,12 @@ fn subscribe_inner(
 
     let existing = storage::get_subscription(env, &user);
     let should_increment = existing.as_ref().map_or(true, |s| !s.active);
+
+    if let Some(ref existing_sub) = existing {
+        if existing_sub.active && existing_sub.merchant != merchant {
+            merchant_stats::decrement_subscriber_count(env, &existing_sub.merchant);
+        }
+    }
 
     let sub = Subscription {
         merchant,
