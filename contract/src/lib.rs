@@ -293,6 +293,67 @@ impl FlowPay {
             env.panic_with_error(ContractError::MetadataLabelTooLong);
         }
         subscribe_inner(&env, user.clone(), merchant, amount, interval, token, trial_period, referrer);
+        subscription_metadata::set_metadata(&env, &user, label);
+
+        if whitelist::is_frozen(&env, &merchant) {
+            env.panic_with_error(ContractError::MerchantFrozen);
+        }
+
+        validation::require_valid_amount(&env, amount);
+        if interval == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
+
+        use soroban_sdk::xdr::ToXdr;
+        if token.clone().to_xdr(&env).get(7) == Some(0) {
+            env.panic_with_error(ContractError::InvalidTokenAddress);
+        }
+
+        validation::check_allowance(&env, &user, &token, amount);
+
+        if interval < min_interval::get_min_interval(&env) {
+            env.panic_with_error(ContractError::IntervalTooShort);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        let allowance = token_client.allowance(&user, &env.current_contract_address());
+        if allowance < amount {
+            env.panic_with_error(ContractError::InsufficientAllowance);
+        }
+
+        let now = env.ledger().timestamp();
+        let trial_duration = trial_period.unwrap_or(0);
+        let last_charged = now + trial_duration;
+
+        let existing = storage::get_subscription(&env, &user);
+        let should_increment = existing.as_ref().map_or(true, |s| !s.active);
+
+        let sub = Subscription {
+            merchant,
+            amount,
+            interval,
+            last_charged,
+            active: true,
+            paused: false,
+            token,
+            referrer: referrer.clone(),
+            label: Symbol::new(&env, ""), // deprecated: use SubscriptionMeta storage instead
+            trial_duration,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Subscription(user.clone()), &sub);
+
+        extend_subscription_ttl(&env, &user);
+
+        if should_increment {
+            subscription_count::increment(&env);
+            subscription_count::append_subscriber_index(&env, &user);
+        }
+        referral::store_referral(&env, &user, &referrer);
+        merchant_stats::increment_subscriber_count(&env, &sub.merchant);
+        events::publish_subscribed(&env, &user, &sub);
         let _ = subscription_metadata::set_metadata(&env, &user, label);
     }
 
@@ -333,7 +394,7 @@ impl FlowPay {
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
         if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionNotActive);
+            env.panic_with_error(ContractError::SubscriptionInactive);
         }
 
         let now = env.ledger().timestamp();
@@ -358,10 +419,18 @@ impl FlowPay {
             env.panic_with_error(ContractError::GracePeriodElapsed);
         }
 
+        check_and_update_global_volume(&env, sub.amount);
         charge_exec::execute_charge(&env, &user, &key, &mut sub, now);
     }
 
     pub fn extend_subscription_ttl(env: Env, user: Address) {
+        extend_subscription_ttl(&env, &user);
+    }
+
+    /// Permissionlessly refreshes the TTL of any subscription entry.
+    /// Returns early (no-op) if no subscription exists for `user`.
+    /// No auth required — safe for keeper bots to call for dormant subscribers.
+    pub fn bump_subscription(env: Env, user: Address) {
         extend_subscription_ttl(&env, &user);
     }
 
@@ -410,7 +479,7 @@ impl FlowPay {
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
         if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionNotActive);
+            env.panic_with_error(ContractError::SubscriptionInactive);
         }
         if sub.paused {
             env.panic_with_error(ContractError::SubscriptionPaused);
@@ -444,6 +513,7 @@ impl FlowPay {
         check_and_update_global_volume(&env, amount);
         merchant_stats::increment_revenue_with_daily(&env, &sub.merchant, merchant_amount);
         spending_limit::record_spend(&env, &user, amount);
+        extend_subscription_ttl(&env, &user);
 
         events::publish_pay_per_use(&env, &user, &sub.merchant, amount);
     }
@@ -479,11 +549,12 @@ impl FlowPay {
             .storage()
             .persistent()
             .get(&key)
-            .expect("no subscription found");
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
         sub.active = false;
 
         env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
 
         subscription_count::decrement(&env);
         merchant_stats::decrement_subscriber_count(&env, &sub.merchant);
@@ -524,12 +595,13 @@ impl FlowPay {
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
         if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionNotActive);
+            env.panic_with_error(ContractError::SubscriptionInactive);
         }
 
         sub.paused = true;
 
         env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
         storage::set_pause_expiry(&env, &user, u64::MAX);
 
         events::publish_paused(&env, &user);
@@ -599,12 +671,13 @@ impl FlowPay {
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
         if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionNotActive);
+            env.panic_with_error(ContractError::SubscriptionInactive);
         }
 
         sub.paused = false;
 
         env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
         storage::clear_pause_expiry(&env, &user);
 
         events::publish_resumed(&env, &user);
@@ -1327,11 +1400,7 @@ impl FlowPay {
 }
 
 fn extend_subscription_ttl(env: &Env, user: &Address) {
-    env.storage().persistent().extend_ttl(
-        &DataKey::Subscription(user.clone()),
-        SUBSCRIPTION_TTL_LEDGERS,
-        SUBSCRIPTION_TTL_LEDGERS,
-    );
+    storage::extend_subscription_ttl(env, user);
     env.storage().instance().extend_ttl(SUBSCRIPTION_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS);
 }
 

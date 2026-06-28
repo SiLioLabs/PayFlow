@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { server } from "../stellar";
+import { useRpcHealthContext } from "../context/RpcHealthContext";
 import { enqueueTransaction } from "../services/txQueue";
 
 export type TxStatus = "idle" | "pending" | "success" | "failed";
@@ -19,8 +20,15 @@ export function useTransaction(): UseTransactionResult {
   const [hash, setHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { circuitOpen } = useRpcHealthContext();
 
   const submit = useCallback(async (buildAndSign: () => Promise<string>): Promise<string> => {
+    if (circuitOpen) {
+      const msg = "RPC unavailable";
+      setError(msg);
+      setStatus("failed");
+      throw new Error(msg);
+    }
     setStatus("pending");
     setHash(null);
     setError(null);
@@ -71,7 +79,7 @@ export function useTransaction(): UseTransactionResult {
     });
 
     return txHash;
-  }, []);
+  }, [circuitOpen]);
 
   return { status, hash, error, submit };
 }

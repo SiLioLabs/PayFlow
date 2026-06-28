@@ -1,13 +1,20 @@
 import { useState, useCallback, useEffect } from "react";
 import { getSubscription } from "../stellar";
 import type { Subscription } from "../types";
+import { useRpcHealthContext } from "../context/RpcHealthContext";
 
 export function useSubscription(userKey: string, refreshTrigger?: number) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { circuitOpen } = useRpcHealthContext();
 
   const refresh = useCallback(async () => {
+    if (circuitOpen) {
+      setError("RPC unavailable");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -19,7 +26,7 @@ export function useSubscription(userKey: string, refreshTrigger?: number) {
     } finally {
       setLoading(false);
     }
-  }, [userKey]);
+  }, [userKey, circuitOpen]);
 
   useEffect(() => {
     refresh();

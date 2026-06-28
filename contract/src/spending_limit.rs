@@ -68,10 +68,12 @@ pub fn record_spend(env: &Env, user: &Address, amount: i128) {
 }
 
 /// Checks whether `amount` would exceed the user's daily limit.
-/// Panics if the limit would be exceeded.
+/// Panics with ContractError::DailyLimitExceeded if the limit would be exceeded.
 pub fn enforce_limit(env: &Env, user: &Address, amount: i128) {
     if let Some(limit) = get_daily_limit(env, user) {
         let spent = get_daily_spent(env, user);
-        assert!(spent + amount <= limit, "daily spending limit exceeded");
+        if spent + amount > limit {
+            env.panic_with_error(crate::errors::ContractError::DailyLimitExceeded);
+        }
     }
 }

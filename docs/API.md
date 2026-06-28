@@ -2219,3 +2219,24 @@ For a complete reference of all events with detailed schemas and examples, see [
 | `paused` | `("paused", user_address)` | `()` |
 | `resumed` | `("resumed", user_address)` | `()` |
 | `referred` | `("referred", user_address)` | `referrer_address` |
+
+---
+
+## Error Codes
+
+All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
+
+| Code | Variant | Description |
+| --- | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize()` was called on an already-initialized contract. |
+| 2 | `AmountMustBePositive` | A payment or subscription amount was zero or negative. |
+| 3 | `IntervalMustBePositive` | A subscription interval was zero. |
+| 4 | `NoSubscriptionFound` | No subscription record exists for the given user. |
+| 5 | `SubscriptionInactive` | The subscription exists but is cancelled or paused. |
+| 6 | `IntervalNotElapsed` | `charge()` was called before the billing interval elapsed. |
+| 7 | `NotInitialized` | A contract function was called before `initialize()`. |
+| 8 | `InsufficientAllowance` | The user's token allowance is below the subscription amount. |
+| 9 | `GracePeriodElapsed` | The charge grace period has passed; the subscription cannot be charged. |
+| 10 | `MerchantNotWhitelisted` | The merchant is not on the whitelist (when whitelist is enabled). |
+| 11 | `ContractPaused` | The contract is paused; all user-facing write operations are blocked. |
+| 24 | `DailyLimitExceeded` | A `pay_per_use()` call would exceed the user's configured daily spending limit. |
