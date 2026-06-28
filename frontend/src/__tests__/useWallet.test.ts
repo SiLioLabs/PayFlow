@@ -11,7 +11,7 @@ vi.mock("../stellar", () => ({
 
 import { useWallet } from "../hooks/useWallet";
 
-const STORAGE_KEY = "pf_wallet_pk";
+const STORAGE_KEY = "wallet_public_key";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ describe("useWallet", () => {
 
   it("ready is false during re-validation and true once it resolves with a valid key", async () => {
     const key = "GCACHE123";
-    localStorage.setItem(STORAGE_KEY, key);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(key));
     (window as any).freighter = buildFreighterMock({
       isConnected: true,
       publicKey: key,
@@ -73,7 +73,7 @@ describe("useWallet", () => {
 
   it("restores publicKey from cache when Freighter confirms the same key", async () => {
     const key = "GVALID456";
-    localStorage.setItem(STORAGE_KEY, key);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(key));
     (window as any).freighter = buildFreighterMock({
       isConnected: true,
       publicKey: key,
@@ -83,11 +83,11 @@ describe("useWallet", () => {
 
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(result.current.publicKey).toBe(key);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(key);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(key));
   });
 
-  it("updates cache and publicKey when Freighter returns a different key than cached", async () => {
-    localStorage.setItem(STORAGE_KEY, "GOLD_KEY");
+  it("clears cache and publicKey when Freighter returns a different key than cached", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify("GOLD_KEY"));
     const newKey = "GNEW_KEY789";
     (window as any).freighter = buildFreighterMock({
       isConnected: true,
@@ -97,12 +97,12 @@ describe("useWallet", () => {
     const { result } = renderHook(() => useWallet());
 
     await waitFor(() => expect(result.current.ready).toBe(true));
-    expect(result.current.publicKey).toBe(newKey);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(newKey);
+    expect(result.current.publicKey).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("clears cache and keeps publicKey null when Freighter is not connected", async () => {
-    localStorage.setItem(STORAGE_KEY, "GSOME_KEY");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify("GSOME_KEY"));
     (window as any).freighter = buildFreighterMock({
       isConnected: false,
       publicKey: "",
@@ -116,7 +116,7 @@ describe("useWallet", () => {
   });
 
   it("clears cache and keeps publicKey null when Freighter is absent after 3 polls", async () => {
-    localStorage.setItem(STORAGE_KEY, "GSOME_KEY");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify("GSOME_KEY"));
     // window.freighter remains undefined
 
     const { result } = renderHook(() => useWallet());
@@ -127,7 +127,7 @@ describe("useWallet", () => {
   });
 
   it("clears cache when re-validation throws an error", async () => {
-    localStorage.setItem(STORAGE_KEY, "GSOME_KEY");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify("GSOME_KEY"));
     (window as any).freighter = {
       isConnected: vi.fn().mockRejectedValue(new Error("extension error")),
       getPublicKey: vi.fn(),
@@ -194,7 +194,7 @@ describe("useWallet", () => {
 
   it("disconnect() clears publicKey and removes localStorage entry", async () => {
     const key = "GDISCONNECT";
-    localStorage.setItem(STORAGE_KEY, key);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(key));
     (window as any).freighter = buildFreighterMock({
       isConnected: true,
       publicKey: key,
@@ -210,5 +210,24 @@ describe("useWallet", () => {
 
     expect(result.current.publicKey).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("exposes sessionRestored as an alias for ready", async () => {
+    const { result } = renderHook(() => useWallet());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.sessionRestored).toBe(result.current.ready);
+  });
+
+  it("connecting is true during auto-revalidation", async () => {
+    const key = "GCONNECTING";
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(key));
+    (window as any).freighter = buildFreighterMock({
+      isConnected: true,
+      publicKey: key,
+    });
+
+    const { result } = renderHook(() => useWallet());
+    expect(result.current.connecting).toBe(true);
+    await waitFor(() => expect(result.current.connecting).toBe(false));
   });
 });
