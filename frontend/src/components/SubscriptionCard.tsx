@@ -11,6 +11,8 @@ interface SubscriptionCardProps {
   onSign: (xdr: string) => Promise<string>;
   onRefresh: () => void;
   onCancelled?: () => void;
+  onCancel?: () => void;
+  onPause?: (xdr: string) => Promise<string>;
 }
 
 function formatInterval(secs: number): string {
@@ -49,6 +51,8 @@ export default function SubscriptionCard({
   onSign,
   onRefresh,
   onCancelled,
+  onCancel,
+  onPause,
 }: SubscriptionCardProps & { userKey: string }) {
   const { mutate } = useSubscriptionSync(userKey);
   const { merchant, amount, interval, last_charged, active, paused, trial_duration } = subscription;
@@ -90,7 +94,7 @@ export default function SubscriptionCard({
       await mutate('pause', async () => {
         const { buildPauseTx } = await import("../stellar");
         const xdr = await buildPauseTx(userKey);
-        return onSign(xdr);
+        return (onPause ?? onSign)(xdr);
       }, { paused: true });
       
       setPauseStatus("Paused successfully.");
@@ -164,7 +168,17 @@ export default function SubscriptionCard({
             <button onClick={() => setShowPauseConfirm(true)} className="btn-secondary pause-btn">
               Pause
             </button>
-            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                } else {
+                  setShowCancelConfirm(true);
+                }
+              }}
+              className="btn-danger cancel-btn"
+              aria-label="Cancel subscription"
+            >
               Cancel
             </button>
           </>
@@ -174,7 +188,17 @@ export default function SubscriptionCard({
             <button onClick={handleResume} disabled={resumeLoading} className="btn-primary resume-btn">
               {resumeLoading ? "Resuming…" : "Resume"}
             </button>
-            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                } else {
+                  setShowCancelConfirm(true);
+                }
+              }}
+              className="btn-danger cancel-btn"
+              aria-label="Cancel subscription"
+            >
               Cancel
             </button>
           </>

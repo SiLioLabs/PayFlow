@@ -93,7 +93,7 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
       try {
         let fetchPromise = inFlightRequests.get(address);
         if (!fetchPromise) {
-          fetchPromise = getBalance(address, { asset_type: "native" }).finally(() => {
+          fetchPromise = getBalance(address).finally(() => {
             inFlightRequests.delete(address);
           });
           inFlightRequests.set(address, fetchPromise);

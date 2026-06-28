@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
 import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCard from "./SubscriptionCard";
@@ -14,7 +14,7 @@ import DailyLimitModal from "./DailyLimitModal";
 import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
 import AllowanceDisplay from "./AllowanceDisplay";
 import ToastContainer from "./Toast";
-import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
+import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
 import { useRpcHealth } from "../hooks/useRpcHealth";
@@ -30,10 +30,12 @@ interface Props {
 }
 
 export default function Dashboard({ userKey, onSign, refreshTrigger, announce, onCancelled, onPayPerUse }: Props) {
-  const { subscription: sub, loading, refresh, mutate: syncMutate, status: syncStatus } = useSubscriptionSync(userKey, refreshTrigger);
+  const { subscription: sub, loading, refresh } = useSubscription(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
+  const cancelTx = useTransaction();
   const ppuTx = useTransaction();
+  const [showConfirm, setShowConfirm] = useState(false);
   const [showDailyLimit, setShowDailyLimit] = useState(false);
   const [showIncreaseAllowance, setShowIncreaseAllowance] = useState(false);
   const [allowanceRefresh, setAllowanceRefresh] = useState(0);
@@ -54,6 +56,11 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
         return;
       }
 
+      if (key === "x" && sub?.active && !showConfirm) {
+        e.preventDefault();
+        setShowConfirm(true);
+      }
+
       if (key === "p" && sub?.active) {
         e.preventDefault();
         ppuInputRef.current?.focus();
@@ -62,7 +69,26 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [sub?.active]);
+  }, [sub?.active, showConfirm]);
+
+  async function performCancel() {
+    setShowConfirm(false);
+    announce("Transaction submitted");
+    try {
+      const hash = await cancelTx.submit(async () => {
+        const xdr = await buildCancelTx(userKey);
+        return onSign(xdr);
+      });
+      addToast("Cancelled.", "success", hash);
+      announce("Transaction confirmed");
+      onCancelled?.();
+      refresh();
+    } catch (e: unknown) {
+      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
+      addToast(msg, "error");
+      announce(msg);
+    }
+  }
 
   const handlePayPerUse = useCallback(async (stroops: bigint) => {
     announce("Transaction submitted");
@@ -100,6 +126,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
       </>
     );
 
+  const cancelPending = cancelTx.status === "pending";
   const ppuPending = ppuTx.status === "pending";
 
   return (
@@ -126,9 +153,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
             subscription={sub}
             userKey={userKey}
             onSign={onSign}
+            onCancel={() => setShowConfirm(true)}
+            onPause={onSign}
             onRefresh={refresh}
-            onCancelled={onCancelled}
           />
+
+          {cancelPending && (
+            <p className="status-text status-text--pending">Confirming cancellation…</p>
+          )}
 
           {sub.active && (
             <>
@@ -177,6 +209,14 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
             setDailyLimitRefresh((value) => value + 1);
           }}
           announce={announce}
+        />
+      )}
+
+      {showConfirm && (
+        <ConfirmModal
+          message="Are you sure you want to cancel your subscription? This cannot be undone."
+          onConfirm={performCancel}
+          onCancel={() => setShowConfirm(false)}
         />
       )}
 
