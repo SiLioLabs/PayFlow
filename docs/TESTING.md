@@ -1,6 +1,6 @@
 # Testing Guide
 
-This document explains how to run the FlowPay test suite, what is currently covered, and how to write new tests.
+This document explains how to run the FlowPay test suite, how the benchmark file works, and how to interpret snapshot outputs.
 
 ---
 
@@ -11,7 +11,7 @@ cd contract
 cargo test
 ```
 
-To see `println!` output during tests:
+To see printed output while tests run:
 
 ```bash
 cargo test -- --nocapture
@@ -27,171 +27,115 @@ cargo test test_cancel
 
 ## Test Environment
 
-FlowPay tests use the Soroban SDK's built-in test utilities (`soroban-sdk` with the `testutils` feature). This gives us:
+FlowPay tests use the Soroban SDK test utilities:
 
-- `Env::default()` — an in-memory Soroban environment, no network required
-- `env.mock_all_auths()` — bypasses `require_auth()` checks so tests don't need real signatures
-- `env.register_stellar_asset_contract_v2()` — deploys a real SAC token in the test environment
-- `env.ledger().with_mut()` — lets us fast-forward the ledger timestamp to simulate time passing
+- `Env::default()` creates an in-memory chain environment.
+- `env.mock_all_auths()` bypasses auth checks for test convenience.
+- `env.register_stellar_asset_contract_v2()` deploys a real test token.
+- `env.ledger().with_mut()` advances time for interval and grace-period tests.
 
 ---
 
-## Test Setup Helpers
+## Benchmarks
 
-### `setup()`
+The benchmark suite lives in [contract/src/bench.rs](../contract/src/bench.rs). It measures instruction cost for the core contract paths:
 
-Every test calls the shared `setup()` helper which:
+- `bench_subscribe()`
+- `bench_charge()`
+- `bench_pay_per_use()`
+- `bench_batch_charge_10_users()`
+- `bench_charge_vs_subscribe_ratio()`
 
-1. Creates a default `Env`
-2. Deploys a test SAC token and mints 10,000 tokens to the test user
-3. Approves the FlowPay contract to spend those tokens
-4. Deploys the FlowPay contract
-5. Calls `initialize()` with the test token address
-6. Returns `(env, contract_id, token_addr, user, merchant)`
+These are not functional tests. They measure CPU and memory cost so regressions can be caught when the contract grows.
 
-```rust
-fn setup() -> (Env, Address, Address, Address, Address) {
-    let env = Env::default();
-    env.mock_all_auths();
+### How to run benchmarks
 
-    let token_admin = Address::generate(&env);
-    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let token_addr = token_id.address();
+Run the benchmark tests with nocapture so the printed results stay visible:
 
-    let contract_id = env.register_contract(None, FlowPay);
-
-    let user = Address::generate(&env);
-    let merchant = Address::generate(&env);
-
-    let sac = StellarAssetClient::new(&env, &token_addr);
-    sac.mint(&user, &10_000_0000000);
-
-    let token = TokenClient::new(&env, &token_addr);
-    token.approve(&user, &contract_id, &10_000_0000000, &200);
-
-    let client = FlowPayClient::new(&env, &contract_id);
-    client.initialize(&token_addr);
-
-    (env, contract_id, token_addr, user, merchant)
-}
+```bash
+cd contract
+cargo test bench -- --nocapture
 ```
 
-### `setup_second_token()`
+That runs the benchmark functions and prints the measured CPU instructions and memory bytes for each one.
 
-For multi-token tests, use `setup_second_token()` which:
+### How to read the benchmark output
 
-1. Deploys a second SAC token and mints 10,000 tokens to the given user
-2. Approves the FlowPay contract to spend those tokens
-3. Returns the new token's address
+Each benchmark prints a small summary like:
 
-```rust
-fn setup_second_token(env: &Env, contract_id: &Address, user: &Address) -> Address {
-    let token_admin = Address::generate(env);
-    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let token_addr = token_id.address();
-
-    let sac = StellarAssetClient::new(env, &token_addr);
-    sac.mint(user, &10_000_0000000);
-
-    let token = TokenClient::new(env, &token_addr);
-    token.approve(user, contract_id, &10_000_0000000, &200);
-
-    token_addr
-}
+```text
+[bench_charge]
+  CPU Instructions : 3800000
+  Memory Bytes     : 180000
 ```
+
+Interpretation:
+
+- `CPU Instructions` is the Soroban instruction count for the measured call.
+- `Memory Bytes` is the measured memory cost for that call.
+- The benchmark file compares the result against threshold constants such as `MAX_CHARGE_INSTRUCTIONS`.
+
+If a benchmark crosses its threshold, treat it as a regression unless you intentionally changed the contract behavior.
+
+### Snapshot files
+
+Benchmark and test snapshots live under `contract/test_snapshots/`.
+
+These files are JSON captures of expected output. They are used to make benchmark and test behavior easy to compare over time.
+
+Common fields you will see:
+
+- `cpu` or `cpu_instruction_cost`: instruction count for the call.
+- `memory` or `memory_bytes_cost`: memory cost for the call.
+- `events`: emitted events when the snapshot includes contract logs.
+- `result` or `return`: the returned value from the call.
+
+Units:
+
+- Amounts are in stroops.
+- Time is in seconds or ledger timestamps, depending on the benchmark or test.
+- Benchmark cost numbers are instruction counts and memory bytes, not token amounts.
+
+### Adding a new benchmark
+
+1. Add a new `#[test]` function in [contract/src/bench.rs](../contract/src/bench.rs).
+2. Use the shared `bench_setup()` helper so the new benchmark matches the others.
+3. Reset the budget immediately before the call you want to measure.
+4. Print CPU and memory numbers with a stable label.
+5. Add a threshold constant near the top of the file.
+6. If the benchmark should have a snapshot, add or update the matching file in `contract/test_snapshots/`.
+
+### When a snapshot changes
+
+If a snapshot changes, decide whether the difference is deliberate or a regression:
+
+- Deliberate change: update the snapshot and note the reason in the commit or PR.
+- Regression: fix the code path and rerun the benchmark until the snapshot matches expectations again.
+
+Do not blindly accept snapshot churn. Cost increases should be justified, especially in the contract hot path.
 
 ---
 
 ## Current Test Coverage
 
-The test suite covers the following areas:
+The test suite covers:
 
-1. Core functionality tests (subscribe, charge, cancel)
-2. Multi-token + advanced features
-3. Edge cases
-4. Multi-user isolation
-5. batch_charge tests
-6. subscription_count tests
-7. merchant_stats tests
-8. spending_limit tests
-9. referral tracking tests
-10. migration tests
-11. subscription metadata tests
-12. charge history tests
-13. TTL extension tests
-
-### Core functionality tests
-- `test_subscribe_and_charge` — Happy path subscribe + charge
-- `test_charge_exact_transfer_amount` — Verify exact amount transferred
-- `test_subscription_struct_fields_match_input` — Verify subscription struct matches
-- `test_cancel` — Cancel subscription
-- `test_charge_too_early` — Charge before interval elapsed (should panic)
-- `test_double_initialize` — Second initialize call should panic
-- `test_zero_amount` — Subscribe with 0 amount should panic
-- `test_zero_interval` — Subscribe with 0 interval should panic
-- `test_resubscribe` — Overwrite old subscription
-- `test_subscribe_overwrites_cancelled_subscription` — Subscribe after cancel
-- `test_charge_after_cancel` — Charge after cancel should panic
-
-### Multi-token + advanced features
-- `test_multi_token_independent_subscriptions` — Multiple users with different tokens
-- `test_user_can_switch_token` — User switches subscription token
-- `test_pay_per_use` — Basic pay_per_use
-- `test_pay_per_use_inactive` — pay_per_use on cancelled subscription
-- `test_pay_per_use_does_not_update_last_charged` — pay_per_use doesn't modify last_charged
-- `test_pay_per_use_nonexistent` — pay_per_use on user without subscription
-- `test_pay_per_use_zero_amount` — pay_per_use with 0 amount
-- `test_initialize_backward_compat` — initialize still works for backward compatibility
-- `test_initialize_without_valid_token` — initialize with invalid token address
-- `test_get_subscription_nonexistent` — get_subscription returns None
-- `test_charge_updates_last_charged` — Verify last_charged timestamp updates correctly
-- `test_cancel_nonexistent` — Cancel nonexistent subscription should panic
-- `test_multiple_users` — Two users with independent subscriptions
-- `test_ttl_extension` — Verify TTL extension function exists and doesn't panic
-
-### batch_charge tests
-- `test_batch_charge_charged_and_skipped` — Batch with mixed eligible and ineligible users
-- `test_batch_charge_no_subscription` — Batch includes user with no subscription
-- `test_batch_charge_inactive` — Batch includes user with inactive subscription
-
-### subscription_count tests
-- `test_active_count_increments_on_subscribe` — Active count increments when subscribing
-- `test_active_count_decrements_on_cancel` — Active count decrements when cancelling
-- `test_active_count_multiple_users` — Active count tracks multiple users
-
-### merchant_stats tests
-- `test_merchant_revenue_from_charge` — Merchant revenue from charge
-- `test_merchant_revenue_from_pay_per_use` — Merchant revenue from pay_per_use
-- `test_merchant_revenue_accumulates` — Merchant revenue accumulates correctly
-
-### spending_limit tests
-- `test_daily_limit_allows_spend_within_limit` — Spend within limit works
-- `test_daily_limit_blocks_overspend` — Over limit should panic
-- `test_daily_limit_accumulates_across_calls` — Spending accumulates across pay_per_use calls
-- `test_daily_limit_blocks_cumulative_overspend` — Cumulative over limit should panic
-- `test_daily_limit_visibility_and_spend_tracking` — Track daily spent and limit correctly
-
-### referral tracking tests
-- `test_referral_stored_on_subscribe` — Referral address is stored
-- `test_no_referral_returns_none` — No referral returns None
-
-### migration tests
-- `test_migrate_sets_schema_version` — Migrate sets correct schema version
-- `test_migrate_is_idempotent` — Multiple migrate calls are safe
-
-### subscription metadata tests
-- `test_set_and_get_metadata` — Set and retrieve metadata label
-- `test_get_metadata_none_when_not_set` — Metadata returns None when not set
-
-### charge history tests
-- `test_charge_history_recorded` — Charge history records charges
-- `test_charge_history_capped_at_12` — Charge history capped at last 12 charges
+- Core subscription flows
+- Multi-token behavior
+- Batch charging
+- Subscription counts and merchant stats
+- Spending limits
+- Referral tracking
+- Migration
+- Metadata
+- Charge history
+- TTL extension
 
 ---
 
 ## Writing New Tests
 
-Add new tests to `contract/src/test.rs`. Always use the `setup()` helper to avoid boilerplate.
+Add new tests to `contract/src/test.rs`. Prefer the shared `setup()` helper to avoid boilerplate.
 
 ### Template
 
@@ -201,41 +145,19 @@ fn test_your_feature() {
     let (env, contract_id, _token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    // arrange
     client.subscribe(&user, &merchant, &1_0000000, &86400, &_token_addr, &None, &None);
-
-    // act
-    // ...
-
-    // assert
-    // ...
 }
 ```
 
 ### Testing panics
 
-Use `#[should_panic(expected = "...")]` to assert that a function panics with a specific message:
-
-```rust
-#[test]
-#[should_panic(expected = "subscription is not active")]
-fn test_charge_after_cancel() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-    client.cancel(&user);
-
-    env.ledger().with_mut(|l| { l.timestamp += 86401; });
-    client.charge(&user); // should panic
-}
-```
+Use `#[should_panic(expected = "...")]` when you need to assert a failure path.
 
 ### Advancing time
 
 ```rust
 env.ledger().with_mut(|l| {
-    l.timestamp += 86_400 + 1; // advance by 1 day + 1 second
+    l.timestamp += 86_401;
 });
 ```
 
@@ -243,7 +165,7 @@ env.ledger().with_mut(|l| {
 
 ## Frontend Tests
 
-Frontend tests are implemented using Vitest and React Testing Library.
+Frontend tests run with Vitest:
 
 ```bash
 cd frontend
