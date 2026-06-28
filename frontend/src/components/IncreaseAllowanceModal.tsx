@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
 import { STROOPS_PER_XLM } from "../constants";
 import { formatXlm } from "../utils/format";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   userKey: string;
@@ -27,6 +28,9 @@ export default function IncreaseAllowanceModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, true, onClose);
 
   const tokenContractId = TOKEN_CONTRACT_ID;
   const recommendedAllowance = useMemo(
@@ -93,8 +97,15 @@ export default function IncreaseAllowanceModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-        <h3>Increase Allowance</h3>
+      <div
+        ref={modalRef}
+        className="modal-card card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="increase-allowance-title"
+      >
+        <h3 id="increase-allowance-title">Increase Allowance</h3>
         <p>
           Current allowance: <strong>{formatXlm(currentAllowance ?? 0n)}</strong>.
         </p>

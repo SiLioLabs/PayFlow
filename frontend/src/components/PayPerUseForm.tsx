@@ -1,8 +1,3 @@
-import React, { useState, useEffect, useCallback, forwardRef, useMemo } from "react";
-import Spinner from "./Spinner";
-import { validateStroopAmount } from "../hooks/useFormValidation";
-import { CONTRACT_LIMITS } from "../constants";
-import { STROOPS_PER_XLM, MIN_STROOPS, MAX_STROOPS } from "../constants";
 import React, { useState, useEffect, forwardRef, useMemo } from "react";
 import Spinner from "./Spinner";
 import { validateStroopAmount } from "../hooks/useFormValidation";
@@ -34,14 +29,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
   ({ onPay, loading }, ref) => {
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
-    const [isDebouncing, setIsDebouncing] = useState(false);
     const [lastValue, setLastValue] = useState(amount);
     const debouncedValue = useDebounce(amount, 300);
     const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
 
     useEffect(() => {
       if (amount !== lastValue) {
-        setIsDebouncing(true);
         setLastValue(amount);
       }
     }, [amount, lastValue]);
@@ -50,14 +43,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       const { stroops, error: err } = validate(debouncedValue);
       setConvertedStroops(stroops);
       setError(err);
-      setIsDebouncing(false);
     }, [debouncedValue]);
 
     function handleBlur() {
       const { stroops, error: err } = validate(amount);
       setConvertedStroops(stroops);
       setError(err);
-      setIsDebouncing(false);
     }
 
     const formatXLM = (stroops: bigint): string => {
@@ -77,8 +68,6 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       setError(null);
       setConvertedStroops(null);
     }
-
-    const isSubmitDisabled = isDebouncing || !!error || !convertedStroops || loading;
 
     return (
       <div className="card">

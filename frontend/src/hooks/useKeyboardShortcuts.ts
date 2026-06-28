@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useContext } from "react";
+import { ShortcutRegistryContext } from "../context/ShortcutRegistry";
 
 export interface KeyboardShortcut {
   key: string;
@@ -8,7 +9,7 @@ export interface KeyboardShortcut {
 
 interface UseKeyboardShortcutsOptions {
   enabled?: boolean;
-  shortcuts: KeyboardShortcut[];
+  shortcuts?: KeyboardShortcut[];
 }
 
 /**
@@ -17,10 +18,14 @@ interface UseKeyboardShortcutsOptions {
  * @param options - Configuration object with shortcuts and enabled flag
  * @returns Array of shortcuts for documentation/help display
  */
-export function useKeyboardShortcuts({
-  enabled = true,
-  shortcuts,
-}: UseKeyboardShortcutsOptions): KeyboardShortcut[] {
+export function useKeyboardShortcuts(
+  options?: UseKeyboardShortcutsOptions
+): KeyboardShortcut[] {
+  const enabled = options?.enabled !== false;
+  const context = useContext(ShortcutRegistryContext);
+
+  const shortcuts = context ? context.shortcuts : (options?.shortcuts ?? []);
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -55,3 +60,4 @@ export function useKeyboardShortcuts({
 
   return shortcuts;
 }
+

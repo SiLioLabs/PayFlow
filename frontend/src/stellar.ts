@@ -255,7 +255,6 @@ export function getDailySpent(user: string): Promise<bigint> {
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval) return 0n;
 
-    return ScValDecoder.decodeI128(retval);
     try {
       return ScValDecoder.decodeI128(retval);
     } catch {
@@ -306,7 +305,6 @@ export function getSubscription(user: string): Promise<Subscription | null> {
 
     const result = await server.simulateTransaction(tx);
     if ("error" in result) throw new Error((result as { error: string }).error);
-    if ("error" in result) throw new Error(result.error);
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
@@ -623,7 +621,6 @@ export async function fetchEvents(
 
     return {
       events,
-      nextCursor: undefined,
       nextCursor: response.latestLedger > 0 && response.events.length > 0
         ? response.events[response.events.length - 1].pagingToken
         : undefined,

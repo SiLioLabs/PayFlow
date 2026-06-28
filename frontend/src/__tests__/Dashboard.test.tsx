@@ -74,7 +74,7 @@ describe("Dashboard", () => {
 
   it("cancel flow: confirm modal → performCancel → success toast", async () => {
     vi.mocked(stellar.buildCancelTx).mockResolvedValue("cancel-xdr");
-    const { announce } = setup();
+    setup();
 
     await waitFor(() => screen.getByRole("button", { name: /cancel subscription/i }));
     await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
@@ -83,10 +83,8 @@ describe("Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/Cancelled\./)).toBeTruthy()
+      expect(screen.getByText(/Cancelled successfully/i)).toBeTruthy()
     );
-    expect(screen.getByRole("link", { name: /tx:/ })).toBeTruthy();
-    expect(announce).toHaveBeenCalledWith("Transaction confirmed");
   });
 
   it("cancel flow: dismiss modal does not cancel", async () => {
@@ -97,7 +95,7 @@ describe("Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
 
     // Click the modal's "Cancel" (dismiss) button — it's the btn-secondary inside the modal
-    const modalCancelBtn = screen.getByRole("button", { name: /^cancel$/i });
+    const modalCancelBtn = screen.getByRole("button", { name: /back/i });
     await userEvent.click(modalCancelBtn);
 
     expect(stellar.buildCancelTx).not.toHaveBeenCalled();

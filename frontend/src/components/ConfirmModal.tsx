@@ -1,5 +1,5 @@
-// ConfirmModal: accessible confirmation dialog with fade+scale entrance animation (#58)
-import React, { useEffect } from "react";
+import React, { useRef } from "react";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   message: string;
@@ -8,21 +8,21 @@ interface Props {
 }
 
 export default function ConfirmModal({ message, onConfirm, onCancel }: Props) {
-  useEffect(() => {
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    }
+  const modalRef = useRef<HTMLDivElement>(null);
 
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [onCancel]);
+  useFocusTrap(modalRef, true, onCancel);
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-        <p>{message}</p>
+      <div
+        ref={modalRef}
+        className="modal-card card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-message"
+      >
+        <p id="confirm-modal-message">{message}</p>
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onCancel}>
             Cancel

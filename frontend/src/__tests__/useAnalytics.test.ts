@@ -35,8 +35,29 @@ describe("useAnalytics", () => {
     const event = dispatchSpy.mock.calls[0][0] as CustomEvent;
     expect(event.type).toBe("flowpay-analytics");
     expect(event.detail.event).toBe("wallet_connected");
-    expect(event.detail.metadata).toEqual({});
+    expect(event.detail.payload).toEqual({});
     expect(event.detail.timestamp).toBeDefined();
+  });
+
+  it("should support and correctly serialize bigint payloads in flushes", () => {
+    const { result } = renderHook(() => useAnalytics());
+
+    act(() => {
+      result.current.track({
+        type: "pay_per_use",
+        payload: { amountStroops: 10000000n }
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0];
+    const parsedBody = JSON.parse(options.body);
+    expect(parsedBody).toHaveLength(1);
+    expect(parsedBody[0].payload.amountStroops).toBe("10000000");
   });
 
   it("should queue events and not call fetch immediately", () => {

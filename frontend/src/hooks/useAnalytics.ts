@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type AnalyticsEvent =
-  | { type: "subscription_created"; metadata?: Record<string, string | number | boolean> }
-  | { type: "subscription_cancelled"; metadata?: Record<string, string | number | boolean> }
-  | { type: "pay_per_use"; metadata: { amount: string; [key: string]: string | number | boolean } }
-  | { type: "daily_limit_set"; metadata: { limit: string; [key: string]: string | number | boolean } }
-  | { type: "daily_limit_removed"; metadata?: Record<string, string | number | boolean> }
-  | { type: "wallet_connected"; metadata?: Record<string, string | number | boolean> };
+  | { type: "subscription_created"; payload?: undefined }
+  | { type: "subscription_cancelled"; payload?: undefined }
+  | { type: "pay_per_use"; payload: { amountStroops: bigint } }
+  | { type: "daily_limit_set"; payload: { limitStroops: bigint } }
+  | { type: "daily_limit_removed"; payload?: undefined }
+  | { type: "wallet_connected"; payload?: undefined };
 
 const ANALYTICS_OPT_IN_KEY = "flowpay_analytics_opt_in";
 
@@ -43,12 +43,16 @@ export function useAnalytics() {
       return;
     }
 
+    // Custom replacer to handle BigInt serialization
+    const replacer = (_key: string, value: any) =>
+      typeof value === "bigint" ? value.toString() : value;
+
     fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(eventsToFlush),
+      body: JSON.stringify(eventsToFlush, replacer),
     }).catch((err) => {
       console.error("Failed to flush analytics queue:", err);
     });
@@ -60,7 +64,8 @@ export function useAnalytics() {
 
       const payload = {
         event: event.type,
-        metadata: event.metadata ?? {},
+        payload: event.payload ?? {},
+        metadata: event.payload ?? {}, // for backward compatibility in events
         timestamp: new Date().toISOString(),
       };
 
@@ -110,4 +115,5 @@ export function useAnalytics() {
     [isOptedIn, setOptIn, track]
   );
 }
+
 

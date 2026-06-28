@@ -20,6 +20,7 @@ import { useContractId } from "./hooks/useContractId";
 import { useRpcHealth } from "./hooks/useRpcHealth";
 import { useSubscriberCount } from "./hooks/useSubscriberCount";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useRegisterShortcuts } from "./context/ShortcutRegistry";
 import { useAnalytics } from "./hooks/useAnalytics";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
@@ -29,6 +30,7 @@ import ConnectWallet from "./components/ConnectWallet";
 import WalletBar from "./components/WalletBar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SubscriptionCardSkeleton from "./components/Skeleton";
+import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay";
 
 // Lazy-loaded components — split into separate chunks to keep the main bundle lean.
 // MerchantDashboard gets a dedicated Vite chunk name for easier bundle analysis.
@@ -121,54 +123,37 @@ export default function App() {
   const dashboardErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const merchantErrorBoundaryRef = useRef<ErrorBoundary>(null);
 
-  // Keyboard shortcuts
+  // Global keyboard shortcuts
+  useRegisterShortcuts([
+    {
+      key: "d",
+      description: "Switch to Dashboard",
+      action: () => setTab("dashboard"),
+    },
+    {
+      key: "s",
+      description: "Switch to Subscribe",
+      action: () => setTab("subscribe"),
+    },
+    {
+      key: "m",
+      description: "Switch to Merchant",
+      action: () => setTab("merchant"),
+    },
+    {
+      key: "a",
+      description: "Switch to Admin",
+      action: () => setTab("admin"),
+    },
+    {
+      key: "?",
+      description: "Show keyboard shortcuts",
+      action: () => setShowHelp((prev) => !prev),
+    },
+  ]);
+
   const shortcuts = useKeyboardShortcuts({
     enabled: !!publicKey,
-    shortcuts: [
-      {
-        key: "d",
-        description: "Switch to Dashboard",
-        action: () => setTab("dashboard"),
-      },
-      {
-        key: "s",
-        description: "Switch to Subscribe",
-        action: () => setTab("subscribe"),
-      },
-      {
-        key: "m",
-        description: "Switch to Merchant",
-        action: () => setTab("merchant"),
-      },
-      {
-        key: "a",
-        description: "Switch to Admin",
-        action: () => setTab("admin"),
-      },
-      {
-        key: "?",
-        description: "Show keyboard shortcuts",
-        action: () => setShowHelp((prev) => !prev),
-      },
-      {
-        key: "x",
-        description: "Cancel active subscription",
-        action: () => {
-          // This shortcut is handled specifically in Dashboard.tsx
-          // where it has access to the subscription state.
-          // We include it here solely for documentation in the Help Modal.
-        },
-      },
-      {
-        key: "p",
-        description: "Focus pay-per-use amount input",
-        action: () => {
-          // This shortcut is handled specifically in Dashboard.tsx
-          // where it has access to the subscription state and input ref.
-          // We include it here solely for documentation in the Help Modal.
-        },
-      },
-    ],
   });
 
   async function handleConnectWallet() {
@@ -215,65 +200,10 @@ export default function App() {
 
       {/* Keyboard shortcuts help */}
       {showHelp && publicKey && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
-          <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Keyboard Shortcuts</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {shortcuts.map((shortcut) => (
-                <div
-                  key={shortcut.key}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "16px",
-                  }}
-                >
-                  <span>{shortcut.description}</span>
-                  <kbd
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      backgroundColor: "var(--color-bg-secondary)",
-                      border: "1px solid var(--color-border)",
-                      fontFamily: "monospace",
-                      fontSize: "14px",
-                    }}
-                  >
-                    {shortcut.key}
-                  </kbd>
-                </div>
-              ))}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "16px",
-                }}
-              >
-                <span>Close modals</span>
-                <kbd
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    backgroundColor: "var(--color-bg-secondary)",
-                    border: "1px solid var(--color-border)",
-                    fontFamily: "monospace",
-                    fontSize: "14px",
-                  }}
-                >
-                  Esc
-                </kbd>
-              </div>
-            </div>
-            <div style={{ marginTop: "16px", textAlign: "right" }}>
-              <button className="btn-secondary" onClick={() => setShowHelp(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <ShortcutHelpOverlay
+          shortcuts={shortcuts}
+          onClose={() => setShowHelp(false)}
+        />
       )}
 
       {/* Contract ID error */}
@@ -427,7 +357,7 @@ export default function App() {
                   refreshTrigger={refresh}
                   announce={announce}
                   onCancelled={() => track({ type: "subscription_cancelled" })}
-                  onPayPerUse={(amount) => track({ type: "pay_per_use", metadata: { amount: amount.toString() } })}
+                  onPayPerUse={(amount) => track({ type: "pay_per_use", payload: { amountStroops: amount } })}
                 />
               </ErrorBoundary>
             )}
