@@ -12,7 +12,6 @@ pub fn get_grace_period(env: &Env) -> u64 {
     }
 }
 
-pub fn set_grace_period(env: &Env, seconds: u64) {
 /// Proposes a new contract-wide grace period.
 pub fn propose_grace_period(env: &Env, seconds: u64) {
     assert!(seconds <= u64::MAX / 2, "grace period too large");
@@ -42,5 +41,4 @@ pub fn commit_grace_period(env: &Env) {
     env.storage().instance().extend_ttl(lower, upper);
     
     crate::events::publish_grace_period_committed(env, seconds);
-}
 }

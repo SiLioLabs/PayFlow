@@ -214,67 +214,6 @@ impl FlowPay {
         trial_period: Option<u64>,
         referrer: Option<Address>,
     ) {
-        ensure_contract_not_paused(&env);
-        user.require_auth();
-
-        if whitelist::is_whitelist_enabled(&env) {
-            if !whitelist::is_whitelisted(&env, &merchant) {
-                env.panic_with_error(ContractError::MerchantNotWhitelisted);
-            }
-        }
-
-        if whitelist::is_frozen(&env, &merchant) {
-            env.panic_with_error(ContractError::MerchantFrozen);
-        }
-        if interval < 60 {
-            env.panic_with_error(ContractError::IntervalMustBePositive);
-        }
-
-        use soroban_sdk::xdr::ToXdr;
-        if token.clone().to_xdr(&env).get(7) == Some(0) {
-            env.panic_with_error(ContractError::InvalidTokenAddress);
-        }
-
-        validation::check_allowance(&env, &user, &token, amount);
-        if interval < 60 {
-            env.panic_with_error(ContractError::IntervalTooShort);
-        }
-
-        if interval < min_interval::get_min_interval(&env) {
-            env.panic_with_error(ContractError::IntervalTooShort);
-        }
-
-        let token_client = token::Client::new(&env, &token);
-        let allowance = token_client.allowance(&user, &env.current_contract_address());
-        if allowance < amount {
-            env.panic_with_error(ContractError::InsufficientAllowance);
-        }
-
-        let now = env.ledger().timestamp();
-        let trial_duration = trial_period.unwrap_or(0);
-        let last_charged = now + trial_duration;
-
-        let existing = storage::get_subscription(&env, &user);
-        let should_increment = existing.as_ref().map_or(true, |s| !s.active);
-
-        let sub = Subscription {
-            merchant,
-            amount,
-            interval,
-            last_charged,
-            active: true,
-            paused: false,
-            token,
-            referrer: referrer.clone(),
-            label: Symbol::new(&env, "default"),
-            trial_duration,
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Subscription(user.clone()), &sub);
-
-        extend_subscription_ttl(&env, &user);
         subscribe_inner(&env, user, merchant, amount, interval, token, trial_period, referrer);
     }
 
@@ -293,67 +232,6 @@ impl FlowPay {
             env.panic_with_error(ContractError::MetadataLabelTooLong);
         }
         subscribe_inner(&env, user.clone(), merchant, amount, interval, token, trial_period, referrer);
-        subscription_metadata::set_metadata(&env, &user, label);
-
-        if whitelist::is_frozen(&env, &merchant) {
-            env.panic_with_error(ContractError::MerchantFrozen);
-        }
-
-        validation::require_valid_amount(&env, amount);
-        if interval == 0 {
-            env.panic_with_error(ContractError::IntervalMustBePositive);
-        }
-
-        use soroban_sdk::xdr::ToXdr;
-        if token.clone().to_xdr(&env).get(7) == Some(0) {
-            env.panic_with_error(ContractError::InvalidTokenAddress);
-        }
-
-        validation::check_allowance(&env, &user, &token, amount);
-
-        if interval < min_interval::get_min_interval(&env) {
-            env.panic_with_error(ContractError::IntervalTooShort);
-        }
-
-        let token_client = token::Client::new(&env, &token);
-        let allowance = token_client.allowance(&user, &env.current_contract_address());
-        if allowance < amount {
-            env.panic_with_error(ContractError::InsufficientAllowance);
-        }
-
-        let now = env.ledger().timestamp();
-        let trial_duration = trial_period.unwrap_or(0);
-        let last_charged = now + trial_duration;
-
-        let existing = storage::get_subscription(&env, &user);
-        let should_increment = existing.as_ref().map_or(true, |s| !s.active);
-
-        let sub = Subscription {
-            merchant,
-            amount,
-            interval,
-            last_charged,
-            active: true,
-            paused: false,
-            token,
-            referrer: referrer.clone(),
-            label: Symbol::new(&env, ""), // deprecated: use SubscriptionMeta storage instead
-            trial_duration,
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Subscription(user.clone()), &sub);
-
-        extend_subscription_ttl(&env, &user);
-
-        if should_increment {
-            subscription_count::increment(&env);
-            subscription_count::append_subscriber_index(&env, &user);
-        }
-        referral::store_referral(&env, &user, &referrer);
-        merchant_stats::increment_subscriber_count(&env, &sub.merchant);
-        events::publish_subscribed(&env, &user, &sub);
         let _ = subscription_metadata::set_metadata(&env, &user, label);
     }
 
@@ -419,7 +297,6 @@ impl FlowPay {
             env.panic_with_error(ContractError::GracePeriodElapsed);
         }
 
-        check_and_update_global_volume(&env, sub.amount);
         charge_exec::execute_charge(&env, &user, &key, &mut sub, now);
     }
 
@@ -792,12 +669,14 @@ impl FlowPay {
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
+        admin::require_admin(&env);
         grace::propose_grace_period(&env, seconds);
     }
 
     /// Commits a pending contract-wide grace period proposal.
     /// Only the contract admin can call this.
     pub fn commit_grace_period(env: Env) {
+        admin::require_admin(&env);
         grace::commit_grace_period(&env);
     }
 
@@ -1303,11 +1182,6 @@ impl FlowPay {
         let contract_paused = storage::is_contract_paused(&env);
         let token_configured = storage::get_token(&env).is_some();
         let admin_configured = storage::get_admin_optional(&env).is_some();
-        #[cfg(test)]
-        let instance_ttl_ledgers: u32 = env.storage().instance().get_ttl();
-        #[cfg(not(test))]
-        let instance_ttl_ledgers: u32 = 0;
-        let instance_ttl_ledgers = env.storage().max_ttl();
 
         #[cfg(any(test, feature = "testutils"))]
         let instance_ttl_ledgers = {

@@ -25,7 +25,7 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     sac.mint(&user, &10_000_0000000);
 
     let token = TokenClient::new(&env, &token_addr);
-    token.approve(&user, &contract_id, &10_000_0000000, &200);
+    token.approve(&user, &contract_id, &10_000_0000000, &200000);
 
     (env, contract_id, token_addr, user, merchant)
 }
@@ -40,7 +40,7 @@ fn setup_second_token(env: &Env, contract_id: &Address, user: &Address) -> Addre
     sac.mint(user, &10_000_0000000);
 
     let token = TokenClient::new(env, &token_addr);
-    token.approve(user, contract_id, &10_000_0000000, &200);
+    token.approve(user, contract_id, &10_000_0000000, &200000);
 
     token_addr
 }
@@ -168,7 +168,6 @@ fn test_charge_applies_protocol_fee_and_records_net_revenue() {
     });
     client.propose_fee(&collector, &500u32);
     client.propose_fee(&collector, &500);
-    client.commit_fee();
     client.commit_fee(); // 5%
 
     let amount: i128 = 10_0000000;
@@ -751,7 +750,6 @@ fn test_pay_per_use_applies_protocol_fee_and_records_net_revenue() {
     client.propose_fee(&collector, &250u32);
     client.propose_fee(&collector, &500);
     client.propose_fee(&collector, &250);
-    client.commit_fee();
     client.commit_fee(); // 2.5%
 
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
@@ -2465,7 +2463,7 @@ fn setup_large_balance(env: &Env, contract_id: &Address, token_addr: &Address) -
     let sac = StellarAssetClient::new(env, token_addr);
     sac.mint(&user, &100_000_000_000_000);
     let token = TokenClient::new(env, token_addr);
-    token.approve(&user, contract_id, &100_000_000_000_000, &200);
+    token.approve(&user, contract_id, &100_000_000_000_000, &200000);
     user
 }
 
@@ -2981,7 +2979,7 @@ fn test_subscriber_page_offset_beyond_count_returns_empty() {
 
 #[test]
 fn test_subscriber_page_limit_capped_at_50() {
-    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
     let sac = StellarAssetClient::new(&env, &token_addr);
@@ -3003,7 +3001,7 @@ fn test_subscriber_page_limit_capped_at_50() {
         );
     }
 
-    assert_eq!(client.get_subscriber_count(), 52);
+    assert_eq!(client.get_subscriber_count(), 53);
 
     let page = client.get_subscriber_page(&0u64, &100u32);
     assert_eq!(page.len(), 50);
@@ -4060,7 +4058,8 @@ fn test_is_charge_due_false_past_grace_window() {
     let interval: u64 = 86400;
     let grace: u64 = 3600;
     client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
-    client.set_grace_period(&grace);
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
 
     env.ledger().with_mut(|l| { l.timestamp += interval + grace + 1; });
 
@@ -4073,6 +4072,9 @@ fn test_is_charge_due_false_for_unknown_address() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     assert!(!client.is_charge_due(&Address::generate(&env)));
+}
+
+#[test]
 fn test_daily_limit_day_start_boundary() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);

@@ -66,7 +66,6 @@ pub fn publish_paused(env: &Env, user: &Address) {
         .publish((Symbol::new(env, "paused"), user.clone()), ());
 }
 
-pub fn publish_paused(env: &Env, user: &Address) {}
 
 pub fn publish_resumed(env: &Env, user: &Address) {
     env.events()

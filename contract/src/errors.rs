@@ -42,7 +42,6 @@ pub enum ContractError {
     IntervalTooShort = 19,
     /// Returned when a merchant attempts to withdraw with no accrued revenue
     ZeroBalanceAvailable = 20,
-}
     /// Returned when attempting to transfer to an address that already has an active subscription
     SubscriptionAlreadyActive = 21,
     /// Returned when attempting to subscribe to a frozen merchant
@@ -51,10 +50,12 @@ pub enum ContractError {
     NoPendingProposal = 23,
     /// Returned when a pay_per_use call would exceed the user's daily spending limit
     DailyLimitExceeded = 24,
+    /// Returned when the metadata label exceeds the maximum length
+    MetadataLabelTooLong = 25,
+    /// Returned when the fee collector address is invalid (e.g. the contract's own address)
+    InvalidFeeCollector = 26,
+    /// Returned when pause_until expiry_timestamp is not strictly in the future
+    InvalidPauseExpiry = 27,
     GlobalVolumeExceeded = 28,
     ContractPausedError = 30,
-    /// Returned when the fee collector address is invalid (e.g. the contract's own address)
-    InvalidFeeCollector = 24,
-    /// Returned when pause_until expiry_timestamp is not strictly in the future
-    InvalidPauseExpiry = 24,
 }
