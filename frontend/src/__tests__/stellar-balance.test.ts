@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 import { getBalance } from "../stellar";
+import { useStellarBalance } from "../hooks/useStellarBalance";
 
 // Create a spy to intercept global fetch calls
 const globalFetchMock = vi.spyOn(globalThis, "fetch");
@@ -192,5 +194,62 @@ describe("getBalance", () => {
       `https://horizon-testnet.stellar.org/accounts/${testPublicKey}`
     );
     expect(globalFetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useStellarBalance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns initial loading state and fetches balance", async () => {
+    globalFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ balances: [{ asset_type: "native", balance: "20.0000000" }] }),
+    } as Response);
+
+    const { result } = renderHook(() => useStellarBalance("GBX...MOCK"));
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.balance).toBe("0");
+    expect(result.current.stale).toBe(false);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.balance).toBe("20.0000000");
+    expect(result.current.stale).toBe(false);
+    expect(globalFetchMock).toHaveBeenCalledWith(
+      "https://horizon-testnet.stellar.org/accounts/GBX...MOCK?asset_type=native"
+    );
+  });
+
+  it("uses cached balance on subsequent calls and avoids fetch storms", async () => {
+    // Setup first fetch
+    globalFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ balances: [{ asset_type: "native", balance: "30.0000000" }] }),
+    } as Response);
+
+    const { result: firstResult, unmount } = renderHook(() => useStellarBalance("GBX...CACHE"));
+    
+    await waitFor(() => {
+      expect(firstResult.current.loading).toBe(false);
+    });
+    
+    unmount();
+    
+    // Clear mock to ensure it doesn't fetch again
+    globalFetchMock.mockClear();
+
+    const { result: secondResult } = renderHook(() => useStellarBalance("GBX...CACHE"));
+    
+    // Should be initialized with cached balance instantly
+    expect(secondResult.current.balance).toBe("30.0000000");
+    expect(secondResult.current.loading).toBe(false); // Because it's within minFetchIntervalMs
+    
+    // Should not have fetched again
+    expect(globalFetchMock).not.toHaveBeenCalled();
   });
 });

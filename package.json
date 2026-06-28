@@ -5,9 +5,11 @@
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
-    "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
+    "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
+    "audit:contrast": "npm run typecheck",
     "backend:typecheck": "cd contract && cargo check",
-    "backend:test": "cd contract && cargo test"
+    "backend:test": "cd contract && cargo test",
+    "generate:types": "bash scripts/generate-types.sh"
   },
   "devDependencies": {
     "husky": "^9.1.7",

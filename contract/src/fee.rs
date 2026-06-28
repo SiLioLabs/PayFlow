@@ -29,7 +29,10 @@ pub fn propose_fee(env: &Env, collector: Address, bps: u32) {
     if bps > 10_000 {
         env.panic_with_error(ContractError::InvalidFeeBps);
     }
-    crate::admin::require_admin(env);
+    if collector == env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidFeeCollector);
+    }
+    
     let pending = (collector.clone(), bps);
     env.storage().temporary().set(&DataKey::PendingFee, &pending);
     env.storage().temporary().extend_ttl(&DataKey::PendingFee, 17280, 17280);
@@ -38,7 +41,7 @@ pub fn propose_fee(env: &Env, collector: Address, bps: u32) {
 
 /// Commits a pending fee proposal.
 pub fn commit_fee(env: &Env) {
-    crate::admin::require_admin(env);
+    
     let pending: (Address, u32) = env
         .storage()
         .temporary()
@@ -51,6 +54,12 @@ pub fn commit_fee(env: &Env) {
         .set(&DataKey::FeeCollector, &pending.0);
     env.storage().instance().set(&DataKey::FeeBps, &pending.1);
     crate::events::publish_fee_committed(env, &pending.0, pending.1);
+}
+
+/// Clears the fee settings, removing both collector and bps from storage.
+pub fn clear_fee(env: &Env) {
+    env.storage().instance().remove(&DataKey::FeeCollector);
+    env.storage().instance().remove(&DataKey::FeeBps);
 }
 
 /// Computes the protocol fee for `amount` using configured bps (0 when unset).

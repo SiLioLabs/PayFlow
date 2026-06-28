@@ -216,3 +216,4 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 - `pay_per_use(user, amount)` — the function this limit applies to
 - Full API reference: [`docs/API.md`](docs/API.md)
 - Architecture overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Developer Integration Guide: [`docs/INTEGRATION-GUIDE.md`](docs/INTEGRATION-GUIDE.md)

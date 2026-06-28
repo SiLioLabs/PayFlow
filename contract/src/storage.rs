@@ -47,3 +47,21 @@ pub fn is_contract_paused(env: &Env) -> bool {
 pub fn set_contract_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::ContractPaused, &paused);
 }
+
+pub fn set_pause_expiry(env: &Env, user: &Address, expiry: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PauseExpiry(user.clone()), &expiry);
+}
+
+pub fn get_pause_expiry(env: &Env, user: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PauseExpiry(user.clone()))
+}
+
+pub fn clear_pause_expiry(env: &Env, user: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::PauseExpiry(user.clone()));
+}

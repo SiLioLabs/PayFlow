@@ -1045,6 +1045,8 @@ Returns: `()`.
 Errors: `ContractError::AmountMustBePositive`.
 
 CLI example:
+*See also: [Daily Spending Limits Guide](./DAILY-LIMITS.md) for a conceptual overview of the `pay_per_use` spending cap.*
+For a complete list of all error codes returned by the contract, see [ERROR-CODES.md](./ERROR-CODES.md).
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- set_daily_limit --user <USER_ADDRESS> --limit 50000000
@@ -1717,6 +1719,8 @@ soroban contract invoke \
 ### `set_daily_limit`
 
 Sets a daily spending cap for `pay_per_use()` for the calling user. The limit is stored in temporary storage and resets automatically after approximately one day (~17,280 ledgers at 5 s/ledger).
+
+*For a detailed conceptual guide on how limits and TTL expirations work, see [Daily Spending Limits](./DAILY-LIMITS.md).*
 
 ```
 set_daily_limit(env: Env, user: Address, limit: i128)

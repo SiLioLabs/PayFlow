@@ -1,7 +1,8 @@
-import React, { useState, forwardRef, useMemo } from "react";
+import React, { useState, useEffect, forwardRef, useMemo } from "react";
 import Spinner from "./Spinner";
 import { validateStroopAmount } from "../hooks/useFormValidation";
-import { CONTRACT_LIMITS } from "../constants";
+import { STROOPS_PER_XLM, MIN_STROOPS, MAX_STROOPS, CONTRACT_LIMITS } from "../constants";
+import { useDebounce } from "../hooks/useDebounce";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;

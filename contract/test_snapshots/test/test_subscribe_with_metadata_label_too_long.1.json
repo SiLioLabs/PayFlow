@@ -884,7 +884,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
               },
               {
-                "symbol": "subscribe"
+                "symbol": "subscribe_with_metadata"
               }
             ],
             "data": {
@@ -902,13 +902,16 @@
                   }
                 },
                 {
-                  "u64": 59
+                  "u64": 86400
                 },
                 {
                   "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
                 },
                 "void",
-                "void"
+                "void",
+                {
+                  "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"
+                }
               ]
             }
           }
@@ -925,70 +928,11 @@
           "v0": {
             "topics": [
               {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "48f1b6b8bc0d60f7140dd49b6120fbaf3cdbab2adaeea631313d9f0bae9532f1"
-              },
-              {
-                "symbol": "allowance"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "48f1b6b8bc0d60f7140dd49b6120fbaf3cdbab2adaeea631313d9f0bae9532f1",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "allowance"
-              }
-            ],
-            "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 100000000000
-              }
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
                 "symbol": "error"
               },
               {
                 "error": {
-                  "contract": 19
+                  "contract": 29
                 }
               }
             ],
@@ -998,7 +942,7 @@
                   "string": "failing with contract error"
                 },
                 {
-                  "u32": 19
+                  "u32": 29
                 }
               ]
             }
@@ -1020,7 +964,7 @@
               },
               {
                 "error": {
-                  "contract": 19
+                  "contract": 29
                 }
               }
             ],
@@ -1045,7 +989,7 @@
               },
               {
                 "error": {
-                  "contract": 19
+                  "contract": 29
                 }
               }
             ],
@@ -1070,7 +1014,7 @@
               },
               {
                 "error": {
-                  "contract": 19
+                  "contract": 29
                 }
               }
             ],
@@ -1080,7 +1024,7 @@
                   "string": "contract call failed"
                 },
                 {
-                  "symbol": "subscribe"
+                  "symbol": "subscribe_with_metadata"
                 },
                 {
                   "vec": [
@@ -1097,13 +1041,16 @@
                       }
                     },
                     {
-                      "u64": 59
+                      "u64": 86400
                     },
                     {
                       "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
                     },
                     "void",
-                    "void"
+                    "void",
+                    {
+                      "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"
+                    }
                   ]
                 }
               ]
@@ -1126,7 +1073,7 @@
               },
               {
                 "error": {
-                  "contract": 19
+                  "contract": 29
                 }
               }
             ],

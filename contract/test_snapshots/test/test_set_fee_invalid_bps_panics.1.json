@@ -898,7 +898,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
               },
               {
-                "symbol": "set_fee"
+                "symbol": "propose_fee"
               }
             ],
             "data": {
@@ -1021,7 +1021,7 @@
                   "string": "contract call failed"
                 },
                 {
-                  "symbol": "set_fee"
+                  "symbol": "propose_fee"
                 },
                 {
                   "vec": [

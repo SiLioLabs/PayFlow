@@ -4,11 +4,13 @@ import NextChargeCountdown from "./NextChargeCountdown";
 import { Subscription } from "../types";
 import { BILLING_INTERVALS, STROOPS_PER_XLM } from "../constants";
 
+import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
+
 interface SubscriptionCardProps {
   subscription: Subscription;
-  onCancel: () => void;
-  onPause: (xdr: string) => Promise<string>;
+  onSign: (xdr: string) => Promise<string>;
   onRefresh: () => void;
+  onCancelled?: () => void;
 }
 
 function formatInterval(secs: number): string {
@@ -44,33 +46,55 @@ function formatTrialStatus(
 export default function SubscriptionCard({
   subscription,
   userKey,
-  onCancel,
-  onPause,
+  onSign,
   onRefresh,
+  onCancelled,
 }: SubscriptionCardProps & { userKey: string }) {
+  const { mutate } = useSubscriptionSync(userKey);
   const { merchant, amount, interval, last_charged, active, paused, trial_duration } = subscription;
   const nextChargeTimestamp = last_charged + interval;
   const xlm = (Number(amount) / STROOPS_PER_XLM).toFixed(2);
   const { isInTrial } = formatTrialStatus(trial_duration || 0, last_charged);
 
   const [showPauseConfirm, setShowPauseConfirm] = React.useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
+  const [cancelLoading, setCancelLoading] = React.useState(false);
   const [pauseLoading, setPauseLoading] = React.useState(false);
   const [resumeLoading, setResumeLoading] = React.useState(false);
   const [pauseStatus, setPauseStatus] = React.useState("");
+  const [cancelStatus, setCancelStatus] = React.useState("");
+
+  const handleCancel = async () => {
+    setCancelLoading(true);
+    setCancelStatus("");
+    try {
+      await mutate('cancel', async () => {
+        const { buildCancelTx } = await import("../stellar");
+        const xdr = await buildCancelTx(userKey);
+        return onSign(xdr);
+      }, { active: false });
+      setCancelStatus("Cancelled successfully.");
+      setShowCancelConfirm(false);
+      onCancelled?.();
+    } catch (e: any) {
+      setCancelStatus(`Error: ${e.message}`);
+    } finally {
+      setCancelLoading(false);
+    }
+  };
 
   const handlePause = async () => {
     setPauseLoading(true);
     setPauseStatus("");
     try {
-      // We pass userKey to the parent which handles the TX.
-      // But we can just use the provided onPause callback which takes XDR.
-      // Wait, onPause expects XDR. We should build it here.
-      const { buildPauseTx } = await import("../stellar");
-      const xdr = await buildPauseTx(userKey);
-      await onPause(xdr);
+      await mutate('pause', async () => {
+        const { buildPauseTx } = await import("../stellar");
+        const xdr = await buildPauseTx(userKey);
+        return onSign(xdr);
+      }, { paused: true });
+      
       setPauseStatus("Paused successfully.");
       setShowPauseConfirm(false);
-      onRefresh();
     } catch (e: any) {
       setPauseStatus(`Error: ${e.message}`);
     } finally {
@@ -82,11 +106,13 @@ export default function SubscriptionCard({
     setResumeLoading(true);
     setPauseStatus("");
     try {
-      const { buildResumeTx } = await import("../stellar");
-      const xdr = await buildResumeTx(userKey);
-      await onPause(xdr); // use same onSign equivalent callback
+      await mutate('resume', async () => {
+        const { buildResumeTx } = await import("../stellar");
+        const xdr = await buildResumeTx(userKey);
+        return onSign(xdr);
+      }, { paused: false });
+      
       setPauseStatus("Resumed successfully.");
-      onRefresh();
     } catch (e: any) {
       setPauseStatus(`Error: ${e.message}`);
     } finally {
@@ -138,7 +164,7 @@ export default function SubscriptionCard({
             <button onClick={() => setShowPauseConfirm(true)} className="btn-secondary pause-btn">
               Pause
             </button>
-            <button onClick={onCancel} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
               Cancel
             </button>
           </>
@@ -148,7 +174,7 @@ export default function SubscriptionCard({
             <button onClick={handleResume} disabled={resumeLoading} className="btn-primary resume-btn">
               {resumeLoading ? "Resuming…" : "Resume"}
             </button>
-            <button onClick={onCancel} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
               Cancel
             </button>
           </>
@@ -172,14 +198,31 @@ export default function SubscriptionCard({
         </div>
       )}
 
-      {pauseStatus && (
+      {showCancelConfirm && (
+        <div className="modal-overlay" onClick={() => setShowCancelConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Cancel subscription?</h3>
+            <p>Are you sure you want to cancel your subscription? This cannot be undone.</p>
+            <div className="modal-actions">
+              <button onClick={() => setShowCancelConfirm(false)} className="btn-secondary">
+                Back
+              </button>
+              <button onClick={handleCancel} disabled={cancelLoading} className="btn-danger">
+                {cancelLoading ? "Cancelling…" : "Confirm Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(pauseStatus || cancelStatus) && (
         <p
           className="form-status"
           style={{
-            color: pauseStatus.startsWith("Error") ? "var(--color-danger)" : "var(--color-success)",
+            color: (pauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")) ? "var(--color-danger)" : "var(--color-success)",
           }}
         >
-          {pauseStatus}
+          {pauseStatus || cancelStatus}
         </p>
       )}
     </div>

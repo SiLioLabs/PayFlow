@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@stellar/stellar-sdk": ["../frontend/node_modules/@stellar/stellar-sdk/lib/index.d.ts"],
+      "@stellar/stellar-sdk/rpc": ["../frontend/node_modules/@stellar/stellar-sdk/lib/rpc/index.d.ts"]
+    },
+    "typeRoots": ["../frontend/node_modules/@types"]
+  },
+  "include": ["."]
+    "lib": ["ES2020"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "types": ["node"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["*.ts"]
+}
