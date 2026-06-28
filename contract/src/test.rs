@@ -2981,7 +2981,7 @@ fn test_subscriber_page_offset_beyond_count_returns_empty() {
 
 #[test]
 fn test_subscriber_page_limit_capped_at_50() {
-    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
     let sac = StellarAssetClient::new(&env, &token_addr);
@@ -4060,7 +4060,8 @@ fn test_is_charge_due_false_past_grace_window() {
     let interval: u64 = 86400;
     let grace: u64 = 3600;
     client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
-    client.set_grace_period(&grace);
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
 
     env.ledger().with_mut(|l| { l.timestamp += interval + grace + 1; });
 
@@ -4073,6 +4074,9 @@ fn test_is_charge_due_false_for_unknown_address() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     assert!(!client.is_charge_due(&Address::generate(&env)));
+}
+
+#[test]
 fn test_daily_limit_day_start_boundary() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);

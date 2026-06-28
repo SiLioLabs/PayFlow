@@ -258,13 +258,13 @@ impl FlowPay {
         let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
         let sub = Subscription {
-            merchant,
+            merchant: merchant.clone(),
             amount,
             interval,
             last_charged,
             active: true,
             paused: false,
-            token,
+            token: token.clone(),
             referrer: referrer.clone(),
             label: Symbol::new(&env, "default"),
             trial_duration,
@@ -275,7 +275,7 @@ impl FlowPay {
             .set(&DataKey::Subscription(user.clone()), &sub);
 
         extend_subscription_ttl(&env, &user);
-        subscribe_inner(&env, user, merchant, amount, interval, token, trial_period, referrer);
+        subscribe_inner(&env, user.clone(), merchant.clone(), amount, interval, token.clone(), trial_period, referrer.clone());
     }
 
     pub fn subscribe_with_metadata(
@@ -292,8 +292,8 @@ impl FlowPay {
         if label.len() > 64 {
             env.panic_with_error(ContractError::MetadataLabelTooLong);
         }
-        subscribe_inner(&env, user.clone(), merchant, amount, interval, token, trial_period, referrer);
-        subscription_metadata::set_metadata(&env, &user, label);
+        subscribe_inner(&env, user.clone(), merchant.clone(), amount, interval, token.clone(), trial_period, referrer.clone());
+        subscription_metadata::set_metadata(&env, &user, label.clone());
 
         if whitelist::is_frozen(&env, &merchant) {
             env.panic_with_error(ContractError::MerchantFrozen);
@@ -329,13 +329,13 @@ impl FlowPay {
         let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
         let sub = Subscription {
-            merchant,
+            merchant: merchant.clone(),
             amount,
             interval,
             last_charged,
             active: true,
             paused: false,
-            token,
+            token: token.clone(),
             referrer: referrer.clone(),
             label: Symbol::new(&env, ""), // deprecated: use SubscriptionMeta storage instead
             trial_duration,
@@ -354,7 +354,7 @@ impl FlowPay {
         referral::store_referral(&env, &user, &referrer);
         merchant_stats::increment_subscriber_count(&env, &sub.merchant);
         events::publish_subscribed(&env, &user, &sub);
-        let _ = subscription_metadata::set_metadata(&env, &user, label);
+        let _ = subscription_metadata::set_metadata(&env, &user, label.clone());
     }
 
     /// Charges the next due recurring payment for `user`.
