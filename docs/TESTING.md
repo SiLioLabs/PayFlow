@@ -171,3 +171,12 @@ Frontend tests run with Vitest:
 cd frontend
 npm run test
 ```
+
+### Admin subscription repair panel
+
+| Test file | Coverage |
+| --- | --- |
+| `subscriptionValidation.test.ts` | Violation formatting and failure detection |
+| `useAdmin.test.tsx` | Admin wallet authorization |
+| `SubscriptionRepairPanel.test.tsx` | Validation/repair UI states, event count display, unauthorized repair |
+| `AdminDashboard.test.tsx` | Dashboard integration and read-only guidance |

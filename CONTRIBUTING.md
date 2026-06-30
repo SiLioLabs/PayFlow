@@ -119,6 +119,8 @@ Branch naming conventions:
 
 ## Frontend Contribution Guidelines
 
+See the full guide: [`docs/CONTRIBUTING-FRONTEND.md`](docs/CONTRIBUTING-FRONTEND.md).
+
 - All contract calls must go through `src/stellar.ts` — React components should never import `@stellar/stellar-sdk` directly
 - Do not add external UI component libraries — keep the bundle minimal
 - Use TypeScript strictly — no `any` unless absolutely necessary and commented
@@ -126,6 +128,7 @@ Branch naming conventions:
 - Run `npm run lint` to check for ESLint errors before submitting
 - Run `npm run format` to auto-format all source files with Prettier
 - Run `npm run build` to confirm there are no TypeScript errors before submitting
+
 
 ---
 
