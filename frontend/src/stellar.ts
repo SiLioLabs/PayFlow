@@ -771,3 +771,74 @@ export async function getContractHealth(caller: string): Promise<ContractHealthR
 
   return report;
 }
+
+/**
+ * Returns the configured admin address for the contract, or null if not set.
+ */
+export async function getContractAdmin(): Promise<string | null> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const account = await server.getAccount(CONTRACT_ID || "");
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call("get_admin"))
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return null;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return null;
+    return ScValDecoder.decodeOption(retval, ScValDecoder.decodeAddress);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Call contract validation function for a user and return human-readable issues.
+ */
+export async function validateSubscription(caller: string, user: string): Promise<string[]> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const account = await server.getAccount(caller);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call("validate_subscription", addressVal(user)))
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) throw new Error((result as any).error ?? "validation failed");
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return [];
+
+    // Try decode as Vec<symbol|string>
+    try {
+      return ScValDecoder.decodeVec(retval, ScValDecoder.decodeSymbol);
+    } catch {
+      try {
+        return ScValDecoder.decodeVec(retval, ScValDecoder.decodeString);
+      } catch {
+        // Last resort: stringify raw value
+        return [JSON.stringify(retval)];
+      }
+    }
+  } catch (e) {
+    return [e instanceof Error ? e.message : String(e)];
+  }
+}
+
+/**
+ * Build a repair transaction XDR for the supplied user. Caller must be an admin.
+ */
+export async function buildRepairSubscriptionTx(adminPublicKey: string, user: string): Promise<string> {
+  return buildTx(adminPublicKey, "repair_subscription", [addressVal(user)]);
+}

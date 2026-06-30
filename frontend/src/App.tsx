@@ -24,6 +24,7 @@ import { useAnalytics } from "./hooks/useAnalytics";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import SystemHealthCard from "./components/SystemHealthCard";
+import AdminDashboard from "./pages/AdminDashboard";
 import TabBar from "./components/TabBar";
 import ConnectWallet from "./components/ConnectWallet";
 import WalletBar from "./components/WalletBar";
@@ -410,7 +411,7 @@ export default function App() {
                 </Suspense>
               </ErrorBoundary>
             ) : tab === "admin" ? (
-              <SystemHealthCard callerKey={publicKey} />
+              <AdminDashboard callerKey={publicKey} onSign={signAndSubmit} />
             ) : (
               <ErrorBoundary
                 ref={dashboardErrorBoundaryRef}
