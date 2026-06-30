@@ -29,7 +29,14 @@ interface Props {
   onPayPerUse?: (amount: bigint) => void;
 }
 
-export default function Dashboard({ userKey, onSign, refreshTrigger, announce, onCancelled, onPayPerUse }: Props) {
+export default function Dashboard({
+  userKey,
+  onSign,
+  refreshTrigger,
+  announce,
+  onCancelled,
+  onPayPerUse,
+}: Props) {
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
@@ -56,22 +63,25 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
       : []
   );
 
-  const handlePayPerUse = useCallback(async (stroops: bigint) => {
-    announce("Transaction submitted");
-    try {
-      const hash = await ppuTx.submit(async () => {
-        const xdr = await buildPayPerUseTx(userKey, stroops);
-        return onSign(xdr);
-      });
-      addToast("Paid!", "success", hash);
-      announce("Transaction confirmed");
-      onPayPerUse?.(stroops);
-    } catch (e: unknown) {
-      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
-      addToast(msg, "error");
-      announce(msg);
-    }
-  }, [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]);
+  const handlePayPerUse = useCallback(
+    async (stroops: bigint) => {
+      announce("Transaction submitted");
+      try {
+        const hash = await ppuTx.submit(async () => {
+          const xdr = await buildPayPerUseTx(userKey, stroops);
+          return onSign(xdr);
+        });
+        addToast("Paid!", "success", hash);
+        announce("Transaction confirmed");
+        onPayPerUse?.(stroops);
+      } catch (e: unknown) {
+        const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
+        addToast(msg, "error");
+        announce(msg);
+      }
+    },
+    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]
+  );
 
   if (loading)
     return (
@@ -140,7 +150,6 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
                   refreshTrigger={dailyLimitRefresh}
                   onOpen={() => setShowDailyLimit(true)}
                 />
-
               </div>
 
               <ErrorBoundary>

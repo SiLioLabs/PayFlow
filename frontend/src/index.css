@@ -288,12 +288,16 @@ input::placeholder {
   color: var(--color-success-text);
 }
 
-.badge-skipped, .badge-paused, .badge-inactive {
+.badge-skipped,
+.badge-paused,
+.badge-inactive {
   background: var(--color-surface-overlay);
   color: var(--color-text-muted);
 }
 
-.badge-failed, .badge-graceperiodelapsed, .badge-nosubscription {
+.badge-failed,
+.badge-graceperiodelapsed,
+.badge-nosubscription {
   background: var(--color-danger-bg);
   color: var(--color-danger-text);
 }
@@ -449,10 +453,12 @@ input::placeholder {
 
 @media (prefers-reduced-motion: no-preference) {
   .skeleton {
-    background: linear-gradient(90deg,
-        var(--color-surface-raised) 25%,
-        var(--color-border-light) 50%,
-        var(--color-surface-raised) 75%);
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-raised) 25%,
+      var(--color-border-light) 50%,
+      var(--color-surface-raised) 75%
+    );
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }

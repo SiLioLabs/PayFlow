@@ -487,8 +487,14 @@ describe("rpcCache — dedupedCall deduplication & TTL", () => {
     let aCount = 0;
     let bCount = 0;
 
-    const fnA = (): Promise<string> => { aCount++; return Promise.resolve("a"); };
-    const fnB = (): Promise<string> => { bCount++; return Promise.resolve("b"); };
+    const fnA = (): Promise<string> => {
+      aCount++;
+      return Promise.resolve("a");
+    };
+    const fnB = (): Promise<string> => {
+      bCount++;
+      return Promise.resolve("b");
+    };
 
     const [ra1, rb1, ra2, rb2] = await Promise.all([
       dedupedCall("key:A", fnA),

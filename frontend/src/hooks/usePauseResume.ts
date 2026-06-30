@@ -4,7 +4,7 @@ import { buildPauseTx, buildResumeTx } from "../stellar";
 
 /**
  * Hook managing subscription pause/resume operations.
- * 
+ *
  * @param userKey - The subscriber's public key.
  * @param onSign - Callback function to sign transactions.
  * @param onRefresh - Callback function to refresh subscription details.

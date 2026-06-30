@@ -43,7 +43,11 @@ export default function IncreaseAllowanceModal({
       try {
         const allowance = await getAllowance(userKey);
         setCurrentAllowance(allowance);
-        setAmount((Number(getRecommendedAllowance(subscriptionAmount, allowance)) / STROOPS_PER_XLM).toFixed(7));
+        setAmount(
+          (
+            Number(getRecommendedAllowance(subscriptionAmount, allowance)) / STROOPS_PER_XLM
+          ).toFixed(7)
+        );
       } catch {
         setCurrentAllowance(0n);
       }
@@ -113,7 +117,13 @@ export default function IncreaseAllowanceModal({
           Recommended approval: <strong>{formatXlm(recommendedAllowance)}</strong>.
         </p>
         <p>
-          Estimated billing cycles with new allowance: <strong>{Math.floor(parseFloat(amount || "0") * Number(STROOPS_PER_XLM) / Number(subscriptionAmount))}</strong>.
+          Estimated billing cycles with new allowance:{" "}
+          <strong>
+            {Math.floor(
+              (parseFloat(amount || "0") * Number(STROOPS_PER_XLM)) / Number(subscriptionAmount)
+            )}
+          </strong>
+          .
         </p>
         <label className="form-group">
           <span className="form-label">Approve total allowance (XLM)</span>
@@ -142,7 +152,10 @@ export default function IncreaseAllowanceModal({
   );
 }
 
-function getRecommendedAllowance(subscriptionAmount: bigint, currentAllowance: bigint | null): bigint {
+function getRecommendedAllowance(
+  subscriptionAmount: bigint,
+  currentAllowance: bigint | null
+): bigint {
   const remainingCyclesTarget = 6n;
   const target = subscriptionAmount * remainingCyclesTarget;
   if (currentAllowance === null || currentAllowance < subscriptionAmount) {

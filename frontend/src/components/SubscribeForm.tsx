@@ -19,7 +19,13 @@ interface Props {
   onSubscribed?: () => void;
 }
 
-export default function SubscribeForm({ userKey, onSign, onSuccess, announce, onSubscribed }: Props) {
+export default function SubscribeForm({
+  userKey,
+  onSign,
+  onSuccess,
+  announce,
+  onSubscribed,
+}: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
@@ -44,7 +50,6 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce, on
     }
   }, [debouncedMerchant, validateAsync]);
 
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const isValidAsync = await validateAsync({ merchant, amount, interval });
@@ -53,7 +58,15 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce, on
     announce("Transaction submitted");
     const hash = await tx.submit(async () => {
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
-      const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval), DEFAULT_TOKEN, null, "");
+      const xdr = await buildSubscribeTx(
+        userKey,
+        merchant,
+        stroops,
+        BigInt(interval),
+        DEFAULT_TOKEN,
+        null,
+        ""
+      );
       return onSign(xdr);
     });
 
@@ -128,4 +141,3 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce, on
     </form>
   );
 }
-

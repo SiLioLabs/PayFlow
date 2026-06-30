@@ -27,8 +27,6 @@ import { server } from "../stellar";
 
 const CIRCUIT_FAILURE_THRESHOLD = 3;
 
-
-
 export type RpcStatus = "healthy" | "degraded" | "unreachable";
 
 export interface UseRpcHealthResult {

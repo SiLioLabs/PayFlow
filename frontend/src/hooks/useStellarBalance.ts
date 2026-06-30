@@ -43,7 +43,7 @@ export interface UseStellarBalanceResult {
 
 export function useStellarBalance(address: string, staleAfterMs = 10000): UseStellarBalanceResult {
   const minFetchIntervalMs = 5000;
-  
+
   const lastKnownBalance = useRef<string>("0");
 
   const [state, setState] = useState<UseStellarBalanceResult>(() => {
@@ -78,7 +78,7 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
       if (cached) {
         lastKnownBalance.current = cached.balance;
         const timeSinceFetch = now - cached.timestamp;
-        
+
         if (timeSinceFetch < minFetchIntervalMs) {
           setState({
             balance: cached.balance,
@@ -129,7 +129,7 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
         if (isMounted) {
           lastKnownBalance.current = newBalance;
           cache.set(address, { balance: newBalance, timestamp: Date.now() });
-          
+
           setState({
             balance: newBalance,
             loading: false,

@@ -27,7 +27,9 @@ export default function ShortcutHelpOverlay({ shortcuts, onClose }: Props) {
         <h3 id="shortcut-title" style={{ marginTop: 0 }}>
           Keyboard Shortcuts
         </h3>
-        <dl style={{ display: "flex", flexDirection: "column", gap: "12px", margin: 0, padding: 0 }}>
+        <dl
+          style={{ display: "flex", flexDirection: "column", gap: "12px", margin: 0, padding: 0 }}
+        >
           {shortcuts.map((shortcut) => (
             <div
               key={shortcut.key}

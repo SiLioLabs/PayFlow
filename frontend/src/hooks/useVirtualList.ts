@@ -74,16 +74,10 @@ export function useVirtualList<T>(
     }
 
     const maxFirstVisibleIndex = Math.max(items.length - 1, 0);
-    const firstVisibleIndex = Math.min(
-      Math.floor(scrollTop / itemHeight),
-      maxFirstVisibleIndex
-    );
+    const firstVisibleIndex = Math.min(Math.floor(scrollTop / itemHeight), maxFirstVisibleIndex);
     const visibleCount = Math.ceil(containerHeight / itemHeight);
     const startIndex = Math.max(firstVisibleIndex - OVERSCAN_ROWS, 0);
-    const endIndex = Math.min(
-      firstVisibleIndex + visibleCount + OVERSCAN_ROWS,
-      items.length
-    );
+    const endIndex = Math.min(firstVisibleIndex + visibleCount + OVERSCAN_ROWS, items.length);
     const visibleItems = items
       .slice(startIndex, endIndex)
       .map((item, offset) => ({ item, index: startIndex + offset }));

@@ -16,8 +16,8 @@ describe("getBalance", () => {
     const mockHorizonResponse = {
       balances: [
         { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "50.0000000" },
-        { asset_type: "native", balance: "142.5000000" } // The target asset your code looks for
-      ]
+        { asset_type: "native", balance: "142.5000000" }, // The target asset your code looks for
+      ],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -38,9 +38,7 @@ describe("getBalance", () => {
   it("returns '0' when no native balance found", async () => {
     // 1. Arrange: Simulate an account that exists but does not hold a native balance object
     const mockHorizonResponse = {
-      balances: [
-        { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.0000000" }
-      ]
+      balances: [{ asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.0000000" }],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -100,7 +98,9 @@ describe("getBalance", () => {
     // 1. Arrange: Simulate malformed JSON response
     globalFetchMock.mockResolvedValue({
       ok: true,
-      json: async () => { throw new SyntaxError("Unexpected token < in JSON at position 0"); },
+      json: async () => {
+        throw new SyntaxError("Unexpected token < in JSON at position 0");
+      },
     } as unknown as Response);
 
     // 2. Act
@@ -144,8 +144,8 @@ describe("getBalance", () => {
       balances: [
         { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "50.0000000" },
         { asset_type: "credit_alphanum12", asset_code: "JPY", balance: "100.0000000" },
-        { asset_type: "native", balance: "999.5000000" } // Native is at index 2
-      ]
+        { asset_type: "native", balance: "999.5000000" }, // Native is at index 2
+      ],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -166,8 +166,8 @@ describe("getBalance", () => {
       ok: true,
       json: async () => ({
         balances: [
-          { asset_type: "native" } // Missing balance field
-        ]
+          { asset_type: "native" }, // Missing balance field
+        ],
       }),
     } as Response);
 
@@ -233,22 +233,22 @@ describe("useStellarBalance", () => {
     } as Response);
 
     const { result: firstResult, unmount } = renderHook(() => useStellarBalance("GBX...CACHE"));
-    
+
     await waitFor(() => {
       expect(firstResult.current.loading).toBe(false);
     });
-    
+
     unmount();
-    
+
     // Clear mock to ensure it doesn't fetch again
     globalFetchMock.mockClear();
 
     const { result: secondResult } = renderHook(() => useStellarBalance("GBX...CACHE"));
-    
+
     // Should be initialized with cached balance instantly
     expect(secondResult.current.balance).toBe("30.0000000");
     expect(secondResult.current.loading).toBe(false); // Because it's within minFetchIntervalMs
-    
+
     // Should not have fetched again
     expect(globalFetchMock).not.toHaveBeenCalled();
   });

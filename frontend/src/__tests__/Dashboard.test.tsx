@@ -15,7 +15,7 @@ vi.mock("../stellar", () => ({
     getTransaction: vi.fn(() => Promise.resolve({ status: "SUCCESS" })),
   },
 }));
-vi.mock("../hooks/usePolling", () => ({ usePolling: () => { } }));
+vi.mock("../hooks/usePolling", () => ({ usePolling: () => {} }));
 vi.mock("../hooks/useRpcHealth", () => ({
   useRpcHealth: vi.fn(() => ({ status: "healthy", latencyMs: 50, error: null })),
 }));
@@ -46,9 +46,7 @@ function setup(sub: typeof ACTIVE_SUB | null = ACTIVE_SUB) {
   const onSign = vi.fn().mockResolvedValue("txhash1234567890");
   const announce = vi.fn();
 
-  render(
-    <Dashboard userKey="GUSER" onSign={onSign} refreshTrigger={0} announce={announce} />
-  );
+  render(<Dashboard userKey="GUSER" onSign={onSign} refreshTrigger={0} announce={announce} />);
 
   return { onSign, announce };
 }
@@ -58,13 +56,17 @@ describe("Dashboard", () => {
 
   it("shows no-subscription message when sub is null", async () => {
     setup(null);
-    await waitFor(() =>
-      expect(screen.getByText(/No active subscription found/)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/No active subscription found/)).toBeTruthy());
   });
 
   it("shows an inline RPC warning when RPC is unhealthy", async () => {
-    vi.mocked(useRpcHealth).mockReturnValue({ healthy: false, circuitOpen: false, status: "unreachable", latencyMs: null, error: "RPC down" });
+    vi.mocked(useRpcHealth).mockReturnValue({
+      healthy: false,
+      circuitOpen: false,
+      status: "unreachable",
+      latencyMs: null,
+      error: "RPC down",
+    });
     setup();
 
     await waitFor(() =>
@@ -82,9 +84,7 @@ describe("Dashboard", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText(/Cancelled successfully/i)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/Cancelled successfully/i)).toBeTruthy());
   });
 
   it("cancel flow: dismiss modal does not cancel", async () => {
@@ -112,9 +112,7 @@ describe("Dashboard", () => {
     await userEvent.type(input, "1");
     await userEvent.click(screen.getByRole("button", { name: /pay/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText(/Paid!/)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/Paid!/)).toBeTruthy());
   });
 
   it("cancel flow: error from onSign shows error toast", async () => {
@@ -125,8 +123,6 @@ describe("Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText(/user rejected/i)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/user rejected/i)).toBeTruthy());
   });
 });

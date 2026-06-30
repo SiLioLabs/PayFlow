@@ -27,7 +27,10 @@ describe("useFreighterAvailable", () => {
     (window as any).freighter = {
       isConnected: async () => true,
       getPublicKey: async () => "GABC",
-      getNetwork: async () => ({ network: "TESTNET", networkPassphrase: "Test SDF Network ; September 2015" }),
+      getNetwork: async () => ({
+        network: "TESTNET",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      }),
       signTransaction: async (xdr: string) => xdr,
     };
 

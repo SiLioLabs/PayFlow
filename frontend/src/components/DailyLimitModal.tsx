@@ -13,13 +13,7 @@ interface Props {
   announce: (message: string) => void;
 }
 
-export default function DailyLimitModal({
-  userKey,
-  onSign,
-  onClose,
-  onSuccess,
-  announce,
-}: Props) {
+export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, announce }: Props) {
   const [currentLimit, setCurrentLimit] = useState<bigint | null>(null);
   const [amount, setAmount] = useState("0.0000000");
   const [submitting, setSubmitting] = useState(false);
@@ -90,8 +84,8 @@ export default function DailyLimitModal({
       >
         <h3 id="daily-limit-title">Daily Spending Limit</h3>
         <p>
-          Set a daily cap for pay-per-use charges. This limit helps you control
-          how much you can spend in a single day.
+          Set a daily cap for pay-per-use charges. This limit helps you control how much you can
+          spend in a single day.
         </p>
         {currentLimit !== null && (
           <p>

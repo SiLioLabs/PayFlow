@@ -26,12 +26,12 @@ export function enqueueTransaction<T>(
   notify();
 
   const currentPromise = queuePromise;
-  
+
   const nextPromise = new Promise<T>((resolve, reject) => {
     currentPromise.finally(async () => {
       pendingLabel = label;
       notify();
-      
+
       try {
         const result = await buildAndSign();
         resolve(result);
@@ -48,7 +48,7 @@ export function enqueueTransaction<T>(
   });
 
   queuePromise = nextPromise.catch(() => {}).then(() => {});
-  
+
   return nextPromise;
 }
 

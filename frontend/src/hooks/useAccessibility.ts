@@ -35,4 +35,3 @@ export function useAccessibility() {
 
   return { announcement, announce };
 }
-

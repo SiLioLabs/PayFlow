@@ -50,14 +50,14 @@ describe("useSubscriptionSync", () => {
 
     let error;
     let promise: Promise<void>;
-    
+
     act(() => {
       promise = result.current.mutate("cancel", vi.fn(), { active: false });
     });
-    
+
     // Check after optimistic update
     expect(result.current.subscription?.active).toBe(false);
-    
+
     await act(async () => {
       rejectPromise!(new Error("Failed"));
       try {

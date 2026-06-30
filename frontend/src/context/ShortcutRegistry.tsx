@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useId } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useId,
+} from "react";
 import { KeyboardShortcut } from "../hooks/useKeyboardShortcuts";
 
 interface ShortcutRegistryContextType {
@@ -7,7 +15,9 @@ interface ShortcutRegistryContextType {
   shortcuts: KeyboardShortcut[];
 }
 
-export const ShortcutRegistryContext = createContext<ShortcutRegistryContextType | undefined>(undefined);
+export const ShortcutRegistryContext = createContext<ShortcutRegistryContextType | undefined>(
+  undefined
+);
 
 export function ShortcutRegistryProvider({ children }: { children: React.ReactNode }) {
   const [registry, setRegistry] = useState<Record<string, KeyboardShortcut[]>>({});
@@ -48,9 +58,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
   );
 
   return (
-    <ShortcutRegistryContext.Provider value={value}>
-      {children}
-    </ShortcutRegistryContext.Provider>
+    <ShortcutRegistryContext.Provider value={value}>{children}</ShortcutRegistryContext.Provider>
   );
 }
 

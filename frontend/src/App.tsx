@@ -40,7 +40,17 @@ const MerchantDashboard = lazy(
 
 function SunIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <circle cx="12" cy="12" r="5" />
       <line x1="12" y1="1" x2="12" y2="3" />
       <line x1="12" y1="21" x2="12" y2="23" />
@@ -56,7 +66,17 @@ function SunIcon() {
 
 function MoonIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
     </svg>
   );
@@ -64,7 +84,17 @@ function MoonIcon() {
 
 function HelpIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <circle cx="12" cy="12" r="10" />
       <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -94,9 +124,7 @@ function TabErrorFallback({ title, onRetry }: { title: string; onRetry: () => vo
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
         <h2 className="text-xl font-semibold mb-2">{title} encountered an error</h2>
-        <p className="text-muted text-sm mb-6">
-          Try again to continue.
-        </p>
+        <p className="text-muted text-sm mb-6">Try again to continue.</p>
         <button className="btn-primary" onClick={onRetry}>
           Retry
         </button>
@@ -111,11 +139,19 @@ export default function App() {
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
-  const { circuitOpen: rpcCircuitOpen, status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
+  const {
+    circuitOpen: rpcCircuitOpen,
+    status: rpcStatus,
+    latencyMs: rpcLatency,
+    error: rpcError,
+  } = useRpcHealth();
   const { isMobile } = useResponsive();
   const { announcement, announce } = useAccessibility();
   const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();
-  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant" | "admin">("flowpay_tab", "dashboard");
+  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant" | "admin">(
+    "flowpay_tab",
+    "dashboard"
+  );
   const [refresh, setRefresh] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
   const { isOptedIn: analyticsEnabled, setOptIn: setAnalyticsOptIn, track } = useAnalytics();
@@ -192,7 +228,11 @@ export default function App() {
               <HelpIcon />
             </button>
           )}
-          <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+          <button
+            className="btn-secondary theme-toggle"
+            onClick={toggle}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </div>
@@ -200,10 +240,7 @@ export default function App() {
 
       {/* Keyboard shortcuts help */}
       {showHelp && publicKey && (
-        <ShortcutHelpOverlay
-          shortcuts={shortcuts}
-          onClose={() => setShowHelp(false)}
-        />
+        <ShortcutHelpOverlay shortcuts={shortcuts} onClose={() => setShowHelp(false)} />
       )}
 
       {/* Contract ID error */}
@@ -235,8 +272,8 @@ export default function App() {
         <div className="network-warning" role="alert">
           <span>⚠️</span>
           <span>
-            Wallet is on <strong>{walletNetwork}</strong> — app expects a
-            different network. Switch networks in Freighter to continue.
+            Wallet is on <strong>{walletNetwork}</strong> — app expects a different network. Switch
+            networks in Freighter to continue.
           </span>
         </div>
       )}
@@ -244,9 +281,7 @@ export default function App() {
       {/* Freighter not installed — show install prompt */}
       {!freighterAvailable && !publicKey && (
         <div className="card connect-wallet">
-          <p className="connect-wallet__hint">
-            Freighter wallet is required to use FlowPay.
-          </p>
+          <p className="connect-wallet__hint">Freighter wallet is required to use FlowPay.</p>
           <a
             href={installUrl}
             target="_blank"
@@ -357,7 +392,9 @@ export default function App() {
                   refreshTrigger={refresh}
                   announce={announce}
                   onCancelled={() => track({ type: "subscription_cancelled" })}
-                  onPayPerUse={(amount) => track({ type: "pay_per_use", payload: { amountStroops: amount } })}
+                  onPayPerUse={(amount) =>
+                    track({ type: "pay_per_use", payload: { amountStroops: amount } })
+                  }
                 />
               </ErrorBoundary>
             )}

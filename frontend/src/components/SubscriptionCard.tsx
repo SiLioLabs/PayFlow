@@ -37,10 +37,7 @@ function formatTrialStatus(
   const now = Math.floor(Date.now() / 1000);
   const isInTrial = now < trialEndTimestamp;
   const trialEndDate = new Date(trialEndTimestamp * 1000).toLocaleDateString();
-  const trialDaysRemaining = Math.max(
-    0,
-    Math.ceil((trialEndTimestamp - now) / (24 * 60 * 60))
-  );
+  const trialDaysRemaining = Math.max(0, Math.ceil((trialEndTimestamp - now) / (24 * 60 * 60)));
 
   return { isInTrial, trialEndDate, trialDaysRemaining };
 }
@@ -83,10 +80,14 @@ export default function SubscriptionCard({
     setCancelLoading(true);
     setCancelStatus("");
     try {
-      await mutate('cancel', async () => {
-        const xdr = await buildCancelTx(userKey);
-        return onSign(xdr);
-      }, { active: false });
+      await mutate(
+        "cancel",
+        async () => {
+          const xdr = await buildCancelTx(userKey);
+          return onSign(xdr);
+        },
+        { active: false }
+      );
       setCancelStatus("Cancelled successfully.");
       setShowCancelConfirm(false);
       onCancelled?.();
@@ -134,9 +135,7 @@ export default function SubscriptionCard({
       <div className="subscription-card__header">
         <div>
           <h2 className="subscription-card__title">Your Subscription</h2>
-          {subscription.label && (
-            <p className="subscription-card__label">{subscription.label}</p>
-          )}
+          {subscription.label && <p className="subscription-card__label">{subscription.label}</p>}
         </div>
         <span className={`badge ${active ? "badge-active" : "badge-inactive"}`}>
           {active ? (isInTrial ? "Trial Active" : "Active") : "Cancelled"}
@@ -173,17 +172,29 @@ export default function SubscriptionCard({
             <button onClick={() => setShowPauseConfirm(true)} className="btn-secondary pause-btn">
               Pause
             </button>
-            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button
+              onClick={() => setShowCancelConfirm(true)}
+              className="btn-danger cancel-btn"
+              aria-label="Cancel subscription"
+            >
               Cancel
             </button>
           </>
         )}
         {active && paused && (
           <>
-            <button onClick={handleResume} disabled={resumeTx.state === "pending"} className="btn-primary resume-btn">
+            <button
+              onClick={handleResume}
+              disabled={resumeTx.state === "pending"}
+              className="btn-primary resume-btn"
+            >
               {resumeTx.state === "pending" ? "Resuming…" : "Resume"}
             </button>
-            <button onClick={() => setShowCancelConfirm(true)} className="btn-danger cancel-btn" aria-label="Cancel subscription">
+            <button
+              onClick={() => setShowCancelConfirm(true)}
+              className="btn-danger cancel-btn"
+              aria-label="Cancel subscription"
+            >
               Cancel
             </button>
           </>
@@ -199,7 +210,11 @@ export default function SubscriptionCard({
               <button onClick={() => setShowPauseConfirm(false)} className="btn-secondary">
                 Cancel
               </button>
-              <button onClick={handlePause} disabled={pauseTx.state === "pending"} className="btn-primary">
+              <button
+                onClick={handlePause}
+                disabled={pauseTx.state === "pending"}
+                className="btn-primary"
+              >
                 {pauseTx.state === "pending" ? "Pausing…" : "Pause"}
               </button>
             </div>
@@ -228,7 +243,10 @@ export default function SubscriptionCard({
         <p
           className="form-status"
           style={{
-            color: (derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")) ? "var(--color-danger)" : "var(--color-success)",
+            color:
+              derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")
+                ? "var(--color-danger)"
+                : "var(--color-success)",
           }}
         >
           {derivedPauseStatus || cancelStatus}

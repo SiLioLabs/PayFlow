@@ -109,8 +109,8 @@ export namespace ScValDecoder {
         keyType === "scvSymbol"
           ? entry.key().sym().toString()
           : keyType === "scvString"
-          ? entry.key().str().toString()
-          : null;
+            ? entry.key().str().toString()
+            : null;
       if (key === null) {
         continue;
       }

@@ -183,7 +183,7 @@ describe("useRpcHealth", () => {
       mockedServer.getHealth.mockResolvedValue({} as any);
       const clearSpy = vi.spyOn(global, "clearTimeout");
       const { unmount } = render(<Test />);
-      
+
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });

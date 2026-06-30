@@ -17,7 +17,10 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
   if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
   const stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
   if (stroops < MIN_STROOPS) {
-    return { stroops: null, error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM` };
+    return {
+      stroops: null,
+      error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`,
+    };
   }
   if (stroops > MAX_STROOPS) {
     return { stroops: null, error: `Must be at most ${Number(MAX_STROOPS) / STROOPS_PER_XLM} XLM` };
@@ -99,9 +102,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             {loading ? <Spinner size="sm" /> : "Pay now"}
           </button>
         </div>
-        {validationResult.error && (
-          <span className="text-error">{validationResult.error}</span>
-        )}
+        {validationResult.error && <span className="text-error">{validationResult.error}</span>}
       </div>
     );
   }

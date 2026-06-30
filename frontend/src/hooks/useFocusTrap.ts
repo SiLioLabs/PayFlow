@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * Hook to trap keyboard focus within a container element.
- * 
+ *
  * @param ref - Ref object containing the container element.
  * @param active - Boolean indicating if the focus trap is currently active.
  * @param onEscape - Optional callback invoked when the Escape key is pressed.
@@ -27,9 +27,7 @@ export function useFocusTrap(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
     // Focus the first focusable element inside the ref container
-    const focusableElements = Array.from(
-      element.querySelectorAll<HTMLElement>(focusableSelectors)
-    );
+    const focusableElements = Array.from(element.querySelectorAll<HTMLElement>(focusableSelectors));
     if (focusableElements.length > 0) {
       focusableElements[0].focus();
     }

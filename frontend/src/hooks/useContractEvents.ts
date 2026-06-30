@@ -108,4 +108,3 @@ export function useContractEvents(
 
   return { events, loading: loading || loadingMore, error, refresh, loadMore, hasMore };
 }
-

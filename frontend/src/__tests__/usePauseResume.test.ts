@@ -26,7 +26,7 @@ describe("usePauseResume", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Default mock implementation for useTransaction
     vi.mocked(useTransaction).mockReturnValue({
       status: "idle",
@@ -39,18 +39,14 @@ describe("usePauseResume", () => {
   });
 
   it("should initialize with idle status for pauseTx and resumeTx", () => {
-    const { result } = renderHook(() =>
-      usePauseResume("user-key", onSign, onRefresh)
-    );
+    const { result } = renderHook(() => usePauseResume("user-key", onSign, onRefresh));
 
     expect(result.current.pauseTx.state).toBe("idle");
     expect(result.current.resumeTx.state).toBe("idle");
   });
 
   it("should successfully build, sign, submit pause transaction, and call refresh", async () => {
-    const { result } = renderHook(() =>
-      usePauseResume("user-key", onSign, onRefresh)
-    );
+    const { result } = renderHook(() => usePauseResume("user-key", onSign, onRefresh));
 
     await act(async () => {
       await result.current.pause();
@@ -62,9 +58,7 @@ describe("usePauseResume", () => {
   });
 
   it("should successfully build, sign, submit resume transaction, and call refresh", async () => {
-    const { result } = renderHook(() =>
-      usePauseResume("user-key", onSign, onRefresh)
-    );
+    const { result } = renderHook(() => usePauseResume("user-key", onSign, onRefresh));
 
     await act(async () => {
       await result.current.resume();
@@ -77,7 +71,7 @@ describe("usePauseResume", () => {
 
   it("should propagate errors if transaction submission fails", async () => {
     const submitError = new Error("On-chain failure");
-    
+
     vi.mocked(useTransaction).mockReturnValue({
       status: "failed",
       hash: null,
@@ -85,9 +79,7 @@ describe("usePauseResume", () => {
       submit: vi.fn().mockRejectedValue(submitError),
     });
 
-    const { result } = renderHook(() =>
-      usePauseResume("user-key", onSign, onRefresh)
-    );
+    const { result } = renderHook(() => usePauseResume("user-key", onSign, onRefresh));
 
     await expect(
       act(async () => {

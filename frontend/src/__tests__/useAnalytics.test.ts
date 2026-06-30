@@ -45,7 +45,7 @@ describe("useAnalytics", () => {
     act(() => {
       result.current.track({
         type: "pay_per_use",
-        payload: { amountStroops: 10000000n }
+        payload: { amountStroops: 10000000n },
       });
     });
 
@@ -84,7 +84,7 @@ describe("useAnalytics", () => {
       result.current.track({ type: "wallet_connected" });
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    
+
     // Check that the body contains the array of 10 events
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toBe("https://example.com/analytics");
