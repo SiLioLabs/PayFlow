@@ -1,13 +1,3 @@
-import { useState, useEffect, useRef } from "react";
-import { server, CONTRACT_ID } from "../stellar";
-
-interface SubscriberCountResult {
-  count: number;
-  loading: boolean;
-  /** True while a background refresh is in progress (stale data is shown). */
-  stale: boolean;
-}
-
 /** Maximum number of events to fetch per RPC page. */
 const PAGE_LIMIT = 1000;
 /** Safety cap to prevent runaway pagination loops. */
