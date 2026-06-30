@@ -27,14 +27,12 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
 export default function StroopInput({ label, onChange, disabled }: Props) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isDebouncing, setIsDebouncing] = useState(false);
   const [lastValue, setLastValue] = useState(value);
   const debouncedValue = useDebounce(value, 300);
   const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
 
   useEffect(() => {
     if (value !== lastValue) {
-      setIsDebouncing(true);
       setLastValue(value);
     }
   }, [value, lastValue]);
@@ -43,7 +41,6 @@ export default function StroopInput({ label, onChange, disabled }: Props) {
     const { stroops, error: err } = validate(debouncedValue);
     setConvertedStroops(stroops);
     setError(err);
-    setIsDebouncing(false);
     onChange(stroops);
   }, [debouncedValue, onChange]);
 
@@ -58,7 +55,6 @@ export default function StroopInput({ label, onChange, disabled }: Props) {
     const { stroops, error: err } = validate(value);
     setConvertedStroops(stroops);
     setError(err);
-    setIsDebouncing(false);
     onChange(stroops);
   }
 

@@ -1,6 +1,6 @@
+use crate::events;
 use crate::DataKey;
 use soroban_sdk::{Address, Env};
-use crate::events;
 
 /// Checks if a merchant is whitelisted.
 pub fn is_whitelisted(env: &Env, merchant: &Address) -> bool {

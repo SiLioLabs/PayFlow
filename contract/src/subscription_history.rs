@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::DataKey;
+use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
 
 /// Maximum number of charge timestamps retained per subscriber.
 const MAX_HISTORY: u32 = 12;
@@ -29,9 +29,38 @@ pub fn record_charge(env: &Env, user: &Address, timestamp: u64) {
 
     history.push_back(timestamp);
 
+    let key = DataKey::ChargeHistory(user.clone());
+    env.storage().persistent().set(&key, &history);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+}
+
+/// Removes the ChargeHistory entry for a subscriber entirely.
+pub fn prune_charge_history(env: &Env, user: &Address) {
     env.storage()
         .persistent()
-        .set(&DataKey::ChargeHistory(user.clone()), &history);
+        .remove(&DataKey::ChargeHistory(user.clone()));
+}
+
+/// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
+pub fn get_charge_history_ttl(env: &Env, user: &Address) -> u32 {
+    #[cfg(any(test, feature = "testutils"))]
+    {
+        use soroban_sdk::testutils::storage::Persistent;
+        let key = DataKey::ChargeHistory(user.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage().persistent().get_ttl(&key)
+        } else {
+            0
+        }
+    }
+    #[cfg(not(any(test, feature = "testutils")))]
+    {
+        0
+    }
 }
 
 /// Clears the stored charge history for a subscriber.

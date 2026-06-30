@@ -2,6 +2,7 @@ use soroban_sdk::{Address, Env};
 
 use crate::{DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS};
 
+#[allow(dead_code)]
 pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
     env.storage()
         .persistent()
@@ -14,6 +15,7 @@ pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
         .get(&DataKey::Subscription(user.clone()))
 }
 
+#[allow(dead_code)]
 /// Extends the TTL of a subscription entry. Safe to call even if the entry
 /// has already expired (the operation is a no-op in that case).
 pub fn extend_subscription_ttl(env: &Env, user: &Address) {
@@ -58,7 +60,9 @@ pub fn is_contract_paused(env: &Env) -> bool {
 }
 
 pub fn set_contract_paused(env: &Env, paused: bool) {
-    env.storage().instance().set(&DataKey::ContractPaused, &paused);
+    env.storage()
+        .instance()
+        .set(&DataKey::ContractPaused, &paused);
 }
 
 pub fn set_pause_expiry(env: &Env, user: &Address, expiry: u64) {

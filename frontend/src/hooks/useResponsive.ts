@@ -1,3 +1,16 @@
+/**
+ * useResponsive - Tracks the viewport breakpoint for responsive layout decisions.
+ *
+ * Uses CSS media queries via `window.matchMedia` to detect mobile, tablet, and
+ * desktop breakpoints. Updates on window resize events.
+ *
+ * @returns {Object} Responsive state
+ * @returns {boolean} returns.isMobile - True when viewport is <= 639px
+ * @returns {boolean} returns.isTablet - True when viewport is 640px–1023px
+ * @returns {boolean} returns.isDesktop - True when viewport is >= 1024px
+ * @example
+ * const { isMobile, isTablet, isDesktop } = useResponsive();
+ */
 import { useState, useEffect } from "react";
 
 export function useResponsive() {

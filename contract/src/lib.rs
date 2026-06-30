@@ -1,9 +1,8 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 
 mod admin;
 mod batch;
-#[cfg(test)]
-use soroban_sdk::testutils::storage::Instance;
 mod bench;
 mod charge_exec;
 mod errors;
@@ -101,6 +100,8 @@ pub enum DataKey {
 // ─────────────────────────────────────────────────────────────
 
 pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
+pub const MAX_BATCH_PAUSE_SUBSCRIPTIONS: u32 = 25;
+pub const MAX_WHITELIST_BATCH_SIZE: u32 = 50;
 pub const GLOBAL_MAX_VOLUME_PER_HOUR: i128 = 50_000_000_000_000; // 50 trillion stroops
 pub const HOUR_IN_SECONDS: u64 = 3600;
 pub const MAX_AMOUNT: i128 = 100_000_000_000;
@@ -214,7 +215,16 @@ impl FlowPay {
         trial_period: Option<u64>,
         referrer: Option<Address>,
     ) {
-        subscribe_inner(&env, user, merchant, amount, interval, token, trial_period, referrer);
+        subscribe_inner(
+            &env,
+            user,
+            merchant,
+            amount,
+            interval,
+            token,
+            trial_period,
+            referrer,
+        );
     }
 
     pub fn subscribe_with_metadata(
@@ -231,7 +241,16 @@ impl FlowPay {
         if label.len() > 64 {
             env.panic_with_error(ContractError::MetadataLabelTooLong);
         }
-        subscribe_inner(&env, user.clone(), merchant, amount, interval, token, trial_period, referrer);
+        subscribe_inner(
+            &env,
+            user.clone(),
+            merchant,
+            amount,
+            interval,
+            token,
+            trial_period,
+            referrer,
+        );
         let _ = subscription_metadata::set_metadata(&env, &user, label);
     }
 
@@ -337,62 +356,34 @@ impl FlowPay {
     /// Transfers `amount` to the subscription merchant, updates merchant revenue
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
-        ensure_contract_not_paused(&env);
-        user.require_auth();
+        pay_per_use_inner(&env, user, amount, None);
+    }
 
-        if amount <= 0 {
-            env.panic_with_error(ContractError::AmountMustBePositive);
-        }
-        if amount > MAX_AMOUNT {
-            env.panic_with_error(ContractError::AmountExceedsMaximum);
-        }
-
-        let key = DataKey::Subscription(user.clone());
-
-        let sub: Subscription = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
-
-        if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionInactive);
-        }
-        if sub.paused {
-            env.panic_with_error(ContractError::SubscriptionPaused);
-        }
-
-        spending_limit::enforce_limit(&env, &user, amount);
-
-        let token = token::Client::new(&env, &sub.token);
-
-        let mut merchant_amount = amount;
-        if let Some((collector, bps)) = fee::get_fee(&env) {
-            let fee_amount = (amount * (bps as i128)) / 10_000;
-            if fee_amount > 0 {
-                token.transfer_from(
-                    &env.current_contract_address(),
-                    &user,
-                    &collector,
-                    &fee_amount,
-                );
-                merchant_amount = amount - fee_amount;
-            }
-        }
-
-        token.transfer_from(
-            &env.current_contract_address(),
-            &user,
-            &sub.merchant,
-            &merchant_amount,
-        );
-
-        check_and_update_global_volume(&env, amount);
-        merchant_stats::increment_revenue_with_daily(&env, &sub.merchant, merchant_amount);
-        spending_limit::record_spend(&env, &user, amount);
-        extend_subscription_ttl(&env, &user);
-
-        events::publish_pay_per_use(&env, &user, &sub.merchant, amount);
+    /// Executes an immediate pay-per-use charge for an active subscription,
+    /// routing payment to `recipient` instead of the subscription's merchant.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber address. Must authorize the call.
+    /// - `amount`: One-time amount to transfer. Must be greater than zero.
+    /// - `recipient`: Address that receives the net payment instead of `sub.merchant`.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `user`.
+    ///
+    /// # Errors
+    ///
+    /// Same as `pay_per_use`, plus panics if the merchant whitelist is enabled
+    /// and `recipient` is not whitelisted.
+    ///
+    /// # Side Effects
+    ///
+    /// Transfers `amount` to `recipient`, updates `recipient`'s merchant revenue
+    /// and the user's daily spend tracking (shared with `pay_per_use`), and
+    /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
+    pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
+        pay_per_use_inner(&env, user, amount, Some(recipient));
     }
 
     /// Cancels `user`'s active subscription.
@@ -560,6 +551,58 @@ impl FlowPay {
         events::publish_resumed(&env, &user);
     }
 
+    /// Batch-pauses subscriptions for a list of user addresses.
+    ///
+    /// Admin-only emergency tool to freeze groups of related accounts in a
+    /// single transaction. The vector is capped at 25 items to stay within
+    /// ledger size constraints.
+    ///
+    /// # Parameters
+    ///
+    /// - `users`: List of subscriber addresses to pause. Max 25 items.
+    ///
+    /// # Returns
+    ///
+    /// Returns nothing.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the contract admin.
+    ///
+    /// # Side Effects
+    ///
+    /// For every valid active subscription, sets `paused = true`, persists the
+    /// update, extends the subscription TTL, and emits a `subscription_paused`
+    /// event. Invalid (non-existent) and already-paused entries are silently
+    /// skipped. The contract pause flag does **not** block this call.
+    pub fn batch_pause_subscriptions(env: Env, users: Vec<Address>) {
+        admin::require_admin(&env);
+
+        let max_batch: u32 = 25;
+        if users.len() > max_batch {
+            env.panic_with_error(ContractError::BatchSizeExceeded);
+        }
+
+        for user in users.iter() {
+            let key = DataKey::Subscription(user.clone());
+
+            let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
+            if let Some(mut sub) = sub_opt {
+                if !sub.active || sub.paused {
+                    if sub.paused {
+                        extend_subscription_ttl(&env, &user);
+                    }
+                    continue;
+                }
+
+                sub.paused = true;
+
+                env.storage().persistent().set(&key, &sub);
+                extend_subscription_ttl(&env, &user);
+                events::publish_subscription_paused(&env, &user);
+            }
+        }
+    }
 
     /// Proposes a new admin (step 1 of two-step transfer).
     /// The proposed address must call `accept_admin()` to complete the transfer.
@@ -669,14 +712,12 @@ impl FlowPay {
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
-        admin::require_admin(&env);
         grace::propose_grace_period(&env, seconds);
     }
 
     /// Commits a pending contract-wide grace period proposal.
     /// Only the contract admin can call this.
     pub fn commit_grace_period(env: Env) {
-        admin::require_admin(&env);
         grace::commit_grace_period(&env);
     }
 
@@ -812,6 +853,42 @@ impl FlowPay {
         whitelist::remove_merchant(&env, &merchant);
     }
 
+    /// Adds multiple merchants to the whitelist in a single call.
+    /// Admin-only. Capped at 50 entries; duplicates are idempotent.
+    /// Returns the number of entries processed.
+    pub fn whitelist_batch_add(env: Env, merchants: Vec<Address>) -> u32 {
+        admin::require_admin(&env);
+
+        // TODO: use configurable limit (see CONTRACT-16) once merged
+        if merchants.len() > MAX_WHITELIST_BATCH_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        for merchant in merchants.iter() {
+            whitelist::add_merchant(&env, &merchant);
+        }
+
+        merchants.len()
+    }
+
+    /// Removes multiple merchants from the whitelist in a single call.
+    /// Admin-only. Capped at 50 entries; removing a non-whitelisted merchant is a no-op.
+    /// Returns the number of entries processed.
+    pub fn whitelist_batch_remove(env: Env, merchants: Vec<Address>) -> u32 {
+        admin::require_admin(&env);
+
+        // TODO: use configurable limit (see CONTRACT-16) once merged
+        if merchants.len() > MAX_WHITELIST_BATCH_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        for merchant in merchants.iter() {
+            whitelist::remove_merchant(&env, &merchant);
+        }
+
+        merchants.len()
+    }
+
     /// Enables or disables the merchant whitelist.
     pub fn set_whitelist_enabled(env: Env, enabled: bool) {
         admin::require_admin(&env);
@@ -930,11 +1007,7 @@ impl FlowPay {
         let mut i = offset;
         let end = offset + cap as u64;
         while i < end && i < count {
-            if let Some(addr) = env
-                .storage()
-                .persistent()
-                .get(&DataKey::SubscriberIndex(i))
-            {
+            if let Some(addr) = env.storage().persistent().get(&DataKey::SubscriberIndex(i)) {
                 result.push_back(addr);
             }
             i += 1;
@@ -970,6 +1043,11 @@ impl FlowPay {
     /// Returns the number of active subscribers for a given merchant.
     pub fn get_merchant_subscriber_count(env: Env, merchant: Address) -> u64 {
         merchant_stats::get_merchant_subscriber_count(&env, &merchant)
+    }
+
+    /// Returns the number of active subscribers for a given merchant (as u32).
+    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u32 {
+        subscription_count::get_merchant_sub_count(&env, &merchant)
     }
 
     /// Resets a merchant's cumulative revenue counter to zero.
@@ -1211,9 +1289,21 @@ impl FlowPay {
     }
 
     /// Clears the charge history for a subscriber.
+    /// Only the contract admin can call this.
     pub fn clear_charge_history(env: Env, user: Address) {
-        user.require_auth();
+        admin::require_admin(&env);
         subscription_history::clear_charge_history(&env, &user);
+    }
+
+    /// Admin-only: removes the ChargeHistory entry for `user` entirely.
+    pub fn prune_charge_history(env: Env, user: Address) {
+        admin::require_admin(&env);
+        subscription_history::prune_charge_history(&env, &user);
+    }
+
+    /// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
+    pub fn get_charge_history_ttl(env: Env, user: Address) -> u32 {
+        subscription_history::get_charge_history_ttl(&env, &user)
     }
 
     /// Returns a paginated slice of charge timestamps for a subscriber.
@@ -1275,7 +1365,64 @@ impl FlowPay {
 
 fn extend_subscription_ttl(env: &Env, user: &Address) {
     storage::extend_subscription_ttl(env, user);
-    env.storage().instance().extend_ttl(SUBSCRIPTION_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS);
+    env.storage()
+        .instance()
+        .extend_ttl(SUBSCRIPTION_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS);
+}
+
+/// Shared implementation for `pay_per_use` and `pay_per_use_to`. `recipient`
+/// is `None` for `pay_per_use` (defaults to `sub.merchant`, matching its
+/// existing behavior exactly) and `Some(addr)` for `pay_per_use_to`.
+fn pay_per_use_inner(env: &Env, user: Address, amount: i128, recipient: Option<Address>) {
+    ensure_contract_not_paused(env);
+    user.require_auth();
+
+    if amount <= 0 {
+        env.panic_with_error(ContractError::AmountMustBePositive);
+    }
+    if amount > MAX_AMOUNT {
+        env.panic_with_error(ContractError::AmountExceedsMaximum);
+    }
+
+    let key = DataKey::Subscription(user.clone());
+
+    let sub: Subscription = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+    if !sub.active {
+        env.panic_with_error(ContractError::SubscriptionInactive);
+    }
+    if sub.paused {
+        env.panic_with_error(ContractError::SubscriptionPaused);
+    }
+
+    // Only the explicit `pay_per_use_to` path re-validates the whitelist;
+    // `pay_per_use` (recipient == None) keeps its existing behavior of not
+    // re-checking a merchant that was already whitelisted at subscribe time.
+    let is_pay_per_use_to = recipient.is_some();
+    let recipient = recipient.unwrap_or_else(|| sub.merchant.clone());
+
+    if is_pay_per_use_to
+        && whitelist::is_whitelist_enabled(env)
+        && !whitelist::is_whitelisted(env, &recipient)
+    {
+        env.panic_with_error(ContractError::MerchantNotWhitelisted);
+    }
+
+    spending_limit::enforce_limit(env, &user, amount);
+
+    let fee_amount = fee::transfer_pay_per_use(env, &user, &sub.token, amount, &recipient);
+    let net_amount = amount - fee_amount;
+
+    check_and_update_global_volume(env, amount);
+    merchant_stats::increment_revenue_with_daily(env, &recipient, net_amount);
+    spending_limit::record_spend(env, &user, amount);
+    extend_subscription_ttl(env, &user);
+
+    events::publish_pay_per_use(env, &user, &recipient, amount);
 }
 
 fn subscribe_inner(
@@ -1290,10 +1437,8 @@ fn subscribe_inner(
 ) {
     user.require_auth();
 
-    if whitelist::is_whitelist_enabled(env) {
-        if !whitelist::is_whitelisted(env, &merchant) {
-            env.panic_with_error(ContractError::MerchantNotWhitelisted);
-        }
+    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
+        env.panic_with_error(ContractError::MerchantNotWhitelisted);
     }
 
     if whitelist::is_frozen(env, &merchant) {
@@ -1328,12 +1473,17 @@ fn subscribe_inner(
     validation::check_allowance(env, &user, &token, amount);
 
     let now = env.ledger().timestamp();
-    let last_charged = match trial_period {
-        Some(period) => now + period,
-        None => now,
-    };
-
     let trial_duration = trial_period.unwrap_or(0);
+    let last_charged = now + trial_duration;
+
+    let existing = storage::get_subscription(env, &user);
+    let should_increment = existing.as_ref().is_none_or(|s| !s.active);
+
+    if let Some(ref existing_sub) = existing {
+        if existing_sub.active && existing_sub.merchant != merchant {
+            merchant_stats::decrement_subscriber_count(env, &existing_sub.merchant);
+        }
+    }
 
     let sub = Subscription {
         merchant,
@@ -1347,9 +1497,6 @@ fn subscribe_inner(
         label: Symbol::new(env, ""),
         trial_duration,
     };
-
-    let existing = storage::get_subscription(env, &user);
-    let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
     env.storage()
         .persistent()

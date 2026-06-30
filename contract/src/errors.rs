@@ -30,6 +30,8 @@ pub enum ContractError {
     InvalidTokenAddress = 12,
     /// Returned when fee basis points exceed 10000
     InvalidFeeBps = 13,
+    /// Returned when the metadata label exceeds the 64-byte length limit
+    MetadataLabelTooLong = 14,
     /// Returned when a payment amount is greater than the configured maximum
     AmountExceedsMaximum = 15,
     /// Returned when attempting to operate on a subscription that is not active
@@ -42,20 +44,22 @@ pub enum ContractError {
     IntervalTooShort = 19,
     /// Returned when a merchant attempts to withdraw with no accrued revenue
     ZeroBalanceAvailable = 20,
-    /// Returned when attempting to transfer to an address that already has an active subscription
-    SubscriptionAlreadyActive = 21,
+    /// Returned when the batch size exceeds the maximum allowed (25)
+    BatchSizeExceeded = 21,
     /// Returned when attempting to subscribe to a frozen merchant
     MerchantFrozen = 22,
     /// Returned when a two-step commit is attempted without a pending proposal
     NoPendingProposal = 23,
+    /// Returned when attempting to transfer to an address that already has an active subscription
+    SubscriptionAlreadyActive = 24,
     /// Returned when a pay_per_use call would exceed the user's daily spending limit
-    DailyLimitExceeded = 24,
-    /// Returned when the metadata label exceeds the maximum length
-    MetadataLabelTooLong = 25,
+    DailyLimitExceeded = 25,
     /// Returned when the fee collector address is invalid (e.g. the contract's own address)
     InvalidFeeCollector = 26,
     /// Returned when pause_until expiry_timestamp is not strictly in the future
     InvalidPauseExpiry = 27,
     GlobalVolumeExceeded = 28,
     ContractPausedError = 30,
+    /// Returned when a batch operation's input vector exceeds the maximum allowed size
+    BatchTooLarge = 31,
 }

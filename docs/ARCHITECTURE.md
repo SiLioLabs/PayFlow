@@ -11,7 +11,7 @@ FlowPay has two runtime pieces:
 1. The Soroban contract in `contract/src/`, which owns subscription state and all on-chain policy.
 2. The React frontend in `frontend/`, which builds transactions and submits them through Freighter.
 
-A keeper process is the only off-chain service required for recurring billing. It calls `charge()` or `batch_charge()` on schedule.
+A [keeper](./GLOSSARY.md#keeper) process is the only off-chain service required for recurring billing. It calls `charge()` or `batch_charge()` on schedule.
 
 ```mermaid
 graph TD

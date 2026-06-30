@@ -111,7 +111,7 @@ export default function App() {
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
-  const { healthy: rpcHealthy, circuitOpen: rpcCircuitOpen, status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
+  const { circuitOpen: rpcCircuitOpen, status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const { announcement, announce } = useAccessibility();
   const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();

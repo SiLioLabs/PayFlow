@@ -1,5 +1,4 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { StrKey } from "@stellar/stellar-sdk";
 import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants"; // BILLING_INTERVALS used for initial value
@@ -45,13 +44,6 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce, on
     }
   }, [debouncedMerchant, validateAsync]);
 
-  function validateReferrer(value: string): string | null {
-    if (!value) return null; // Optional field
-    if (!StrKey.isValidEd25519PublicKey(value)) {
-      return "Invalid Stellar address format";
-    }
-    return null;
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

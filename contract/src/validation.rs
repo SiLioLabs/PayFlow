@@ -11,6 +11,10 @@ pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i
     }
 }
 
+/// Composable helper that asserts a subscription is ready to be used:
+/// the subscription must be active and the user must have sufficient
+/// allowance for the subscription's token and amount.
+#[allow(dead_code)]
 pub fn validate_subscription_readiness(env: &Env, user: &Address, sub: &Subscription) {
     if !sub.active {
         env.panic_with_error(ContractError::SubscriptionNotActive);

@@ -18,7 +18,6 @@ pub fn commit_upgrade(env: &Env) {
         .unwrap_or_else(|| env.panic_with_error(ContractError::NoPendingProposal));
 
     env.storage().temporary().remove(&DataKey::PendingUpgrade);
-use crate::events;
 
     #[cfg(not(test))]
     env.deployer()

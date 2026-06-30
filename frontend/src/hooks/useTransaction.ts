@@ -1,3 +1,30 @@
+/**
+ * useTransaction - Submits a signed Stellar transaction and polls for confirmation.
+ *
+ * Wraps transaction submission with RPC health checking, queue integration,
+ * and polling until the transaction reaches a terminal state (SUCCESS or FAILED).
+ *
+ * @returns {Object} Transaction state and submission handler
+ * @returns {"idle"|"pending"|"success"|"failed"} returns.status - Current transaction status
+ * @returns {string|null} returns.hash - Transaction hash after submission
+ * @returns {string|null} returns.error - Error message if submission or confirmation failed
+ * @returns {Function} returns.submit - Builds, signs, and submits the transaction
+ *
+ * @example
+ * const { status, hash, error, submit } = useTransaction();
+ *
+ * const handlePurchase = async () => {
+ *   try {
+ *     const txHash = await submit(async () => {
+ *       const xdr = await buildPurchaseXdr();
+ *       return await wallet.signAndSubmit(xdr);
+ *     });
+ *     console.log("Confirmed:", txHash);
+ *   } catch (err) {
+ *     console.error("Transaction failed:", error);
+ *   }
+ * };
+ */
 import { useState, useCallback, useRef } from "react";
 import { server } from "../stellar";
 import { useRpcHealthContext } from "../context/RpcHealthContext";

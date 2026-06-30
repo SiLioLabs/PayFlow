@@ -42,7 +42,6 @@ export default function NextChargeCountdown({ nextChargeTimestamp }: Props) {
             setCountdown(computeCountdown(nextChargeTimestamp));
         }, 60_000);
 
-        const exactDate = new Date(nextChargeTimestamp * 1000).toLocaleString();
     return () => clearInterval(id);
     }, [nextChargeTimestamp]);
 

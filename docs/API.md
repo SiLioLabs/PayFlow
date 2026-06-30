@@ -1366,7 +1366,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 
 ## Units & Conversions
 
-All amounts are in stroops. 1 XLM = 10,000,000 stroops. Intervals are in seconds.
+All amounts are in stroops. 1 XLM = 10,000,000 stroops. Intervals are
 
 ## Events Reference
 
@@ -1386,7 +1386,7 @@ See [EVENTS.md](./EVENTS.md) for the complete event schema reference.
 2. Asserts `active == true`
 3. Calls `transfer_from(contract, user, merchant, amount)` on the token contract
 
-Note: `pay_per_use` does **not** update `last_charged`. It is independent of the recurring billing cycle.
+
 
 **Events emitted**
 

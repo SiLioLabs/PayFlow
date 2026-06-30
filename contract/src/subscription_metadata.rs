@@ -1,7 +1,7 @@
-use soroban_sdk::{Address, Env, String};
 use crate::errors::ContractError;
 use crate::DataKey;
 use crate::SUBSCRIPTION_TTL_LEDGERS;
+use soroban_sdk::{Address, Env, String};
 
 /// Stores a short metadata label for a subscriber (e.g. plan name).
 /// Overwrites any previously stored value. Enforces a 64-byte max length limit.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { nativeToScVal, xdr, Address } from "@stellar/stellar-sdk";
+import { nativeToScVal, Address } from "@stellar/stellar-sdk";
 import { ScValDecoder, ScValDecodeError } from "../services/scval";
 
 // 1. Intercept the Stellar SDK's Server class safely with a standalone mock implementation

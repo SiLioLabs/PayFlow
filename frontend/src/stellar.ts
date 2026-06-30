@@ -8,7 +8,6 @@ import {
   Contract,
   Networks,
   TransactionBuilder,
-  Transaction,
   BASE_FEE,
   nativeToScVal,
   Address,
@@ -308,7 +307,7 @@ export function getSubscription(user: string): Promise<Subscription | null> {
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
-
+    
     const subscriptionData = ScValDecoder.decodeStruct(retval, {
       merchant: ScValDecoder.decodeAddress,
       amount: (v) => ScValDecoder.decodeI128(v).toString(),
@@ -621,7 +620,7 @@ export async function fetchEvents(
 
     return {
       events,
-      nextCursor: response.latestLedger > 0 && response.events.length > 0
+      nextCursor: response.events.length > 0
         ? response.events[response.events.length - 1].pagingToken
         : undefined,
     };

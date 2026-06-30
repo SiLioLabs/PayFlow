@@ -27,13 +27,12 @@ function Test() {
 
 describe("useRpcHealth", () => {
   let mockNow = 0;
-  let nowSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockNow = 0;
-    nowSpy = vi.spyOn(performance, "now").mockImplementation(() => mockNow);
+    vi.spyOn(performance, "now").mockImplementation(() => mockNow);
   });
 
   afterEach(() => {
