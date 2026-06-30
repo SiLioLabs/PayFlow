@@ -2728,6 +2728,49 @@ fn test_ttl_extension() {
     assert!(client.get_subscription(&user).is_some());
 }
 
+// ─────────────────────────────────────────────
+// CONTRACT-22: bump_instance_ttl tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_subscribe_extends_instance_ttl() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+    assert!(ttl >= SUBSCRIPTION_TTL_LEDGERS / 2);
+}
+
+#[test]
+fn test_initialize_sets_instance_ttl() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_id.address(), &admin);
+
+    let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+    assert!(ttl > 0);
+}
 
 #[test]
 #[should_panic]

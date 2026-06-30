@@ -166,13 +166,14 @@ pub struct FlowPay;
 #[contractimpl]
 impl FlowPay {
     pub fn initialize(env: Env, token: Address, admin: Address) {
+        bump_instance_ttl(&env);
+
         if env.storage().instance().has(&DataKey::Token) {
             env.panic_with_error(ContractError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Token, &token);
         admin::initialize_admin(&env, &admin);
-        env.storage().instance().extend_ttl(50_000, 100_000);
     }
 
     /// Creates or replaces a recurring subscription for `user`.
@@ -280,6 +281,7 @@ impl FlowPay {
     /// and charge history, refreshes subscription TTL, updates `last_charged`,
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         ensure_contract_not_paused(&env);
         let key = DataKey::Subscription(user.clone());
 
@@ -356,6 +358,7 @@ impl FlowPay {
     /// Transfers `amount` to the subscription merchant, updates merchant revenue
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
+        bump_instance_ttl(&env);
         ensure_contract_not_paused(&env);
         user.require_auth();
 
@@ -437,6 +440,7 @@ impl FlowPay {
     /// Marks the subscription inactive, decrements active subscription count, and
     /// emits `cancelled`.
     pub fn cancel(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let key = DataKey::Subscription(user.clone());
@@ -480,6 +484,7 @@ impl FlowPay {
     ///
     /// Sets the subscription `paused` flag and emits `paused`.
     pub fn pause(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let key = DataKey::Subscription(user.clone());
@@ -507,6 +512,7 @@ impl FlowPay {
     /// The subscription will auto-resume via `charge` or `batch_charge`
     /// when the ledger timestamp reaches `expiry`.
     pub fn pause_until(env: Env, user: Address, expiry: u64) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let now = env.ledger().timestamp();
@@ -556,6 +562,7 @@ impl FlowPay {
     ///
     /// Clears the subscription `paused` flag and emits `resumed`.
     pub fn resume(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let key = DataKey::Subscription(user.clone());
@@ -740,12 +747,14 @@ impl FlowPay {
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
+        bump_instance_ttl(&env);
         grace::propose_grace_period(&env, seconds);
     }
 
     /// Commits a pending contract-wide grace period proposal.
     /// Only the contract admin can call this.
     pub fn commit_grace_period(env: Env) {
+        bump_instance_ttl(&env);
         grace::commit_grace_period(&env);
     }
 
@@ -871,18 +880,21 @@ impl FlowPay {
 
     /// Adds a merchant to the whitelist.
     pub fn add_merchant(env: Env, merchant: Address) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::add_merchant(&env, &merchant);
     }
 
     /// Removes a merchant from the whitelist.
     pub fn remove_merchant(env: Env, merchant: Address) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::remove_merchant(&env, &merchant);
     }
 
     /// Enables or disables the merchant whitelist.
     pub fn set_whitelist_enabled(env: Env, enabled: bool) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::set_whitelist_enabled(&env, enabled);
     }
@@ -939,12 +951,14 @@ impl FlowPay {
     /// Proposes new protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn propose_fee(env: Env, collector: Address, bps: u32) {
+        bump_instance_ttl(&env);
         fee::propose_fee(&env, collector, bps);
     }
 
     /// Commits pending protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn commit_fee(env: Env) {
+        bump_instance_ttl(&env);
         fee::commit_fee(&env);
     }
 
@@ -958,6 +972,7 @@ impl FlowPay {
     /// paused, interval not elapsed, etc.) are recorded as a `ChargeResult`
     /// variant and do **not** abort the batch.
     pub fn batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
+        bump_instance_ttl(&env);
         ensure_contract_not_paused(&env);
         batch::batch_charge(&env, users)
     }
@@ -1344,6 +1359,18 @@ impl FlowPay {
     }
 }
 
+/// Refreshes the contract instance's TTL. Instance storage holds shared
+/// protocol state (Admin, Token, FeeCollector, FeeBps, GracePeriod,
+/// WhitelistEnabled, SchemaVersion, ActiveCount, ...) which all share one
+/// TTL — if it lapses from prolonged inactivity, the contract is bricked.
+/// Called at the start of every state-mutating public function so any
+/// active use continuously keeps the instance alive without a keeper.
+fn bump_instance_ttl(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(SUBSCRIPTION_TTL_LEDGERS / 2, SUBSCRIPTION_TTL_LEDGERS);
+}
+
 fn extend_subscription_ttl(env: &Env, user: &Address) {
     storage::extend_subscription_ttl(env, user);
     env.storage()
@@ -1361,6 +1388,7 @@ fn subscribe_inner(
     trial_period: Option<u64>,
     referrer: Option<Address>,
 ) {
+    bump_instance_ttl(env);
     user.require_auth();
 
     if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
