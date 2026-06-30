@@ -3,8 +3,6 @@
 
 mod admin;
 mod batch;
-#[cfg(test)]
-use soroban_sdk::testutils::storage::Instance;
 mod bench;
 mod charge_exec;
 mod errors;
@@ -103,6 +101,7 @@ pub enum DataKey {
 
 pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
 pub const MAX_BATCH_PAUSE_SUBSCRIPTIONS: u32 = 25;
+pub const MAX_WHITELIST_BATCH_SIZE: u32 = 50;
 pub const GLOBAL_MAX_VOLUME_PER_HOUR: i128 = 50_000_000_000_000; // 50 trillion stroops
 pub const HOUR_IN_SECONDS: u64 = 3600;
 pub const MAX_AMOUNT: i128 = 100_000_000_000;
@@ -358,62 +357,34 @@ impl FlowPay {
     /// Transfers `amount` to the subscription merchant, updates merchant revenue
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
-        ensure_contract_not_paused(&env);
-        user.require_auth();
+        pay_per_use_inner(&env, user, amount, None);
+    }
 
-        if amount <= 0 {
-            env.panic_with_error(ContractError::AmountMustBePositive);
-        }
-        if amount > MAX_AMOUNT {
-            env.panic_with_error(ContractError::AmountExceedsMaximum);
-        }
-
-        let key = DataKey::Subscription(user.clone());
-
-        let sub: Subscription = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
-
-        if !sub.active {
-            env.panic_with_error(ContractError::SubscriptionInactive);
-        }
-        if sub.paused {
-            env.panic_with_error(ContractError::SubscriptionPaused);
-        }
-
-        spending_limit::enforce_limit(&env, &user, amount);
-
-        let token = token::Client::new(&env, &sub.token);
-
-        let mut merchant_amount = amount;
-        if let Some((collector, bps)) = fee::get_fee(&env) {
-            let fee_amount = (amount * (bps as i128)) / 10_000;
-            if fee_amount > 0 {
-                token.transfer_from(
-                    &env.current_contract_address(),
-                    &user,
-                    &collector,
-                    &fee_amount,
-                );
-                merchant_amount = amount - fee_amount;
-            }
-        }
-
-        token.transfer_from(
-            &env.current_contract_address(),
-            &user,
-            &sub.merchant,
-            &merchant_amount,
-        );
-
-        check_and_update_global_volume(&env, amount);
-        merchant_stats::increment_revenue_with_daily(&env, &sub.merchant, merchant_amount);
-        spending_limit::record_spend(&env, &user, amount);
-        extend_subscription_ttl(&env, &user);
-
-        events::publish_pay_per_use(&env, &user, &sub.merchant, amount);
+    /// Executes an immediate pay-per-use charge for an active subscription,
+    /// routing payment to `recipient` instead of the subscription's merchant.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber address. Must authorize the call.
+    /// - `amount`: One-time amount to transfer. Must be greater than zero.
+    /// - `recipient`: Address that receives the net payment instead of `sub.merchant`.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `user`.
+    ///
+    /// # Errors
+    ///
+    /// Same as `pay_per_use`, plus panics if the merchant whitelist is enabled
+    /// and `recipient` is not whitelisted.
+    ///
+    /// # Side Effects
+    ///
+    /// Transfers `amount` to `recipient`, updates `recipient`'s merchant revenue
+    /// and the user's daily spend tracking (shared with `pay_per_use`), and
+    /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
+    pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
+        pay_per_use_inner(&env, user, amount, Some(recipient));
     }
 
     /// Cancels `user`'s active subscription.
@@ -883,6 +854,42 @@ impl FlowPay {
         whitelist::remove_merchant(&env, &merchant);
     }
 
+    /// Adds multiple merchants to the whitelist in a single call.
+    /// Admin-only. Capped at 50 entries; duplicates are idempotent.
+    /// Returns the number of entries processed.
+    pub fn whitelist_batch_add(env: Env, merchants: Vec<Address>) -> u32 {
+        admin::require_admin(&env);
+
+        // TODO: use configurable limit (see CONTRACT-16) once merged
+        if merchants.len() > MAX_WHITELIST_BATCH_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        for merchant in merchants.iter() {
+            whitelist::add_merchant(&env, &merchant);
+        }
+
+        merchants.len()
+    }
+
+    /// Removes multiple merchants from the whitelist in a single call.
+    /// Admin-only. Capped at 50 entries; removing a non-whitelisted merchant is a no-op.
+    /// Returns the number of entries processed.
+    pub fn whitelist_batch_remove(env: Env, merchants: Vec<Address>) -> u32 {
+        admin::require_admin(&env);
+
+        // TODO: use configurable limit (see CONTRACT-16) once merged
+        if merchants.len() > MAX_WHITELIST_BATCH_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        for merchant in merchants.iter() {
+            whitelist::remove_merchant(&env, &merchant);
+        }
+
+        merchants.len()
+    }
+
     /// Enables or disables the merchant whitelist.
     pub fn set_whitelist_enabled(env: Env, enabled: bool) {
         admin::require_admin(&env);
@@ -1254,11 +1261,6 @@ impl FlowPay {
         let contract_paused = storage::is_contract_paused(&env);
         let token_configured = storage::get_token(&env).is_some();
         let admin_configured = storage::get_admin_optional(&env).is_some();
-        #[cfg(test)]
-        let instance_ttl_ledgers: u32 = env.storage().instance().get_ttl();
-        #[cfg(not(test))]
-        let instance_ttl_ledgers: u32 = 0;
-        let instance_ttl_ledgers = env.storage().max_ttl();
 
         #[cfg(any(test, feature = "testutils"))]
         let instance_ttl_ledgers = {
@@ -1292,6 +1294,17 @@ impl FlowPay {
     pub fn clear_charge_history(env: Env, user: Address) {
         admin::require_admin(&env);
         subscription_history::clear_charge_history(&env, &user);
+    }
+
+    /// Admin-only: removes the ChargeHistory entry for `user` entirely.
+    pub fn prune_charge_history(env: Env, user: Address) {
+        admin::require_admin(&env);
+        subscription_history::prune_charge_history(&env, &user);
+    }
+
+    /// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
+    pub fn get_charge_history_ttl(env: Env, user: Address) -> u32 {
+        subscription_history::get_charge_history_ttl(&env, &user)
     }
 
     /// Returns a paginated slice of charge timestamps for a subscriber.

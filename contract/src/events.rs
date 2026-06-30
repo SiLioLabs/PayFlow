@@ -212,3 +212,10 @@ pub fn publish_subscription_auto_resumed(env: &Env, user: &Address) {
     env.events()
         .publish((Symbol::new(env, "subscription_auto_resumed"), user.clone()), ());
 }
+
+pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
+    env.events().publish(
+        (Symbol::new(env, "migration_completed"),),
+        (version, user_count),
+    );
+}

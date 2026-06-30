@@ -60,4 +60,6 @@ pub enum ContractError {
     InvalidPauseExpiry = 27,
     GlobalVolumeExceeded = 28,
     ContractPausedError = 30,
+    /// Returned when a batch operation's input vector exceeds the maximum allowed size
+    BatchTooLarge = 31,
 }
