@@ -1478,7 +1478,7 @@ fn subscribe_inner(
     let last_charged = now + trial_duration;
 
     let existing = storage::get_subscription(env, &user);
-    let should_increment = existing.as_ref().is_none_or(|s| !s.active);
+    let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
     if let Some(ref existing_sub) = existing {
         if existing_sub.active && existing_sub.merchant != merchant {

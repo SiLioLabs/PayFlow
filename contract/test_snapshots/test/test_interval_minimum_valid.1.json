@@ -461,17 +461,6 @@
                       },
                       "val": {
                         "symbol": ""
-<<<<<<< HEAD
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "label"
-                      },
-                      "val": {
-                        "symbol": "default"
-=======
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                       }
                     },
                     {
@@ -1721,17 +1710,6 @@
                   },
                   "val": {
                     "symbol": ""
-<<<<<<< HEAD
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "label"
-                  },
-                  "val": {
-                    "symbol": "default"
-=======
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                   }
                 },
                 {
