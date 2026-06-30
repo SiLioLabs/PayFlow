@@ -23,10 +23,7 @@ function mockFreighterNetwork(networkPassphrase: string) {
       network: "TESTNET",
       networkPassphrase,
     }),
-<<<<<<< HEAD
-    signTransaction: vi.fn().mockResolvedValue({ signedTxXdr: "mock-xdr" }),
-=======
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
+    signTransaction: vi.fn().mockResolvedValue("mock-xdr"),
   } as unknown as typeof window.freighter;
 }
 
