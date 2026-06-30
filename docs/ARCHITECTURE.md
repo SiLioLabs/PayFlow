@@ -1,307 +1,185 @@
 # Architecture
 
-This document describes the system design of FlowPay — how the contract is structured, how data is stored, and how the frontend and contract interact.
+This document describes the current FlowPay contract architecture, module responsibilities, storage layout, event flow, and frontend integration.
 
 ---
 
-## Overview
+## System Overview
 
-FlowPay is composed of two parts:
+FlowPay has two runtime pieces:
 
-1. **Smart Contract** — a Soroban contract written in Rust that lives on the Stellar blockchain. It is the single source of truth for all subscription state.
-2. **Frontend** — a React + TypeScript single-page application that lets users interact with the contract through the Freighter browser wallet.
+1. The Soroban contract in `contract/src/`, which owns subscription state and all on-chain policy.
+2. The React frontend in `frontend/`, which builds transactions and submits them through Freighter.
 
-There is no centralised backend. The only off-chain component required is a **keeper service** — a simple scheduler that calls `charge()` on behalf of merchants when a billing interval elapses.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                        User Browser                      │
-│                                                          │
-│   ┌──────────────┐        ┌──────────────────────────┐  │
-│   │   React UI   │──────▶ │  Freighter Wallet        │  │
-│   │  (Vite/TS)   │◀────── │  (signs transactions)    │  │
-│   └──────┬───────┘        └──────────────────────────┘  │
-│          │                                               │
-└──────────┼──────────────────────────────────────────────┘
-           │ signed XDR
-           ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Stellar Testnet / Mainnet               │
-│                                                          │
-│   ┌──────────────────────────────────────────────────┐  │
-│   │              FlowPay Contract                    │  │
-│   │                                                  │  │
-│   │  initialize()   subscribe()   charge()           │  │
-│   │  cancel()       pay_per_use() get_subscription() │  │
-│   └──────────────────────────────────────────────────┘  │
-│                                                          │
-│   ┌──────────────────────────────────────────────────┐  │
-│   │         Token Contract (SAC / XLM)               │  │
-│   │         transfer_from() — moves funds            │  │
-│   └──────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-           ▲
-           │ calls charge() on schedule
-┌──────────┴──────────┐
-│   Keeper Service    │
-│  (cron / Lambda)    │
-└─────────────────────┘
-```
-
----
-
-## Contract Module Structure
+A [keeper](./GLOSSARY.md#keeper) process is the only off-chain service required for recurring billing. It calls `charge()` or `batch_charge()` on schedule.
 
 ```mermaid
 graph TD
-    lib["lib.rs (Entry Point)"]
-    admin["admin.rs"]
-    batch["batch.rs"]
-    events["events.rs"]
-    fee["fee.rs"]
-    grace["grace.rs"]
-    merchant_stats["merchant_stats.rs"]
-    migration["migration.rs"]
-    referral["referral.rs"]
-    spending_limit["spending_limit.rs"]
-    storage["storage.rs"]
-    subscription_count["subscription_count.rs"]
-    subscription_history["subscription_history.rs"]
-    subscription_metadata["subscription_metadata.rs"]
-    trial["trial.rs"]
-    validation["validation.rs"]
-    whitelist["whitelist.rs"]
+    user[User / Merchant]
+    ui[Frontend React app]
+    wallet[Freighter wallet]
+    keeper[Keeper service]
+    contract[FlowPay contract]
+    token[SAC token contract]
 
-    lib --> admin
-    lib --> batch
-    lib --> events
-    lib --> fee
-    lib --> grace
-    lib --> merchant_stats
-    lib --> migration
-    lib --> referral
-    lib --> spending_limit
-    lib --> storage
-    lib --> subscription_count
-    lib --> subscription_history
-    lib --> subscription_metadata
-    lib --> trial
-    lib --> validation
-    lib --> whitelist
-
-    batch --> events
-    batch --> grace
-    batch --> merchant_stats
-```
-
-## Data Flow for Key Functions
-
-### subscribe()
-```mermaid
-sequenceDiagram
-    participant User
-    participant lib as lib.rs
-    participant whitelist as whitelist.rs
-    participant token as Token Contract
-    participant storage as Storage
-    participant subscription_count as subscription_count.rs
-    participant referral as referral.rs
-    participant events as events.rs
-
-    User->>lib: subscribe()
-    lib->>whitelist: is_whitelist_enabled()
-    alt whitelist enabled
-        lib->>whitelist: is_whitelisted(merchant)
-        whitelist-->>lib: true/false
-    end
-    lib->>token: allowance()
-    lib->>storage: set Subscription
-    lib->>subscription_count: increment()
-    lib->>referral: store_referral()
-    lib->>events: publish_subscribed()
-```
-
-### charge()
-```mermaid
-sequenceDiagram
-    participant Keeper/User
-    participant lib as lib.rs
-    participant grace as grace.rs
-    participant token as Token Contract
-    participant merchant_stats as merchant_stats.rs
-    participant storage as Storage
-    participant subscription_history as subscription_history.rs
-    participant events as events.rs
-
-    Keeper/User->>lib: charge()
-    lib->>storage: get Subscription
-    lib->>grace: get_grace_period()
-    lib->>token: transfer_from()
-    lib->>merchant_stats: increment_revenue_with_daily()
-    lib->>storage: update Subscription.last_charged
-    lib->>subscription_history: record_charge()
-    lib->>events: publish_charged()
-```
-
-### batch_charge()
-```mermaid
-sequenceDiagram
-    participant Keeper
-    participant lib as lib.rs
-    participant batch as batch.rs
-    participant grace as grace.rs
-    participant token as Token Contract
-    participant merchant_stats as merchant_stats.rs
-    participant storage as Storage
-    participant events as events.rs
-
-    Keeper->>lib: batch_charge(users)
-    lib->>batch: batch_charge()
-    loop for each user in users
-        batch->>storage: get Subscription
-        batch->>grace: get_grace_period()
-        alt user eligible
-            batch->>token: transfer_from()
-            batch->>merchant_stats: increment_revenue_with_daily()
-            batch->>storage: update Subscription
-            batch->>events: publish_charged()
-        end
-    end
-    batch-->>lib: Vec<ChargeResult>
-    lib-->>Keeper: Vec<ChargeResult>
+    user --> ui --> wallet --> contract
+    keeper --> contract
+    contract --> token
+    contract --> token
 ```
 
 ---
 
-## Smart Contract Design
+## Contract Modules
 
-### Entry Points
-
-| Function | Mutates State | Auth | Description |
-| --- | --- | --- | --- |
-| `initialize(token)` | Yes | None | One-time setup. Stores the token contract address. Panics if called again. |
-| `subscribe(user, merchant, amount, interval)` | Yes | `user` | Creates or overwrites a subscription for the caller. Increments `ActiveCount`. |
-| `charge(user)` | Yes | None | Permissionless. Transfers funds if the interval has elapsed. Tracks merchant revenue. |
-| `batch_charge(users)` | Yes | None | Permissionless. Charges multiple users in one transaction; skips ineligible users. |
-| `pay_per_use(user, amount)` | No (token state only) | `user` | Instant transfer against an active subscription. Enforces daily limit if set. Tracks merchant revenue. |
-| `cancel(user)` | Yes | `user` | Sets `active = false`. Decrements `ActiveCount`. |
-| `get_subscription(user)` | No | None | Read-only view. Returns `Option<Subscription>`. |
-| `get_active_count()` | No | None | Returns the running total of active subscriptions. |
-| `get_merchant_revenue(merchant)` | No | None | Returns cumulative revenue for a merchant address. |
-| `set_daily_limit(user, limit)` | Yes | `user` | Sets a daily spending cap for `pay_per_use()`. Stored in temporary storage. |
-| `get_daily_limit(user)` | No | None | Returns the current daily spending cap for `pay_per_use()` or `None` if unset. |
-| `get_daily_spent(user)` | No | None | Returns today's amount spent via `pay_per_use()`. |
-
-### Why `charge()` has no auth
-
-`charge()` is intentionally permissionless. Any account — including a keeper bot — can call it. The contract enforces correctness:
-
-- The subscription must exist
-- `active` must be `true`
-- `now >= last_charged + interval` must hold
-
-If any condition fails, the transaction panics and no funds move. This design means merchants don't need to hold keys on a server — they can delegate charging to any keeper.
+| Module | Responsibility |
+| --- | --- |
+| `lib.rs` | Public entry points, contract data types, storage keys, and cross-module orchestration. |
+| `admin.rs` | Admin initialization, auth checks, and two-step admin transfer. |
+| `batch.rs` | `batch_charge()` processing and per-user result reporting. |
+| `bench.rs` | Benchmark-only instruction counting for core flows. |
+| `charge_exec.rs` | Charge scheduling helpers and charge execution internals. |
+| `errors.rs` | Contract error codes. |
+| `events.rs` | All event emission helpers. |
+| `fee.rs` | Protocol fee proposal, commit, and fee calculation logic. |
+| `grace.rs` | Grace-period proposal, commit, and lookup helpers. |
+| `merchant_stats.rs` | Merchant revenue, subscriber counts, and daily revenue buckets. |
+| `migration.rs` | Schema version tracking and storage migration. |
+| `min_interval.rs` | Minimum billing interval floor. |
+| `referral.rs` | Referral storage and lookup. |
+| `spending_limit.rs` | Temporary daily spending limits for `pay_per_use()`. |
+| `storage.rs` | Shared storage read/write helpers. |
+| `subscription_count.rs` | Active subscription count and append-only subscriber index. |
+| `subscription_history.rs` | Charge history recording and paging. |
+| `subscription_metadata.rs` | Short subscription labels. |
+| `test.rs` | Contract unit tests. |
+| `trial.rs` | Trial end computation and trial helpers. |
+| `upgrade.rs` | WASM upgrade wrapper and upgrade event emission. |
+| `validation.rs` | Shared validation helpers for amounts, intervals, and allowance checks. |
+| `whitelist.rs` | Merchant whitelist and freeze state helpers. |
 
 ---
 
-## Data Model
+## Data Flow
 
-### `Subscription` struct
+### Subscription creation
 
-```rust
-pub struct Subscription {
-    pub merchant: Address,   // who receives the payment
-    pub amount: i128,        // stroops per period (1 XLM = 10_000_000)
-    pub interval: u64,       // seconds between charges
-    pub last_charged: u64,   // ledger timestamp of last successful charge
-    pub active: bool,        // false = cancelled
-}
-```
+1. `subscribe()` or `subscribe_with_metadata()` validates auth, whitelist state, minimum interval, and token allowance.
+2. `storage.rs` writes the `Subscription` record.
+3. `subscription_count.rs` updates the active count and subscriber index when needed.
+4. `referral.rs` stores an optional referrer.
+5. `subscription_metadata.rs` stores an optional label for the metadata path.
+6. `events.rs` emits the subscription event.
 
-### `DataKey` enum
+### Recurring charge
 
-```rust
-pub enum DataKey {
-    Subscription(Address),      // keyed by subscriber address
-    Token,                      // the token contract address (set at init)
-    ActiveCount,                // running total of active subscriptions
-    MerchantRevenue(Address),   // cumulative revenue per merchant
-    DailyLimit(Address),        // user-set daily pay_per_use cap (temporary)
-    DailySpent(Address),        // amount spent today via pay_per_use (temporary)
-}
-```
+1. `charge()` loads the subscription and checks pause, interval, and grace period state.
+2. `fee.rs` calculates any protocol fee split.
+3. The token contract performs `transfer_from()`.
+4. `merchant_stats.rs` records merchant revenue.
+5. `subscription_history.rs` records the successful charge timestamp.
+6. `events.rs` emits `charged`.
+
+### Batch charge
+
+1. `batch_charge()` iterates over a list of subscriber addresses.
+2. `batch.rs` reuses the same charge eligibility checks as the single-charge path.
+3. Each user produces a `ChargeResult` instead of aborting the whole transaction.
+
+### Merchant analytics
+
+1. `merchant_stats.rs` stores cumulative revenue and daily revenue buckets.
+2. Read helpers expose total revenue, per-day revenue, and subscriber counts.
+3. Administrative reset helpers clear or zero selected counters without affecting subscription state.
+
+### Metadata and history
+
+1. `subscription_metadata.rs` stores short labels.
+2. `subscription_history.rs` stores charge timestamps and supports paging and clearing.
+3. `referral.rs` stores the original referrer, if any.
 
 ---
 
 ## Storage Strategy
 
-Soroban has three storage tiers. FlowPay uses all three:
+FlowPay uses Soroban instance, persistent, and temporary storage deliberately.
 
-| Tier | Used For | Why |
+| DataKey | Purpose | Storage type |
 | --- | --- | --- |
-| `instance` | `DataKey::Token`, `DataKey::ActiveCount` | Contract-wide config and counters. Always needed, tied to the contract's own TTL. |
-| `persistent` | `DataKey::Subscription(user)`, `DataKey::MerchantRevenue(merchant)` | Records that must survive indefinitely. Persistent storage has its own TTL that is automatically extended. |
-| `temporary` | `DataKey::DailyLimit(user)`, `DataKey::DailySpent(user)` | Ephemeral per-user data. Daily spending limits and the running daily spend counter are stored here with a TTL of ~1 day (17,280 ledgers). They expire automatically — no cleanup needed. |
+| `Token` | Default payment token | instance |
+| `Admin` | Current admin | instance |
+| `PendingAdmin` | Two-step admin transfer target | instance |
+| `ContractPaused` | Global pause flag | instance |
+| `GracePeriod` | Charge grace window | instance |
+| `WhitelistEnabled` | Merchant whitelist flag | instance |
+| `FeeCollector` / `FeeBps` | Protocol fee configuration | instance |
+| `PendingFee` | Pending fee proposal | temporary |
+| `PendingGracePeriod` | Pending grace-period proposal | temporary |
+| `MinInterval` | Minimum allowed subscription interval | instance |
+| `SchemaVersion` | Storage schema version | instance |
+| `ActiveCount` | Active subscription count | instance |
+| `SubscriberIndexSize` | Append-only subscriber count | instance |
+| `Subscription(user)` | Subscriber subscription record | persistent |
+| `MerchantWhitelist(merchant)` | Whitelisted merchant flag | persistent |
+| `MerchantFrozen(merchant)` | Frozen merchant flag | persistent |
+| `MerchantRevenue(merchant)` | Cumulative merchant revenue | persistent |
+| `MerchantRevenueDay(merchant, day)` | Daily revenue bucket | persistent |
+| `MerchantRevenueHistory(merchant)` | History vector for revenue reads | persistent |
+| `MerchantSubCount(merchant)` | Active subscriber count per merchant | persistent |
+| `DailyLimit(user)` | Temporary pay-per-use limit | temporary |
+| `DailySpent(user)` | Temporary pay-per-use spend counter | temporary |
+| `Referral(user)` | Referrer for a subscriber | persistent |
+| `SubscriptionMeta(user)` | Short subscription label | persistent |
+| `ChargeHistory(user)` | Charge timestamps | persistent |
+| `SubscriberIndex(i)` | Append-only subscriber list entry | persistent |
+| `GlobalVolumeWindow` | Rolling volume cap state | instance |
 
-**TTL note:** Persistent storage entries have a TTL on Stellar. FlowPay automatically calls `extend_ttl` on active subscriptions during `subscribe()` and `charge()` to prevent them from being evicted by the network.
-
----
-
-## Token Flow
-
-FlowPay never holds tokens. It uses the Soroban token interface's `transfer_from` to move funds directly from the user's account to the merchant's account, using the allowance the user pre-approved.
-
-```
-User account ──[allowance]──▶ FlowPay contract
-                                    │
-                              transfer_from()
-                                    │
-                                    ▼
-                            Merchant account
-```
-
-The user must call `approve()` on the token contract before subscribing. The frontend handles this automatically as part of the subscribe flow (planned — currently the user must approve manually or via CLI).
-
----
-
-## Frontend Architecture
-
-The frontend is a minimal React SPA with no routing library. State is local to components.
-
-```
-App.tsx
-├── useWallet()          — Freighter connection, signing, submission
-├── SubscribeForm.tsx    — form to create a subscription
-└── Dashboard.tsx        — view subscription, cancel, pay-per-use
-```
-
-All Soroban SDK calls are isolated in `stellar.ts`. Components never import `@stellar/stellar-sdk` directly. This makes it easy to swap the SDK version or mock it in tests.
-
-### Transaction lifecycle
-
-```
-1. Component calls buildXxxTx() from stellar.ts
-2. stellar.ts builds the transaction and simulates it via RPC
-3. assembleTransaction() attaches auth entries from simulation
-4. XDR string returned to component
-5. Component passes XDR to useWallet().signAndSubmit()
-6. Freighter prompts user to sign
-7. Signed transaction submitted to Stellar RPC
-8. Transaction hash returned and displayed
-```
+Persistent entries that must remain available are refreshed with TTL extensions where needed, most importantly subscription records and selected merchant-revenue data. Temporary entries are used for short-lived proposals and daily spending caps.
 
 ---
 
-## Keeper Service
+## Event Architecture
 
-Because Soroban has no native scheduler, recurring charges require an external trigger. The recommended pattern is a simple script that:
+Events are emitted from `events.rs` and kept separate from storage mutation so the public contract methods remain small.
 
-1. Maintains a list of subscriber addresses (from contract events or a database)
-2. Runs on a schedule (cron, Lambda, etc.)
-3. Calls `batch_charge(users)` with a batch of subscribers whose intervals have elapsed
+| Event | Trigger |
+| --- | --- |
+| `subscribed` | New or replaced subscription created |
+| `charged` | Successful recurring charge |
+| `pay_per_use` | Successful one-time charge |
+| `cancelled` | Subscription cancelled |
+| `paused` / `resumed` | Subscription pause state changed |
+| `admin_transferred` | Two-step admin transfer completed |
+| `fee_proposed` / `fee_committed` | Fee configuration changed |
+| `merchant_added` / `merchant_removed` | Whitelist updated |
+| `merchant_frozen` / `merchant_unfrozen` | Merchant freeze state changed |
+| `grace_period_proposed` / `grace_period_committed` | Grace period updated |
+| `subscription_amount_updated` / `subscription_interval_updated` | Admin adjusted a subscription |
+| `merchant_withdrawal` | Merchant withdrew revenue |
+| `daily_limit_set` / `daily_limit_removed` | Daily limit updated |
+| `subscription_transferred` | Subscription ownership moved |
+| `upgraded` | Contract WASM upgraded |
 
-`batch_charge` processes each user independently — ineligible users (interval not elapsed, paused, cancelled) are skipped and recorded as `Skipped`/`Inactive`/`Paused` in the result vector without aborting the transaction. This is more efficient than individual `charge()` calls when managing many subscribers.
+Events are the main off-chain integration surface for analytics, indexers, and the keeper workflow.
 
-The contract itself enforces the interval — if the keeper calls too early, the user is simply skipped. There is no risk of double-charging.
+---
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for a reference keeper implementation.
+## Frontend Interaction
+
+The frontend does not talk to the contract directly. `frontend/src/stellar.ts` builds and simulates Soroban transactions, then Freighter signs them.
+
+Typical flows:
+
+- Subscribe: build transaction, simulate, sign, submit.
+- Charge or pay-per-use: same transaction pipeline, but the user or keeper supplies the target address.
+- Dashboard reads: call read-only entry points like `get_subscription()`, `get_protocol_stats()`, and `get_charge_history()`.
+
+The frontend is intentionally thin. It should remain a transaction builder and state viewer, not a source of business logic.
+
+---
+
+## Benchmarks
+
+`contract/src/bench.rs` contains instruction-count benchmarks for `subscribe()`, `charge()`, `pay_per_use()`, and a 10-user `batch_charge()` scenario. These are separate from unit tests and should be used to catch cost regressions.
+
+The benchmark file prints CPU and memory costs at runtime and compares them against budget thresholds. If a change increases cost intentionally, update both the printed baseline comment and the threshold constant together.

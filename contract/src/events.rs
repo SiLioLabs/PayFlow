@@ -84,8 +84,12 @@ pub fn publish_subscription_transferred(env: &Env, old_user: &Address, new_user:
 }
 
 pub fn publish_upgraded(env: &Env, _new_wasm_hash: &BytesN<32>) {
+    env.events().publish((Symbol::new(env, "upgrade"),), ());
+}
+
+pub fn publish_upgrade_proposed(env: &Env, new_wasm_hash: &BytesN<32>) {
     env.events()
-        .publish((Symbol::new(env, "upgrade"),), ());
+        .publish((Symbol::new(env, "upg_proposed"),), new_wasm_hash.clone());
 }
 
 pub fn publish_contract_paused(env: &Env) {
@@ -153,9 +157,16 @@ pub fn publish_admin_transferred(env: &Env, old_admin: &Address, new_admin: &Add
     );
 }
 
-pub fn publish_fee_proposed(env: &Env, collector: &Address, bps: u32) {
+pub fn publish_fee_cleared(env: &Env) {
     env.events()
-        .publish((Symbol::new(env, "fee_proposed"),), (collector.clone(), bps));
+        .publish((Symbol::new(env, "fee_cleared"),), ());
+}
+
+pub fn publish_fee_proposed(env: &Env, collector: &Address, bps: u32) {
+    env.events().publish(
+        (Symbol::new(env, "fee_proposed"),),
+        (collector.clone(), bps),
+    );
 }
 
 pub fn publish_fee_committed(env: &Env, collector: &Address, bps: u32) {
@@ -201,3 +212,14 @@ pub fn publish_grace_period_committed(env: &Env, seconds: u64) {
         .publish((Symbol::new(env, "grace_period_committed"),), seconds);
 }
 
+pub fn publish_subscription_auto_resumed(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "subscription_auto_resumed"), user.clone()), ());
+}
+
+pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
+    env.events().publish(
+        (Symbol::new(env, "migration_completed"),),
+        (version, user_count),
+    );
+}

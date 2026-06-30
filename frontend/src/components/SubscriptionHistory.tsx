@@ -264,6 +264,20 @@ export default function SubscriptionHistory({ userKey }: Props) {
           </div>
         ))}
       </div>
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+      {hasMore && (
+        <div style={{ textAlign: "center", padding: "var(--space-4) 0" }}>
+          <button onClick={loadMore} className="btn-secondary" disabled={loading}>
+            Load more
+          </button>
+        </div>
+      )}
+
+>>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
+>>>>>>> origin/master
       {/* Pagination controls */}
       {totalPages > 1 && (
         <div

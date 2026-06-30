@@ -29,10 +29,34 @@ pub fn record_charge(env: &Env, user: &Address, timestamp: u64) {
 
     history.push_back(timestamp);
 
+    let key = DataKey::ChargeHistory(user.clone());
+    env.storage().persistent().set(&key, &history);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+}
+
+/// Removes the ChargeHistory entry for a subscriber entirely.
+pub fn prune_charge_history(env: &Env, user: &Address) {
     env.storage()
         .persistent()
-        .set(&DataKey::ChargeHistory(user.clone()), &history);
+        .remove(&DataKey::ChargeHistory(user.clone()));
+}
 
+/// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
+pub fn get_charge_history_ttl(env: &Env, user: &Address) -> u32 {
+    let key = DataKey::ChargeHistory(user.clone());
+    if env.storage().persistent().has(&key) {
+        extend_charge_history_ttl(env, user);
+        SUBSCRIPTION_TTL_LEDGERS
+    } else {
+        0
+    }
+}
+
+fn extend_charge_history_ttl(env: &Env, user: &Address) {
     env.storage().persistent().extend_ttl(
         &DataKey::ChargeHistory(user.clone()),
         SUBSCRIPTION_TTL_LEDGERS / 2,

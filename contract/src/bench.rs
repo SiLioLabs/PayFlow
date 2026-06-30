@@ -1,3 +1,5 @@
+#![cfg(test)]
+// # FlowPay Benchmark Tests
 /// # FlowPay Benchmark Tests
 ///
 /// These tests measure instruction-count costs for the four core contract

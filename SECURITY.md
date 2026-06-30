@@ -32,7 +32,7 @@ Subject: `[PayFlow Security] Brief description`
 
 Do not use on Mainnet with real funds until an independent security audit is completed.
 
-For detailed security information, see [docs/SECURITY.md](docs/SECURITY.md).
+For the full threat model, auth matrix, and storage notes, see [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Scope
 

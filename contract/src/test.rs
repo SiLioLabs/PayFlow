@@ -1864,6 +1864,10 @@ fn test_migrate_v1_to_v2() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
+    env.as_contract(&contract_id, || {
+        crate::storage::set_admin(&env, &user);
+    });
+
     // Manually construct and store a V1 subscription
     let v1_sub = crate::migration::SubscriptionV1 {
         merchant: merchant.clone(),
@@ -1971,7 +1975,7 @@ fn test_batch_pause_subscriptions_handles_valid_missing_and_pre_paused_accounts(
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #25)")]
+#[should_panic(expected = "Error(Contract, #21)")]
 fn test_batch_pause_subscriptions_rejects_more_than_twenty_five_accounts() {
     let (env, contract_id, _token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -2158,8 +2162,12 @@ fn test_self_referral_rejected_via_try_subscribe() {
 
 #[test]
 fn test_migrate_sets_schema_version() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        crate::storage::set_admin(&env, &user);
+    });
 
     // Before migration, version defaults to 1
     assert_eq!(client.get_schema_version(), 1);
@@ -2172,8 +2180,12 @@ fn test_migrate_sets_schema_version() {
 
 #[test]
 fn test_migrate_is_idempotent() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        crate::storage::set_admin(&env, &user);
+    });
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
@@ -4455,7 +4467,7 @@ fn test_batch_pause_subscriptions_non_admin_panics() {
 
 /// Batch size exceeding 25 must panic with BatchSizeExceeded.
 #[test]
-#[should_panic(expected = "Error(Contract, #25)")]
+#[should_panic(expected = "Error(Contract, #21)")]
 fn test_batch_pause_subscriptions_exceeds_max_size_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);

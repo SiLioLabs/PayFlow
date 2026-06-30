@@ -24,8 +24,6 @@ pub enum ContractError {
     GracePeriodElapsed = 9,
     /// Returned when a merchant is not whitelisted
     MerchantNotWhitelisted = 10,
-    GlobalVolumeExceeded = 28,
-    ContractPausedError = 30,
     /// Returned when a user attempts to refer themselves
     SelfReferral = 11,
     /// Returned when the token address is not a contract
@@ -46,12 +44,22 @@ pub enum ContractError {
     IntervalTooShort = 19,
     /// Returned when a merchant attempts to withdraw with no accrued revenue
     ZeroBalanceAvailable = 20,
-    /// Returned when attempting to transfer to an address that already has an active subscription
-    SubscriptionAlreadyActive = 21,
     /// Returned when the batch size exceeds the maximum allowed (25)
-    BatchSizeExceeded = 25,
+    BatchSizeExceeded = 21,
     /// Returned when attempting to subscribe to a frozen merchant
     MerchantFrozen = 22,
     /// Returned when a two-step commit is attempted without a pending proposal
     NoPendingProposal = 23,
+    /// Returned when attempting to transfer to an address that already has an active subscription
+    SubscriptionAlreadyActive = 24,
+    /// Returned when a pay_per_use call would exceed the user's daily spending limit
+    DailyLimitExceeded = 25,
+    /// Returned when the fee collector address is invalid (e.g. the contract's own address)
+    InvalidFeeCollector = 26,
+    /// Returned when pause_until expiry_timestamp is not strictly in the future
+    InvalidPauseExpiry = 27,
+    GlobalVolumeExceeded = 28,
+    ContractPausedError = 30,
+    /// Returned when a batch operation's input vector exceeds the maximum allowed size
+    BatchTooLarge = 31,
 }

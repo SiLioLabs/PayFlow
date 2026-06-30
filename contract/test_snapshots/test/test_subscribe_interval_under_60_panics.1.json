@@ -929,7 +929,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 19
                 }
               }
             ],
@@ -939,7 +939,7 @@
                   "string": "failing with contract error"
                 },
                 {
-                  "u32": 3
+                  "u32": 19
                 }
               ]
             }
@@ -961,7 +961,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 19
                 }
               }
             ],
@@ -986,7 +986,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 19
                 }
               }
             ],
@@ -1011,7 +1011,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 19
                 }
               }
             ],
@@ -1067,7 +1067,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 19
                 }
               }
             ],

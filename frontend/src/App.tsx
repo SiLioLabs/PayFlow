@@ -23,6 +23,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAnalytics } from "./hooks/useAnalytics";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
+import SystemHealthCard from "./components/SystemHealthCard";
 import TabBar from "./components/TabBar";
 import ConnectWallet from "./components/ConnectWallet";
 import WalletBar from "./components/WalletBar";
@@ -108,11 +109,11 @@ export default function App() {
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { valid: contractIdValid, error: contractIdError } = useContractId();
-  const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
+  const { healthy: rpcHealthy, circuitOpen: rpcCircuitOpen, status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const { announcement, announce } = useAccessibility();
   const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();
-  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_tab", "dashboard");
+  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant" | "admin">("flowpay_tab", "dashboard");
   const [refresh, setRefresh] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
   const { isOptedIn: analyticsEnabled, setOptIn: setAnalyticsOptIn, track } = useAnalytics();
@@ -138,6 +139,11 @@ export default function App() {
         key: "m",
         description: "Switch to Merchant",
         action: () => setTab("merchant"),
+      },
+      {
+        key: "a",
+        description: "Switch to Admin",
+        action: () => setTab("admin"),
       },
       {
         key: "?",
@@ -287,8 +293,12 @@ export default function App() {
       )}
       {rpcStatus === "unreachable" && rpcError && (
         <div className="network-warning" role="alert">
-          <span>⚠️</span>
-          <span>RPC endpoint unreachable: {rpcError}</span>
+          <span>{rpcCircuitOpen ? "🔴" : "⚠️"}</span>
+          <span>
+            {rpcCircuitOpen
+              ? `RPC circuit open — all requests blocked: ${rpcError}`
+              : `RPC endpoint unreachable: ${rpcError}`}
+          </span>
         </div>
       )}
       {publicKey && !networkMatch && (
@@ -353,7 +363,7 @@ export default function App() {
 
           {/* Tabs */}
           <TabBar
-            tabs={["dashboard", "subscribe", "merchant"]}
+            tabs={["dashboard", "subscribe", "merchant", "admin"]}
             activeTab={tab}
             onTabChange={setTab}
           />
@@ -399,6 +409,8 @@ export default function App() {
                   />
                 </Suspense>
               </ErrorBoundary>
+            ) : tab === "admin" ? (
+              <SystemHealthCard callerKey={publicKey} />
             ) : (
               <ErrorBoundary
                 ref={dashboardErrorBoundaryRef}

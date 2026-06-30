@@ -14,6 +14,7 @@ Thank you for considering a contribution to FlowPay. This document covers everyt
 - [Contract Contribution Guidelines](#contract-contribution-guidelines)
 - [Frontend Contribution Guidelines](#frontend-contribution-guidelines)
 - [Commit Style](#commit-style)
+- [Generated TypeScript Bindings](#generated-typescript-bindings)
 - [Pull Request Checklist](#pull-request-checklist)
 - [Questions](#questions)
 
@@ -118,6 +119,8 @@ Branch naming conventions:
 
 ## Frontend Contribution Guidelines
 
+See the full guide: [`docs/CONTRIBUTING-FRONTEND.md`](docs/CONTRIBUTING-FRONTEND.md).
+
 - All contract calls must go through `src/stellar.ts` — React components should never import `@stellar/stellar-sdk` directly
 - Do not add external UI component libraries — keep the bundle minimal
 - Use TypeScript strictly — no `any` unless absolutely necessary and commented
@@ -125,6 +128,7 @@ Branch naming conventions:
 - Run `npm run lint` to check for ESLint errors before submitting
 - Run `npm run format` to auto-format all source files with Prettier
 - Run `npm run build` to confirm there are no TypeScript errors before submitting
+
 
 ---
 
@@ -139,6 +143,47 @@ docs: expand DEPLOYMENT.md with mainnet steps
 test: add pay_per_use unit test
 refactor: extract token client helper in lib.rs
 ```
+
+---
+
+## Generated TypeScript Bindings
+
+FlowPay uses auto-generated TypeScript types derived directly from the Soroban contract ABI. These bindings live at:
+
+```
+frontend/src/generated/contract.ts
+```
+
+### Purpose
+
+Generated bindings provide compile-time type safety for every contract call made from the frontend. Instead of manually defining TypeScript interfaces that mirror the contract's public API, the `soroban contract bindings typescript` command reads the contract's ABI and produces accurate type definitions automatically.
+
+### Why This Matters — Preventing ABI Drift
+
+When the contract adds a new function, changes a parameter type, or renames a field, the generated bindings update automatically. Without them, the frontend types would silently diverge from the contract (ABI drift), causing runtime errors that TypeScript cannot catch. Regenerating bindings after every contract change ensures the compiler catches mismatches immediately.
+
+### When to Regenerate
+
+Re-run the binding generator whenever:
+
+- You add, remove, or rename a public contract function
+- You change the signature (parameters or return type) of any public function
+- You modify any struct or enum that appears in the contract's public interface
+- You deploy a new version of the contract
+
+To regenerate:
+
+```bash
+npm run generate:types
+```
+
+This invokes `scripts/generate-types.sh`, which requires either:
+- `CONTRACT_ID` env var pointing to a deployed contract, or
+- A compiled WASM artifact at `contract/target/wasm32-unknown-unknown/release/payflow.wasm`
+
+### Output Location
+
+All generated files are written to `frontend/src/generated/`. Do not manually edit files in this directory — they will be overwritten on the next generation run.
 
 ---
 

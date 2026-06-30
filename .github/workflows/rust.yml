@@ -20,6 +20,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Clippy
+      run: cargo clippy -- -D warnings
+      working-directory: contract
     - name: Build
       run: cargo build --verbose
       working-directory: contract

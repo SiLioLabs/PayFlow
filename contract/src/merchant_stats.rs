@@ -33,7 +33,7 @@ pub fn get_merchant_revenue_history(env: &Env, merchant: &Address, days: u32) ->
     }
 
     let len = history.len();
-    let start = if len > days { len - days } else { 0 };
+    let start = len.saturating_sub(days);
     let mut out = Vec::new(env);
     for i in start..len {
         out.push_back(history.get(i).unwrap());
@@ -63,7 +63,9 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
         .persistent()
         .set(&day_key, &(current_day + amount));
     // extend TTL: 1,555,200 ledgers (~90 days)
-    env.storage().persistent().extend_ttl(&day_key, 1555200, 1555200);
+    env.storage()
+        .persistent()
+        .extend_ttl(&day_key, 1555200, 1555200);
 
     // append to consolidated history Vec
     let hist_key = DataKey::MerchantRevenueHistory(merchant.clone());
@@ -113,7 +115,9 @@ pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
 pub fn bump_merchant_revenue_day(env: &Env, merchant: &Address, day: u64) {
     let key = DataKey::MerchantRevenueDay(merchant.clone(), day);
     if env.storage().persistent().has(&key) {
-        env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 1555200, 1555200);
     }
 }
 

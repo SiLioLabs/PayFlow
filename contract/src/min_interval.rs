@@ -15,5 +15,7 @@ pub fn get_min_interval(env: &Env) -> u64 {
 
 /// Persists the minimum interval floor to instance storage.
 pub fn set_min_interval(env: &Env, seconds: u64) {
-    env.storage().instance().set(&DataKey::MinInterval, &seconds);
+    env.storage()
+        .instance()
+        .set(&DataKey::MinInterval, &seconds);
 }

@@ -1,11 +1,12 @@
 import React from "react";
 
-type Tab = "dashboard" | "subscribe" | "merchant";
+type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "Dashboard",
   subscribe: "Subscribe",
   merchant: "Merchant",
+  admin: "Admin",
 };
 
 interface Props {

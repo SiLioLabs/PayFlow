@@ -4,15 +4,18 @@ import SubscribeForm from "../components/SubscribeForm";
 
 // Mock matchMedia to simulate mobile viewport (375px)
 beforeEach(() => {
-  // @ts-ignore
-  window.matchMedia = (query: string) => ({
-    matches: query.includes("max-width: 639px"),
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  });
-  // set innerWidth
-  // @ts-ignore
-  window.innerWidth = 375;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: query.includes("max-width: 639px"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
 
   // inject minimal CSS so computed styles are available in JSDOM
   const style = document.createElement("style");

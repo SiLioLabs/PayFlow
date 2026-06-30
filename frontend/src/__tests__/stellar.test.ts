@@ -83,7 +83,7 @@ describe("fetchEvents", () => {
     const result = await fetchEvents("subscribed");
 
     // The function's internal catch block should swallow the exception and output [] safely
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
   });
 });
 

@@ -13,32 +13,29 @@ pub fn get_fee_bps(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
 }
 
-/// Returns fee settings when both collector and non-zero bps are configured.
-pub fn get_fee(env: &Env) -> Option<(Address, u32)> {
-    let collector = get_fee_collector(env)?;
-    let bps = get_fee_bps(env);
-    if bps == 0 {
-        None
-    } else {
-        Some((collector, bps))
-    }
-}
 
 /// Proposes a new fee collector and basis points.
 pub fn propose_fee(env: &Env, collector: Address, bps: u32) {
     if bps > 10_000 {
         env.panic_with_error(ContractError::InvalidFeeBps);
     }
-    crate::admin::require_admin(env);
+    if collector == env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidFeeCollector);
+    }
+    
     let pending = (collector.clone(), bps);
-    env.storage().temporary().set(&DataKey::PendingFee, &pending);
-    env.storage().temporary().extend_ttl(&DataKey::PendingFee, 17280, 17280);
+    env.storage()
+        .temporary()
+        .set(&DataKey::PendingFee, &pending);
+    env.storage()
+        .temporary()
+        .extend_ttl(&DataKey::PendingFee, 17280, 17280);
     crate::events::publish_fee_proposed(env, &collector, bps);
 }
 
 /// Commits a pending fee proposal.
 pub fn commit_fee(env: &Env) {
-    crate::admin::require_admin(env);
+    
     let pending: (Address, u32) = env
         .storage()
         .temporary()
@@ -51,6 +48,12 @@ pub fn commit_fee(env: &Env) {
         .set(&DataKey::FeeCollector, &pending.0);
     env.storage().instance().set(&DataKey::FeeBps, &pending.1);
     crate::events::publish_fee_committed(env, &pending.0, pending.1);
+}
+
+/// Clears the fee settings, removing both collector and bps from storage.
+pub fn clear_fee(env: &Env) {
+    env.storage().instance().remove(&DataKey::FeeCollector);
+    env.storage().instance().remove(&DataKey::FeeBps);
 }
 
 /// Computes the protocol fee for `amount` using configured bps (0 when unset).
@@ -80,6 +83,37 @@ pub fn transfer_subscription_charge(env: &Env, user: &Address, sub: &Subscriptio
 
     let token_client = token::Client::new(env, &sub.token);
     token_client.transfer_from(&env.current_contract_address(), user, &sub.merchant, &net);
+
+    fee_amount
+}
+
+/// Transfers a pay-per-use amount (fee to collector, net to `recipient`).
+/// Mirrors `transfer_subscription_charge` but accepts an explicit token and
+/// recipient instead of reading them from the subscription's merchant.
+/// Returns the fee amount deducted from the gross amount.
+pub fn transfer_pay_per_use(
+    env: &Env,
+    user: &Address,
+    token: &Address,
+    amount: i128,
+    recipient: &Address,
+) -> i128 {
+    let bps = get_fee_bps(env);
+    let fee_amount = match get_fee_collector(env) {
+        Some(collector) if bps > 0 => {
+            let fee = calculate_fee_amount(amount, bps);
+            if fee > 0 {
+                let token_client = token::Client::new(env, token);
+                token_client.transfer_from(&env.current_contract_address(), user, &collector, &fee);
+            }
+            fee
+        }
+        _ => 0,
+    };
+    let net = amount - fee_amount;
+
+    let token_client = token::Client::new(env, token);
+    token_client.transfer_from(&env.current_contract_address(), user, recipient, &net);
 
     fee_amount
 }

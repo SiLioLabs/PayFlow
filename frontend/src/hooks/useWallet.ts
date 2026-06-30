@@ -1,14 +1,31 @@
 /**
- * useWallet — connects to Freighter (Stellar browser wallet)
- * https://www.freighter.app/
+ * useWallet - Connects to Freighter (Stellar browser wallet) and manages wallet state.
  *
- * Persists the last-known public key in localStorage (key: "pf_wallet_pk").
- * On mount it silently re-validates the cached key with Freighter before
- * exposing it to callers, so the wallet appears connected across page reloads
- * without requiring the user to click "Connect" again.
+ * Persists the last-known public key in localStorage ("pf_wallet_pk") so the wallet
+ * appears connected across page reloads. On mount, it re-validates the cached key
+ * before exposing it through the return value.
  *
- * A `ready` boolean is false until the re-validation attempt completes,
- * allowing callers to gate rendering on wallet readiness.
+ * @returns {Object} Wallet state and control methods
+ * @returns {string|null} returns.publicKey - The connected account's public key, or null
+ * @returns {Function} returns.connect - Connects the Freighter wallet
+ * @returns {Function} returns.signAndSubmit - Signs a transaction XDR and submits it
+ * @returns {Function} returns.disconnect - Disconnects the wallet and clears localStorage
+ * @returns {string|null} returns.error - Connection or signing error message
+ * @returns {boolean} returns.connecting - True while connecting is in progress
+ * @returns {boolean} returns.ready - False until initial Freighter re-validation completes
+ *
+ * @example
+ * const { publicKey, connect, disconnect, signAndSubmit, error, connecting, ready } = useWallet();
+ *
+ * if (!ready) return <Spinner />;
+ * if (!publicKey) return <button onClick={connect}>Connect Wallet</button>;
+ *
+ * return (
+ *   <div>
+ *     <span>{publicKey}</span>
+ *     <button onClick={disconnect}>Disconnect</button>
+ *   </div>
+ * );
  */
 import { useState, useCallback, useEffect } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
