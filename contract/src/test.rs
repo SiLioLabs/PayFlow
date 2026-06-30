@@ -2082,6 +2082,9 @@ fn test_contract_pause_events_emitted() {
 fn test_migrate_v1_to_v2() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
 
     // Manually construct and store a V1 subscription
     let v1_sub = crate::migration::SubscriptionV1 {
@@ -2416,8 +2419,11 @@ fn test_self_referral_rejected_via_try_subscribe() {
 
 #[test]
 fn test_migrate_sets_schema_version() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
 
     // Before migration, version defaults to 1
     assert_eq!(client.get_schema_version(), 1);
@@ -2430,14 +2436,56 @@ fn test_migrate_sets_schema_version() {
 
 #[test]
 fn test_migrate_is_idempotent() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
     client.migrate(&empty_users); // second call should be a no-op
 
     assert_eq!(client.get_schema_version(), 2);
+}
+
+#[test]
+#[should_panic]
+fn test_migrate_non_admin_panics() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+    env.set_auths(&[]);
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+    client.migrate(&users);
+}
+
+#[test]
+fn test_migrate_emits_completed_event_with_version_and_count() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+    client.migrate(&users);
+
+    let events = env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let (version, user_count): (u32, u32) = data.try_into_val(&env).unwrap();
+
+    assert_eq!(topic_symbol, Symbol::new(&env, "migration_completed"));
+    assert_eq!(version, 2);
+    assert_eq!(user_count, 1);
 }
 
 // ─────────────────────────────────────────────
