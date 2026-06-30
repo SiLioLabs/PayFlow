@@ -1,4 +1,4 @@
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{token, Address, Env, Symbol, Vec};
 
 use crate::errors::ContractError;
 use crate::Subscription;
@@ -8,6 +8,18 @@ pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i
     let allowance = client.allowance(user, &env.current_contract_address());
     if allowance < min_amount {
         env.panic_with_error(ContractError::InsufficientAllowance);
+    }
+}
+
+pub fn validate_token_address(env: &Env, token: &Address) {
+    let result = env.try_invoke_contract::<u32, soroban_sdk::InvokeError>(
+        token,
+        &Symbol::new(env, "decimals"),
+        Vec::new(env),
+    );
+
+    if result.is_err() {
+        env.panic_with_error(ContractError::InvalidTokenAddress);
     }
 }
 

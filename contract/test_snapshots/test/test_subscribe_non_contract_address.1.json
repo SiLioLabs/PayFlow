@@ -929,19 +929,12 @@
               },
               {
                 "error": {
-                  "contract": 12
+                  "object": "invalid_input"
                 }
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "string": "failing with contract error"
-                },
-                {
-                  "u32": 12
-                }
-              ]
+              "string": "not a contract address"
             }
           }
         }
@@ -961,7 +954,7 @@
               },
               {
                 "error": {
-                  "contract": 12
+                  "object": "invalid_input"
                 }
               }
             ],
@@ -986,7 +979,7 @@
               },
               {
                 "error": {
-                  "contract": 12
+                  "object": "invalid_input"
                 }
               }
             ],
@@ -1011,7 +1004,7 @@
               },
               {
                 "error": {
-                  "contract": 12
+                  "object": "invalid_input"
                 }
               }
             ],
@@ -1067,7 +1060,7 @@
               },
               {
                 "error": {
-                  "contract": 12
+                  "object": "invalid_input"
                 }
               }
             ],

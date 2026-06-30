@@ -1196,8 +1196,6 @@
                     "symbol": "instance_ttl_ledgers"
                   },
                   "val": {
-                    "u32": 4095
-                    "u32": 6311999
                     "u32": 100000
                   }
                 },
