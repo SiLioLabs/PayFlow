@@ -121,6 +121,7 @@ export default function App() {
   const subscribeErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const dashboardErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const merchantErrorBoundaryRef = useRef<ErrorBoundary>(null);
+  const adminErrorBoundaryRef = useRef<ErrorBoundary>(null);
 
   // Keyboard shortcuts
   const shortcuts = useKeyboardShortcuts({
