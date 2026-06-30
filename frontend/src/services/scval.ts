@@ -105,12 +105,13 @@ export namespace ScValDecoder {
     const entries = val.map() ?? [];
     for (const entry of entries) {
       const keyType = entry.key().switch().name;
-      let key = "";
-      if (keyType === "scvSymbol") {
-        key = entry.key().sym().toString();
-      } else if (keyType === "scvString") {
-        key = entry.key().str().toString();
-      } else {
+      const key =
+        keyType === "scvSymbol"
+          ? entry.key().sym().toString()
+          : keyType === "scvString"
+          ? entry.key().str().toString()
+          : null;
+      if (key === null) {
         continue;
       }
       const decoder = schema[key as keyof T];

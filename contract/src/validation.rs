@@ -37,18 +37,21 @@ pub fn require_valid_interval(env: &Env, new_interval: u64) {
     }
 }
 
+#[allow(dead_code)]
 pub fn require_positive_interval(env: &Env, interval: u64) {
     if interval == 0 {
         env.panic_with_error(ContractError::IntervalMustBePositive);
     }
 }
 
+#[allow(dead_code)]
 pub fn require_active_subscription(env: &Env, active: bool) {
     if !active {
         env.panic_with_error(ContractError::SubscriptionInactive);
     }
 }
 
+#[allow(dead_code)]
 pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, interval: u64) {
     if now < last_charged + interval {
         env.panic_with_error(ContractError::IntervalNotElapsed);

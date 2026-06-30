@@ -46,13 +46,13 @@ pub fn prune_charge_history(env: &Env, user: &Address) {
 }
 
 /// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
-pub fn get_charge_history_ttl(env: &Env, user: &Address) -> u32 {
+pub fn get_charge_history_ttl(_env: &Env, _user: &Address) -> u32 {
     #[cfg(any(test, feature = "testutils"))]
     {
         use soroban_sdk::testutils::storage::Persistent;
-        let key = DataKey::ChargeHistory(user.clone());
-        if env.storage().persistent().has(&key) {
-            env.storage().persistent().get_ttl(&key)
+        let key = DataKey::ChargeHistory(_user.clone());
+        if _env.storage().persistent().has(&key) {
+            _env.storage().persistent().get_ttl(&key)
         } else {
             0
         }
