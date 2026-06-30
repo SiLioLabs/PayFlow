@@ -2160,11 +2160,7 @@
             "data": {
               "vec": [
                 {
-<<<<<<< HEAD
                   "string": "caught panic 'daily spending limit exceeded' from contract function 'Symbol(obj#547)'"
-=======
-                  "string": "caught panic 'daily spending limit exceeded' from contract function 'Symbol(obj#533)'"
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"

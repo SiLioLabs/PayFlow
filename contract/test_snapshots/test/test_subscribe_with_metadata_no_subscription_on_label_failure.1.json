@@ -932,11 +932,7 @@
               },
               {
                 "error": {
-<<<<<<< HEAD
                   "contract": 14
-=======
-                  "contract": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               }
             ],
@@ -946,11 +942,7 @@
                   "string": "failing with contract error"
                 },
                 {
-<<<<<<< HEAD
                   "u32": 14
-=======
-                  "u32": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               ]
             }
@@ -972,11 +964,7 @@
               },
               {
                 "error": {
-<<<<<<< HEAD
                   "contract": 14
-=======
-                  "contract": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               }
             ],
@@ -1001,11 +989,7 @@
               },
               {
                 "error": {
-<<<<<<< HEAD
                   "contract": 14
-=======
-                  "contract": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               }
             ],
@@ -1030,11 +1014,7 @@
               },
               {
                 "error": {
-<<<<<<< HEAD
                   "contract": 14
-=======
-                  "contract": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               }
             ],
@@ -1093,11 +1073,7 @@
               },
               {
                 "error": {
-<<<<<<< HEAD
                   "contract": 14
-=======
-                  "contract": 29
->>>>>>> 6d2bb0bdee2f908481093df56db7a244c0dd0e50
                 }
               }
             ],
