@@ -1,4 +1,4 @@
-use soroban_sdk::{token, Address, Env, Symbol, Vec};
+use soroban_sdk::{token, Address, Env};
 
 use crate::errors::ContractError;
 use crate::Subscription;
@@ -11,17 +11,6 @@ pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i
     }
 }
 
-pub fn validate_token_address(env: &Env, token: &Address) {
-    let result = env.try_invoke_contract::<u32, soroban_sdk::InvokeError>(
-        token,
-        &Symbol::new(env, "decimals"),
-        Vec::new(env),
-    );
-
-    if result.is_err() {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
-}
 
 /// Composable helper that asserts a subscription is ready to be used:
 /// the subscription must be active and the user must have sufficient

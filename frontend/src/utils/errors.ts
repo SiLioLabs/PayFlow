@@ -6,7 +6,7 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "amount must be positive": "Amount must be greater than zero.",
   "interval must be positive": "Billing interval must be greater than zero.",
   "admin not set": "Contract admin is not configured.",
-  "require_auth": "Wallet authorization required. Connect as the contract admin.",
+  require_auth: "Wallet authorization required. Connect as the contract admin.",
 };
 
 export function friendlyError(raw: string): string {

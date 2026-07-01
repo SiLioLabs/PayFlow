@@ -469,11 +469,7 @@ impl FlowPay {
 
         let now = env.ledger().timestamp();
         let elapsed = now.saturating_sub(sub.last_charged);
-        let remaining = if elapsed >= sub.interval {
-            0
-        } else {
-            sub.interval - elapsed
-        };
+        let remaining = sub.interval.saturating_sub(elapsed);
         let refund = (sub.amount * i128::from(remaining)) / i128::from(sub.interval);
 
         if refund > 0 {
@@ -1543,10 +1539,8 @@ fn subscribe_inner(
     bump_instance_ttl(env);
     user.require_auth();
 
-    if whitelist::is_whitelist_enabled(env) {
-        if !whitelist::is_whitelisted(env, &merchant) {
-            env.panic_with_error(ContractError::MerchantNotWhitelisted);
-        }
+    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
+        env.panic_with_error(ContractError::MerchantNotWhitelisted);
     }
 
     if whitelist::is_frozen(env, &merchant) {
@@ -1585,7 +1579,7 @@ fn subscribe_inner(
     let last_charged = now + trial_duration;
 
     let existing = storage::get_subscription(env, &user);
-    let should_increment = existing.as_ref().map_or(true, |s| !s.active);
+    let should_increment = existing.as_ref().is_none_or(|s| !s.active);
 
     if let Some(ref existing_sub) = existing {
         if existing_sub.active && existing_sub.merchant != merchant {

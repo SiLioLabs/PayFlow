@@ -628,9 +628,10 @@ export async function fetchEvents(
 
     return {
       events,
-      nextCursor: response.latestLedger > 0 && response.events.length > 0
-        ? response.events[response.events.length - 1].pagingToken
-        : undefined,
+      nextCursor:
+        response.latestLedger > 0 && response.events.length > 0
+          ? response.events[response.events.length - 1].pagingToken
+          : undefined,
     };
   } catch {
     return { events: [] };
@@ -900,10 +901,7 @@ function parseFixedInconsistenciesFromEventValue(value: unknown): number | null 
   if (typeof raw === "bigint") return Number(raw);
 
   const direct =
-    raw?._value?.fixed_inconsistencies ??
-    raw?.fixed_inconsistencies ??
-    raw?._value ??
-    raw;
+    raw?._value?.fixed_inconsistencies ?? raw?.fixed_inconsistencies ?? raw?._value ?? raw;
 
   if (typeof direct === "number") return direct;
   if (typeof direct === "bigint") return Number(direct);
@@ -957,5 +955,3 @@ export async function parseSubscriptionRepairedEvent(txHash: string): Promise<nu
     return null;
   }
 }
-
-
