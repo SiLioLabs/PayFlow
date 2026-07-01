@@ -26,8 +26,16 @@ function handleSimulationError(result: unknown): never {
     throw new Error(parsed);
   }
   const rawErr = (result as { error?: unknown })?.error;
-  throw new Error(typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr));
-}
+  let rawMsg: string;
+  try {
+    rawMsg =
+      typeof rawErr === "string"
+        ? rawErr
+        : JSON.stringify(rawErr, (_, v) => (typeof v === "bigint" ? v.toString() : v));
+  } catch {
+    rawMsg = String(rawErr ?? result);
+  }
+  throw new Error(rawMsg);
 
 
 // ── Config ────────────────────────────────────────────────────────────────────
