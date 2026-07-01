@@ -8,15 +8,8 @@
  * @returns {boolean} returns.isMobile - True when viewport is <= 639px
  * @returns {boolean} returns.isTablet - True when viewport is 640px–1023px
  * @returns {boolean} returns.isDesktop - True when viewport is >= 1024px
- *
  * @example
  * const { isMobile, isTablet, isDesktop } = useResponsive();
- *
- * return (
- *   <nav className={isDesktop ? "horizontal" : "vertical"}>
- *     {/* navigation items */}
- *   </nav>
- * );
  */
 import { useState, useEffect } from "react";
 

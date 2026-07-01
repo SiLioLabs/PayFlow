@@ -1,4 +1,4 @@
--b import { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 /**
  * useAccessibility - Provides an ARIA live region announcer.
@@ -35,4 +35,3 @@ export function useAccessibility() {
 
   return { announcement, announce };
 }
-

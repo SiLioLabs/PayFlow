@@ -25,12 +25,7 @@
 import { useState, useEffect, useRef } from "react";
 import { server } from "../stellar";
 
-const POLL_INTERVAL_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
-
-function nextInterval(failures: number): number {
-  return Math.min(POLL_INTERVAL_MS * Math.pow(2, failures - 1), 120_000);
-}
 
 export type RpcStatus = "healthy" | "degraded" | "unreachable";
 

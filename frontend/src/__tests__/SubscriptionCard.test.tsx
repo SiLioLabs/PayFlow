@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -55,7 +55,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -73,7 +72,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -91,7 +89,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -111,7 +108,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -129,7 +125,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -147,7 +142,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -165,7 +159,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -183,7 +176,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -204,7 +196,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -226,7 +217,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -236,7 +226,6 @@ describe("SubscriptionCard", () => {
         name: /cancel subscription/i,
       });
       await userEvent.click(cancelButton);
-
     });
 
     it("does not render cancel button when subscription is inactive", () => {
@@ -249,7 +238,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -271,7 +259,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -294,7 +281,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -313,7 +299,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -338,7 +323,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -356,7 +340,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -376,7 +359,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -397,7 +379,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -417,7 +398,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -435,7 +415,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -463,7 +442,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -481,7 +459,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -502,7 +479,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -521,7 +497,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />
@@ -540,7 +515,6 @@ describe("SubscriptionCard", () => {
         <SubscriptionCard
           subscription={subscription}
           userKey={mockUserKey}
-          
           onSign={mockOnSign}
           onRefresh={mockOnRefresh}
         />

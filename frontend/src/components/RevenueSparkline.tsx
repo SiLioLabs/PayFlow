@@ -67,14 +67,7 @@ const RevenueSparklineComponent: React.FC<Props> = ({ history }) => {
           points={polylinePoints}
         />
         {points.map((p) => (
-          <circle
-            key={p.index}
-            cx={p.x}
-            cy={p.y}
-            r="3"
-            className="sparkline-point"
-            tabIndex={0}
-          >
+          <circle key={p.index} cx={p.x} cy={p.y} r="3" className="sparkline-point" tabIndex={0}>
             <title>{formatXlm(p.value)}</title>
           </circle>
         ))}

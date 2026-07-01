@@ -46,14 +46,10 @@ pub enum ContractError {
     BatchTooLarge = 20,
     /// Returned when a merchant attempts to withdraw with no accrued revenue
     ZeroBalanceAvailable = 21,
-    /// Returned when a configured batch limit is invalid
-    InvalidBatchSize = 29,
     /// Returned when attempting to subscribe to a frozen merchant
     MerchantFrozen = 22,
     /// Returned when a two-step commit is attempted without a pending proposal
     NoPendingProposal = 23,
-    /// Returned when a provided recipient address is invalid (e.g., contract address)
-    InvalidRecipient = 24,
     /// Returned when attempting to transfer to an address that already has an active subscription
     SubscriptionAlreadyActive = 24,
     /// Returned when a pay_per_use call would exceed the user's daily spending limit
@@ -63,7 +59,9 @@ pub enum ContractError {
     /// Returned when pause_until expiry_timestamp is not strictly in the future
     InvalidPauseExpiry = 27,
     GlobalVolumeExceeded = 28,
+    /// Returned when a configured batch limit is invalid
+    InvalidBatchSize = 29,
     ContractPausedError = 30,
-    /// Returned when a batch operation's input vector exceeds the maximum allowed size
-    BatchTooLarge = 31,
+    /// Returned when a provided recipient address is invalid (e.g., contract address)
+    InvalidRecipient = 32,
 }

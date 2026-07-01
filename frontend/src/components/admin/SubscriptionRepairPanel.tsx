@@ -60,16 +60,11 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
     subscriptionRefresh
   );
 
-  const addressValid =
-    !!userAddress && StrKey.isValidEd25519PublicKey(userAddress.trim());
+  const addressValid = !!userAddress && StrKey.isValidEd25519PublicKey(userAddress.trim());
 
   const validationMessages = report ? collectValidationMessages(report) : [];
   const hasFailures = report ? hasValidationFailures(report) : false;
-  const canRepair =
-    isAdmin &&
-    hasFailures &&
-    !!validatedAddress &&
-    repairTx.status !== "pending";
+  const canRepair = isAdmin && hasFailures && !!validatedAddress && repairTx.status !== "pending";
 
   const runValidation = useCallback(async () => {
     const trimmed = userAddress.trim();
@@ -126,10 +121,7 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
   }
 
   return (
-    <section
-      className="subscription-repair-panel"
-      aria-labelledby="subscription-repair-heading"
-    >
+    <section className="subscription-repair-panel" aria-labelledby="subscription-repair-heading">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       <header className="mb-4">
@@ -163,17 +155,12 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
 
       {isAdmin && (
         <p className="text-sm text-muted mb-4">
-          Signed in as contract admin{" "}
-          <code className="text-xs">{adminAddress?.slice(0, 8)}…</code>
+          Signed in as contract admin <code className="text-xs">{adminAddress?.slice(0, 8)}…</code>
         </p>
       )}
 
       <div className="form-group mb-4">
-        <AddressInput
-          label="Subscriber address"
-          value={userAddress}
-          onChange={setUserAddress}
-        />
+        <AddressInput label="Subscriber address" value={userAddress} onChange={setUserAddress} />
         <button
           type="button"
           className="btn-primary mt-3"
@@ -260,7 +247,10 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
             </>
           ) : (
             <>
-              <h4 className="text-base font-semibold mb-2" style={{ color: "var(--color-success)" }}>
+              <h4
+                className="text-base font-semibold mb-2"
+                style={{ color: "var(--color-success)" }}
+              >
                 Subscription validation passed
               </h4>
               <p className="text-sm text-muted">
@@ -282,8 +272,12 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
 
           {validatedAddress && subscription && (
             <details className="mt-4">
-              <summary className="text-sm font-medium cursor-pointer">Current subscription state</summary>
-              <pre className="text-xs mt-2 overflow-auto">{JSON.stringify(subscription, null, 2)}</pre>
+              <summary className="text-sm font-medium cursor-pointer">
+                Current subscription state
+              </summary>
+              <pre className="text-xs mt-2 overflow-auto">
+                {JSON.stringify(subscription, null, 2)}
+              </pre>
             </details>
           )}
         </div>

@@ -17,7 +17,9 @@ describe("useFreighterAvailable", () => {
     // clean up any global we set
     try {
       delete (global as any).window.freighter;
-    } catch {}
+    } catch {
+      // ignore
+    }
   });
 
   it("reports available when window.freighter exists", async () => {
@@ -25,7 +27,10 @@ describe("useFreighterAvailable", () => {
     (window as any).freighter = {
       isConnected: async () => true,
       getPublicKey: async () => "GABC",
-      getNetwork: async () => ({ network: "TESTNET", networkPassphrase: "Test SDF Network ; September 2015" }),
+      getNetwork: async () => ({
+        network: "TESTNET",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      }),
       signTransaction: async (xdr: string) => xdr,
     };
 

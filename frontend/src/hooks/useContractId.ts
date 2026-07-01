@@ -53,4 +53,3 @@ export function useContractId(): UseContractIdResult {
 
   return { contractId, valid, error };
 }
-

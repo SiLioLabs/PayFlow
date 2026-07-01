@@ -49,64 +49,70 @@ export function useTransaction(): UseTransactionResult {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { circuitOpen } = useRpcHealthContext();
 
-  const submit = useCallback(async (buildAndSign: () => Promise<string>): Promise<string> => {
-    if (circuitOpen) {
-      const msg = "RPC unavailable";
-      setError(msg);
-      setStatus("failed");
-      throw new Error(msg);
-    }
-    setStatus("pending");
-    setHash(null);
-    setError(null);
+  const submit = useCallback(
+    async (buildAndSign: () => Promise<string>): Promise<string> => {
+      if (circuitOpen) {
+        const msg = "RPC unavailable";
+        setError(msg);
+        setStatus("failed");
+        throw new Error(msg);
+      }
+      setStatus("pending");
+      setHash(null);
+      setError(null);
 
-    let txHash: string;
-    try {
-      txHash = await enqueueTransaction(buildAndSign, "Transaction");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      setStatus("failed");
-      throw e;
-    }
-
-    setHash(txHash);
-
-    // Poll until confirmed or timed out
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-    await new Promise<void>((resolve) => {
-      function poll() {
-        if (Date.now() > deadline) {
-          setError("Transaction confirmation timed out");
-          setStatus("failed");
-          resolve();
-          return;
-        }
-
-        server.getTransaction(txHash).then((result) => {
-          if (result.status === "SUCCESS") {
-            setStatus("success");
-            resolve();
-          } else if (result.status === "FAILED") {
-            setError("Transaction failed on-chain");
-            setStatus("failed");
-            resolve();
-          } else {
-            // NOT_FOUND or still pending — keep polling
-            timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-          }
-        }).catch(() => {
-          // RPC error — keep polling
-          timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-        });
+      let txHash: string;
+      try {
+        txHash = await enqueueTransaction(buildAndSign, "Transaction");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        setStatus("failed");
+        throw e;
       }
 
-      poll();
-    });
+      setHash(txHash);
 
-    return txHash;
-  }, [circuitOpen]);
+      // Poll until confirmed or timed out
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+      await new Promise<void>((resolve) => {
+        function poll() {
+          if (Date.now() > deadline) {
+            setError("Transaction confirmation timed out");
+            setStatus("failed");
+            resolve();
+            return;
+          }
+
+          server
+            .getTransaction(txHash)
+            .then((result) => {
+              if (result.status === "SUCCESS") {
+                setStatus("success");
+                resolve();
+              } else if (result.status === "FAILED") {
+                setError("Transaction failed on-chain");
+                setStatus("failed");
+                resolve();
+              } else {
+                // NOT_FOUND or still pending — keep polling
+                timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+              }
+            })
+            .catch(() => {
+              // RPC error — keep polling
+              timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+            });
+        }
+
+        poll();
+      });
+
+      return txHash;
+    },
+    [circuitOpen]
+  );
 
   return { status, hash, error, submit };
 }

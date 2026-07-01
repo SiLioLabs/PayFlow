@@ -20,17 +20,16 @@ import { dedupedCall } from "./services/rpcCache";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-export const RPC_URL =
-  import.meta.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
-export const NETWORK_PASSPHRASE =
-  import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
+export const RPC_URL = import.meta.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
+export const NETWORK_PASSPHRASE = import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 
 // Replace with your deployed contract ID after `soroban contract deploy`
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "";
 export const TOKEN_CONTRACT_ID = import.meta.env.VITE_TOKEN_CONTRACT_ID ?? "";
 
 // Default token address (XLM) - replace with your actual token
-export const DEFAULT_TOKEN = import.meta.env.VITE_DEFAULT_TOKEN ?? "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+export const DEFAULT_TOKEN =
+  import.meta.env.VITE_DEFAULT_TOKEN ?? "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 
 export const server = new Server(RPC_URL);
 
@@ -116,10 +115,7 @@ export async function buildCancelTx(user: string): Promise<string> {
 }
 
 export async function buildPayPerUseTx(user: string, amount: bigint): Promise<string> {
-  return buildTx(user, "pay_per_use", [
-    addressVal(user),
-    nativeToScVal(amount, { type: "i128" }),
-  ]);
+  return buildTx(user, "pay_per_use", [addressVal(user), nativeToScVal(amount, { type: "i128" })]);
 }
 
 export async function buildPauseTx(user: string): Promise<string> {
@@ -146,10 +142,7 @@ export type BatchChargeOutcome =
   | "GracePeriodElapsed"
   | "Failed";
 
-export async function buildBatchChargeTx(
-  merchantWallet: string,
-  users: string[]
-): Promise<string> {
+export async function buildBatchChargeTx(merchantWallet: string, users: string[]): Promise<string> {
   return buildTx(merchantWallet, "batch_charge", [
     // batch_charge(users: Vec<Address>)
     users.map((u) => addressVal(u)),
@@ -188,7 +181,7 @@ export async function simulateBatchCharge(
     const vecItems =
       typeof retval.vec === "function"
         ? (retval.vec() as any[])
-        : retval._value?.vec ?? retval._value?.vec;
+        : (retval._value?.vec ?? retval._value?.vec);
 
     if (!Array.isArray(vecItems)) return [];
 
@@ -210,7 +203,6 @@ export async function simulateBatchCharge(
     return [];
   }
 }
-
 
 export function getDailyLimit(user: string): Promise<bigint | null> {
   return dedupedCall(`getDailyLimit:${user}`, async () => {
@@ -262,7 +254,12 @@ export function getDailySpent(user: string): Promise<bigint> {
   });
 }
 
-export async function buildApproveTx(user: string, tokenId: string, spender: string, amount: bigint): Promise<string> {
+export async function buildApproveTx(
+  user: string,
+  tokenId: string,
+  spender: string,
+  amount: bigint
+): Promise<string> {
   const tokenContract = new Contract(tokenId);
   const account = await server.getAccount(user);
 
@@ -304,7 +301,6 @@ export function getSubscription(user: string): Promise<Subscription | null> {
 
     const result = await server.simulateTransaction(tx);
     if ("error" in result) throw new Error((result as { error: string }).error);
-    if ("error" in result) throw new Error(result.error);
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
@@ -450,7 +446,10 @@ export async function getMerchantSubscribers(merchant: string): Promise<Merchant
       if (cancelAt >= subscribe.timestamp) continue;
 
       const chargeKey = `${userAddress}:${merchant}`;
-      const lastCharged = Math.max(subscribe.timestamp, latestChargeByUserAndMerchant.get(chargeKey) ?? 0);
+      const lastCharged = Math.max(
+        subscribe.timestamp,
+        latestChargeByUserAndMerchant.get(chargeKey) ?? 0
+      );
       const nextChargeAt = lastCharged + subscribe.interval;
 
       subscribers.push({
@@ -509,12 +508,7 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
         fee: BASE_FEE,
         networkPassphrase: NETWORK_PASSPHRASE,
       })
-        .addOperation(
-          contract.call(
-            "get_merchant_revenue",
-            addressVal(merchant)
-          )
-        )
+        .addOperation(contract.call("get_merchant_revenue", addressVal(merchant)))
         .setTimeout(30)
         .build();
 
@@ -535,7 +529,10 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
   });
 }
 
-export async function getBalance(publicKey: string, fields?: { asset_type?: string }): Promise<string> {
+export async function getBalance(
+  publicKey: string,
+  fields?: { asset_type?: string }
+): Promise<string> {
   try {
     // Note: Horizon /accounts/{id} endpoint does not support filtering by asset_type,
     // so we append the query parameter but still parse client-side.
@@ -543,9 +540,11 @@ export async function getBalance(publicKey: string, fields?: { asset_type?: stri
     const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}${query}`);
     if (!resp.ok) throw new Error(`Horizon API error: ${resp.status}`);
     const data = await resp.json();
-    
+
     const assetType = fields?.asset_type ?? "native";
-    const nativeBalance = data.balances?.find((b: { asset_type: string; balance: string }) => b.asset_type === assetType);
+    const nativeBalance = data.balances?.find(
+      (b: { asset_type: string; balance: string }) => b.asset_type === assetType
+    );
     return nativeBalance?.balance ?? "0";
   } catch {
     return "0";
@@ -629,9 +628,10 @@ export async function fetchEvents(
 
     return {
       events,
-      nextCursor: response.latestLedger > 0 && response.events.length > 0
-        ? response.events[response.events.length - 1].pagingToken
-        : undefined,
+      nextCursor:
+        response.latestLedger > 0 && response.events.length > 0
+          ? response.events[response.events.length - 1].pagingToken
+          : undefined,
     };
   } catch {
     return { events: [] };
@@ -901,10 +901,7 @@ function parseFixedInconsistenciesFromEventValue(value: unknown): number | null 
   if (typeof raw === "bigint") return Number(raw);
 
   const direct =
-    raw?._value?.fixed_inconsistencies ??
-    raw?.fixed_inconsistencies ??
-    raw?._value ??
-    raw;
+    raw?._value?.fixed_inconsistencies ?? raw?.fixed_inconsistencies ?? raw?._value ?? raw;
 
   if (typeof direct === "number") return direct;
   if (typeof direct === "bigint") return Number(direct);
@@ -958,5 +955,3 @@ export async function parseSubscriptionRepairedEvent(txHash: string): Promise<nu
     return null;
   }
 }
-
-

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { nativeToScVal, xdr, Address } from "@stellar/stellar-sdk";
+import { nativeToScVal, Address } from "@stellar/stellar-sdk";
 import { ScValDecoder, ScValDecodeError } from "../services/scval";
 
 // 1. Intercept the Stellar SDK's Server class safely with a standalone mock implementation
@@ -487,8 +487,14 @@ describe("rpcCache — dedupedCall deduplication & TTL", () => {
     let aCount = 0;
     let bCount = 0;
 
-    const fnA = (): Promise<string> => { aCount++; return Promise.resolve("a"); };
-    const fnB = (): Promise<string> => { bCount++; return Promise.resolve("b"); };
+    const fnA = (): Promise<string> => {
+      aCount++;
+      return Promise.resolve("a");
+    };
+    const fnB = (): Promise<string> => {
+      bCount++;
+      return Promise.resolve("b");
+    };
 
     const [ra1, rb1, ra2, rb2] = await Promise.all([
       dedupedCall("key:A", fnA),

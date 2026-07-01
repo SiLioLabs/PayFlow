@@ -43,9 +43,7 @@ describe("SubscriptionRepairPanel", () => {
   });
 
   it("shows loading state while validating", async () => {
-    vi.mocked(stellar.validateSubscription).mockImplementation(
-      () => new Promise(() => {})
-    );
+    vi.mocked(stellar.validateSubscription).mockImplementation(() => new Promise(() => {}));
 
     render(<SubscriptionRepairPanel adminKey="GADMIN123" onSign={vi.fn()} />);
 
@@ -176,7 +174,9 @@ describe("SubscriptionRepairPanel", () => {
   });
 
   it("shows validation error state with retry", async () => {
-    vi.mocked(stellar.validateSubscription).mockRejectedValue(new Error("HostError: Contract unavailable"));
+    vi.mocked(stellar.validateSubscription).mockRejectedValue(
+      new Error("HostError: Contract unavailable")
+    );
 
     render(<SubscriptionRepairPanel adminKey="GADMIN123" onSign={vi.fn()} />);
 

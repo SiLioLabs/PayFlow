@@ -25,7 +25,7 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     sac.mint(&user, &10_000_0000000);
 
     let token = TokenClient::new(&env, &token_addr);
-    token.approve(&user, &contract_id, &10_000_0000000, &200);
+    token.approve(&user, &contract_id, &10_000_0000000, &200000);
 
     (env, contract_id, token_addr, user, merchant)
 }
@@ -40,7 +40,7 @@ fn setup_second_token(env: &Env, contract_id: &Address, user: &Address) -> Addre
     sac.mint(user, &10_000_0000000);
 
     let token = TokenClient::new(env, &token_addr);
-    token.approve(user, contract_id, &10_000_0000000, &200);
+    token.approve(user, contract_id, &10_000_0000000, &200000);
 
     token_addr
 }
@@ -848,7 +848,7 @@ fn test_whitelist_batch_remove_non_whitelisted_is_noop() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #31)")]
+#[should_panic(expected = "Error(Contract, #20)")]
 fn test_whitelist_batch_add_exceeds_max_size_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -1741,228 +1741,6 @@ fn test_batch_charge_stress() {
     for r in results.into_iter() {
         assert_eq!(r, crate::ChargeResult::Charged);
     }
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #20)")]
-fn test_batch_charge_over_default_limit_panics() {
-    let (env, contract_id, token_addr, _user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    let mut users = soroban_sdk::Vec::new(&env);
-    for _ in 0..51 {
-        let u = Address::generate(&env);
-        sac.mint(&u, &10_000_0000000);
-        token.approve(&u, &contract_id, &10_000_0000000, &200);
-        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-        users.push_back(u);
-    }
-
-    client.batch_charge(&users);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #29)")]
-fn test_set_max_batch_size_rejects_value_above_200() {
-    let (env, contract_id, _token_addr, user, _merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    env.as_contract(&contract_id, || {
-        storage::set_admin(&env, &user);
-    });
-
-    client.set_max_batch_size(&201);
-}
-
-#[test]
-#[should_panic]
-fn test_non_admin_set_max_batch_size_panics() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    env.set_auths(&[]);
-    client.set_max_batch_size(&10);
-}
-
-#[test]
-fn test_cancel_and_refund_prorated_transfers_expected_amount() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    sac.mint(&merchant, &10_000_0000000);
-
-    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
-
-    env.ledger().with_mut(|l| {
-        l.timestamp = 900;
-    });
-
-    let merchant_balance_before = token.balance(&merchant);
-    let user_balance_before = token.balance(&user);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
-
-    assert_eq!(token.balance(&merchant), merchant_balance_before - 7_500_000);
-    assert_eq!(token.balance(&user), user_balance_before + 7_500_000);
-
-    let sub = client.get_subscription(&user).unwrap();
-    assert!(!sub.active);
-}
-
-#[test]
-fn test_cancel_and_refund_prorated_at_interval_end_transfers_nothing() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    env.budget().reset_unlimited();
-
-    let num_users = 50;
-    let mut users = soroban_sdk::Vec::new(&env);
-    let interval = 86400;
-    sac.mint(&merchant, &10_000_0000000);
-
-    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
-
-    env.ledger().with_mut(|l| {
-        l.timestamp = 3600;
-    });
-
-    let merchant_balance_before = token.balance(&merchant);
-    let user_balance_before = token.balance(&user);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
-
-    assert_eq!(token.balance(&merchant), merchant_balance_before);
-    assert_eq!(token.balance(&user), user_balance_before);
-
-    let sub = client.get_subscription(&user).unwrap();
-    assert!(!sub.active);
-}
-
-#[test]
-#[should_panic]
-fn test_cancel_and_refund_prorated_missing_subscription_panics() {
-    let (env, contract_id, _token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #20)")]
-fn test_batch_charge_over_default_limit_panics() {
-    let (env, contract_id, token_addr, _user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    let mut users = soroban_sdk::Vec::new(&env);
-    for _ in 0..51 {
-        let u = Address::generate(&env);
-        sac.mint(&u, &10_000_0000000);
-        token.approve(&u, &contract_id, &10_000_0000000, &200);
-        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-        users.push_back(u);
-    }
-
-    client.batch_charge(&users);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #29)")]
-fn test_set_max_batch_size_rejects_value_above_200() {
-    let (env, contract_id, _token_addr, user, _merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    env.as_contract(&contract_id, || {
-        storage::set_admin(&env, &user);
-    });
-
-    client.set_max_batch_size(&201);
-}
-
-#[test]
-#[should_panic]
-fn test_non_admin_set_max_batch_size_panics() {
-    let (env, contract_id, _token_addr, _user, _merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    env.set_auths(&[]);
-    client.set_max_batch_size(&10);
-}
-
-#[test]
-fn test_cancel_and_refund_prorated_transfers_expected_amount() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    sac.mint(&merchant, &10_000_0000000);
-
-    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
-
-    env.ledger().with_mut(|l| {
-        l.timestamp = 900;
-    });
-
-    let merchant_balance_before = token.balance(&merchant);
-    let user_balance_before = token.balance(&user);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
-
-    assert_eq!(token.balance(&merchant), merchant_balance_before - 7_500_000);
-    assert_eq!(token.balance(&user), user_balance_before + 7_500_000);
-
-    let sub = client.get_subscription(&user).unwrap();
-    assert!(!sub.active);
-}
-
-#[test]
-fn test_cancel_and_refund_prorated_at_interval_end_transfers_nothing() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
-
-    env.budget().reset_unlimited();
-
-    let num_users = 50;
-    let mut users = soroban_sdk::Vec::new(&env);
-    let interval = 86400;
-    sac.mint(&merchant, &10_000_0000000);
-
-    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
-
-    env.ledger().with_mut(|l| {
-        l.timestamp = 3600;
-    });
-
-    let merchant_balance_before = token.balance(&merchant);
-    let user_balance_before = token.balance(&user);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
-
-    assert_eq!(token.balance(&merchant), merchant_balance_before);
-    assert_eq!(token.balance(&user), user_balance_before);
-
-    let sub = client.get_subscription(&user).unwrap();
-    assert!(!sub.active);
-}
-
-#[test]
-#[should_panic]
-fn test_cancel_and_refund_prorated_missing_subscription_panics() {
-    let (env, contract_id, _token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.cancel_and_refund_prorated(&user, &merchant);
 }
 
 #[test]
@@ -3732,7 +3510,7 @@ fn setup_large_balance(env: &Env, contract_id: &Address, token_addr: &Address) -
     let sac = StellarAssetClient::new(env, token_addr);
     sac.mint(&user, &100_000_000_000_000);
     let token = TokenClient::new(env, token_addr);
-    token.approve(&user, contract_id, &100_000_000_000_000, &200);
+    token.approve(&user, contract_id, &100_000_000_000_000, &200000);
     user
 }
 
@@ -4379,6 +4157,7 @@ fn test_subscriber_page_offset_beyond_count_returns_empty() {
 fn test_subscriber_page_limit_capped_at_50() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
     let sac = StellarAssetClient::new(&env, &token_addr);
 
     for _ in 0..52 {

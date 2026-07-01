@@ -11,10 +11,6 @@ export default function NetworkBadge() {
   const networkName = isMainnet ? "Mainnet" : "Testnet";
 
   return (
-    <span
-      className={`badge ${isMainnet ? "badge-mainnet" : "badge-testnet"}`}
-    >
-      {networkName}
-    </span>
+    <span className={`badge ${isMainnet ? "badge-mainnet" : "badge-testnet"}`}>{networkName}</span>
   );
 }

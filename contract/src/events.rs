@@ -98,7 +98,7 @@ pub fn publish_cancelled(env: &Env, user: &Address) {
 
 pub fn publish_cancelled_with_refund(env: &Env, user: &Address, refund_amount: i128) {
     env.events().publish(
-        (Symbol::new(env, "subscription_cancelled_with_refund"), user.clone()),
+        (Symbol::new(env, "cancelled_with_refund"), user.clone()),
         CancelledWithRefundEventData {
             refund_amount,
             ledger_sequence: env.ledger().sequence(),

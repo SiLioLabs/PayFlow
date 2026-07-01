@@ -44,9 +44,8 @@ export function useClipboard(timeout = 2000) {
         setTimeout(() => setError(false), timeout);
       }
     },
-    [timeout],
+    [timeout]
   );
 
   return { copied, error, copy };
 }
-

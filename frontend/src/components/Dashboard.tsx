@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
-import { buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useState, useRef, useCallback, lazy, Suspense } from "react";
+import { buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionCardSkeleton from "./Skeleton";
@@ -8,7 +8,6 @@ import ErrorBoundary from "./ErrorBoundary";
 // Lazy-load SubscriptionHistory so it is excluded from the main chunk (Issue #445).
 const SubscriptionHistory = lazy(() => import("./SubscriptionHistory"));
 import PayPerUseForm from "./PayPerUseForm";
-import ConfirmModal from "./ConfirmModal";
 import DailyLimitCard from "./DailyLimitCard";
 import DailyLimitModal from "./DailyLimitModal";
 import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
@@ -19,6 +18,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
 import { useRpcHealth } from "../hooks/useRpcHealth";
 import { useTransaction } from "../hooks/useTransaction";
+import { useRegisterShortcuts } from "../context/ShortcutRegistry";
 
 interface Props {
   userKey: string;
@@ -29,8 +29,15 @@ interface Props {
   onPayPerUse?: (amount: bigint) => void;
 }
 
-export default function Dashboard({ userKey, onSign, refreshTrigger, announce, onCancelled, onPayPerUse }: Props) {
-  const { subscription: sub, loading, refresh, mutate: syncMutate, status: syncStatus } = useSubscriptionSync(userKey, refreshTrigger);
+export default function Dashboard({
+  userKey,
+  onSign,
+  refreshTrigger,
+  announce,
+  onCancelled,
+  onPayPerUse,
+}: Props) {
+  const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const ppuTx = useTransaction();
@@ -42,44 +49,39 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
 
   usePolling({ callback: refresh, interval: 30000, enabled: !!sub?.active });
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const key = e.key.toLowerCase();
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
+  useRegisterShortcuts(
+    sub?.active
+      ? [
+          {
+            key: "p",
+            description: "Focus pay-per-use amount input",
+            action: () => {
+              ppuInputRef.current?.focus();
+            },
+          },
+        ]
+      : []
+  );
+
+  const handlePayPerUse = useCallback(
+    async (stroops: bigint) => {
+      announce("Transaction submitted");
+      try {
+        const hash = await ppuTx.submit(async () => {
+          const xdr = await buildPayPerUseTx(userKey, stroops);
+          return onSign(xdr);
+        });
+        addToast("Paid!", "success", hash);
+        announce("Transaction confirmed");
+        onPayPerUse?.(stroops);
+      } catch (e: unknown) {
+        const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
+        addToast(msg, "error");
+        announce(msg);
       }
-
-      if (key === "p" && sub?.active) {
-        e.preventDefault();
-        ppuInputRef.current?.focus();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [sub?.active]);
-
-  const handlePayPerUse = useCallback(async (stroops: bigint) => {
-    announce("Transaction submitted");
-    try {
-      const hash = await ppuTx.submit(async () => {
-        const xdr = await buildPayPerUseTx(userKey, stroops);
-        return onSign(xdr);
-      });
-      addToast("Paid!", "success", hash);
-      announce("Transaction confirmed");
-      onPayPerUse?.(stroops);
-    } catch (e: unknown) {
-      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
-      addToast(msg, "error");
-      announce(msg);
-    }
-  }, [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]);
+    },
+    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]
+  );
 
   if (loading)
     return (
@@ -148,7 +150,6 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce, o
                   refreshTrigger={dailyLimitRefresh}
                   onOpen={() => setShowDailyLimit(true)}
                 />
-
               </div>
 
               <ErrorBoundary>

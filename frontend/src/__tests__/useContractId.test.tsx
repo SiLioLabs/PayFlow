@@ -23,7 +23,6 @@ describe("useContractId", () => {
 
   it("valid contract ID -> valid = true", async () => {
     // set env
-    // @ts-ignore
     import.meta.env.VITE_CONTRACT_ID = "VALID_ID";
     vi.spyOn(stellar.StrKey, "isValidContract").mockReturnValue(true);
 
@@ -35,7 +34,6 @@ describe("useContractId", () => {
   });
 
   it("empty contract ID -> valid = false, error set", async () => {
-    // @ts-ignore
     import.meta.env.VITE_CONTRACT_ID = "";
     vi.spyOn(stellar.StrKey, "isValidContract").mockReturnValue(false);
 
@@ -47,7 +45,6 @@ describe("useContractId", () => {
   });
 
   it("malformed contract ID -> valid = false", async () => {
-    // @ts-ignore
     import.meta.env.VITE_CONTRACT_ID = "BAD";
     vi.spyOn(stellar.StrKey, "isValidContract").mockReturnValue(false);
 

@@ -1,4 +1,4 @@
-use soroban_sdk::{token, Address, Env, Symbol, Vec};
+use soroban_sdk::{token, Address, Env};
 
 use crate::errors::ContractError;
 use crate::Subscription;
@@ -11,17 +11,6 @@ pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i
     }
 }
 
-pub fn validate_token_address(env: &Env, token: &Address) {
-    let result = env.try_invoke_contract::<u32, soroban_sdk::InvokeError>(
-        token,
-        &Symbol::new(env, "decimals"),
-        Vec::new(env),
-    );
-
-    if result.is_err() {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
-}
 
 /// Composable helper that asserts a subscription is ready to be used:
 /// the subscription must be active and the user must have sufficient
@@ -49,18 +38,21 @@ pub fn require_valid_interval(env: &Env, new_interval: u64) {
     }
 }
 
+#[allow(dead_code)]
 pub fn require_positive_interval(env: &Env, interval: u64) {
     if interval == 0 {
         env.panic_with_error(ContractError::IntervalMustBePositive);
     }
 }
 
+#[allow(dead_code)]
 pub fn require_active_subscription(env: &Env, active: bool) {
     if !active {
         env.panic_with_error(ContractError::SubscriptionInactive);
     }
 }
 
+#[allow(dead_code)]
 pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, interval: u64) {
     if now < last_charged + interval {
         env.panic_with_error(ContractError::IntervalNotElapsed);

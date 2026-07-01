@@ -10,10 +10,7 @@ interface WalletBarProps {
   onDisconnect: () => void;
 }
 
-export default function WalletBar({
-  publicKey,
-  onDisconnect,
-}: WalletBarProps) {
+export default function WalletBar({ publicKey, onDisconnect }: WalletBarProps) {
   const { queueDepth } = useTxQueue();
 
   return (
@@ -27,9 +24,7 @@ export default function WalletBar({
         <div className="wallet-bar__connection">
           <span className="wallet-bar__label">Connected</span>
           <div className="wallet-bar__address-row">
-            <span className="wallet-bar__address">
-              {formatAddress(publicKey)}
-            </span>
+            <span className="wallet-bar__address">{formatAddress(publicKey)}</span>
             <CopyButton text={publicKey} ariaLabel="Copy wallet address" />
           </div>
         </div>

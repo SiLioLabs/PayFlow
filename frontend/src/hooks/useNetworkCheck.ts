@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { NETWORK_PASSPHRASE } from "../stellar";
 
 interface NetworkCheckResult {
-    networkMatch: boolean;
-    walletNetwork: string;
+  networkMatch: boolean;
+  walletNetwork: string;
 }
 
 /**
@@ -12,37 +12,36 @@ interface NetworkCheckResult {
  * Re-runs whenever the component mounts.
  */
 export function useNetworkCheck(): NetworkCheckResult {
-    const [result, setResult] = useState<NetworkCheckResult>({
-        networkMatch: true, // optimistic default — no false warning before check completes
-        walletNetwork: "",
-    });
+  const [result, setResult] = useState<NetworkCheckResult>({
+    networkMatch: true, // optimistic default — no false warning before check completes
+    walletNetwork: "",
+  });
 
-    useEffect(() => {
-        let cancelled = false;
+  useEffect(() => {
+    let cancelled = false;
 
-        async function check() {
-            if (!window.freighter) return;
+    async function check() {
+      if (!window.freighter) return;
 
-            try {
-                const { network, networkPassphrase } =
-                    await window.freighter.getNetwork();
+      try {
+        const { network, networkPassphrase } = await window.freighter.getNetwork();
 
-                if (!cancelled) {
-                    setResult({
-                        networkMatch: networkPassphrase === NETWORK_PASSPHRASE,
-                        walletNetwork: network,
-                    });
-                }
-            } catch {
-                // If getNetwork() fails (older Freighter), assume match to avoid noise
-            }
+        if (!cancelled) {
+          setResult({
+            networkMatch: networkPassphrase === NETWORK_PASSPHRASE,
+            walletNetwork: network,
+          });
         }
+      } catch {
+        // If getNetwork() fails (older Freighter), assume match to avoid noise
+      }
+    }
 
-        check();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    return result;
+  return result;
 }

@@ -17,9 +17,7 @@ describe("useToast hook", () => {
       const { toasts, addToast } = useToast();
       return (
         <div>
-          <button onClick={() => addToast("hello", "info")}>
-            add
-          </button>
+          <button onClick={() => addToast("hello", "info")}>add</button>
           <div data-testid="list">
             {toasts.map((t) => (
               <div key={t.id} data-testid={`toast-${t.id}`}>
@@ -50,9 +48,7 @@ describe("useToast hook", () => {
       const { toasts, addToast } = useToast();
       return (
         <div>
-          <button onClick={() => addToast("dup", "info")}>
-            add
-          </button>
+          <button onClick={() => addToast("dup", "info")}>add</button>
           <div data-testid="list">
             {toasts.map((t) => (
               <div key={t.id} data-testid={`toast-${t.id}`}>

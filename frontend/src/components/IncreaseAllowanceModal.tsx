@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
 import { STROOPS_PER_XLM } from "../constants";
 import { formatXlm } from "../utils/format";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   userKey: string;
@@ -27,6 +28,9 @@ export default function IncreaseAllowanceModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, true, onClose);
 
   const tokenContractId = TOKEN_CONTRACT_ID;
   const recommendedAllowance = useMemo(
@@ -39,7 +43,11 @@ export default function IncreaseAllowanceModal({
       try {
         const allowance = await getAllowance(userKey);
         setCurrentAllowance(allowance);
-        setAmount((Number(getRecommendedAllowance(subscriptionAmount, allowance)) / STROOPS_PER_XLM).toFixed(7));
+        setAmount(
+          (
+            Number(getRecommendedAllowance(subscriptionAmount, allowance)) / STROOPS_PER_XLM
+          ).toFixed(7)
+        );
       } catch {
         setCurrentAllowance(0n);
       }
@@ -93,8 +101,15 @@ export default function IncreaseAllowanceModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-        <h3>Increase Allowance</h3>
+      <div
+        ref={modalRef}
+        className="modal-card card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="increase-allowance-title"
+      >
+        <h3 id="increase-allowance-title">Increase Allowance</h3>
         <p>
           Current allowance: <strong>{formatXlm(currentAllowance ?? 0n)}</strong>.
         </p>
@@ -102,7 +117,13 @@ export default function IncreaseAllowanceModal({
           Recommended approval: <strong>{formatXlm(recommendedAllowance)}</strong>.
         </p>
         <p>
-          Estimated billing cycles with new allowance: <strong>{Math.floor(parseFloat(amount || "0") * Number(STROOPS_PER_XLM) / Number(subscriptionAmount))}</strong>.
+          Estimated billing cycles with new allowance:{" "}
+          <strong>
+            {Math.floor(
+              (parseFloat(amount || "0") * Number(STROOPS_PER_XLM)) / Number(subscriptionAmount)
+            )}
+          </strong>
+          .
         </p>
         <label className="form-group">
           <span className="form-label">Approve total allowance (XLM)</span>
@@ -131,7 +152,10 @@ export default function IncreaseAllowanceModal({
   );
 }
 
-function getRecommendedAllowance(subscriptionAmount: bigint, currentAllowance: bigint | null): bigint {
+function getRecommendedAllowance(
+  subscriptionAmount: bigint,
+  currentAllowance: bigint | null
+): bigint {
   const remainingCyclesTarget = 6n;
   const target = subscriptionAmount * remainingCyclesTarget;
   if (currentAllowance === null || currentAllowance < subscriptionAmount) {

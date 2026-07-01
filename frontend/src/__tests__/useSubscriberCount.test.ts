@@ -23,15 +23,6 @@ function makeEvent(type: "subscribed" | "cancelled", user: string, id: string) {
   };
 }
 
-/**
- * Build a mock page response.
- * @param events  The events array for this page.
- * @param isLastPage  Pass true to return fewer than PAGE_LIMIT events.
- */
-function makePage(events: ReturnType<typeof makeEvent>[]) {
-  return Promise.resolve({ events });
-}
-
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 describe("useSubscriberCount", () => {
@@ -76,7 +67,6 @@ describe("useSubscriberCount", () => {
 
     const page1 = buildPage(0);
     const page2 = buildPage(1000);
-    const page3 = buildPage(2000);
     // Last event on page3 has only 50 events to signal end of data.
     const page3Small = buildPage(2000).slice(0, 50);
 
@@ -94,11 +84,14 @@ describe("useSubscriberCount", () => {
   });
 
   it("stops pagination after 50 pages (safety cap)", async () => {
-    // Every call returns a full page of 1000 events (same user to keep the set small).
-    const fullPage = Array.from({ length: 1000 }, (_, i) =>
-      makeEvent("subscribed", `GUSER${i}`, `evt-page-${i}`)
-    );
-    mockedGetEvents.mockResolvedValue({ events: fullPage } as any);
+    let callCount = 0;
+    mockedGetEvents.mockImplementation(() => {
+      callCount++;
+      const events = Array.from({ length: 1000 }, (_, i) =>
+        makeEvent("subscribed", `GUSER${i}`, `evt-page-${callCount}-${i}`)
+      );
+      return Promise.resolve({ events } as any);
+    });
 
     const { result } = renderHook(() => useSubscriberCount());
 

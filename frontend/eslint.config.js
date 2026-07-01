@@ -46,6 +46,10 @@ const browserGlobals = {
   ResizeObserver: "readonly",
   IntersectionObserver: "readonly",
   crypto: "readonly",
+  HTMLDivElement: "readonly",
+  HTMLSpanElement: "readonly",
+  MediaQueryList: "readonly",
+  React: "readonly",
 };
 
 const vitestGlobals = {

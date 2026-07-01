@@ -59,9 +59,7 @@ describe("AdminDashboard", () => {
     render(<AdminDashboard publicKey="GUSER456" onSign={vi.fn()} />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Diagnostic tools are available in read-only mode/)
-      ).toBeTruthy();
+      expect(screen.getByText(/Diagnostic tools are available in read-only mode/)).toBeTruthy();
     });
   });
 });

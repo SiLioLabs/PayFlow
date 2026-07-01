@@ -40,10 +40,7 @@ interface UseFormValidationResult {
  * @param maxStroops - Maximum allowed amount in stroops
  * @returns {ValidationResult} Validation outcome
  */
-export function validateStroopAmount(
-  value: string,
-  maxStroops: bigint
-): ValidationResult {
+export function validateStroopAmount(value: string, maxStroops: bigint): ValidationResult {
   const num = parseFloat(value);
   if (!value || isNaN(num) || num <= 0) {
     return { valid: false, error: "Amount must be greater than 0." };
@@ -64,10 +61,7 @@ export function validateStroopAmount(
  * @param minSeconds - Minimum allowed interval in seconds
  * @returns {ValidationResult} Validation outcome
  */
-export function validateInterval(
-  seconds: number,
-  minSeconds: number
-): ValidationResult {
+export function validateInterval(seconds: number, minSeconds: number): ValidationResult {
   if (!seconds || seconds <= 0) {
     return { valid: false, error: "Interval must be greater than 0." };
   }
@@ -153,10 +147,7 @@ export function useFormValidation(): UseFormValidationResult {
       next.amount = amountResult.error;
     }
 
-    const intervalResult = validateInterval(
-      fields.interval,
-      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS
-    );
+    const intervalResult = validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS);
     if (!intervalResult.valid) {
       next.interval = intervalResult.error;
     }
@@ -190,7 +181,8 @@ export function useFormValidation(): UseFormValidationResult {
         // Clear merchant error if we previously set it.
         setErrors((prev: FormErrors) => {
           if (prev.merchant === "Account not found on network.") {
-            const { merchant: _, ...rest } = prev;
+            const rest = { ...prev };
+            delete rest.merchant;
             return rest;
           }
           return prev;
@@ -233,4 +225,3 @@ export function useFormValidation(): UseFormValidationResult {
     validateAsync,
   };
 }
-

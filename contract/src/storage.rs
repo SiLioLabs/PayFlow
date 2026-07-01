@@ -29,6 +29,7 @@ pub fn extend_subscription_ttl(env: &Env, user: &Address) {
     }
 }
 
+#[allow(dead_code)]
 pub fn set_token(env: &Env, token: &Address) {
     env.storage().instance().set(&DataKey::Token, token);
 }
