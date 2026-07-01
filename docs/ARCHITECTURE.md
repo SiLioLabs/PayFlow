@@ -168,6 +168,27 @@ Events are the main off-chain integration surface for analytics, indexers, and t
 
 The frontend does not talk to the contract directly. `frontend/src/stellar.ts` builds and simulates Soroban transactions, then Freighter signs them.
 
+```
+App.tsx
+├── useWallet()          — Freighter connection, signing, submission
+├── SubscribeForm.tsx    — form to create a subscription
+├── Dashboard.tsx        — view subscription, cancel, pay-per-use
+├── MerchantDashboard.tsx — merchant subscriber management
+└── AdminDashboard.tsx   — admin diagnostics and subscription repair
+```
+
+### Admin repair workflow
+
+1. Admin connects Freighter wallet; `useAdmin` compares `publicKey` to on-chain `get_admin`.
+2. Operator enters a subscriber address and runs `validate_subscription` via RPC simulation.
+3. Violations are mapped to human-readable messages in the UI (missing records, invalid transitions, corrupted references).
+4. If failures exist and the wallet is admin, `repair_subscription` is submitted after confirmation.
+5. The UI parses the `subscription_repaired` event for the exact fixed-inconsistency count and re-runs validation.
+
+Authorization is enforced both in the UI (repair button disabled for non-admins) and on-chain (`require_admin` in the contract).
+
+All Soroban SDK calls are isolated in `stellar.ts`. Components never import `@stellar/stellar-sdk` directly. This makes it easy to swap the SDK version or mock it in tests.
+
 Typical flows:
 
 - Subscribe: build transaction, simulate, sign, submit.

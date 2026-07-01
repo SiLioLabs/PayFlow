@@ -125,9 +125,17 @@ Form component for creating a new subscription. Accepts merchant address, XLM am
 
 Displays the user's active subscription. Shows merchant, amount, interval, and next charge date. Provides cancel and pay-per-use actions.
 
+### `frontend/src/pages/AdminDashboard.tsx`
+
+Administrative tools layout. Hosts the Subscription Repair panel for on-chain diagnostics and recovery.
+
+### `frontend/src/components/admin/SubscriptionRepairPanel.tsx`
+
+Admin-only subscription integrity panel. Calls `validate_subscription` (read-only simulation) and `repair_subscription` (admin-auth transaction). Authorization is enforced by comparing the connected wallet to `get_admin`.
+
 ### `frontend/src/App.tsx`
 
-Root component. Manages wallet connection state and tab switching between `SubscribeForm` and `Dashboard`.
+Root component. Manages wallet connection state and tab switching between `SubscribeForm`, `Dashboard`, `MerchantDashboard`, and `AdminDashboard`.
 
 ---
 

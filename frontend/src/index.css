@@ -792,3 +792,21 @@ input::placeholder {
   align-items: center;
   gap: var(--space-2);
 }
+
+/* Admin subscription repair panel */
+.subscription-repair-panel__violations {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.subscription-repair-panel__violations li {
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.admin-dashboard__section {
+  margin-top: var(--space-4);
+}

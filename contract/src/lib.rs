@@ -72,6 +72,8 @@ pub enum DataKey {
     ChargeHistory(Address),
     // Feature: global volume cap
     GlobalVolumeWindow,
+    // Feature: batch size limit override
+    MaxBatchSize,
     // Feature: contract pause
     ContractPaused,
     // Feature: minimum subscription interval floor
@@ -87,6 +89,8 @@ pub enum DataKey {
     PendingAdmin,
     // Two-step auth for protocol fee
     PendingFee,
+    // Per-merchant custom fee recipient (merchant -> destination)
+    MerchantFeeRecipient(Address),
     // Two-step auth for grace period
     PendingGracePeriod,
     // Two-step auth for upgrade
@@ -161,19 +165,52 @@ pub struct ProtocolStats {
 // Contract
 // ─────────────────────────────────────────────────────────────
 
+fn cancel_inner(env: &Env, user: &Address) -> Subscription {
+    let key = DataKey::Subscription(user.clone());
+    let mut sub: Subscription = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+    sub.active = false;
+
+    env.storage().persistent().set(&key, &sub);
+    extend_subscription_ttl(env, user);
+
+    subscription_count::decrement(env);
+    merchant_stats::decrement_subscriber_count(env, &sub.merchant);
+    referral::remove_referral(env, user);
+
+    sub
+}
+
 #[contract]
 pub struct FlowPay;
 
 #[contractimpl]
 impl FlowPay {
     pub fn initialize(env: Env, token: Address, admin: Address) {
+        bump_instance_ttl(&env);
+
         if env.storage().instance().has(&DataKey::Token) {
             env.panic_with_error(ContractError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Token, &token);
         admin::initialize_admin(&env, &admin);
-        env.storage().instance().extend_ttl(50_000, 100_000);
+    }
+
+    pub fn get_max_batch_size(env: Env) -> u32 {
+        batch::get_max_batch_size(&env)
+    }
+
+    pub fn set_max_batch_size(env: Env, size: u32) {
+        admin::require_admin(&env);
+        if size > 200 {
+            env.panic_with_error(ContractError::InvalidBatchSize);
+        }
+        env.storage().instance().set(&DataKey::MaxBatchSize, &size);
     }
 
     /// Creates or replaces a recurring subscription for `user`.
@@ -241,6 +278,7 @@ impl FlowPay {
         if label.len() > 64 {
             env.panic_with_error(ContractError::MetadataLabelTooLong);
         }
+
         subscribe_inner(
             &env,
             user.clone(),
@@ -251,6 +289,7 @@ impl FlowPay {
             trial_period,
             referrer,
         );
+
         let _ = subscription_metadata::set_metadata(&env, &user, label);
     }
 
@@ -281,6 +320,7 @@ impl FlowPay {
     /// and charge history, refreshes subscription TTL, updates `last_charged`,
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         ensure_contract_not_paused(&env);
         let key = DataKey::Subscription(user.clone());
 
@@ -356,6 +396,7 @@ impl FlowPay {
     /// Transfers `amount` to the subscription merchant, updates merchant revenue
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
+        bump_instance_ttl(&env);
         pay_per_use_inner(&env, user, amount, None);
     }
 
@@ -409,25 +450,38 @@ impl FlowPay {
     /// Marks the subscription inactive, decrements active subscription count, and
     /// emits `cancelled`.
     pub fn cancel(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
+        cancel_inner(&env, &user);
+        events::publish_cancelled(&env, &user);
+    }
+
+    pub fn cancel_and_refund_prorated(env: Env, user: Address, merchant: Address) {
+        user.require_auth();
+        merchant.require_auth();
 
         let key = DataKey::Subscription(user.clone());
-
-        let mut sub: Subscription = env
+        let sub: Subscription = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
-        sub.active = false;
+        let now = env.ledger().timestamp();
+        let elapsed = now.saturating_sub(sub.last_charged);
+        let remaining = if elapsed >= sub.interval {
+            0
+        } else {
+            sub.interval - elapsed
+        };
+        let refund = (sub.amount * i128::from(remaining)) / i128::from(sub.interval);
 
-        env.storage().persistent().set(&key, &sub);
-        extend_subscription_ttl(&env, &user);
+        if refund > 0 {
+            token::Client::new(&env, &sub.token).transfer(&merchant, &user, &refund);
+        }
 
-        subscription_count::decrement(&env);
-        merchant_stats::decrement_subscriber_count(&env, &sub.merchant);
-        referral::remove_referral(&env, &user);
-        events::publish_cancelled(&env, &user);
+        cancel_inner(&env, &user);
+        events::publish_cancelled_with_refund(&env, &user, refund);
     }
 
     /// Pauses `user`'s subscription without cancelling it.
@@ -452,6 +506,7 @@ impl FlowPay {
     ///
     /// Sets the subscription `paused` flag and emits `paused`.
     pub fn pause(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let key = DataKey::Subscription(user.clone());
@@ -479,6 +534,7 @@ impl FlowPay {
     /// The subscription will auto-resume via `charge` or `batch_charge`
     /// when the ledger timestamp reaches `expiry`.
     pub fn pause_until(env: Env, user: Address, expiry: u64) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let now = env.ledger().timestamp();
@@ -528,6 +584,7 @@ impl FlowPay {
     ///
     /// Clears the subscription `paused` flag and emits `resumed`.
     pub fn resume(env: Env, user: Address) {
+        bump_instance_ttl(&env);
         user.require_auth();
 
         let key = DataKey::Subscription(user.clone());
@@ -580,7 +637,7 @@ impl FlowPay {
 
         let max_batch: u32 = 25;
         if users.len() > max_batch {
-            env.panic_with_error(ContractError::BatchSizeExceeded);
+            env.panic_with_error(ContractError::BatchTooLarge);
         }
 
         for user in users.iter() {
@@ -712,12 +769,14 @@ impl FlowPay {
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
+        bump_instance_ttl(&env);
         grace::propose_grace_period(&env, seconds);
     }
 
     /// Commits a pending contract-wide grace period proposal.
     /// Only the contract admin can call this.
     pub fn commit_grace_period(env: Env) {
+        bump_instance_ttl(&env);
         grace::commit_grace_period(&env);
     }
 
@@ -843,12 +902,14 @@ impl FlowPay {
 
     /// Adds a merchant to the whitelist.
     pub fn add_merchant(env: Env, merchant: Address) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::add_merchant(&env, &merchant);
     }
 
     /// Removes a merchant from the whitelist.
     pub fn remove_merchant(env: Env, merchant: Address) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::remove_merchant(&env, &merchant);
     }
@@ -891,6 +952,7 @@ impl FlowPay {
 
     /// Enables or disables the merchant whitelist.
     pub fn set_whitelist_enabled(env: Env, enabled: bool) {
+        bump_instance_ttl(&env);
         admin::require_admin(&env);
         whitelist::set_whitelist_enabled(&env, enabled);
     }
@@ -903,6 +965,34 @@ impl FlowPay {
     /// Returns whether a merchant is whitelisted.
     pub fn is_merchant_whitelisted(env: Env, merchant: Address) -> bool {
         whitelist::is_whitelisted(&env, &merchant)
+    }
+
+    /// Sets a custom fee recipient for a merchant. The caller must be the merchant.
+    /// The recipient cannot be the contract address and contract must not be paused.
+    pub fn set_merchant_fee_recipient(env: Env, merchant: Address, recipient: Address) {
+        ensure_contract_not_paused(&env);
+        merchant.require_auth();
+
+        if recipient == env.current_contract_address() {
+            env.panic_with_error(ContractError::InvalidRecipient);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MerchantFeeRecipient(merchant.clone()), &recipient);
+        env.storage().persistent().extend_ttl(
+            &DataKey::MerchantFeeRecipient(merchant.clone()),
+            SUBSCRIPTION_TTL_LEDGERS,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+
+    /// Returns the configured merchant fee recipient, or the merchant address when unset.
+    pub fn get_merchant_fee_recipient(env: Env, merchant: Address) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MerchantFeeRecipient(merchant.clone()))
+            .unwrap_or(merchant)
     }
 
     /// Freezes a merchant, blocking new subscriptions while leaving existing
@@ -947,12 +1037,14 @@ impl FlowPay {
     /// Proposes new protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn propose_fee(env: Env, collector: Address, bps: u32) {
+        bump_instance_ttl(&env);
         fee::propose_fee(&env, collector, bps);
     }
 
     /// Commits pending protocol fee collection settings.
     /// Only the contract admin can call this.
     pub fn commit_fee(env: Env) {
+        bump_instance_ttl(&env);
         fee::commit_fee(&env);
     }
 
@@ -966,6 +1058,7 @@ impl FlowPay {
     /// paused, interval not elapsed, etc.) are recorded as a `ChargeResult`
     /// variant and do **not** abort the batch.
     pub fn batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
+        bump_instance_ttl(&env);
         ensure_contract_not_paused(&env);
         batch::batch_charge(&env, users)
     }
@@ -1363,6 +1456,18 @@ impl FlowPay {
     }
 }
 
+/// Refreshes the contract instance's TTL. Instance storage holds shared
+/// protocol state (Admin, Token, FeeCollector, FeeBps, GracePeriod,
+/// WhitelistEnabled, SchemaVersion, ActiveCount, ...) which all share one
+/// TTL — if it lapses from prolonged inactivity, the contract is bricked.
+/// Called at the start of every state-mutating public function so any
+/// active use continuously keeps the instance alive without a keeper.
+fn bump_instance_ttl(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(SUBSCRIPTION_TTL_LEDGERS / 2, SUBSCRIPTION_TTL_LEDGERS);
+}
+
 fn extend_subscription_ttl(env: &Env, user: &Address) {
     storage::extend_subscription_ttl(env, user);
     env.storage()
@@ -1435,10 +1540,13 @@ fn subscribe_inner(
     trial_period: Option<u64>,
     referrer: Option<Address>,
 ) {
+    bump_instance_ttl(env);
     user.require_auth();
 
-    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
-        env.panic_with_error(ContractError::MerchantNotWhitelisted);
+    if whitelist::is_whitelist_enabled(env) {
+        if !whitelist::is_whitelisted(env, &merchant) {
+            env.panic_with_error(ContractError::MerchantNotWhitelisted);
+        }
     }
 
     if whitelist::is_frozen(env, &merchant) {
@@ -1477,7 +1585,7 @@ fn subscribe_inner(
     let last_charged = now + trial_duration;
 
     let existing = storage::get_subscription(env, &user);
-    let should_increment = existing.as_ref().is_none_or(|s| !s.active);
+    let should_increment = existing.as_ref().map_or(true, |s| !s.active);
 
     if let Some(ref existing_sub) = existing {
         if existing_sub.active && existing_sub.merchant != merchant {

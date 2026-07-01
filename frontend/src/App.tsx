@@ -24,6 +24,7 @@ import { useRegisterShortcuts } from "./context/ShortcutRegistry";
 import { useAnalytics } from "./hooks/useAnalytics";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import SystemHealthCard from "./components/SystemHealthCard";
 import TabBar from "./components/TabBar";
 import ConnectWallet from "./components/ConnectWallet";
@@ -158,6 +159,7 @@ export default function App() {
   const subscribeErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const dashboardErrorBoundaryRef = useRef<ErrorBoundary>(null);
   const merchantErrorBoundaryRef = useRef<ErrorBoundary>(null);
+  const adminErrorBoundaryRef = useRef<ErrorBoundary>(null);
 
   // Global keyboard shortcuts
   useRegisterShortcuts([
@@ -375,7 +377,20 @@ export default function App() {
                 </Suspense>
               </ErrorBoundary>
             ) : tab === "admin" ? (
-              <SystemHealthCard callerKey={publicKey} />
+              <ErrorBoundary
+                ref={adminErrorBoundaryRef}
+                fallback={
+                  <TabErrorFallback
+                    title="Admin Dashboard"
+                    onRetry={() => adminErrorBoundaryRef.current?.reset()}
+                  />
+                }
+              >
+                <>
+                  <SystemHealthCard callerKey={publicKey} />
+                  <AdminDashboard publicKey={publicKey} onSign={signAndSubmit} />
+                </>
+              </ErrorBoundary>
             ) : (
               <ErrorBoundary
                 ref={dashboardErrorBoundaryRef}

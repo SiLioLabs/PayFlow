@@ -4,6 +4,8 @@ use crate::charge_exec;
 use crate::grace;
 use crate::{DataKey, Subscription};
 
+pub const MAX_BATCH_SIZE: u32 = 50;
+
 /// The outcome for a single user in a batch_charge call.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
@@ -22,12 +24,24 @@ pub enum ChargeResult {
     GracePeriodElapsed,
 }
 
+pub(crate) fn get_max_batch_size(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxBatchSize)
+        .unwrap_or(MAX_BATCH_SIZE)
+}
+
 /// Attempts to charge each user in `users`.
 ///
 /// Individual failures do **not** abort the batch — every address is
 /// processed and its outcome is recorded in the returned `Vec`.
 pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
     let mut results: Vec<ChargeResult> = Vec::new(env);
+
+    let max_size = get_max_batch_size(env);
+    if users.len() > max_size {
+        env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
+    }
 
     let now = env.ledger().timestamp();
     let grace_period = grace::get_grace_period(env);
