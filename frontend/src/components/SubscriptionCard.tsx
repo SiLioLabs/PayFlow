@@ -3,8 +3,10 @@ import CopyButton from "./CopyButton";
 import NextChargeCountdown from "./NextChargeCountdown";
 import { Subscription } from "../types";
 import { BILLING_INTERVALS, STROOPS_PER_XLM } from "../constants";
-
 import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
+import { usePauseResume } from "../hooks/usePauseResume";
+import { useRegisterShortcuts } from "../context/ShortcutRegistry";
+import { buildCancelTx } from "../stellar";
 
 interface SubscriptionCardProps {
   subscription: Subscription;
@@ -37,10 +39,7 @@ function formatTrialStatus(
   const now = Math.floor(Date.now() / 1000);
   const isInTrial = now < trialEndTimestamp;
   const trialEndDate = new Date(trialEndTimestamp * 1000).toLocaleDateString();
-  const trialDaysRemaining = Math.max(
-    0,
-    Math.ceil((trialEndTimestamp - now) / (24 * 60 * 60))
-  );
+  const trialDaysRemaining = Math.max(0, Math.ceil((trialEndTimestamp - now) / (24 * 60 * 60)));
 
   return { isInTrial, trialEndDate, trialDaysRemaining };
 }
@@ -63,33 +62,47 @@ export default function SubscriptionCard({
   const [showPauseConfirm, setShowPauseConfirm] = React.useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
   const [cancelLoading, setCancelLoading] = React.useState(false);
-  const [pauseLoading, setPauseLoading] = React.useState(false);
-  const [resumeLoading, setResumeLoading] = React.useState(false);
-  const [pauseStatus, setPauseStatus] = React.useState("");
   const [cancelStatus, setCancelStatus] = React.useState("");
+
+  const { pause, resume, pauseTx, resumeTx } = usePauseResume(userKey, onSign, onRefresh);
+
+  useRegisterShortcuts(
+    active
+      ? [
+          {
+            key: "x",
+            description: "Cancel active subscription",
+            action: () => {
+              setShowCancelConfirm(true);
+            },
+          },
+        ]
+      : []
+  );
 
   const handleCancel = async () => {
     setCancelLoading(true);
     setCancelStatus("");
     try {
-      await mutate('cancel', async () => {
-        const { buildCancelTx } = await import("../stellar");
-        const xdr = await buildCancelTx(userKey);
-        return onSign(xdr);
-      }, { active: false });
+      await mutate(
+        "cancel",
+        async () => {
+          const xdr = await buildCancelTx(userKey);
+          return onSign(xdr);
+        },
+        { active: false }
+      );
       setCancelStatus("Cancelled successfully.");
       setShowCancelConfirm(false);
       onCancelled?.();
-    } catch (e: any) {
-      setCancelStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setCancelStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setCancelLoading(false);
     }
   };
 
   const handlePause = async () => {
-    setPauseLoading(true);
-    setPauseStatus("");
     try {
       await mutate('pause', async () => {
         const { buildPauseTx } = await import("../stellar");
@@ -99,39 +112,40 @@ export default function SubscriptionCard({
       
       setPauseStatus("Paused successfully.");
       setShowPauseConfirm(false);
-    } catch (e: any) {
-      setPauseStatus(`Error: ${e.message}`);
-    } finally {
-      setPauseLoading(false);
+    } catch {
+      // pauseTx.error holds the failure reason
     }
   };
 
   const handleResume = async () => {
-    setResumeLoading(true);
-    setPauseStatus("");
     try {
-      await mutate('resume', async () => {
-        const { buildResumeTx } = await import("../stellar");
-        const xdr = await buildResumeTx(userKey);
-        return onSign(xdr);
-      }, { paused: false });
-      
-      setPauseStatus("Resumed successfully.");
-    } catch (e: any) {
-      setPauseStatus(`Error: ${e.message}`);
-    } finally {
-      setResumeLoading(false);
+      await resume();
+    } catch {
+      // resumeTx.error holds the failure reason
     }
   };
+
+  let derivedPauseStatus = "";
+  if (pauseTx.state === "pending") {
+    derivedPauseStatus = "Pausing…";
+  } else if (pauseTx.state === "success") {
+    derivedPauseStatus = "Paused successfully.";
+  } else if (pauseTx.state === "failed") {
+    derivedPauseStatus = `Error: ${pauseTx.error || "Failed to pause"}`;
+  } else if (resumeTx.state === "pending") {
+    derivedPauseStatus = "Resuming…";
+  } else if (resumeTx.state === "success") {
+    derivedPauseStatus = "Resumed successfully.";
+  } else if (resumeTx.state === "failed") {
+    derivedPauseStatus = `Error: ${resumeTx.error || "Failed to resume"}`;
+  }
 
   return (
     <div className="card">
       <div className="subscription-card__header">
         <div>
           <h2 className="subscription-card__title">Your Subscription</h2>
-          {subscription.label && (
-            <p className="subscription-card__label">{subscription.label}</p>
-          )}
+          {subscription.label && <p className="subscription-card__label">{subscription.label}</p>}
         </div>
         <span className={`badge ${active ? "badge-active" : "badge-inactive"}`}>
           {active ? (isInTrial ? "Trial Active" : "Active") : "Cancelled"}
@@ -185,8 +199,12 @@ export default function SubscriptionCard({
         )}
         {active && paused && (
           <>
-            <button onClick={handleResume} disabled={resumeLoading} className="btn-primary resume-btn">
-              {resumeLoading ? "Resuming…" : "Resume"}
+            <button
+              onClick={handleResume}
+              disabled={resumeTx.state === "pending"}
+              className="btn-primary resume-btn"
+            >
+              {resumeTx.state === "pending" ? "Resuming…" : "Resume"}
             </button>
             <button
               onClick={() => {
@@ -214,8 +232,12 @@ export default function SubscriptionCard({
               <button onClick={() => setShowPauseConfirm(false)} className="btn-secondary">
                 Cancel
               </button>
-              <button onClick={handlePause} disabled={pauseLoading} className="btn-primary">
-                {pauseLoading ? "Pausing…" : "Pause"}
+              <button
+                onClick={handlePause}
+                disabled={pauseTx.state === "pending"}
+                className="btn-primary"
+              >
+                {pauseTx.state === "pending" ? "Pausing…" : "Pause"}
               </button>
             </div>
           </div>
@@ -239,14 +261,17 @@ export default function SubscriptionCard({
         </div>
       )}
 
-      {(pauseStatus || cancelStatus) && (
+      {(derivedPauseStatus || cancelStatus) && (
         <p
           className="form-status"
           style={{
-            color: (pauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")) ? "var(--color-danger)" : "var(--color-success)",
+            color:
+              derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")
+                ? "var(--color-danger)"
+                : "var(--color-success)",
           }}
         >
-          {pauseStatus || cancelStatus}
+          {derivedPauseStatus || cancelStatus}
         </p>
       )}
     </div>

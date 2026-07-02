@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-namespace */
 import { xdr, Address } from "@stellar/stellar-sdk";
 
 export class ScValDecodeError extends Error {
@@ -18,7 +19,8 @@ export namespace ScValDecoder {
     if (actualType !== "scvI128") {
       throw new ScValDecodeError("scvI128", actualType);
     }
-    return BigInt(val.i128().toString());
+    const parts = val.i128();
+    return (BigInt(parts.hi().toString()) << 64n) + BigInt(parts.lo().toString());
   }
 
   export function decodeU64(val: xdr.ScVal): bigint {
@@ -102,7 +104,16 @@ export namespace ScValDecoder {
 
     const entries = val.map() ?? [];
     for (const entry of entries) {
-      const key = decodeSymbol(entry.key());
+      const keyType = entry.key().switch().name;
+      const key =
+        keyType === "scvSymbol"
+          ? entry.key().sym().toString()
+          : keyType === "scvString"
+            ? entry.key().str().toString()
+            : null;
+      if (key === null) {
+        continue;
+      }
       const decoder = schema[key as keyof T];
       if (decoder) {
         result[key as keyof T] = decoder(entry.val());

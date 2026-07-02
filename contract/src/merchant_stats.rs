@@ -13,10 +13,12 @@ pub fn get_merchant_revenue(env: &Env, merchant: &Address) -> i128 {
 /// Adds `amount` to the merchant's running revenue total.
 pub fn increment_revenue(env: &Env, merchant: &Address, amount: i128) {
     let current = get_merchant_revenue(env, merchant);
+    let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(
-        &DataKey::MerchantRevenue(merchant.clone()),
+        &key,
         &(current + amount),
     );
+    env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
 }
 
 /// Returns the merchant's revenue history as a Vec (oldest -> newest), limited to the
@@ -33,7 +35,7 @@ pub fn get_merchant_revenue_history(env: &Env, merchant: &Address, days: u32) ->
     }
 
     let len = history.len();
-    let start = if len > days { len - days } else { 0 };
+    let start = len.saturating_sub(days);
     let mut out = Vec::new(env);
     for i in start..len {
         out.push_back(history.get(i).unwrap());
@@ -63,7 +65,9 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
         .persistent()
         .set(&day_key, &(current_day + amount));
     // extend TTL: 1,555,200 ledgers (~90 days)
-    env.storage().persistent().extend_ttl(&day_key, 1555200, 1555200);
+    env.storage()
+        .persistent()
+        .extend_ttl(&day_key, 1555200, 1555200);
 
     // append to consolidated history Vec
     let hist_key = DataKey::MerchantRevenueHistory(merchant.clone());
@@ -74,6 +78,7 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
         .unwrap_or_else(|| Vec::new(env));
     history.push_back(amount);
     env.storage().persistent().set(&hist_key, &history);
+    env.storage().persistent().extend_ttl(&hist_key, 1555200, 1555200);
 }
 
 /// Returns the number of active subscribers for a merchant.
@@ -87,33 +92,41 @@ pub fn get_merchant_subscriber_count(env: &Env, merchant: &Address) -> u64 {
 /// Increments the per-merchant subscriber count by 1.
 pub fn increment_subscriber_count(env: &Env, merchant: &Address) {
     let count = get_merchant_subscriber_count(env, merchant);
+    let key = DataKey::MerchantSubCount(merchant.clone());
     env.storage()
         .persistent()
-        .set(&DataKey::MerchantSubCount(merchant.clone()), &(count + 1));
+        .set(&key, &(count + 1));
+    env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
 }
 
 /// Decrements the per-merchant subscriber count by 1 (floor 0).
 pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
     let count = get_merchant_subscriber_count(env, merchant);
     if count > 0 {
+        let key = DataKey::MerchantSubCount(merchant.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::MerchantSubCount(merchant.clone()), &(count - 1));
+            .set(&key, &(count - 1));
+        env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
     }
 }
 
 /// Resets a merchant's cumulative revenue counter to zero.
 pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
+    let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage()
         .persistent()
-        .set(&DataKey::MerchantRevenue(merchant.clone()), &0i128);
+        .set(&key, &0i128);
+    env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
 }
 
 /// Extends the TTL of a specific merchant daily revenue bucket.
 pub fn bump_merchant_revenue_day(env: &Env, merchant: &Address, day: u64) {
     let key = DataKey::MerchantRevenueDay(merchant.clone(), day);
     if env.storage().persistent().has(&key) {
-        env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 1555200, 1555200);
     }
 }
 

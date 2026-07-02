@@ -98,7 +98,9 @@ describe("MerchantDashboard", () => {
 
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Charge 1 due subscriber/i })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Charge 1 due subscriber/i })).toBeTruthy()
+    );
   });
 
   it("processes a batch charge and shows success message", async () => {
@@ -130,7 +132,9 @@ describe("MerchantDashboard", () => {
 
     await userEvent.click(button);
 
-    await waitFor(() => expect(screen.getByText(/Batch charge submitted successfully!/i)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/Batch charge submitted successfully!/i)).toBeTruthy()
+    );
     expect(screen.getByText("Charged")).toBeTruthy();
     expect(stellar.simulateBatchCharge).toHaveBeenCalled();
     expect(stellar.buildBatchChargeTx).toHaveBeenCalled();

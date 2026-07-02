@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::{DataKey, Subscription};
+use crate::{admin, events, DataKey, Subscription};
 
 /// v1 Subscription format (missing `paused` field)
 #[soroban_sdk::contracttype]
@@ -18,6 +18,7 @@ pub struct SubscriptionV1 {
 }
 
 /// Current storage schema version.
+#[allow(dead_code)]
 pub const CURRENT_VERSION: u32 = 2;
 
 /// Returns the stored schema version, defaulting to 1 (pre-versioning).
@@ -41,13 +42,18 @@ fn set_schema_version(env: &Env, version: u32) {
 /// (adding `paused: false`).
 ///
 /// Safe to call multiple times — subsequent calls are no-ops.
+/// Only the contract admin can call this.
 pub fn migrate(env: &Env, users: Vec<Address>) {
+    admin::require_admin(env);
+
     let version = get_schema_version(env);
 
     if version < 2 {
         // v1 → v2: stamp the schema version
         set_schema_version(env, 2);
     }
+
+    let user_count = users.len();
 
     // Transform provided users' data from v1 to v2
     for user in users.into_iter() {
@@ -71,4 +77,6 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
             env.storage().persistent().set(&key, &v2_sub);
         }
     }
+
+    events::publish_migration_completed(env, get_schema_version(env), user_count);
 }

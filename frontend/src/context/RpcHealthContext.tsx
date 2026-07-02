@@ -64,9 +64,5 @@ export function RpcHealthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  return (
-    <RpcHealthContext.Provider value={state}>
-      {children}
-    </RpcHealthContext.Provider>
-  );
+  return <RpcHealthContext.Provider value={state}>{children}</RpcHealthContext.Provider>;
 }

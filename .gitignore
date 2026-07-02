@@ -191,4 +191,6 @@ config/local.json
 .agents/
 .claude/
 skills-lock.json
-issue.md
+issue.mdkiro-cli.deb
+kiro-cli.deb.1
+.antigravitycli/

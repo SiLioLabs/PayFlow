@@ -28,38 +28,104 @@ interface UseFormValidationResult {
   validateAsync: (fields: FormFields) => Promise<boolean>;
 }
 
+/**
+ * validateStroopAmount - Validates a subscription amount entered as a decimal string.
+ *
+ * Converts the human amount to stroops (7 decimal places) and checks it:
+ * - is a valid number
+ * - is > 0
+ * - does not exceed the protocol maximum.
+ *
+ * @param value - Amount as a decimal string (e.g., "12.34")
+ * @param maxStroops - Maximum allowed amount in stroops
+ * @returns {ValidationResult} Validation outcome
+ */
 export function validateStroopAmount(value: string, maxStroops: bigint): ValidationResult {
   const num = parseFloat(value);
   if (!value || isNaN(num) || num <= 0) {
     return { valid: false, error: "Amount must be greater than 0." };
   }
+
   const stroops = BigInt(Math.round(num * 10_000_000));
   if (stroops > maxStroops) {
     return { valid: false, error: `Amount exceeds maximum of ${maxStroops} stroops.` };
   }
+
   return { valid: true };
 }
 
+/**
+ * validateInterval - Validates the subscription interval.
+ *
+ * @param seconds - Interval in seconds
+ * @param minSeconds - Minimum allowed interval in seconds
+ * @returns {ValidationResult} Validation outcome
+ */
 export function validateInterval(seconds: number, minSeconds: number): ValidationResult {
   if (!seconds || seconds <= 0) {
     return { valid: false, error: "Interval must be greater than 0." };
   }
+
   if (seconds < minSeconds) {
-    return { valid: false, error: `Interval must be at least ${minSeconds} seconds.` };
+    return {
+      valid: false,
+      error: `Interval must be at least ${minSeconds} seconds.`,
+    };
   }
+
   return { valid: true };
 }
 
+/**
+ * validateAddress - Validates a Stellar Ed25519 public key.
+ *
+ * @param addr - Stellar public key
+ * @returns {ValidationResult} Validation outcome
+ */
 export function validateAddress(addr: string): ValidationResult {
   if (!addr) {
     return { valid: false, error: "Address is required." };
   }
+
   if (!StrKey.isValidEd25519PublicKey(addr)) {
     return { valid: false, error: "Invalid Stellar address." };
   }
+
   return { valid: true };
 }
 
+/**
+ * useFormValidation - Validates subscription/checkout form fields.
+ *
+ * Purpose:
+ * - Provides synchronous validation for:
+ *   - Stellar address format
+ *   - Amount in stroops within protocol limits
+ *   - Interval within minimum seconds
+ * - Provides validateAsync, which additionally verifies that the merchant
+ *   account exists on the connected Stellar RPC endpoint.
+ *
+ * Side effects:
+ * - Calls `server.getAccount` during `validateAsync`.
+ * - Updates React state.
+ * - Cancels in-flight async validation via `AbortController`.
+ *
+ * @returns {Object} Form validation state and functions
+ * @returns {FormErrors} returns.errors - Field-level error messages
+ * @returns {(fields: FormFields) => boolean} returns.validate - Synchronously validate and populate `errors`
+ * @returns {boolean} returns.isValid - True when there are no validation errors
+ * @returns {boolean} returns.validating - True while `validateAsync` is in-flight
+ * @returns {(fields: FormFields) => Promise<boolean>} returns.validateAsync - Async validation including RPC check
+ *
+ * @example
+ * const { errors, validate, isValid, validateAsync, validating } = useFormValidation();
+ *
+ * async function onSubmit() {
+ *   if (!validate(fields)) return;
+ *   await validateAsync(fields);
+ *   if (isValid) submit();
+ * }
+ */
 export function useFormValidation(): UseFormValidationResult {
   const [errors, setErrors] = useState<FormErrors>({});
   const [validating, setValidating] = useState(false);
@@ -73,7 +139,10 @@ export function useFormValidation(): UseFormValidationResult {
       next.merchant = addressResult.error;
     }
 
-    const amountResult = validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT);
+    const amountResult = validateStroopAmount(
+      fields.amount,
+      CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT
+    );
     if (!amountResult.valid) {
       next.amount = amountResult.error;
     }
@@ -87,53 +156,58 @@ export function useFormValidation(): UseFormValidationResult {
     return Object.keys(next).length === 0;
   }, []);
 
-  const validateAsync = useCallback(async (fields: FormFields): Promise<boolean> => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const validateAsync = useCallback(
+    async (fields: FormFields): Promise<boolean> => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
 
-    const syncPassed = validate(fields);
-    if (!syncPassed) {
-      return false;
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setValidating(true);
-    try {
-      await server.getAccount(fields.merchant);
-
-      if (controller.signal.aborted) {
+      const syncPassed = validate(fields);
+      if (!syncPassed) {
         return false;
       }
 
-      setErrors(prev => {
-        if (prev.merchant === "Account not found on network.") {
-          const { merchant: _, ...rest } = prev;
-          return rest;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setValidating(true);
+      try {
+        await server.getAccount(fields.merchant);
+
+        if (controller.signal.aborted) {
+          return false;
         }
-        return prev;
-      });
 
-      return true;
-    } catch (err) {
-      if (controller.signal.aborted) {
+        // Clear merchant error if we previously set it.
+        setErrors((prev: FormErrors) => {
+          if (prev.merchant === "Account not found on network.") {
+            const rest = { ...prev };
+            delete rest.merchant;
+            return rest;
+          }
+          return prev;
+        });
+
+        return true;
+      } catch {
+        if (controller.signal.aborted) {
+          return false;
+        }
+
+        setErrors((prev: FormErrors) => ({
+          ...prev,
+          merchant: "Account not found on network.",
+        }));
+
         return false;
+      } finally {
+        if (!controller.signal.aborted) {
+          setValidating(false);
+        }
       }
-
-      setErrors(prev => ({
-        ...prev,
-        merchant: "Account not found on network.",
-      }));
-
-      return false;
-    } finally {
-      if (!controller.signal.aborted) {
-        setValidating(false);
-      }
-    }
-  }, [validate]);
+    },
+    [validate]
+  );
 
   useEffect(() => {
     return () => {
@@ -151,4 +225,3 @@ export function useFormValidation(): UseFormValidationResult {
     validateAsync,
   };
 }
-

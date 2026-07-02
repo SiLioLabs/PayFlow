@@ -45,7 +45,7 @@ pub fn precheck_charge(
     now: u64,
     grace_period: u64,
 ) -> Result<(), ChargeResult> {
-    let next = compute_next_charge_at(sub).ok_or_else(|| {
+    let next = compute_next_charge_at(sub).ok_or({
         if !sub.active {
             ChargeResult::Inactive
         } else {

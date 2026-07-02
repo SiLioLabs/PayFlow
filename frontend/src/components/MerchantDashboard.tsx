@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getMerchantSubscribers, type MerchantSubscriber, buildBatchChargeTx, simulateBatchCharge, type BatchChargeOutcome, getMerchantRevenue, getMerchantRevenueHistory } from "../stellar";
+import {
+  getMerchantSubscribers,
+  type MerchantSubscriber,
+  buildBatchChargeTx,
+  simulateBatchCharge,
+  type BatchChargeOutcome,
+  getMerchantRevenue,
+  getMerchantRevenueHistory,
+} from "../stellar";
 import { formatAddress, formatXlm } from "../utils/format";
 import { usePolling } from "../hooks/usePolling";
 import { useTransaction } from "../hooks/useTransaction";
@@ -21,11 +29,7 @@ function formatNextCharge(nextChargeAt: number): string {
   return date.toLocaleString();
 }
 
-export default function MerchantDashboard({
-  merchantKey,
-  onSign,
-  refreshTrigger,
-}: Props) {
+export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger }: Props) {
   const [subscribers, setSubscribers] = useState<MerchantSubscriber[]>([]);
   const [revenue, setRevenue] = useState<bigint>(0n);
   const [revenueHistory, setRevenueHistory] = useState<bigint[]>([]);
@@ -35,9 +39,7 @@ export default function MerchantDashboard({
   const tx = useTransaction();
   const [outcomes, setOutcomes] = useState<Record<string, BatchChargeOutcome>>({});
 
-  const dueSubscribers = subscribers.filter(
-    (s) => s.nextChargeAt <= Math.floor(Date.now() / 1000)
-  );
+  const dueSubscribers = subscribers.filter((s) => s.nextChargeAt <= Math.floor(Date.now() / 1000));
   const virtualSubscribers = useVirtualList(
     subscribers,
     SUBSCRIBER_ROW_HEIGHT,
@@ -113,9 +115,7 @@ export default function MerchantDashboard({
       <div className="flex-between mb-4">
         <div>
           <h2 className="text-xl font-bold">Merchant Dashboard</h2>
-          <p className="text-sm text-muted">
-            Manage your subscribers and track your revenue.
-          </p>
+          <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary" onClick={refresh}>
@@ -158,13 +158,9 @@ export default function MerchantDashboard({
           <div className="merchant-subscriber-meta mb-4">
             <h3 className="text-lg font-bold">Active Subscribers</h3>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted">
-                {subscribers.length} total
-              </span>
+              <span className="text-sm text-muted">{subscribers.length} total</span>
               {dueSubscribers.length > 0 && (
-                <span className="badge badge-warning">
-                  {dueSubscribers.length} due
-                </span>
+                <span className="badge badge-warning">{dueSubscribers.length} due</span>
               )}
             </div>
           </div>
@@ -217,15 +213,15 @@ export default function MerchantDashboard({
                       <CopyButton text={entry.subscriber} />
                     </div>
                     <div className="merchant-subscriber-value">
-                      <span className="subscription-row__value">
-                        {formatXlm(entry.amount)}
-                      </span>
+                      <span className="subscription-row__value">{formatXlm(entry.amount)}</span>
                       <div className="flex flex-col items-end gap-1">
                         <span className="subscription-row__label">
                           Next charge {formatNextCharge(entry.nextChargeAt)}
                         </span>
                         {outcomes[entry.subscriber] && (
-                          <span className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}>
+                          <span
+                            className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}
+                          >
                             {outcomes[entry.subscriber]}
                           </span>
                         )}

@@ -60,7 +60,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               Reload
             </button>
           </div>
-          </div>
+        </div>
       );
     }
 

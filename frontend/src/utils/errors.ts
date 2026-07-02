@@ -9,6 +9,8 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "subscription paused": "Subscription paused.",
   "insufficient allowance": "Insufficient allowance.",
   "merchant not whitelisted": "Merchant not whitelisted.",
+  "admin not set": "Contract admin is not configured.",
+  require_auth: "Wallet authorization required. Connect as the contract admin.",
 };
 
 export function friendlyError(raw: string): string {

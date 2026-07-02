@@ -17,7 +17,10 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
   if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
   const stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
   if (stroops < MIN_STROOPS) {
-    return { stroops: null, error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM` };
+    return {
+      stroops: null,
+      error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`,
+    };
   }
   if (stroops > MAX_STROOPS) {
     return { stroops: null, error: `Must be at most ${Number(MAX_STROOPS) / STROOPS_PER_XLM} XLM` };
@@ -29,14 +32,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
   ({ onPay, loading }, ref) => {
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
-    const [isDebouncing, setIsDebouncing] = useState(false);
     const [lastValue, setLastValue] = useState(amount);
     const debouncedValue = useDebounce(amount, 300);
     const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
 
     useEffect(() => {
       if (amount !== lastValue) {
-        setIsDebouncing(true);
         setLastValue(amount);
       }
     }, [amount, lastValue]);
@@ -45,14 +46,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       const { stroops, error: err } = validate(debouncedValue);
       setConvertedStroops(stroops);
       setError(err);
-      setIsDebouncing(false);
     }, [debouncedValue]);
 
     function handleBlur() {
       const { stroops, error: err } = validate(amount);
       setConvertedStroops(stroops);
       setError(err);
-      setIsDebouncing(false);
     }
 
     const formatXLM = (stroops: bigint): string => {
@@ -72,8 +71,6 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       setError(null);
       setConvertedStroops(null);
     }
-
-    const isSubmitDisabled = isDebouncing || !!error || !convertedStroops || loading;
 
     return (
       <div className="card">
@@ -105,9 +102,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             {loading ? <Spinner size="sm" /> : "Pay now"}
           </button>
         </div>
-        {validationResult.error && (
-          <span className="text-error">{validationResult.error}</span>
-        )}
+        {validationResult.error && <span className="text-error">{validationResult.error}</span>}
       </div>
     );
   }

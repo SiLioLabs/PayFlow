@@ -7,7 +7,13 @@ vi.mock("../stellar", () => ({
   },
 }));
 
-import { useFormValidation, type FormFields, validateStroopAmount, validateInterval, validateAddress } from "../hooks/useFormValidation";
+import {
+  useFormValidation,
+  type FormFields,
+  validateStroopAmount,
+  validateInterval,
+  validateAddress,
+} from "../hooks/useFormValidation";
 import { server } from "../stellar";
 import { CONTRACT_LIMITS } from "../constants";
 
@@ -80,12 +86,15 @@ describe("useFormValidation", () => {
       mockedServer.getAccount.mockResolvedValue({} as any);
 
       const hook = renderHook(() => useFormValidation());
-      
+
       let isValid: boolean | null = null;
       let promise: Promise<boolean>;
 
       act(() => {
-        promise = hook.result.current.validateAsync({ ...validFields, interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS });
+        promise = hook.result.current.validateAsync({
+          ...validFields,
+          interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS,
+        });
       });
 
       expect(hook.result.current.validating).toBe(true);
@@ -104,12 +113,15 @@ describe("useFormValidation", () => {
       mockedServer.getAccount.mockRejectedValue(new Error("Account not found"));
 
       const hook = renderHook(() => useFormValidation());
-      
+
       let isValid: boolean | null = null;
       let promise: Promise<boolean>;
 
       act(() => {
-        promise = hook.result.current.validateAsync({ ...validFields, interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS });
+        promise = hook.result.current.validateAsync({
+          ...validFields,
+          interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS,
+        });
       });
 
       expect(hook.result.current.validating).toBe(true);
@@ -125,7 +137,7 @@ describe("useFormValidation", () => {
 
     it("returns false and does not call RPC if sync validation fails", async () => {
       const hook = renderHook(() => useFormValidation());
-      
+
       let isValid: boolean | null = null;
       let promise: Promise<boolean>;
 
@@ -163,14 +175,20 @@ describe("useFormValidation", () => {
       let promise2: Promise<boolean>;
 
       act(() => {
-        promise1 = hook.result.current.validateAsync({ ...validFields, interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS });
+        promise1 = hook.result.current.validateAsync({
+          ...validFields,
+          interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS,
+        });
       });
 
       expect(hook.result.current.validating).toBe(true);
 
       // Trigger second validation immediately
       act(() => {
-        promise2 = hook.result.current.validateAsync({ ...validFields, interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS });
+        promise2 = hook.result.current.validateAsync({
+          ...validFields,
+          interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS,
+        });
       });
 
       // Resolve the first one (should be ignored)
@@ -225,17 +243,26 @@ describe("validateInterval", () => {
   });
 
   it("returns invalid for less than min", () => {
-    const result = validateInterval(CONTRACT_LIMITS.MIN_INTERVAL_SECONDS - 1, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS);
+    const result = validateInterval(
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS - 1,
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS
+    );
     expect(result.valid).toBe(false);
   });
 
   it("returns valid for exactly min", () => {
-    const result = validateInterval(CONTRACT_LIMITS.MIN_INTERVAL_SECONDS, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS);
+    const result = validateInterval(
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS,
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS
+    );
     expect(result.valid).toBe(true);
   });
 
   it("returns valid for more than min", () => {
-    const result = validateInterval(CONTRACT_LIMITS.MIN_INTERVAL_SECONDS + 1, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS);
+    const result = validateInterval(
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS + 1,
+      CONTRACT_LIMITS.MIN_INTERVAL_SECONDS
+    );
     expect(result.valid).toBe(true);
   });
 });

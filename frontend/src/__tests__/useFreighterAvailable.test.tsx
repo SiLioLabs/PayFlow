@@ -16,17 +16,23 @@ describe("useFreighterAvailable", () => {
   afterEach(() => {
     // clean up any global we set
     try {
-      // @ts-ignore
       delete (global as any).window.freighter;
-    } catch {}
+    } catch {
+      // ignore
+    }
   });
 
   it("reports available when window.freighter exists", async () => {
-    // ensure global window exists
-    // @ts-ignore
     (global as any).window = global.window || {};
-    // @ts-ignore
-    window.freighter = {};
+    (window as any).freighter = {
+      isConnected: async () => true,
+      getPublicKey: async () => "GABC",
+      getNetwork: async () => ({
+        network: "TESTNET",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      }),
+      signTransaction: async (xdr: string) => xdr,
+    };
 
     render(<Test />);
 
@@ -35,10 +41,7 @@ describe("useFreighterAvailable", () => {
   });
 
   it("reports not available when window.freighter is missing", async () => {
-    // ensure it's undefined
-    // @ts-ignore
     (global as any).window = global.window || {};
-    // @ts-ignore
     delete (global as any).window.freighter;
 
     render(<Test />);

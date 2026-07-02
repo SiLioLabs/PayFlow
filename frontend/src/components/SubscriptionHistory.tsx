@@ -66,7 +66,14 @@ function exportToCsv(events: ChargeEvent[]): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function SubscriptionHistory({ userKey }: Props) {
-  const { events: contractEvents, loading, error, refresh, loadMore, hasMore } = useContractEvents("charged", userKey);
+  const {
+    events: contractEvents,
+    loading,
+    error,
+    refresh,
+    loadMore,
+    hasMore,
+  } = useContractEvents("charged", userKey);
 
   // Cache of the last successfully fetched events for stale-while-revalidate.
   const cachedEventsRef = useRef<ChargeEvent[]>([]);
@@ -271,6 +278,7 @@ export default function SubscriptionHistory({ userKey }: Props) {
           </button>
         </div>
       )}
+      {/* Pagination controls */}
       {totalPages > 1 && (
         <div
           style={{
