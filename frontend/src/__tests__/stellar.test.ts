@@ -1,6 +1,7 @@
+import { nativeToScVal, xdr, Address } from "@stellar/stellar-sdk";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { nativeToScVal, Address } from "@stellar/stellar-sdk";
 import { ScValDecoder, ScValDecodeError } from "../services/scval";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // 1. Intercept the Stellar SDK's Server class safely with a standalone mock implementation
 vi.mock("@stellar/stellar-sdk/rpc", () => {
@@ -59,31 +60,31 @@ describe("fetchEvents", () => {
   });
 
   it("filters by event name correctly", async () => {
-    const result = await fetchEvents("subscribed");
+    const { events: result } = await fetchEvents("subscribed");
 
-    expect(result.events).toHaveLength(2);
-    expect(result.events[0].eventName).toBe("subscribed");
-    expect(result.events[0].address).toBe("user_A");
-    expect(result.events[1].address).toBe("user_B");
+    expect(result).toHaveLength(2);
+    expect(result[0].eventName).toBe("subscribed");
+    expect(result[0].address).toBe("user_A");
+    expect(result[1].address).toBe("user_B");
   });
 
   it("filters by address when provided", async () => {
-    const result = await fetchEvents("subscribed", "user_A");
+    const { events: result } = await fetchEvents("subscribed", "user_A");
 
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].eventName).toBe("subscribed");
-    expect(result.events[0].address).toBe("user_A");
-    expect(result.events[0].data).toEqual({ amount: 1000 });
+    expect(result).toHaveLength(1);
+    expect(result[0].eventName).toBe("subscribed");
+    expect(result[0].address).toBe("user_A");
+    expect(result[0].data).toEqual({ amount: 1000 });
   });
 
   it("returns empty array on error", async () => {
     // Override default resolution to force an architecture crash
     getEventsMock.mockRejectedValue(new Error("Stellar RPC Network Failure"));
 
-    const result = await fetchEvents("subscribed");
+    const { events: result } = await fetchEvents("subscribed");
 
     // The function's internal catch block should swallow the exception and output [] safely
-    expect(result.events).toEqual([]);
+    expect(result).toEqual([]);
   });
 });
 

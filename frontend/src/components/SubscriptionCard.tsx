@@ -13,6 +13,8 @@ interface SubscriptionCardProps {
   onSign: (xdr: string) => Promise<string>;
   onRefresh: () => void;
   onCancelled?: () => void;
+  onCancel?: () => void;
+  onPause?: (xdr: string) => Promise<string>;
 }
 
 function formatInterval(secs: number): string {
@@ -48,6 +50,8 @@ export default function SubscriptionCard({
   onSign,
   onRefresh,
   onCancelled,
+  onCancel,
+  onPause,
 }: SubscriptionCardProps & { userKey: string }) {
   const { mutate } = useSubscriptionSync(userKey);
   const { merchant, amount, interval, last_charged, active, paused, trial_duration } = subscription;
@@ -100,7 +104,13 @@ export default function SubscriptionCard({
 
   const handlePause = async () => {
     try {
-      await pause();
+      await mutate('pause', async () => {
+        const { buildPauseTx } = await import("../stellar");
+        const xdr = await buildPauseTx(userKey);
+        return (onPause ?? onSign)(xdr);
+      }, { paused: true });
+      
+      setPauseStatus("Paused successfully.");
       setShowPauseConfirm(false);
     } catch {
       // pauseTx.error holds the failure reason
@@ -173,7 +183,13 @@ export default function SubscriptionCard({
               Pause
             </button>
             <button
-              onClick={() => setShowCancelConfirm(true)}
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                } else {
+                  setShowCancelConfirm(true);
+                }
+              }}
               className="btn-danger cancel-btn"
               aria-label="Cancel subscription"
             >
@@ -191,7 +207,13 @@ export default function SubscriptionCard({
               {resumeTx.state === "pending" ? "Resuming…" : "Resume"}
             </button>
             <button
-              onClick={() => setShowCancelConfirm(true)}
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                } else {
+                  setShowCancelConfirm(true);
+                }
+              }}
               className="btn-danger cancel-btn"
               aria-label="Cancel subscription"
             >

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback, lazy, Suspense } from "react";
-import { buildPayPerUseTx } from "../stellar";
+import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionCardSkeleton from "./Skeleton";
@@ -13,7 +13,7 @@ import DailyLimitModal from "./DailyLimitModal";
 import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
 import AllowanceDisplay from "./AllowanceDisplay";
 import ToastContainer from "./Toast";
-import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
+import { useSubscription } from "../hooks/useSubscription";
 import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
 import { useRpcHealth } from "../hooks/useRpcHealth";
@@ -40,7 +40,9 @@ export default function Dashboard({
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
+  const cancelTx = useTransaction();
   const ppuTx = useTransaction();
+  const [showConfirm, setShowConfirm] = useState(false);
   const [showDailyLimit, setShowDailyLimit] = useState(false);
   const [showIncreaseAllowance, setShowIncreaseAllowance] = useState(false);
   const [allowanceRefresh, setAllowanceRefresh] = useState(0);
@@ -63,25 +65,56 @@ export default function Dashboard({
       : []
   );
 
-  const handlePayPerUse = useCallback(
-    async (stroops: bigint) => {
-      announce("Transaction submitted");
-      try {
-        const hash = await ppuTx.submit(async () => {
-          const xdr = await buildPayPerUseTx(userKey, stroops);
-          return onSign(xdr);
-        });
-        addToast("Paid!", "success", hash);
-        announce("Transaction confirmed");
-        onPayPerUse?.(stroops);
-      } catch (e: unknown) {
-        const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
-        addToast(msg, "error");
-        announce(msg);
+      if (key === "x" && sub?.active && !showConfirm) {
+        e.preventDefault();
+        setShowConfirm(true);
       }
-    },
-    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]
-  );
+
+      if (key === "p" && sub?.active) {
+        e.preventDefault();
+        ppuInputRef.current?.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [sub?.active, showConfirm]);
+
+  async function performCancel() {
+    setShowConfirm(false);
+    announce("Transaction submitted");
+    try {
+      const hash = await cancelTx.submit(async () => {
+        const xdr = await buildCancelTx(userKey);
+        return onSign(xdr);
+      });
+      addToast("Cancelled.", "success", hash);
+      announce("Transaction confirmed");
+      onCancelled?.();
+      refresh();
+    } catch (e: unknown) {
+      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
+      addToast(msg, "error");
+      announce(msg);
+    }
+  }
+
+  const handlePayPerUse = useCallback(async (stroops: bigint) => {
+    announce("Transaction submitted");
+    try {
+      const hash = await ppuTx.submit(async () => {
+        const xdr = await buildPayPerUseTx(userKey, stroops);
+        return onSign(xdr);
+      });
+      addToast("Paid!", "success", hash);
+      announce("Transaction confirmed");
+      onPayPerUse?.(stroops);
+    } catch (e: unknown) {
+      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
+      addToast(msg, "error");
+      announce(msg);
+    }
+  }, [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]);
 
   if (loading)
     return (
@@ -102,6 +135,7 @@ export default function Dashboard({
       </>
     );
 
+  const cancelPending = cancelTx.status === "pending";
   const ppuPending = ppuTx.status === "pending";
 
   return (
@@ -128,9 +162,14 @@ export default function Dashboard({
             subscription={sub}
             userKey={userKey}
             onSign={onSign}
+            onCancel={() => setShowConfirm(true)}
+            onPause={onSign}
             onRefresh={refresh}
-            onCancelled={onCancelled}
           />
+
+          {cancelPending && (
+            <p className="status-text status-text--pending">Confirming cancellation…</p>
+          )}
 
           {sub.active && (
             <>
@@ -178,6 +217,14 @@ export default function Dashboard({
             setDailyLimitRefresh((value) => value + 1);
           }}
           announce={announce}
+        />
+      )}
+
+      {showConfirm && (
+        <ConfirmModal
+          message="Are you sure you want to cancel your subscription? This cannot be undone."
+          onConfirm={performCancel}
+          onCancel={() => setShowConfirm(false)}
         />
       )}
 

@@ -19,5 +19,8 @@
     "frontend/src/**/*.{ts,tsx}": [
       "bash -c 'cd frontend && npx tsc --noEmit'"
     ]
+  },
+  "dependencies": {
+    "typescript": "^6.0.3"
   }
 }

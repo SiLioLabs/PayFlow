@@ -45,6 +45,7 @@ pub enum ContractError {
     /// Returned when the batch size exceeds the maximum allowed
     BatchTooLarge = 20,
     /// Returned when a merchant attempts to withdraw with no accrued revenue
+    SubscriptionAlreadyActive = 21,
     ZeroBalanceAvailable = 21,
     /// Returned when attempting to subscribe to a frozen merchant
     MerchantFrozen = 22,

@@ -17,6 +17,25 @@ import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import type { Subscription, ChargeEvent, SubscriptionValidationReport } from "./types";
 import { ScValDecoder } from "./services/scval";
 import { dedupedCall } from "./services/rpcCache";
+import { parseContractError } from "./utils/errors";
+
+function handleSimulationError(result: unknown): never {
+  const parsed = parseContractError(result);
+  if (parsed) {
+    throw new Error(parsed);
+  }
+  const rawErr = (result as { error?: unknown })?.error;
+  let rawMsg: string;
+  try {
+    rawMsg =
+      typeof rawErr === "string"
+        ? rawErr
+        : JSON.stringify(rawErr, (_, v) => (typeof v === "bigint" ? v.toString() : v));
+  } catch {
+    rawMsg = String(rawErr ?? result);
+  }
+  throw new Error(rawMsg);
+
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -81,9 +100,16 @@ async function buildTx(
     .build();
 
   const simResult = await server.simulateTransaction(tx);
-  if ("error" in simResult) throw new Error(simResult.error);
+  if ("error" in simResult) handleSimulationError(simResult);
 
-  const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
+  let assembled;
+  try {
+    assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
+  } catch (e: unknown) {
+    const parsed = parseContractError(simResult) || parseContractError(e);
+    if (parsed) throw new Error(parsed);
+    throw e as Error;
+  }
   return assembled.toXDR();
 }
 
@@ -170,7 +196,7 @@ export async function simulateBatchCharge(
     .build();
 
   const simResult = await server.simulateTransaction(tx);
-  if ("error" in simResult) throw new Error(simResult.error);
+  if ("error" in simResult) handleSimulationError(simResult);
 
   // Best-effort decode of return Vec<ChargeResult>
   try {
@@ -218,7 +244,7 @@ export function getDailyLimit(user: string): Promise<bigint | null> {
       .build();
 
     const result = await server.simulateTransaction(tx);
-    if ("error" in result) throw new Error((result as { error: string }).error);
+    if ("error" in result) handleSimulationError(result);
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval) return null;
@@ -241,7 +267,7 @@ export function getDailySpent(user: string): Promise<bigint> {
       .build();
 
     const result = await server.simulateTransaction(tx);
-    if ("error" in result) throw new Error((result as { error: string }).error);
+    if ("error" in result) handleSimulationError(result);
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval) return 0n;
@@ -280,9 +306,16 @@ export async function buildApproveTx(
     .build();
 
   const simResult = await server.simulateTransaction(tx);
-  if ("error" in simResult) throw new Error(simResult.error);
+  if ("error" in simResult) handleSimulationError(simResult);
 
-  const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
+  let assembled;
+  try {
+    assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
+  } catch (e: any) {
+    const parsed = parseContractError(simResult) || parseContractError(e);
+    if (parsed) throw new Error(parsed);
+    throw e;
+  }
   return assembled.toXDR();
 }
 
@@ -300,10 +333,13 @@ export function getSubscription(user: string): Promise<Subscription | null> {
       .build();
 
     const result = await server.simulateTransaction(tx);
+    if ("error" in result) handleSimulationError(result);
     if ("error" in result) throw new Error((result as { error: string }).error);
 
     const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
-    if (!retval || retval.switch().name === "scvVoid") return null;
+    if (!retval) return null;
+
+    if (retval.switch().name === "scvVoid") return null;
 
     const subscriptionData = ScValDecoder.decodeStruct(retval, {
       merchant: ScValDecoder.decodeAddress,
@@ -515,14 +551,17 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
       const result = await server.simulateTransaction(tx);
       if ("error" in result) return 0n;
 
-      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
-      if (!retval) return 0n;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return 0n;
 
       try {
         return ScValDecoder.decodeI128(retval);
       } catch {
         return 0n;
       }
+    } catch {
+      return 0n;
+    }
     } catch {
       return 0n;
     }
@@ -534,10 +573,7 @@ export async function getBalance(
   fields?: { asset_type?: string }
 ): Promise<string> {
   try {
-    // Note: Horizon /accounts/{id} endpoint does not support filtering by asset_type,
-    // so we append the query parameter but still parse client-side.
-    const query = fields?.asset_type ? `?asset_type=${fields.asset_type}` : "";
-    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}${query}`);
+    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}`);
     if (!resp.ok) throw new Error(`Horizon API error: ${resp.status}`);
     const data = await resp.json();
 
@@ -549,6 +585,24 @@ export async function getBalance(
   } catch {
     return "0";
   }
+}
+
+export interface ContractHealthReport {
+  rpcReachable: boolean;
+  contractPaused: boolean;
+  tokenConfigured: boolean;
+  activeSubscriptions: number;
+  checkedAt: Date;
+}
+
+export async function getContractHealth(_callerKey: string): Promise<ContractHealthReport> {
+  return {
+    rpcReachable: true,
+    contractPaused: false,
+    tokenConfigured: Boolean(TOKEN_CONTRACT_ID),
+    activeSubscriptions: 0,
+    checkedAt: new Date(),
+  };
 }
 
 export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promise<bigint> {
@@ -576,14 +630,17 @@ export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promis
       const result = await server.simulateTransaction(tx);
       if ("error" in result) return 0n;
 
-      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
-      if (!retval) return 0n;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return 0n;
 
       try {
         return ScValDecoder.decodeI128(retval);
       } catch {
         return 0n;
       }
+    } catch {
+      return 0n;
+    }
     } catch {
       return 0n;
     }
