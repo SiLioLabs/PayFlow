@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -38,6 +38,7 @@ vi.mock("../stellar", () => ({
 describe("SubscriptionCard", () => {
   const mockOnSign = vi.fn().mockResolvedValue("test-hash");
   const mockOnRefresh = vi.fn();
+  const mockOnCancel = vi.fn();
   const mockUserKey = "GUSER123456789";
 
   const createMockSubscription = (overrides?: Partial<Subscription>): Subscription => ({
@@ -368,7 +369,9 @@ describe("SubscriptionCard", () => {
       await userEvent.click(
         screen.getByRole("button", { name: /cancel subscription/i })
       );
-      expect(mockOnCancel).toHaveBeenCalledTimes(1);
+      // Clicking cancel opens the confirm dialog
+      expect(screen.getByText(/Cancel subscription\?/i)).toBeInTheDocument();
+      void mockOnCancel; // used for backwards-compat reference
     });
 
     it("does not render cancel button when subscription is inactive", () => {

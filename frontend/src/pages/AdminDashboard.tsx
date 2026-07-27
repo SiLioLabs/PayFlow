@@ -1,5 +1,7 @@
 import React from "react";
 import SubscriptionRepairPanel from "../components/admin/SubscriptionRepairPanel";
+import BatchPausePanel from "../components/admin/BatchPausePanel";
+import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
 import { useAdmin } from "../hooks/useAdmin";
 import Spinner from "../components/Spinner";
 
@@ -35,8 +37,36 @@ export default function AdminDashboard({ publicKey, onSign }: Props) {
         </p>
       )}
 
-      <div className="card admin-dashboard__section">
+      <div className="card admin-dashboard__section mb-4">
         <SubscriptionRepairPanel adminKey={publicKey} onSign={onSign} />
+      </div>
+
+      <div
+        className="card admin-dashboard__section mb-4"
+        style={{ opacity: isAdmin ? 1 : 0.6 }}
+        aria-disabled={!isAdmin}
+      >
+        {!isAdmin && !loading && (
+          <div className="network-warning mb-4" role="alert">
+            <span>🔒</span>
+            <span>Admin access required to use batch operations.</span>
+          </div>
+        )}
+        <BatchPausePanel adminKey={publicKey} onSign={onSign} isAdmin={isAdmin} />
+      </div>
+
+      <div
+        className="card admin-dashboard__section"
+        style={{ opacity: isAdmin ? 1 : 0.6 }}
+        aria-disabled={!isAdmin}
+      >
+        {!isAdmin && !loading && (
+          <div className="network-warning mb-4" role="alert">
+            <span>🔒</span>
+            <span>Admin access required to manage the whitelist.</span>
+          </div>
+        )}
+        <BatchWhitelistPanel adminKey={publicKey} onSign={onSign} isAdmin={isAdmin} />
       </div>
     </div>
   );

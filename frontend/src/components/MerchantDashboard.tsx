@@ -1,8 +1,4 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getMerchantSubscribers, type MerchantSubscriber } from "../stellar";
-import { formatAddress } from "../utils/format";
-import { usePolling } from "../hooks/usePolling";
-import MerchantSubscriberTable from "./MerchantSubscriberTable";
 import {
   getMerchantSubscribers,
   type MerchantSubscriber,
@@ -32,10 +28,6 @@ interface Props {
   refreshTrigger: number;
 }
 
-export default function MerchantDashboard({
-  merchantKey,
-  refreshTrigger,
-}: Props) {
 function formatNextCharge(nextChargeAt: number): string {
   const date = new Date(nextChargeAt * 1000);
   return date.toLocaleString();
@@ -139,10 +131,6 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
     <div className={`dashboard${isMobile ? " dashboard--mobile" : ""}`}>
       <div className="flex-between mb-4">
         <div>
-          <h2 className="text-xl font-bold">Merchant Subscribers</h2>
-          <p className="text-sm text-muted">
-            Subscribers paying {formatAddress(merchantKey)}.
-          </p>
           <h2 className="text-xl font-bold">Merchant Dashboard</h2>
           <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
         </div>

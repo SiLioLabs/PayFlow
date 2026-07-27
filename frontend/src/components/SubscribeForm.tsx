@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
-import React, { useMemo, useState, useEffect } from "react";
 import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants"; // BILLING_INTERVALS used for initial value
@@ -225,8 +224,6 @@ export default function SubscribeForm({
         )}
       </label>
 
-      <button type="submit" disabled={pending} className="btn-primary subscribe-form__submit">
-        {pending ? "Confirming…" : "Subscribe"}
       <button type="submit" disabled={disabled} className="btn-primary subscribe-form__submit">
         {pending ? "Confirming…" : validating ? "Validating…" : "Subscribe"}
       </button>

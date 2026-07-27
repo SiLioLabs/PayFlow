@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 // ─── module mocks ────────────────────────────────────────────────────────────
 vi.mock("../stellar", () => ({
@@ -50,7 +50,7 @@ const ACTIVE_SUB = {
   paused: false,
 };
 
-function setupMocks(sub: typeof ACTIVE_SUB | null = null) {
+function setupMocks(sub: typeof ACTIVE_SUB | null = ACTIVE_SUB) {
   vi.mocked(stellar.getSubscription).mockResolvedValue(sub);
   vi.mocked(stellar.getAllowance).mockResolvedValue(0n);
   vi.mocked(stellar.getDailyLimit).mockResolvedValue(null);

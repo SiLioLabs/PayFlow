@@ -1018,6 +1018,54 @@ export async function parseSubscriptionRepairedEvent(txHash: string): Promise<nu
   }
 }
 
+// ── Admin Batch Operations ────────────────────────────────────────────────────
+
+/**
+ * Builds an XDR transaction for `batch_pause_subscriptions`.
+ * Admin-only. Contract limit: 25 addresses per call.
+ */
+export async function buildBatchPauseSubscriptionsTx(
+  adminPublicKey: string,
+  users: string[]
+): Promise<string> {
+  return buildTx(adminPublicKey, "batch_pause_subscriptions", [
+    nativeToScVal(
+      users.map((u) => Address.fromString(u)),
+      { type: "vec" }
+    ),
+  ]);
+}
+
+/**
+ * Builds an XDR transaction for `whitelist_batch_add`.
+ * Admin-only. Contract limit: 50 addresses per call.
+ */
+export async function buildWhitelistBatchAddTx(
+  adminPublicKey: string,
+  merchants: string[]
+): Promise<string> {
+  return buildTx(adminPublicKey, "whitelist_batch_add", [
+    nativeToScVal(
+      merchants.map((m) => Address.fromString(m)),
+      { type: "vec" }
+    ),
+  ]);
+}
+
+/**
+ * Builds an XDR transaction for `whitelist_batch_remove`.
+ * Admin-only. Contract limit: 50 addresses per call.
+ */
+export async function buildWhitelistBatchRemoveTx(
+  adminPublicKey: string,
+  merchants: string[]
+): Promise<string> {
+  return buildTx(adminPublicKey, "whitelist_batch_remove", [
+    nativeToScVal(
+      merchants.map((m) => Address.fromString(m)),
+      { type: "vec" }
+    ),
+  ]);
 // ── TTL / Archived-state helpers ──────────────────────────────────────────────
 
 /**

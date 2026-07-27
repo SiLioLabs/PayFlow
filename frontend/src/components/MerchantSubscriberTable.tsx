@@ -68,20 +68,6 @@ function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
   );
 }
 
-// ── Skeleton row ──────────────────────────────────────────────────────────────
-
-function SkeletonRow() {
-  return (
-    <tr className="mst-row mst-row--skeleton" aria-hidden="true">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <td key={i} className="mst-cell">
-          <span className="skeleton" style={{ width: i === 0 ? "120px" : "60px" }} />
-        </td>
-      ))}
-    </tr>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function MerchantSubscriberTable({ subscribers }: Props) {

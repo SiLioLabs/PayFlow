@@ -46,7 +46,6 @@ describe("TabBar – responsive & accessibility", () => {
     render(<TabBar tabs={TABS} activeTab="dashboard" onTabChange={() => {}} />);
     const buttons = screen.getAllByRole("tab");
     buttons.forEach((btn) => {
-      const minH = parseInt(btn.getAttribute("style") ?? "", 10);
       // inline style sets minHeight: 44 on every button
       expect(btn.style.minHeight).toBe("44px");
       expect(btn.style.minWidth).toBe("44px");

@@ -311,3 +311,10 @@ pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
         (version, user_count),
     );
 }
+
+pub fn publish_subscriber_index_ttl_extended(env: &Env, count: u64) {
+    env.events().publish(
+        (Symbol::new(env, "subscriber_index_ttl_extended"),),
+        count,
+    );
+}
