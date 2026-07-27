@@ -6653,7 +6653,7 @@ fn test_health_check_extended() {
     let mut report = client.contract_health_check();
     assert_eq!(report.fee_collector_set, false);
     assert_eq!(report.global_volume_utilization_pct, 0);
-    assert_eq!(report.pending_merchant_revenues_count, 0);
+    assert_eq!(report.pending_merchant_rev_count, 0);
 
     // Set fee collector
     let fee_collector = Address::generate(&env);
@@ -6672,7 +6672,7 @@ fn test_health_check_extended() {
     client.charge(&user);
 
     report = client.contract_health_check();
-    assert_eq!(report.pending_merchant_revenues_count, 1);
+    assert_eq!(report.pending_merchant_rev_count, 1);
     assert_eq!(report.global_volume_utilization_pct, 0);
 
     // Set a very small cap to test utilization at cap
@@ -6788,6 +6788,8 @@ fn test_merchant_freeze_reason_too_long() {
     }
     let long_reason = soroban_sdk::String::from_str(&env, &long_reason_str);
     client.freeze_merchant(&merchant, &Some(long_reason));
+}
+
 // ─────────────────────────────────────────────────────────────
 // CONTRACT-12: get_merchant_sub_counts batch tests
 // ─────────────────────────────────────────────────────────────
