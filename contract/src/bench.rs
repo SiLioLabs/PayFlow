@@ -70,6 +70,11 @@ fn bench_setup() -> (Env, Address, Address, Address, Address) {
     let token = TokenClient::new(&env, &token_addr);
     token.approve(&user, &contract_id, &1_000_000_0000000, &200);
 
+    // Disable whitelist so subscribe() is not blocked by MerchantNotWhitelisted.
+    env.as_contract(&contract_id, || {
+        crate::whitelist::set_whitelist_enabled(&env, false);
+    });
+
     (env, contract_id, token_addr, user, merchant)
 }
 

@@ -139,6 +139,22 @@
                 },
                 {
                   "key": {
+                    "symbol": "fee_collector_set"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "global_volume_utilization_pct"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "instance_ttl_ledgers"
                   },
                   "val": {
@@ -151,6 +167,14 @@
                   },
                   "val": {
                     "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "pending_merchant_rev_count"
+                  },
+                  "val": {
+                    "u32": 0
                   }
                 },
                 {
