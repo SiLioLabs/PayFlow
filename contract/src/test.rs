@@ -564,6 +564,7 @@ fn test_get_whitelist_enabled_defaults_to_true() {
 #[test]
 fn test_get_whitelist_enabled_toggles() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register_contract(None, FlowPay);
     let client = FlowPayClient::new(&env, &contract_id);
 
@@ -1786,6 +1787,8 @@ fn test_batch_charge_over_default_limit_panics() {
     let client = FlowPayClient::new(&env, &contract_id);
     let token = TokenClient::new(&env, &token_addr);
     let sac = StellarAssetClient::new(&env, &token_addr);
+
+    env.budget().reset_unlimited();
 
     let mut users = soroban_sdk::Vec::new(&env);
     for _ in 0..51 {
@@ -4139,10 +4142,6 @@ fn test_top_merchants_by_subs() {
     let m2 = Address::generate(&env);
     let m3 = Address::generate(&env);
 
-    client.add_merchant(&m1);
-    client.add_merchant(&m2);
-    client.add_merchant(&m3);
-
     // Create subscriptions for m1 (1 sub), m2 (3 subs), m3 (2 subs)
     let u1 = setup_funded_user(&env, &contract_id, &token_addr);
     let u2 = setup_funded_user(&env, &contract_id, &token_addr);
@@ -4180,9 +4179,7 @@ fn test_top_merchants_tie_breaking_and_limit() {
     let m1 = Address::generate(&env);
     let m2 = Address::generate(&env);
 
-    // Add m1 first, then m2
-    client.add_merchant(&m1);
-    client.add_merchant(&m2);
+    // m1 and m2 are indexed in order when their first subscriber is created below
 
     let u1 = setup_funded_user(&env, &contract_id, &token_addr);
     let u2 = setup_funded_user(&env, &contract_id, &token_addr);
@@ -4479,6 +4476,8 @@ fn test_subscriber_page_limit_capped_at_50() {
     let client = FlowPayClient::new(&env, &contract_id);
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
     let sac = StellarAssetClient::new(&env, &token_addr);
+
+    env.budget().reset_unlimited();
 
     for _ in 0..52 {
         let sub_user = Address::generate(&env);
@@ -5226,7 +5225,12 @@ fn test_subscribe_zero_allowance_panics() {
     let sac = StellarAssetClient::new(&env, &token_addr);
     sac.mint(&user, &10_000_0000000);
 
-    // Deliberately grant zero allowance â€” no approve() call.
+    // Disable whitelist so the allowance check is reached (whitelist defaults to enabled).
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
+
+    // Deliberately grant zero allowance — no approve() call.
     let client = FlowPayClient::new(&env, &contract_id);
     client.subscribe(
         &user,
@@ -5288,9 +5292,14 @@ fn test_subscribe_exact_allowance_succeeds() {
     let sac = StellarAssetClient::new(&env, &token_addr);
     sac.mint(&user, &10_000_0000000);
 
+    // Disable whitelist so the allowance check is reached (whitelist defaults to enabled).
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
+
     let amount: i128 = 5_0000000;
 
-    // Approve exactly amount â€” no more, no less.
+    // Approve exactly amount — no more, no less.
     let token = TokenClient::new(&env, &token_addr);
     token.approve(&user, &contract_id, &amount, &200);
 
@@ -5321,6 +5330,11 @@ fn test_resubscribe_zero_allowance_panics() {
 
     let sac = StellarAssetClient::new(&env, &token_addr);
     sac.mint(&user, &10_000_0000000);
+
+    // Disable whitelist so subscribe() reaches the allowance check (whitelist defaults to enabled).
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let amount: i128 = 1_0000000;
 
@@ -6653,7 +6667,7 @@ fn test_health_check_extended() {
     let mut report = client.contract_health_check();
     assert_eq!(report.fee_collector_set, false);
     assert_eq!(report.global_volume_utilization_pct, 0);
-    assert_eq!(report.pending_merchant_revenues_count, 0);
+    assert_eq!(report.pending_merchant_revenue_count, 0);
 
     // Set fee collector
     let fee_collector = Address::generate(&env);
@@ -6672,7 +6686,7 @@ fn test_health_check_extended() {
     client.charge(&user);
 
     report = client.contract_health_check();
-    assert_eq!(report.pending_merchant_revenues_count, 1);
+    assert_eq!(report.pending_merchant_revenue_count, 1);
     assert_eq!(report.global_volume_utilization_pct, 0);
 
     // Set a very small cap to test utilization at cap
@@ -6782,12 +6796,14 @@ fn test_merchant_freeze_reason_too_long() {
     let admin = Address::generate(&env);
     client.initialize(&token_addr, &admin);
 
-    let mut long_reason_str = std::string::String::new();
-    for _ in 0..129 {
-        long_reason_str.push('a');
-    }
-    let long_reason = soroban_sdk::String::from_str(&env, &long_reason_str);
+    // 129 'a' characters — exceeds the 128-byte freeze-reason limit
+    let long_reason = soroban_sdk::String::from_str(
+        &env,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    );
     client.freeze_merchant(&merchant, &Some(long_reason));
+}
+
 // ─────────────────────────────────────────────────────────────
 // CONTRACT-12: get_merchant_sub_counts batch tests
 // ─────────────────────────────────────────────────────────────
