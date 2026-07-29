@@ -21,7 +21,7 @@ import {
   BASE_FEE,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ const CONFIRM = process.argv.includes("--confirm");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer(RPC_URL);
 
 async function simulateReadOnly(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal> {
   const contract = new Contract(CONTRACT_ID);

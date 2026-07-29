@@ -17,7 +17,7 @@
  */
 
 import { Contract, Networks } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -103,7 +103,9 @@ function parseEvent(rawEvent: any): ReplayEvent {
   const eventName = rawEvent.topic?.[0]?.toString() ?? "unknown";
   const address = rawEvent.topic?.[1]?.toString() ?? "";
   const ledger = rawEvent.ledger ?? 0;
-  const timestamp = rawEvent.ledgerCloseTime
+  const timestamp = rawEvent.ledgerClosedAt
+    ? new Date(rawEvent.ledgerClosedAt).toISOString()
+    : rawEvent.ledgerCloseTime
     ? new Date(rawEvent.ledgerCloseTime * 1000).toISOString()
     : new Date().toISOString();
   const txHash = rawEvent.txHash ?? rawEvent.id ?? "";
@@ -141,7 +143,7 @@ async function upsertEvent(event: ReplayEvent): Promise<void> {
  * Fetch events for a single ledger range batch, handling pagination.
  */
 async function fetchBatch(
-  server: Server,
+  server: MultiEndpointServer,
   startLedger: number,
   endLedger: number
 ): Promise<ReplayEvent[]> {
@@ -194,7 +196,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer(RPC_URL);
 
   console.log("Replay started");
   console.log("");

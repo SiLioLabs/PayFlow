@@ -6,7 +6,7 @@
  * with color-coded event types and human-readable amounts (stroops → XLM).
  */
 
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ function printEvent(event: ParsedEvent): void {
 
 // ── Main Polling Loop ───────────────────────────────────────────────────────────
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer(RPC_URL);
 const seenEvents = new Set<string>();
 let currentLedger = 0;
 

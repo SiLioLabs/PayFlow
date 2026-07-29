@@ -37,7 +37,7 @@ import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ function loadOrCreateManifest(args: SetupArgs): Identity[] {
 
 // ── Funding ───────────────────────────────────────────────────────────────────
 
-async function isFunded(server: Server, publicKey: string): Promise<boolean> {
+async function isFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
   try {
     await server.getAccount(publicKey);
     return true;
@@ -163,7 +163,7 @@ async function fundViaFriendbot(publicKey: string): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer(RPC_URL);
 
   console.log(`Setting up testnet fixtures: seed=${args.seed} users=${args.users} merchants=${args.merchants}`);
   console.log("");

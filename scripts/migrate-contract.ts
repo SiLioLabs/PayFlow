@@ -14,8 +14,8 @@ function addressVal(addr: string): xdr.ScVal {
 }
 
 async function getSchemaVersion(): Promise<number> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
+  const { MultiEndpointServer } = await import("./rpc-client.js");
+  const server = new MultiEndpointServer(RPC_URL);
   const contract = new Contract(CONTRACT_ID);
 
   // Use a dummy account for simulation
@@ -39,8 +39,8 @@ async function getSchemaVersion(): Promise<number> {
 }
 
 async function migrate(users: string[]): Promise<void> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
+  const { MultiEndpointServer } = await import("./rpc-client.js");
+  const server = new MultiEndpointServer(RPC_URL);
   const contract = new Contract(CONTRACT_ID);
 
   // Use a dummy account for simulation (in production, use admin wallet)

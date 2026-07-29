@@ -14,8 +14,8 @@ function addressVal(addr: string): xdr.ScVal {
 }
 
 async function getMerchantRevenue(merchant: string): Promise<bigint> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
+  const { MultiEndpointServer } = await import("./rpc-client.js");
+  const server = new MultiEndpointServer(RPC_URL);
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(merchant);
 
@@ -36,8 +36,8 @@ async function getMerchantRevenue(merchant: string): Promise<bigint> {
 }
 
 async function getMerchantSubscriberCount(merchant: string): Promise<number> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
+  const { MultiEndpointServer } = await import("./rpc-client.js");
+  const server = new MultiEndpointServer(RPC_URL);
 
   const response = await server.getEvents({
     filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
@@ -54,7 +54,7 @@ async function getMerchantSubscriberCount(merchant: string): Promise<number> {
     const userAddress = topic[1]?.toString();
     if (!userAddress) continue;
 
-    const eventTime = (event.ledgerCloseTime as number) || 0;
+    const eventTime = event.ledgerClosedAt ? Math.floor(Date.parse(event.ledgerClosedAt) / 1000) : 0;
 
     if (eventType === "subscribed") {
       const merchantVal = (event as any).value?._value?.merchant;
@@ -85,8 +85,8 @@ async function getMerchantSubscriberCount(merchant: string): Promise<number> {
 }
 
 async function getMerchantRevenueHistory(merchant: string, days: number): Promise<bigint[]> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
+  const { MultiEndpointServer } = await import("./rpc-client.js");
+  const server = new MultiEndpointServer(RPC_URL);
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(merchant);
 

@@ -258,3 +258,22 @@ npx tsx scripts/churn-analysis.ts --resubscription-logic retention --format csv
 | `--db <path>` | Path override to the SQLite Indexer DB | `indexer.db` |
 | `--out <file>` | Path to save the report output file | stdout |
 | `--resubscription-logic [new\|retention]` | Resubscription handling strategy | `new` |
+
+---
+
+## RPC Endpoint Failover Configuration
+
+To configure multi-endpoint failover and ensure high availability for all backend and analytical scripts, you can specify a comma-separated list of RPC URLs using the `RPC_URLS` environment variable.
+
+### Configuration Variables
+
+| Variable | Description | Example / Default |
+|----------|-------------|-------------------|
+| `RPC_URLS` | Comma-separated list of resilient RPC endpoints for script failover and retry mechanism. | `https://soroban-testnet.stellar.org,https://another-rpc-endpoint.com` |
+| `RPC_URL` / `VITE_RPC_URL` | Fallback single RPC endpoint if `RPC_URLS` is not provided. | `https://soroban-testnet.stellar.org` |
+| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | Expected network passphrase used during initialization/health check to validate endpoints. | `Test SDF Network ; September 2015` |
+
+### Failover and Retry Behavior
+
+All operational backend scripts under the `/scripts` directory utilize a resilient `MultiEndpointServer` (implemented in `scripts/rpc-client.ts`) instead of the standard `Server` from `@stellar/stellar-sdk/rpc`.
+On first use, the client performs health and passphrase validation across all configured endpoints to ensure they belong to the expected Stellar network. Consistently failing endpoints are dynamically deprioritized. Upon failure, the script will log a warning and transparently retry the request using the next available endpoint.

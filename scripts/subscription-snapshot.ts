@@ -24,7 +24,7 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
@@ -32,7 +32,7 @@ const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET;
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer(RPC_URL);
 
 async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal | null> {
   const contract = new Contract(CONTRACT_ID);

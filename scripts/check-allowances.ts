@@ -6,7 +6,7 @@
  * allowance for their subscription token covers the next charge amount.
  */
 
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import {
   Contract,
   Networks,
@@ -31,7 +31,7 @@ if (!CONTRACT_ID) {
   process.exit(1);
 }
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer(RPC_URL);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────────
 

@@ -21,7 +21,7 @@
  */
 
 import { Contract, Networks, TransactionBuilder, BASE_FEE, Address } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -53,9 +53,9 @@ function log(status: "healthy" | "unhealthy", detail?: string): void {
 /**
  * Simulate a read-only contract call and return the raw result xdr.
  */
-async function simulateCall(server: Server, fnName: string): Promise<unknown> {
+async function simulateCall(server: MultiEndpointServer, fnName: string): Promise<unknown> {
   const contract = new Contract(CONTRACT_ID);
-  const account = await server.getAccount(SIMULATION_SOURCE).catch(() => {
+  const account = await server.getAccount(SIMULATION_SOURCE).catch(async () => {
     // For simulation-only calls, build a synthetic account if lookup fails.
     return new (await import("@stellar/stellar-sdk")).Account(SIMULATION_SOURCE, "0");
   });
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer(RPC_URL);
 
   try {
     // Call get_schema_version
