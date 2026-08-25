@@ -1,0 +1,31 @@
+{
+  "name": "payflow-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "validate-config": "tsx src/validate-config.ts --strict",
+    "keeper": "tsx src/keeper.ts",
+    "indexer": "tsx src/indexer.ts",
+    "alerts": "tsx src/alerts.ts",
+    "health": "tsx src/health.ts",
+    "revenue-reset": "tsx src/revenue-reset.ts",
+    "stats": "tsx src/stats.ts",
+    "snapshot": "tsx src/snapshot.ts",
+    "deploy-helper": "tsx src/deploy-helper.ts"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
+    "eslint": "^10.2.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

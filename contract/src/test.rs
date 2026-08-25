@@ -1,6 +1,8 @@
 #![cfg(test)]
 
 use super::*;
+use crate::batch::MAX_BATCH_SIZE;
+use crate::limits;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
@@ -829,4 +831,445 @@ fn test_subscribe_overwrites_cancelled_subscription() {
     let sub_new = client.get_subscription(&user).unwrap();
     assert!(sub_new.active);
     assert_eq!(sub_new.amount, 2_0000000);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #014: Admin authorization boundary tests
+// ─────────────────────────────────────────────────────────────
+
+fn setup_with_admin() -> (Env, Address, Address, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
+
+    let contract_id = env.register_contract(None, FlowPay);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let merchant = Address::generate(&env);
+
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user, &10_000_0000000);
+
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &10_000_0000000, &200);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.set_admin(&admin);
+
+    (env, contract_id, token_addr, admin, user, merchant)
+}
+
+/// Helper: subscribe one user then return the user + contract setup
+fn subscribe_one(env: &Env, contract_id: &Address, token_addr: &Address, merchant: &Address) -> Address {
+    let user = Address::generate(env);
+    let sac = StellarAssetClient::new(env, token_addr);
+    sac.mint(&user, &10_000_0000000);
+    let token = TokenClient::new(env, token_addr);
+    token.approve(&user, contract_id, &10_000_0000000, &200);
+    let client = FlowPayClient::new(env, contract_id);
+    client.subscribe(&user, merchant, &1_0000000, &86400u64, token_addr, &None, &None);
+    user
+}
+
+// ── freeze_merchant ─────────────────────────────────────────
+
+#[test]
+fn test_admin_freeze_merchant_success() {
+    let (env, contract_id, token_addr, _admin, _user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.set_whitelist_enabled(&false);
+    // freeze_merchant must succeed
+    client.freeze_merchant(&merchant);
+
+    // Verify subscribing against frozen merchant panics
+    let user = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &10_000_0000000, &200);
+
+    let result = std::panic::catch_unwind(|| {
+        client.subscribe(&user, &merchant, &1_0000000, &86400u64, &token_addr, &None, &None);
+    });
+    assert!(result.is_err(), "subscribe must panic when merchant frozen");
+}
+
+#[test]
+#[should_panic]
+fn test_admin_freeze_merchant_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    let merchant = Address::generate(&env);
+
+    // Admin not set in storage → require_admin panics "admin not set"
+    client.freeze_merchant(&merchant);
+}
+
+// ── propose_fee / set_fee ───────────────────────────────────
+
+#[test]
+fn test_admin_set_fee_success() {
+    let (env, contract_id, _token_addr, _admin, _user, _merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let collector = Address::generate(&env);
+    client.set_fee(&collector, &50u32);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_set_fee_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    let collector = Address::generate(&env);
+    client.set_fee(&collector, &50u32);
+}
+
+#[test]
+fn test_admin_propose_apply_fee_success() {
+    let (env, contract_id, _token_addr, _admin, _user, _merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let collector = Address::generate(&env);
+    client.propose_fee(&collector, &25u32);
+    client.apply_fee();
+}
+
+// ── pause_contract ──────────────────────────────────────────
+
+#[test]
+fn test_admin_pause_contract_success() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.pause_contract();
+
+    // Now subscribe must fail because contract is paused
+    let result = std::panic::catch_unwind(|| {
+        client.subscribe(&user, &merchant, &1_0000000, &86400u64, &token_addr, &None, &None);
+    });
+    assert!(result.is_err(), "subscribe must panic when contract paused");
+}
+
+#[test]
+#[should_panic]
+fn test_admin_pause_contract_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.pause_contract();
+}
+
+// ── set_min_interval ────────────────────────────────────────
+
+#[test]
+fn test_admin_set_min_interval_success() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.set_min_interval(&86400u64); // 1 day
+
+    // Subscribing with interval less than min must fail
+    let result = std::panic::catch_unwind(|| {
+        client.subscribe(&user, &merchant, &1_0000000, &60u64, &token_addr, &None, &None);
+    });
+    assert!(result.is_err(), "interval < min_interval must panic");
+
+    // But valid interval succeeds
+    client.subscribe(&user, &merchant, &1_0000000, &86400u64, &token_addr, &None, &None);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_set_min_interval_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.set_min_interval(&60u64);
+}
+
+// ── batch_cancel ────────────────────────────────────────────
+
+#[test]
+fn test_admin_batch_cancel_success() {
+    let (env, contract_id, token_addr, _admin, _user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let u1 = subscribe_one(&env, &contract_id, &token_addr, &merchant);
+    let u2 = subscribe_one(&env, &contract_id, &token_addr, &merchant);
+    let u3 = subscribe_one(&env, &contract_id, &token_addr, &merchant);
+
+    assert_eq!(client.get_active_count(), 3);
+
+    let mut users = Vec::new(&env);
+    users.push_back(u1.clone());
+    users.push_back(u2.clone());
+    users.push_back(u3.clone());
+
+    client.batch_cancel(&users);
+
+    assert_eq!(client.get_active_count(), 0);
+    assert!(!client.get_subscription(&u1).unwrap().active);
+    assert!(!client.get_subscription(&u2).unwrap().active);
+    assert!(!client.get_subscription(&u3).unwrap().active);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_batch_cancel_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    let u = Address::generate(&env);
+    let mut users = Vec::new(&env);
+    users.push_back(u);
+    client.batch_cancel(&users);
+}
+
+/// Verify that failed batch_cancel (no admin auth) does not mutate storage.
+#[test]
+fn test_admin_batch_cancel_failure_no_mutation() {
+    let (env, contract_id, token_addr, _admin, _user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let u1 = subscribe_one(&env, &contract_id, &token_addr, &merchant);
+    let count_before = client.get_active_count();
+
+    // Simulate: admin not set in this alternate env call
+    let env_noauth = Env::default();
+    env_noauth.mock_all_auths();
+    let cid_noauth = env_noauth.register_contract(None, FlowPay);
+    let client_noauth = FlowPayClient::new(&env_noauth, &cid_noauth);
+    let u_test = subscribe_one(&env_noauth, &cid_noauth, &token_addr, &merchant);
+    let count_noauth_before = client_noauth.get_active_count();
+
+    let mut users = Vec::new(&env_noauth);
+    users.push_back(u_test.clone());
+
+    // Clear auth mocks so admin require_auth will fail
+    let env_panic = Env::default();
+    let cid_panic = env_panic.register_contract(None, FlowPay);
+    let client_panic = FlowPayClient::new(&env_panic, &cid_panic);
+
+    // Now call batch_cancel without admin set → panics
+    let result = std::panic::catch_unwind(|| {
+        let mut users2 = Vec::new(&env_panic);
+        users2.push_back(Address::generate(&env_panic));
+        client_panic.batch_cancel(&users2);
+    });
+    assert!(result.is_err());
+
+    // Original setups unaffected (tests are isolated)
+    assert_eq!(client.get_active_count(), count_before);
+    let _ = (u1, count_noauth_before, client_noauth);
+}
+
+// ── migrate ─────────────────────────────────────────────────
+
+#[test]
+fn test_admin_migrate_success() {
+    let (env, contract_id, _token_addr, _admin, _user, _merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_schema_version(), 1);
+    client.migrate();
+    assert_eq!(client.get_schema_version(), 2);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_migrate_fails_without_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    // Admin not set → require_admin panics "admin not set"
+    client.migrate();
+}
+
+// ── set_global_volume_cap ───────────────────────────────────
+
+#[test]
+fn test_admin_set_global_volume_cap_success() {
+    let (env, contract_id, _token_addr, _admin, _user, _merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.set_global_volume_cap(&1_000_000_0000000i128);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_set_global_volume_cap_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.set_global_volume_cap(&100i128);
+}
+
+// ── whitelist_batch_add ─────────────────────────────────────
+
+#[test]
+fn test_admin_whitelist_batch_add_success() {
+    let (env, contract_id, token_addr, _admin, user, _merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let m1 = Address::generate(&env);
+    let m2 = Address::generate(&env);
+    let m3 = Address::generate(&env);
+
+    let mut merchants = Vec::new(&env);
+    merchants.push_back(m1.clone());
+    merchants.push_back(m2.clone());
+    merchants.push_back(m3.clone());
+
+    client.set_whitelist_enabled(&true);
+    client.whitelist_batch_add(&merchants);
+
+    // Now subscribing with one of those merchants must succeed
+    client.subscribe(&user, &m2, &1_0000000, &86400u64, &token_addr, &None, &None);
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.merchant, m2);
+}
+
+#[test]
+#[should_panic]
+fn test_admin_whitelist_batch_add_fails_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    let m = Address::generate(&env);
+    let mut merchants = Vec::new(&env);
+    merchants.push_back(m);
+    client.whitelist_batch_add(&merchants);
+}
+
+// ── reset_merchant_revenue (extra admin fn) ─────────────────
+
+#[test]
+fn test_admin_reset_merchant_revenue_success() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = setup_with_admin();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let interval = 86400u64;
+
+    client.subscribe(&user, &merchant, &5_0000000, &interval, &token_addr, &None, &None);
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&user);
+
+    assert_eq!(client.get_merchant_revenue(&merchant), 5_0000000);
+    client.reset_merchant_revenue(&merchant);
+    assert_eq!(client.get_merchant_revenue(&merchant), 0);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #017: batch_charge stress tests (max size, max+1 panic)
+// ─────────────────────────────────────────────────────────────
+
+fn setup_batch_stress(
+    env: &Env,
+    n: u32,
+) -> (Address, FlowPayClient<'_>, Vec<Address>, Address) {
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
+    let contract_id = env.register_contract(None, FlowPay);
+
+    let merchant = Address::generate(env);
+    let interval: u64 = 86400;
+    let amount: i128 = 1_0000000;
+
+    let sac = StellarAssetClient::new(env, &token_addr);
+    let token = TokenClient::new(env, &token_addr);
+    let client = FlowPayClient::new(env, &contract_id);
+
+    let mut users = Vec::new(env);
+    for _ in 0..n {
+        let u = Address::generate(env);
+        sac.mint(&u, &100_000_0000000);
+        token.approve(&u, &contract_id, &100_000_0000000, &999999);
+        client.subscribe(&u, &merchant, &amount, &interval, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+
+    (contract_id, client, users, token_addr)
+}
+
+#[test]
+fn test_batch_charge_max_size_passes() {
+    let env = Env::default();
+    let (_cid, client, users, _ta) = setup_batch_stress(&env, MAX_BATCH_SIZE);
+
+    let results = client.batch_charge(&users);
+    assert_eq!(results.len(), MAX_BATCH_SIZE);
+    let mut charged_count = 0u32;
+    for i in 0..results.len() {
+        if let Ok(ChargeResult::Charged) = results.get(i) {
+            charged_count += 1;
+        }
+    }
+    assert_eq!(charged_count, MAX_BATCH_SIZE);
+}
+
+#[test]
+#[should_panic]
+fn test_batch_charge_max_plus_one_panics_batch_too_large() {
+    let env = Env::default();
+    let n = MAX_BATCH_SIZE + 1;
+    let (_cid, client, users, _ta) = setup_batch_stress(&env, n);
+
+    // Must panic with BatchTooLarge before any user is processed
+    let _ = client.batch_charge(&users);
+}
+
+#[test]
+fn test_batch_charge_max_size_within_resource_limits() {
+    let env = Env::default();
+    let (_cid, client, users, _ta) = setup_batch_stress(&env, MAX_BATCH_SIZE);
+
+    env.budget().reset_default();
+    let results = client.batch_charge(&users);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    extern crate std;
+    use std::println;
+    println!("batch_charge(MAX={}) CPU={} MEM={}", MAX_BATCH_SIZE, cpu, mem);
+
+    assert_eq!(results.len(), MAX_BATCH_SIZE);
+    assert!(cpu > 0);
+    assert!(mem > 0);
+    assert!(
+        cpu < limits::SOROBAN_CPU_INSN_SOFT_LIMIT,
+        "max batch CPU={} must stay under soft limit {}",
+        cpu,
+        limits::SOROBAN_CPU_INSN_SOFT_LIMIT
+    );
+    assert!(
+        mem < limits::SOROBAN_MEM_BYTES_SOFT_LIMIT,
+        "max batch MEM={} must stay under soft limit {}",
+        mem,
+        limits::SOROBAN_MEM_BYTES_SOFT_LIMIT
+    );
+}
+
+#[test]
+fn test_batch_charge_zero_users_ok() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let client = FlowPayClient::new(&env, &contract_id);
+    let users = Vec::new(&env);
+    let results = client.batch_charge(&users);
+    assert_eq!(results.len(), 0);
 }

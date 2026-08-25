@@ -6,6 +6,9 @@
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
     "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
+    "typecheck:scripts": "cd scripts && npm ci && npx tsc --noEmit",
+    "lint:scripts": "cd scripts && npm ci && npx eslint src",
+    "test:scripts": "cd scripts && npm ci && npx tsx --test src/__tests__/config-zod.test.ts",
     "backend:typecheck": "cd contract && cargo check",
     "backend:test": "cd contract && cargo test"
   },
@@ -16,6 +19,9 @@
   "lint-staged": {
     "frontend/src/**/*.{ts,tsx}": [
       "bash -c 'cd frontend && npx tsc --noEmit'"
+    ],
+    "scripts/src/**/*.{ts}": [
+      "bash -c 'cd scripts && npx tsc --noEmit && npx eslint src'"
     ]
   }
 }

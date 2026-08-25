@@ -1,0 +1,122 @@
+name: Scripts CI (TypeScript)
+
+on:
+  push:
+    branches: [main, master, "feat/**", "fix/**"]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/scripts.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/scripts.yml"
+
+concurrency:
+  group: scripts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: TypeScript typecheck (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: tsc --noEmit (strict)
+        working-directory: scripts
+        run: npm run typecheck
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: eslint
+        working-directory: scripts
+        run: npm run lint
+
+  zod-tests:
+    name: Zod config validation tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: Run zod config unit tests (node:test + tsx)
+        working-directory: scripts
+        run: npx tsx --test src/__tests__/config-zod.test.ts
+
+  validate-config-dry-run:
+    name: validate-config CLI smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: --help exits 0
+        working-directory: scripts
+        run: npx tsx src/validate-config.ts --help
+
+      - name: --explain exits 0
+        working-directory: scripts
+        run: npx tsx src/validate-config.ts --explain
+
+      - name: missing env exits 1 with strict mode
+        working-directory: scripts
+        run: |
+          set +e
+          npx tsx src/validate-config.ts --strict
+          EC=$?
+          set -e
+          if [ "$EC" -ne 1 ]; then
+            echo "Expected exit 1 for missing config, got $EC" >&2
+            exit 2
+          fi
+
+      - name: minimal env passes
+        working-directory: scripts
+        env:
+          STELLAR_NETWORK: testnet
+          RPC_URL: https://soroban-testnet.stellar.org:443
+          CONTRACT_ID: GBVKI5GZ5X4OY33I2ADY2X3W4K7U6S5Q4W3E2R1T0Y9U8I7O6P5
+        run: npx tsx src/validate-config.ts --strict

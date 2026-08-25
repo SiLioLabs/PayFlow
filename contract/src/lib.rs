@@ -2,10 +2,13 @@
 
 mod admin;
 mod batch;
+#[cfg(test)]
+mod bench;
 mod errors;
 mod events;
 mod fee;
 mod grace;
+mod limits;
 mod merchant_stats;
 mod migration;
 mod referral;
@@ -22,7 +25,7 @@ mod whitelist;
 use crate::errors::ContractError;
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
-pub use batch::ChargeResult;
+pub use batch::{ChargeResult, MAX_BATCH_SIZE};
 
 // ─────────────────────────────────────────────────────────────
 // Storage keys
@@ -40,9 +43,22 @@ pub enum DataKey {
     // Merchant whitelist
     MerchantWhitelist(Address),
     WhitelistEnabled,
+    // Merchant freeze
+    MerchantFrozen(Address),
     // Protocol fee
     FeeCollector,
     FeeBps,
+    // Proposed fee (two-stage fee update)
+    ProposedFeeCollector,
+    ProposedFeeBps,
+    // Contract-wide pause
+    Paused,
+    // Minimum subscription interval
+    MinInterval,
+    // Global monthly volume cap
+    GlobalVolumeCap,
+    // Current period global volume
+    GlobalVolumeUsed,
     // Feature: subscription count
     ActiveCount,
     // Feature: merchant revenue stats
@@ -99,6 +115,15 @@ impl FlowPay {
         env.storage().instance().set(&DataKey::Token, &token);
     }
 
+    /// Sets the contract admin.
+    /// Only callable when no admin is currently set (bootstrap) or by the existing admin.
+    pub fn set_admin(env: Env, new_admin: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            admin::require_admin(&env);
+        }
+        storage::set_admin(&env, &new_admin);
+    }
+
     pub fn subscribe(
         env: Env,
         user: Address,
@@ -111,14 +136,34 @@ impl FlowPay {
     ) {
         user.require_auth();
 
+        if env.storage().instance().get::<_, bool>(&DataKey::Paused).unwrap_or(false) {
+            env.panic_with_error(ContractError::ContractPaused);
+        }
+
         if whitelist::is_whitelist_enabled(&env) {
             if !whitelist::is_whitelisted(&env, &merchant) {
                 env.panic_with_error(ContractError::MerchantNotWhitelisted);
             }
         }
 
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::MerchantFrozen(merchant.clone()))
+        {
+            env.panic_with_error(ContractError::MerchantFrozen);
+        }
+
         assert!(amount > 0, "amount must be positive");
         assert!(interval > 0, "interval must be positive");
+
+        if let Some(min_interval) =
+            env.storage().instance().get::<_, u64>(&DataKey::MinInterval)
+        {
+            if interval < min_interval {
+                env.panic_with_error(ContractError::InvalidMinInterval);
+            }
+        }
 
         let token_client = token::Client::new(&env, &token);
         let allowance = token_client.allowance(&user, &env.current_contract_address());
@@ -152,6 +197,10 @@ impl FlowPay {
     }
 
     pub fn charge(env: Env, user: Address) {
+        if env.storage().instance().get::<_, bool>(&DataKey::Paused).unwrap_or(false) {
+            env.panic_with_error(ContractError::ContractPaused);
+        }
+
         let key = DataKey::Subscription(user.clone());
 
         let mut sub: Subscription = env
@@ -162,6 +211,14 @@ impl FlowPay {
 
         assert!(sub.active, "subscription is not active");
         assert!(!sub.paused, "subscription is paused");
+
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::MerchantFrozen(sub.merchant.clone()))
+        {
+            env.panic_with_error(ContractError::MerchantFrozen);
+        }
 
         let now = env.ledger().timestamp();
 
@@ -346,7 +403,120 @@ impl FlowPay {
     /// Only the contract admin can call this.
     pub fn set_fee(env: Env, collector: Address, bps: u32) {
         admin::require_admin(&env);
+        if bps > 10000 {
+            env.panic_with_error(ContractError::FeeTooHigh);
+        }
         fee::set_fee(&env, collector, bps);
+    }
+
+    /// Proposes a new protocol fee (two-stage update).
+    /// Stored in proposed slots; must be applied via apply_fee.
+    pub fn propose_fee(env: Env, collector: Address, bps: u32) {
+        admin::require_admin(&env);
+        if bps > 10000 {
+            env.panic_with_error(ContractError::FeeTooHigh);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposedFeeCollector, &collector);
+        env.storage().instance().set(&DataKey::ProposedFeeBps, &bps);
+    }
+
+    /// Applies the previously proposed fee.
+    pub fn apply_fee(env: Env) {
+        admin::require_admin(&env);
+        let collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposedFeeCollector)
+            .expect("no proposed fee");
+        let bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposedFeeBps)
+            .expect("no proposed fee");
+        fee::set_fee(&env, collector, bps);
+    }
+
+    /// Freezes a merchant — prevents new subscriptions against them
+    /// and causes charges against them to be skipped.
+    pub fn freeze_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MerchantFrozen(merchant), &true);
+    }
+
+    /// Unfreezes a previously frozen merchant.
+    pub fn unfreeze_merchant(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::MerchantFrozen(merchant));
+    }
+
+    /// Pauses the entire contract — all state-mutating calls blocked.
+    pub fn pause_contract(env: Env) {
+        admin::require_admin(&env);
+        env.storage().instance().set(&DataKey::Paused, &true);
+    }
+
+    /// Unpauses the contract.
+    pub fn unpause_contract(env: Env) {
+        admin::require_admin(&env);
+        env.storage().instance().remove(&DataKey::Paused);
+    }
+
+    /// Sets the minimum allowed subscription interval (seconds).
+    /// subscribe() panics if interval < min_interval.
+    pub fn set_min_interval(env: Env, seconds: u64) {
+        admin::require_admin(&env);
+        if seconds == 0 {
+            env.panic_with_error(ContractError::InvalidMinInterval);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MinInterval, &seconds);
+    }
+
+    /// Resets a merchant's accumulated revenue counter to zero.
+    pub fn reset_merchant_revenue(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::MerchantRevenue(merchant));
+    }
+
+    /// Sets the global monthly volume cap (total charged across all users).
+    /// Charges that would exceed this cap are skipped in batch_charge.
+    pub fn set_global_volume_cap(env: Env, cap: i128) {
+        admin::require_admin(&env);
+        env.storage().instance().set(&DataKey::GlobalVolumeCap, &cap);
+    }
+
+    /// Batch-adds merchants to the whitelist.
+    pub fn whitelist_batch_add(env: Env, merchants: Vec<Address>) {
+        admin::require_admin(&env);
+        for m in merchants.iter() {
+            whitelist::add_merchant(&env, &m);
+        }
+    }
+
+    /// Batch-cancels subscriptions for a list of users.
+    pub fn batch_cancel(env: Env, users: Vec<Address>) {
+        admin::require_admin(&env);
+        for user in users.iter() {
+            let key = DataKey::Subscription(user.clone());
+            if let Some(mut sub) =
+                env.storage().persistent().get::<_, Subscription>(&key)
+            {
+                if sub.active {
+                    sub.active = false;
+                    env.storage().persistent().set(&key, &sub);
+                    subscription_count::decrement(&env);
+                }
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -407,8 +577,10 @@ impl FlowPay {
     // ─────────────────────────────────────────────────────────────
 
     /// Migrates contract storage to the latest schema version.
+    /// Only the contract admin can call this.
     /// Safe to call multiple times — subsequent calls are no-ops.
     pub fn migrate(env: Env) {
+        admin::require_admin(&env);
         migration::migrate(&env);
     }
 

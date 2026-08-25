@@ -1,228 +1,189 @@
 #![cfg(test)]
 
 use super::*;
-use crate::UpgradeableTradingContractClient;
+use crate::batch::MAX_BATCH_SIZE;
+use crate::limits;
 use soroban_sdk::{
-    symbol_short,
     testutils::{Address as _, Ledger},
-    Env, Vec,
+    token::{Client as TokenClient, StellarAssetClient},
+    Address, Env, Vec,
 };
 
 extern crate std;
 use std::println;
 
-/// Gas benchmarking utilities for trading contract
-pub struct GasBenchmark;
+fn setup_with_n_users(
+    env: &Env,
+    n: u32,
+    merchant: &Address,
+    interval: u64,
+    amount: i128,
+) -> (Address, Address, Vec<Address>) {
+    env.mock_all_auths();
 
-impl GasBenchmark {
-    /// Benchmark a single trade operation
-    pub fn bench_trade(env: &Env) -> (u64, u64) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
+    let token_admin = Address::generate(env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
 
-        let admin = Address::generate(env);
-        let trader = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-        let fee_recipient = Address::generate(env);
+    let contract_id = env.register_contract(None, FlowPay);
 
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
+    let sac = StellarAssetClient::new(env, &token_addr);
+    let token = TokenClient::new(env, &token_addr);
 
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
+    let mut users = Vec::new(env);
+    for _ in 0..n {
+        let u = Address::generate(env);
+        sac.mint(&u, &1_000_000_0000000);
+        token.approve(&u, &contract_id, &1_000_000_0000000, &999999);
+        users.push_back(u);
+    }
 
-        // Create mock token
-        let token_id = env.register_stellar_asset_contract(fee_recipient.clone());
-
-        // Reset budget before measurement
-        env.budget().reset_default();
-
-        // Execute trade
-        let _ = client.trade(
-            &trader,
-            &symbol_short!("BTCUSD"),
-            &1_000_000i128,
-            &50_000i128,
-            &true,
-            &token_id,
-            &0i128,
-            &fee_recipient,
+    let client = FlowPayClient::new(env, &contract_id);
+    for u in users.iter() {
+        client.subscribe(
+            &u,
+            merchant,
+            &amount,
+            &interval,
+            &token_addr,
+            &None,
+            &None,
         );
-
-        // Get measurements
-        let cpu_insns = env.budget().cpu_instruction_cost();
-        let mem_bytes = env.budget().memory_bytes_cost();
-
-        (cpu_insns, mem_bytes)
     }
 
-    /// Benchmark multiple trades to measure scaling
-    pub fn bench_multiple_trades(env: &Env, count: u32) -> Vec<(u64, u64)> {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
 
-        let admin = Address::generate(env);
-        let trader = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-        let fee_recipient = Address::generate(env);
+    (contract_id, token_addr, users)
+}
 
-        let mut approvers = soroban_sdk::Vec::new(env);
-        approvers.push_back(approver);
+pub struct BatchBenchmark;
 
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
-
-        let token_id = env.register_stellar_asset_contract(fee_recipient.clone());
-        let mut results = Vec::new(env);
-
-        for i in 0..count {
-            env.budget().reset_default();
-
-            let _ = client.trade(
-                &trader,
-                &symbol_short!("BTCUSD"),
-                &(1_000_000i128 + i as i128),
-                &50_000i128,
-                &true,
-                &token_id,
-                &0i128,
-                &fee_recipient,
-            );
-
-            let cpu_insns = env.budget().cpu_instruction_cost();
-            let mem_bytes = env.budget().memory_bytes_cost();
-            results.push_back((cpu_insns, mem_bytes));
-        }
-
-        results
-    }
-
-    /// Benchmark get_stats operation
-    pub fn bench_get_stats(env: &Env) -> (u64, u64) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
-
-        let admin = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
-
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
+impl BatchBenchmark {
+    pub fn bench_batch_charge(env: &Env, n_users: u32) -> (u64, u64) {
+        let merchant = Address::generate(env);
+        let interval: u64 = 86400;
+        let amount: i128 = 1_0000000;
+        let (contract_id, _token_addr, users) = setup_with_n_users(env, n_users, &merchant, interval, amount);
+        let client = FlowPayClient::new(env, &contract_id);
 
         env.budget().reset_default();
-        let _ = client.get_stats();
+        let _results = client.batch_charge(&users);
 
         let cpu_insns = env.budget().cpu_instruction_cost();
         let mem_bytes = env.budget().memory_bytes_cost();
-
         (cpu_insns, mem_bytes)
     }
 
-    /// Benchmark pause/unpause operations
-    pub fn bench_pause_unpause(env: &Env) -> ((u64, u64), (u64, u64)) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
+    pub fn bench_single_charge(env: &Env) -> (u64, u64) {
+        let merchant = Address::generate(env);
+        let interval: u64 = 86400;
+        let amount: i128 = 1_0000000;
+        let (contract_id, _token_addr, users) = setup_with_n_users(env, 1, &merchant, interval, amount);
+        let client = FlowPayClient::new(env, &contract_id);
+        let user = users.get(0).unwrap();
 
-        let admin = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
-
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
-
-        // Benchmark pause
         env.budget().reset_default();
-        let _ = client.pause(&admin);
-        let pause_cpu = env.budget().cpu_instruction_cost();
-        let pause_mem = env.budget().memory_bytes_cost();
+        let _ = client.charge(&user);
 
-        // Benchmark unpause
-        env.budget().reset_default();
-        let _ = client.unpause(&admin);
-        let unpause_cpu = env.budget().cpu_instruction_cost();
-        let unpause_mem = env.budget().memory_bytes_cost();
-
-        ((pause_cpu, pause_mem), (unpause_cpu, unpause_mem))
+        let cpu_insns = env.budget().cpu_instruction_cost();
+        let mem_bytes = env.budget().memory_bytes_cost();
+        (cpu_insns, mem_bytes)
     }
 }
 
 #[test]
-fn test_gas_benchmark_single_trade() {
+fn test_bench_single_charge() {
     let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
 
-    let (cpu_insns, mem_bytes) = GasBenchmark::bench_trade(&env);
+    let (cpu, mem) = BatchBenchmark::bench_single_charge(&env);
 
-    // Print results for analysis
-    println!("Single Trade Gas Usage:");
-    println!("  CPU Instructions: {}", cpu_insns);
-    println!("  Memory Bytes: {}", mem_bytes);
+    println!("Single charge:");
+    println!("  CPU instructions: {}", cpu);
+    println!("  Memory bytes:    {}", mem);
 
-    // Assert reasonable limits (adjust based on actual measurements)
-    assert!(cpu_insns > 0, "CPU instructions should be measured");
-    assert!(mem_bytes > 0, "Memory bytes should be measured");
+    assert!(cpu > 0, "CPU must be measured");
+    assert!(mem > 0, "MEM must be measured");
 }
 
 #[test]
-#[ignore] // Skip in CI - can cause issues with multiple trades
-fn test_gas_benchmark_scaling() {
+fn test_bench_batch_charge_small() {
     let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
 
-    let results = GasBenchmark::bench_multiple_trades(&env, 10);
+    let n = 10u32;
+    let (cpu, mem) = BatchBenchmark::bench_batch_charge(&env, n);
 
-    println!("\nMultiple Trades Gas Scaling:");
-    for (i, (cpu, mem)) in results.iter().enumerate() {
-        println!("  Trade {}: CPU={}, MEM={}", i + 1, cpu, mem);
-    }
+    println!("batch_charge(n={}):", n);
+    println!("  CPU instructions: {}", cpu);
+    println!("  Memory bytes:    {}", mem);
+    println!("  Per-user CPU:     {}", cpu / n as u64);
 
-    // Verify consistent performance (no exponential growth)
-    let first = results.get(0).unwrap();
-    let last = results.get(9).unwrap();
-
-    // Gas should remain relatively constant (within 50% variance)
-    let cpu_ratio = last.0 as f64 / first.0 as f64;
-    assert!(cpu_ratio < 1.5, "CPU usage should not grow significantly");
+    assert!(cpu > 0);
+    assert!(mem > 0);
 }
 
 #[test]
-fn test_gas_benchmark_read_operations() {
+fn test_bench_batch_charge_max() {
     let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
 
-    let (cpu_insns, mem_bytes) = GasBenchmark::bench_get_stats(&env);
+    let n = MAX_BATCH_SIZE;
+    let (cpu, mem) = BatchBenchmark::bench_batch_charge(&env, n);
 
-    println!("\nGet Stats Gas Usage:");
-    println!("  CPU Instructions: {}", cpu_insns);
-    println!("  Memory Bytes: {}", mem_bytes);
+    println!("\nbatch_charge MAX (n={}):", n);
+    println!("  CPU instructions: {}", cpu);
+    println!("  Memory bytes:    {}", mem);
+    println!("  Per-user CPU:     {}", cpu / n as u64);
+    println!(
+        "  CPU vs soft-limit: {:.2}%",
+        cpu as f64 / limits::SOROBAN_CPU_INSN_SOFT_LIMIT as f64 * 100.0
+    );
 
-    // Read operations should be cheaper than writes
-    assert!(cpu_insns > 0);
-    assert!(mem_bytes > 0);
+    assert!(cpu > 0);
+    assert!(mem > 0);
+
+    assert!(
+        cpu < limits::SOROBAN_CPU_INSN_SOFT_LIMIT,
+        "max batch CPU ({}) must be under soft limit ({})",
+        cpu,
+        limits::SOROBAN_CPU_INSN_SOFT_LIMIT
+    );
+    assert!(
+        mem < limits::SOROBAN_MEM_BYTES_SOFT_LIMIT,
+        "max batch MEM ({}) must be under soft limit ({})",
+        mem,
+        limits::SOROBAN_MEM_BYTES_SOFT_LIMIT
+    );
 }
 
 #[test]
-#[ignore] // Skip in CI - can cause issues with pause/unpause
-fn test_gas_benchmark_admin_operations() {
+fn test_bench_batch_charge_linearity() {
     let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
 
-    let ((pause_cpu, pause_mem), (unpause_cpu, unpause_mem)) =
-        GasBenchmark::bench_pause_unpause(&env);
+    let small = 10u32;
+    let large = 50u32;
+    let (cpu_small, _) = BatchBenchmark::bench_batch_charge(&env, small);
 
-    println!("\nAdmin Operations Gas Usage:");
-    println!("  Pause - CPU: {}, MEM: {}", pause_cpu, pause_mem);
-    println!("  Unpause - CPU: {}, MEM: {}", unpause_cpu, unpause_mem);
+    let env2 = Env::default();
+    env2.ledger().with_mut(|l| l.timestamp = 1_000_000);
+    let (cpu_large, _) = BatchBenchmark::bench_batch_charge(&env2, large);
 
-    // Both operations should have similar costs
-    assert!(pause_cpu > 0);
-    assert!(unpause_cpu > 0);
+    let ratio_small = cpu_small as f64 / small as f64;
+    let ratio_large = cpu_large as f64 / large as f64;
+
+    println!("Per-user CPU (n=10): {:.0}", ratio_small);
+    println!("Per-user CPU (n=50): {:.0}", ratio_large);
+
+    let ratio_of_ratios = ratio_large / ratio_small;
+    println!("Ratio of per-user costs: {:.2} (should be ~1.0 for linear)", ratio_of_ratios);
+
+    assert!(
+        ratio_of_ratios < 2.0,
+        "CPU scaling should be roughly linear; ratio={}",
+        ratio_of_ratios
+    );
 }
