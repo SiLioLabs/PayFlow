@@ -5,6 +5,14 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "already initialized": "Contract is already set up.",
   "amount must be positive": "Amount must be greater than zero.",
   "interval must be positive": "Billing interval must be greater than zero.",
+  "admin not set": "Contract admin is not configured.",
+  require_auth: "Wallet authorization required. Connect as the contract admin.",
+  entryexpired:
+    "Your subscription data has been archived by the Stellar network. Use Restore to recover it.",
+  archived:
+    "Your subscription data has been archived by the Stellar network. Use Restore to recover it.",
+  "-32700":
+    "Your subscription data has been archived by the Stellar network. Use Restore to recover it.",
 };
 
 export function friendlyError(raw: string): string {

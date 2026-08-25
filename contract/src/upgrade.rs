@@ -1,27 +1,45 @@
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{BytesN, Env};
 
-use crate::{DataKey, Subscription};
+use crate::{admin, errors::ContractError, events, DataKey};
 
-pub fn has_token(env: &Env) -> bool {
-    env.storage().instance().has(&DataKey::Token)
-}
-
-pub fn set_token(env: &Env, token: &Address) {
-    env.storage().instance().set(&DataKey::Token, token);
-}
-
-pub fn get_token(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Token)
-}
-
-pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
+pub fn propose_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
+    admin::require_admin(env);
     env.storage()
-        .persistent()
-        .set(&DataKey::Subscription(user.clone()), sub);
+        .temporary()
+        .set(&DataKey::PendingUpgrade, &new_wasm_hash);
+    env.storage()
+        .temporary()
+        .extend_ttl(&DataKey::PendingUpgrade, 17280, 17280);
+    events::publish_upgrade_proposed(env, &new_wasm_hash);
 }
 
-pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Subscription(user.clone()))
+pub fn commit_upgrade(env: &Env) {
+    admin::require_admin(env);
+    let pending_hash: BytesN<32> = env
+        .storage()
+        .temporary()
+        .get(&DataKey::PendingUpgrade)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NoPendingProposal));
+
+    env.storage().temporary().remove(&DataKey::PendingUpgrade);
+
+    #[cfg(not(test))]
+    env.deployer()
+        .update_current_contract_wasm(pending_hash.clone());
+
+    events::publish_upgraded(env, &pending_hash);
+}
+
+/// Returns the WASM hash queued for the next upgrade, or `None` if no upgrade
+/// is pending.
+///
+/// No auth required — this is a view-only read of temporary storage.
+pub fn get_pending_upgrade(env: &Env) -> Option<BytesN<32>> {
+    env.storage().temporary().get(&DataKey::PendingUpgrade)
+}
+
+#[cfg(test)]
+pub fn upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
+    // Keep direct upgrade available for the test environment
+    events::publish_upgraded(env, &new_wasm_hash);
 }

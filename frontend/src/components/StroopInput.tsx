@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { STROOPS_PER_XLM } from "../constants";
+import React, { useState, useEffect } from "react";
+import { STROOPS_PER_XLM, MIN_STROOPS, MAX_STROOPS } from "../constants";
+import { useDebounce } from "../hooks/useDebounce";
 
 interface Props {
   label: string;
@@ -13,22 +14,59 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
   if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
   const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
   if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-  return { stroops: BigInt(Math.round(num * STROOPS_PER_XLM)), error: null };
+  const stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
+  if (stroops < MIN_STROOPS) {
+    return {
+      stroops: null,
+      error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`,
+    };
+  }
+  if (stroops > MAX_STROOPS) {
+    return { stroops: null, error: `Must be at most ${Number(MAX_STROOPS) / STROOPS_PER_XLM} XLM` };
+  }
+  return { stroops, error: null };
 }
 
 export default function StroopInput({ label, onChange, disabled }: Props) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [lastValue, setLastValue] = useState(value);
+  const debouncedValue = useDebounce(value, 300);
+  const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
+
+  useEffect(() => {
+    if (value !== lastValue) {
+      setLastValue(value);
+    }
+  }, [value, lastValue]);
+
+  useEffect(() => {
+    const { stroops, error: err } = validate(debouncedValue);
+    setConvertedStroops(stroops);
+    setError(err);
+    onChange(stroops);
+  }, [debouncedValue, onChange]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     setValue(raw);
-    const { stroops, error: err } = validate(raw);
+    // validation is debounced to avoid firing on every keystroke
+  }
+
+  function handleBlur() {
+    // validate immediately on blur
+    const { stroops, error: err } = validate(value);
+    setConvertedStroops(stroops);
     setError(err);
     onChange(stroops);
   }
 
   const stateClass = !value ? "" : error ? "input--error" : "input--valid";
+
+  const formatXLM = (stroops: bigint): string => {
+    const xlm = Number(stroops) / STROOPS_PER_XLM;
+    return xlm.toFixed(7);
+  };
 
   return (
     <label className="form-group">
@@ -41,10 +79,14 @@ export default function StroopInput({ label, onChange, disabled }: Props) {
         placeholder="5"
         value={value}
         onChange={handleChange}
+        onBlur={handleBlur}
         disabled={disabled}
         required
       />
       {error && <span className="text-error">{error}</span>}
+      {convertedStroops !== null && !error && (
+        <span className="text-muted">= {formatXLM(convertedStroops)} XLM</span>
+      )}
     </label>
   );
 }

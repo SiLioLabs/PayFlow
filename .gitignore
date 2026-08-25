@@ -160,7 +160,6 @@ Thumbs.db
 dist/
 build/
 out/
-target/
 
 # Temporary files
 tmp/
@@ -187,8 +186,3 @@ config/local.json
 # Backup files
 *.bak
 *.backup
-
-.agents/
-.claude/
-skills-lock.json
-issue.md

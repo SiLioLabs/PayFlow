@@ -11,9 +11,7 @@ interface Props {
 export default function IntervalSelector({ value, onChange }: Props) {
   const isPreset = BILLING_INTERVALS.some((i) => i.value === value);
   const [isCustom, setIsCustom] = useState(!isPreset);
-  const [customDays, setCustomDays] = useState(
-    isPreset ? "" : String(Math.round(value / 86400))
-  );
+  const [customDays, setCustomDays] = useState(isPreset ? "" : String(Math.round(value / 86400)));
 
   function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const val = Number(e.target.value);

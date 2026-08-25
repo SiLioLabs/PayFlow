@@ -1,15 +1,66 @@
-pub fn require_positive_amount(amount: i128) {
-    assert!(amount > 0, "amount must be positive");
+use soroban_sdk::{token, Address, Env};
+
+use crate::errors::ContractError;
+use crate::Subscription;
+
+pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i128) {
+    let client = token::Client::new(env, token);
+    let allowance = client.allowance(user, &env.current_contract_address());
+    if allowance < min_amount {
+        env.panic_with_error(ContractError::InsufficientAllowance);
+    }
 }
 
-pub fn require_positive_interval(interval: u64) {
-    assert!(interval > 0, "interval must be positive");
+/// Composable helper that asserts a subscription is ready to be used:
+/// the subscription must be active and the user must have sufficient
+/// allowance for the subscription's token and amount.
+#[allow(dead_code)]
+pub fn validate_subscription_readiness(env: &Env, user: &Address, sub: &Subscription) {
+    if !sub.active {
+        env.panic_with_error(ContractError::SubscriptionNotActive);
+    }
+    check_allowance(env, user, &sub.token, sub.amount);
 }
 
-pub fn require_active_subscription(active: bool) {
-    assert!(active, "subscription is not active");
+pub fn require_valid_amount(env: &Env, new_amount: i128) {
+    if new_amount <= 0 {
+        env.panic_with_error(ContractError::AmountMustBePositive);
+    }
+    if new_amount > crate::MAX_SUBSCRIPTION_AMOUNT {
+        env.panic_with_error(ContractError::AmountExceedsMaximum);
+    }
 }
 
-pub fn require_charge_interval_elapsed(now: u64, last_charged: u64, interval: u64) {
-    assert!(now >= last_charged + interval, "interval not elapsed yet");
+pub fn require_valid_interval(env: &Env, new_interval: u64) {
+    validate_interval(env, new_interval);
+}
+
+pub fn validate_interval(env: &Env, interval: u64) {
+    if interval == 0 {
+        env.panic_with_error(ContractError::IntervalMustBePositive);
+    }
+    if interval < crate::min_interval::get_min_interval(env) {
+        env.panic_with_error(ContractError::IntervalTooShort);
+    }
+}
+
+#[allow(dead_code)]
+pub fn require_positive_interval(env: &Env, interval: u64) {
+    if interval == 0 {
+        env.panic_with_error(ContractError::IntervalMustBePositive);
+    }
+}
+
+#[allow(dead_code)]
+pub fn require_active_subscription(env: &Env, active: bool) {
+    if !active {
+        env.panic_with_error(ContractError::SubscriptionInactive);
+    }
+}
+
+#[allow(dead_code)]
+pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, interval: u64) {
+    if now < last_charged + interval {
+        env.panic_with_error(ContractError::IntervalNotElapsed);
+    }
 }

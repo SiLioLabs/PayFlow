@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "module": "Node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["keeper.ts"]
+}

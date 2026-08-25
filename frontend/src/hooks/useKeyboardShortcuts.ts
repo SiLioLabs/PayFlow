@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useContext } from "react";
+import { ShortcutRegistryContext } from "../context/ShortcutRegistry";
 
 export interface KeyboardShortcut {
   key: string;
@@ -8,37 +9,33 @@ export interface KeyboardShortcut {
 
 interface UseKeyboardShortcutsOptions {
   enabled?: boolean;
-  shortcuts: KeyboardShortcut[];
+  shortcuts?: KeyboardShortcut[];
 }
 
 /**
  * Hook that enables keyboard shortcuts for navigation and actions.
- * 
+ *
  * @param options - Configuration object with shortcuts and enabled flag
  * @returns Array of shortcuts for documentation/help display
  */
-export function useKeyboardShortcuts({
-  enabled = true,
-  shortcuts,
-}: UseKeyboardShortcutsOptions): KeyboardShortcut[] {
+export function useKeyboardShortcuts(options?: UseKeyboardShortcutsOptions): KeyboardShortcut[] {
+  const enabled = options?.enabled !== false;
+  const context = useContext(ShortcutRegistryContext);
+
+  const shortcuts = context ? context.shortcuts : (options?.shortcuts ?? []);
+
   useEffect(() => {
     if (!enabled) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       // Ignore shortcuts when typing in input fields
       const target = event.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
         return;
       }
 
       // Find and execute matching shortcut
-      const shortcut = shortcuts.find(
-        (s) => s.key.toLowerCase() === event.key.toLowerCase()
-      );
+      const shortcut = shortcuts.find((s) => s.key.toLowerCase() === event.key.toLowerCase());
 
       if (shortcut) {
         event.preventDefault();
