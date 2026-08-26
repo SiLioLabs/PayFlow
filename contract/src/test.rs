@@ -1869,18 +1869,12 @@ fn test_batch_charge_stress() {
 #[test]
 #[should_panic(expected = "Error(Contract, #20)")]
 fn test_batch_charge_over_default_limit_panics() {
-    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    let token = TokenClient::new(&env, &token_addr);
-    let sac = StellarAssetClient::new(&env, &token_addr);
 
     let mut users = soroban_sdk::Vec::new(&env);
     for _ in 0..51 {
-        let u = Address::generate(&env);
-        sac.mint(&u, &10_000_0000000);
-        token.approve(&u, &contract_id, &10_000_0000000, &200);
-        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-        users.push_back(u);
+        users.push_back(Address::generate(&env));
     }
 
     client.batch_charge(&users);
@@ -4565,24 +4559,27 @@ fn test_subscriber_page_limit_capped_at_50() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-    let sac = StellarAssetClient::new(&env, &token_addr);
 
-    for _ in 0..52 {
-        let sub_user = Address::generate(&env);
-        sac.mint(&sub_user, &10_000_0000000);
-        let token = TokenClient::new(&env, &token_addr);
-        token.approve(&sub_user, &contract_id, &10_000_0000000, &200);
+    env.budget().reset_unlimited();
 
-        client.subscribe(
-            &sub_user,
-            &merchant,
-            &1_0000000,
-            &86400,
-            &token_addr,
-            &None,
-            &None,
-        );
-    }
+    env.as_contract(&contract_id, || {
+        for _ in 1..53u64 {
+            let u = Address::generate(&env);
+            subscription_count::append_subscriber_index(&env, &u);
+            env.storage().persistent().set(&DataKey::Subscription(u.clone()), &Subscription {
+                merchant: merchant.clone(),
+                amount: 1_0000000,
+                interval: 86400,
+                last_charged: 0,
+                active: true,
+                paused: false,
+                token: token_addr.clone(),
+                referrer: None,
+                label: Symbol::new(&env, ""),
+                trial_duration: 0,
+            });
+        }
+    });
 
     assert_eq!(client.get_subscriber_count(), 53);
 
@@ -6664,7 +6661,7 @@ fn test_contract_config() {
 
 #[test]
 fn test_daily_spent_reset() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
+    let (env, contract_id, token_addr, user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&token_addr, &admin);

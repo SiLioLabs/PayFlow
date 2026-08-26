@@ -924,7 +924,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#215)'"
+                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#219)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"

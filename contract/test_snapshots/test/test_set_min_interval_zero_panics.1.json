@@ -984,7 +984,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'min interval must be positive' from contract function 'Symbol(obj#225)'"
+                  "string": "caught panic 'min interval must be positive' from contract function 'Symbol(obj#229)'"
                 },
                 {
                   "u64": 0
