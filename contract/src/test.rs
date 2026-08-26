@@ -716,7 +716,8 @@ fn test_freeze_merchant_independent_of_whitelist() {
     assert!(!client.is_merchant_whitelisted(&merchant));
 }
 
-/// freeze_merchant is idempotent â€” freezing an already-frozen merchant must not panic.
+/// freeze_merchant is idempotent — freezing an already-frozen merchant must not panic,
+/// and redundant calls suppress event emissions.
 #[test]
 fn test_freeze_merchant_idempotent() {
     let (env, contract_id, _token_addr, _user, merchant) = setup();
@@ -727,12 +728,34 @@ fn test_freeze_merchant_idempotent() {
         storage::set_admin(&env, &admin);
     });
 
-    client.freeze_merchant(&merchant, &None);
+    let initial_events = env.events().all().len();
+
     client.freeze_merchant(&merchant, &None);
     assert!(client.is_merchant_frozen(&merchant));
+    let freeze_events = env.events().all().len() - initial_events;
+    assert_eq!(freeze_events, 1);
+
+    // Duplicate freeze call suppresses event emission
+    client.freeze_merchant(&merchant, &None);
+    assert!(client.is_merchant_frozen(&merchant));
+    let dup_freeze_events = env.events().all().len() - initial_events - freeze_events;
+    assert_eq!(dup_freeze_events, 0);
+
+    let unfreeze_start_events = env.events().all().len();
+
+    client.unfreeze_merchant(&merchant);
+    assert!(!client.is_merchant_frozen(&merchant));
+    let unfreeze_events = env.events().all().len() - unfreeze_start_events;
+    assert_eq!(unfreeze_events, 1);
+
+    // Duplicate unfreeze call suppresses event emission
+    client.unfreeze_merchant(&merchant);
+    assert!(!client.is_merchant_frozen(&merchant));
+    let dup_unfreeze_events = env.events().all().len() - unfreeze_start_events - unfreeze_events;
+    assert_eq!(dup_unfreeze_events, 0);
 }
 
-/// unfreeze_merchant on a non-frozen merchant must not panic.
+/// unfreeze_merchant on a non-frozen merchant must not panic and suppresses events.
 #[test]
 fn test_unfreeze_merchant_non_frozen_is_noop() {
     let (env, contract_id, _token_addr, _user, merchant) = setup();
@@ -743,8 +766,72 @@ fn test_unfreeze_merchant_non_frozen_is_noop() {
         storage::set_admin(&env, &admin);
     });
 
+    let events_before = env.events().all().len();
     client.unfreeze_merchant(&merchant);
     assert!(!client.is_merchant_frozen(&merchant));
+    let events_after = env.events().all().len();
+    assert_eq!(events_before, events_after);
+}
+
+#[test]
+fn test_idempotent_whitelist_and_freeze_event_suppression() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    // 1. Duplicate Whitelist Add
+    client.add_merchant(&merchant);
+    assert!(client.is_merchant_whitelisted(&merchant));
+    let events_after_add = env.events().all();
+
+    client.add_merchant(&merchant);
+    assert!(client.is_merchant_whitelisted(&merchant));
+    let events_after_dup_add = env.events().all();
+    assert_eq!(events_after_add.len(), events_after_dup_add.len());
+
+    // 2. Redundant Whitelist Remove
+    let merchant_unlisted = Address::generate(&env);
+    let events_before_remove = env.events().all();
+    client.remove_merchant(&merchant_unlisted);
+    let events_after_remove = env.events().all();
+    assert_eq!(events_before_remove.len(), events_after_remove.len());
+
+    // 3. Duplicate Freeze
+    let events_before_freeze = env.events().all();
+    client.freeze_merchant(&merchant, &None);
+    let events_after_freeze = env.events().all();
+    assert_eq!(events_before_freeze.len() + 1, events_after_freeze.len());
+
+    client.freeze_merchant(&merchant, &None);
+    let events_after_dup_freeze = env.events().all();
+    assert_eq!(events_after_freeze.len(), events_after_dup_freeze.len());
+
+    // 4. Unfreeze Non-Frozen Account
+    let non_frozen_merchant = Address::generate(&env);
+    let events_before_unfreeze = env.events().all();
+    client.unfreeze_merchant(&non_frozen_merchant);
+    let events_after_unfreeze = env.events().all();
+    assert_eq!(events_before_unfreeze.len(), events_after_unfreeze.len());
+
+    // 5. Redundant set_whitelist_enabled
+    // Default whitelist_enabled is false in setup()
+    assert!(!client.get_whitelist_enabled());
+    let events_before_enabled = env.events().all();
+    client.set_whitelist_enabled(&false);
+    let events_after_enabled = env.events().all();
+    assert_eq!(events_before_enabled.len(), events_after_enabled.len());
+
+    // Set to true
+    client.set_whitelist_enabled(&true);
+    assert!(client.get_whitelist_enabled());
+    let events_before_enabled_true = env.events().all();
+    client.set_whitelist_enabled(&true);
+    let events_after_enabled_true = env.events().all();
+    assert_eq!(events_before_enabled_true.len(), events_after_enabled_true.len());
 }
 
 /// freeze_merchant requires admin auth.

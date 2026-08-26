@@ -268,21 +268,33 @@ pub fn publish_fee_committed(env: &Env, collector: &Address, bps: u32) {
     );
 }
 
+/// Publishes a `merchant_added` event.
+/// Only called on actual state transitions (when a merchant is newly added to the whitelist).
+/// Suppressed on idempotent/no-op calls.
 pub fn publish_merchant_added(env: &Env, merchant: &Address) {
     env.events()
         .publish((Symbol::new(env, "merchant_added"), merchant.clone()), ());
 }
 
+/// Publishes a `merchant_removed` event.
+/// Only called on actual state transitions (when a merchant is removed from the whitelist).
+/// Suppressed on idempotent/no-op calls.
 pub fn publish_merchant_removed(env: &Env, merchant: &Address) {
     env.events()
         .publish((Symbol::new(env, "merchant_removed"), merchant.clone()), ());
 }
 
+/// Publishes a `merchant_frozen` event.
+/// Only called on actual state transitions (when a merchant becomes frozen).
+/// Suppressed on idempotent/no-op calls.
 pub fn publish_merchant_frozen(env: &Env, merchant: &Address) {
     env.events()
         .publish((Symbol::new(env, "merchant_frozen"), merchant.clone()), ());
 }
 
+/// Publishes a `merchant_unfrozen` event.
+/// Only called on actual state transitions (when a frozen merchant is unfrozen).
+/// Suppressed on idempotent/no-op calls.
 pub fn publish_merchant_unfrozen(env: &Env, merchant: &Address) {
     env.events().publish(
         (Symbol::new(env, "merchant_unfrozen"), merchant.clone()),

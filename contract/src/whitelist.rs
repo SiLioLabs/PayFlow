@@ -19,6 +19,8 @@ pub fn get_whitelist_size(env: &Env) -> u32 {
 }
 
 /// Adds a merchant to the whitelist. Idempotent.
+/// If the merchant is already whitelisted, this function returns early (no-op),
+/// leaving contract storage unchanged and suppressing event emission.
 pub fn add_merchant(env: &Env, merchant: &Address) {
     if is_whitelisted(env, merchant) {
         return;
@@ -41,6 +43,8 @@ pub fn add_merchant(env: &Env, merchant: &Address) {
 }
 
 /// Removes a merchant from the whitelist. Idempotent.
+/// If the merchant is not currently whitelisted, this function returns early (no-op),
+/// leaving contract storage unchanged and suppressing event emission.
 pub fn remove_merchant(env: &Env, merchant: &Address) {
     if !is_whitelisted(env, merchant) {
         return;
@@ -107,8 +111,13 @@ pub fn get_whitelist_enabled(env: &Env) -> bool {
     is_whitelist_enabled(env)
 }
 
-/// Enables or disables the merchant whitelist.
+/// Enables or disables the merchant whitelist. Idempotent.
+/// If `enabled` matches the current whitelist status, this function returns early (no-op),
+/// leaving contract storage unchanged.
 pub fn set_whitelist_enabled(env: &Env, enabled: bool) {
+    if is_whitelist_enabled(env) == enabled {
+        return;
+    }
     env.storage()
         .instance()
         .set(&DataKey::WhitelistEnabled, &enabled);
@@ -122,7 +131,13 @@ pub fn is_frozen(env: &Env, merchant: &Address) -> bool {
 }
 
 /// Freezes a merchant, blocking new subscriptions. Idempotent.
+/// If the merchant is already frozen, this function returns early (no-op),
+/// leaving contract storage unchanged and suppressing event emission.
 pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>) {
+    if is_frozen(env, merchant) {
+        return;
+    }
+
     if let Some(r) = &reason {
         if r.len() > 128 {
             env.panic_with_error(crate::errors::ContractError::MetadataLabelTooLong);
@@ -140,7 +155,13 @@ pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>
 }
 
 /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
+/// If the merchant is not frozen, this function returns early (no-op),
+/// leaving contract storage unchanged and suppressing event emission.
 pub fn unfreeze(env: &Env, merchant: &Address) {
+    if !is_frozen(env, merchant) {
+        return;
+    }
+
     env.storage()
         .persistent()
         .remove(&DataKey::MerchantFrozen(merchant.clone()));
