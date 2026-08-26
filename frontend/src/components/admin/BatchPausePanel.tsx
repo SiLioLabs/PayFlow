@@ -36,8 +36,7 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const { valid, invalid } = parseAddressList(rawInput);
-  const canSubmit =
-    isAdmin && valid.length > 0 && invalid.length === 0 && tx.status !== "pending";
+  const canSubmit = isAdmin && valid.length > 0 && invalid.length === 0 && tx.status !== "pending";
 
   const chunks = chunkAddresses(valid, MAX_PAUSE_BATCH);
   const txCount = chunks.length;
@@ -58,7 +57,10 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin }: Props) {
       );
       setRawInput("");
     } catch (e: unknown) {
-      addToast(`Batch pause failed: ${friendlyError(e instanceof Error ? e.message : String(e))}`, "error");
+      addToast(
+        `Batch pause failed: ${friendlyError(e instanceof Error ? e.message : String(e))}`,
+        "error"
+      );
     }
   }
 
@@ -81,7 +83,8 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin }: Props) {
         </h4>
         <p className="text-sm text-muted">
           Paste subscriber addresses (one per line) to pause multiple subscriptions at once. Lists
-          longer than {MAX_PAUSE_BATCH} addresses are split into multiple transactions automatically.
+          longer than {MAX_PAUSE_BATCH} addresses are split into multiple transactions
+          automatically.
         </p>
       </header>
 

@@ -74,10 +74,19 @@ export default function DailyLimitCard({ userKey, refreshTrigger, onOpen }: Prop
             label="Daily limit"
             value={dailyLimit !== null ? displayCurrentAmount(dailyLimit) : "Not set"}
           />
-          <Row label="Today's spend" value={dailySpent !== null ? displayCurrentAmount(dailySpent) : "—"} />
+          <Row
+            label="Today's spend"
+            value={dailySpent !== null ? displayCurrentAmount(dailySpent) : "—"}
+          />
           <Row
             label="Remaining"
-            value={remaining !== null ? (remaining >= 0n ? displayCurrentAmount(remaining) : "Exceeded") : "—"}
+            value={
+              remaining !== null
+                ? remaining >= 0n
+                  ? displayCurrentAmount(remaining)
+                  : "Exceeded"
+                : "—"
+            }
           />
         </div>
       )}

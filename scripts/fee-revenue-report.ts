@@ -14,6 +14,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { writeFileSync } from "node:fs";
+import { logger } from "./logger";
 
 interface EventRow {
   data: string;
@@ -44,12 +45,18 @@ function toDateStr(ts: number): string {
 
 function main() {
   const dbPath = getArg("--db");
-  if (!dbPath) { console.error("--db <path> required"); process.exit(1); }
+  if (!dbPath) {
+    console.error("--db <path> required");
+    process.exit(1);
+  }
+  if (!dbPath) { logger.error("--db <path> required"); process.exit(1); }
 
   const db = new DatabaseSync(dbPath, { open: true });
 
   const rows = db
-    .prepare("SELECT data, timestamp FROM events WHERE event_name = 'charged' ORDER BY timestamp ASC")
+    .prepare(
+      "SELECT data, timestamp FROM events WHERE event_name = 'charged' ORDER BY timestamp ASC",
+    )
     .all() as unknown as EventRow[];
 
   db.close();
@@ -61,7 +68,9 @@ function main() {
     try {
       const parsed = JSON.parse(row.data) as Record<string, unknown>;
       fee = BigInt(String(parsed.fee ?? "0"));
-    } catch { /* skip malformed rows */ }
+    } catch {
+      /* skip malformed rows */
+    }
 
     const date = toDateStr(row.timestamp);
     const entry = byDay.get(date) ?? { fee: 0n, count: 0 };
@@ -86,7 +95,11 @@ function main() {
 
   const out = getArg("--out");
   const json = JSON.stringify(report, null, 2);
-  if (out) { writeFileSync(out, json); console.log(`Wrote report to ${out}`); }
+  if (out) {
+    writeFileSync(out, json);
+    console.log(`Wrote report to ${out}`);
+  } else process.stdout.write(json + "\n");
+  if (out) { writeFileSync(out, json); logger.info(`Wrote report to ${out}`); }
   else process.stdout.write(json + "\n");
 }
 

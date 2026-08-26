@@ -131,9 +131,7 @@ export default function ReferralPanel({ publicKey }: Props) {
       .then(({ events }) => {
         // Each 'referred' event where topic[1] === publicKey means this user
         // referred someone. Count unique referred addresses.
-        const uniqueReferees = new Set(
-          events.map((e) => e.address).filter(Boolean)
-        );
+        const uniqueReferees = new Set(events.map((e) => e.address).filter(Boolean));
         setReferredCount(uniqueReferees.size);
       })
       .catch(() => setReferredCount(null))
@@ -162,9 +160,7 @@ export default function ReferralPanel({ publicKey }: Props) {
 
       {/* Referral code (user's own address) */}
       <div className="referral-panel__section">
-        <span className="referral-panel__label text-sm text-muted">
-          Your referral code
-        </span>
+        <span className="referral-panel__label text-sm text-muted">Your referral code</span>
         <div className="referral-panel__code-row">
           <code
             className="referral-panel__code"
@@ -174,19 +170,14 @@ export default function ReferralPanel({ publicKey }: Props) {
             {publicKey ?? "Connect wallet to see your referral code"}
           </code>
           {publicKey && (
-            <InlineCopyButton
-              text={publicKey}
-              ariaLabel="Copy referral code (wallet address)"
-            />
+            <InlineCopyButton text={publicKey} ariaLabel="Copy referral code (wallet address)" />
           )}
         </div>
       </div>
 
       {/* Share link */}
       <div className="referral-panel__section">
-        <span className="referral-panel__label text-sm text-muted">
-          Share link
-        </span>
+        <span className="referral-panel__label text-sm text-muted">Share link</span>
         <div className="referral-panel__link-row">
           <a
             href={publicKey ? referralUrl : undefined}
@@ -199,23 +190,14 @@ export default function ReferralPanel({ publicKey }: Props) {
             {referralUrl}
           </a>
           {publicKey && (
-            <InlineCopyButton
-              text={referralUrl}
-              ariaLabel="Copy referral share link"
-            />
+            <InlineCopyButton text={referralUrl} ariaLabel="Copy referral share link" />
           )}
         </div>
       </div>
 
       {/* Referred count */}
-      <div
-        className="referral-panel__stats"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <span className="referral-panel__stat-label text-sm text-muted">
-          Users referred
-        </span>
+      <div className="referral-panel__stats" aria-live="polite" aria-atomic="true">
+        <span className="referral-panel__stat-label text-sm text-muted">Users referred</span>
         <span
           className="referral-panel__stat-value"
           data-testid="referred-count"
@@ -223,8 +205,8 @@ export default function ReferralPanel({ publicKey }: Props) {
             loadingCount
               ? "Loading referred count"
               : referredCount === null
-              ? "Referred count unavailable"
-              : `${referredCount} users referred`
+                ? "Referred count unavailable"
+                : `${referredCount} users referred`
           }
         >
           {loadingCount ? (

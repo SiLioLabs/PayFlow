@@ -13,9 +13,7 @@ vi.mock("../stellar", () => ({
 
 // Mock CopyButton to keep tests simple
 vi.mock("../components/CopyButton", () => ({
-  default: ({ text }: { text: string }) => (
-    <button data-testid={`copy-${text}`}>Copy</button>
-  ),
+  default: ({ text }: { text: string }) => <button data-testid={`copy-${text}`}>Copy</button>,
 }));
 
 describe("TxQueuePanel", () => {
@@ -169,10 +167,7 @@ describe("TxQueuePanel", () => {
       const link = screen.getByRole("link", {
         name: /view transaction.*stellar\.expert/i,
       });
-      expect(link).toHaveAttribute(
-        "href",
-        `https://stellar.expert/explorer/testnet/tx/${hash}`
-      );
+      expect(link).toHaveAttribute("href", `https://stellar.expert/explorer/testnet/tx/${hash}`);
       expect(link).toHaveAttribute("target", "_blank");
     });
   });
@@ -189,9 +184,7 @@ describe("TxQueuePanel", () => {
     });
 
     // Click the toggle button to collapse
-    await userEvent.click(
-      screen.getByRole("button", { name: /collapse transaction queue/i })
-    );
+    await userEvent.click(screen.getByRole("button", { name: /collapse transaction queue/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole("list", { name: /recent transactions/i })).not.toBeInTheDocument();
@@ -206,20 +199,12 @@ describe("TxQueuePanel", () => {
     });
 
     // Collapse first
-    await waitFor(() =>
-      screen.getByRole("button", { name: /collapse transaction queue/i })
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /collapse transaction queue/i })
-    );
+    await waitFor(() => screen.getByRole("button", { name: /collapse transaction queue/i }));
+    await userEvent.click(screen.getByRole("button", { name: /collapse transaction queue/i }));
 
     // Now expand
-    await waitFor(() =>
-      screen.getByRole("button", { name: /expand transaction queue/i })
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /expand transaction queue/i })
-    );
+    await waitFor(() => screen.getByRole("button", { name: /expand transaction queue/i }));
+    await userEvent.click(screen.getByRole("button", { name: /expand transaction queue/i }));
 
     await waitFor(() => {
       expect(screen.getByRole("list", { name: /recent transactions/i })).toBeInTheDocument();

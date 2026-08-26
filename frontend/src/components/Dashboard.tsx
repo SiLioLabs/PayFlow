@@ -6,7 +6,6 @@ import SubscriptionCardSkeleton from "./Skeleton";
 import ErrorBoundary from "./ErrorBoundary";
 import ErrorRecovery from "./ErrorRecovery";
 
-
 // Lazy-load SubscriptionHistory so it is excluded from the main chunk (Issue #445).
 const SubscriptionHistory = lazy(() => import("./SubscriptionHistory"));
 import PayPerUseForm from "./PayPerUseForm";
@@ -16,6 +15,8 @@ import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
 import AllowanceDisplay from "./AllowanceDisplay";
 import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
+import EventFeed from "./EventFeed";
+import SubscriptionExport from "./SubscriptionExport";
 import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
 import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
@@ -31,6 +32,7 @@ interface Props {
   announce: (message: string) => void;
   onCancelled?: () => void;
   onPayPerUse?: (amount: bigint) => void;
+  isPaused?: boolean;
 }
 
 export default function Dashboard({
@@ -40,6 +42,7 @@ export default function Dashboard({
   announce,
   onCancelled,
   onPayPerUse,
+  isPaused = false,
 }: Props) {
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
@@ -162,7 +165,51 @@ export default function Dashboard({
                   <SubscriptionHistory userKey={userKey} />
                 </Suspense>
               </ErrorBoundary>
-              <PayPerUseForm ref={ppuInputRef} onPay={handlePayPerUse} loading={ppuPending} />
+
+              {/* Real-time contract event feed (Issue #46) */}
+              <EventFeed
+                address={userKey}
+                eventName="charged"
+                title="My Recent Charges"
+                maxEvents={25}
+              />
+
+              {/* Subscription export (Issue #48) */}
+              {sub && (
+                <div className="card">
+                  <div className="flex-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">Export Subscription Data</h3>
+                      <p className="text-sm text-muted">
+                        Download your subscription details for accounting or reporting.
+                      </p>
+                    </div>
+                  </div>
+                  <SubscriptionExport
+                    data={[
+                      {
+                        merchant: sub.merchant,
+                        amount_stroops: sub.amount,
+                        interval_seconds: sub.interval,
+                        last_charged: sub.last_charged,
+                        active: sub.active,
+                        paused: sub.paused,
+                        trial_duration: sub.trial_duration ?? 0,
+                        label: sub.label ?? "",
+                      },
+                    ]}
+                    filename={`subscription-${userKey.slice(0, 8)}`}
+                    label="Export Subscription"
+                  />
+                </div>
+              )}
+
+              <PayPerUseForm
+                ref={ppuInputRef}
+                onPay={handlePayPerUse}
+                loading={ppuPending}
+                isPaused={isPaused}
+              />
               {ppuPending && (
                 <p className="status-text status-text--pending">Confirming payment…</p>
               )}
@@ -175,7 +222,6 @@ export default function Dashboard({
               <ReferralPanel publicKey={userKey} />
             </>
           )}
-
         </>
       )}
 

@@ -43,15 +43,15 @@ Be respectful. We welcome contributors of all experience levels. Harassment, gat
 
 These are well-scoped tasks that don't require deep knowledge of the whole codebase:
 
-| Task | Area | Difficulty |
-| --- | --- | --- |
-| Add USDC / custom SAC token support | Contract | Medium |
-| Build a Node.js keeper service that calls `charge()` on a schedule | Backend | Medium |
-| Add subscription pause/resume functions | Contract | Medium |
-| Improve frontend error messages with human-readable contract panics | Frontend | Easy |
-| Add `test_pay_per_use` unit test | Contract | Easy |
-| Add `test_double_initialize` unit test | Contract | Easy |
-| Display transaction history using contract events | Frontend | Hard |
+| Task                                                                | Area     | Difficulty |
+| ------------------------------------------------------------------- | -------- | ---------- |
+| Add USDC / custom SAC token support                                 | Contract | Medium     |
+| Build a Node.js keeper service that calls `charge()` on a schedule  | Backend  | Medium     |
+| Add subscription pause/resume functions                             | Contract | Medium     |
+| Improve frontend error messages with human-readable contract panics | Frontend | Easy       |
+| Add `test_pay_per_use` unit test                                    | Contract | Easy       |
+| Add `test_double_initialize` unit test                              | Contract | Easy       |
+| Display transaction history using contract events                   | Frontend | Hard       |
 
 ---
 
@@ -99,6 +99,7 @@ npm run dev
 5. Push your branch and open a Pull Request against `main`
 
 Branch naming conventions:
+
 - `feat/` — new feature
 - `fix/` — bug fix
 - `docs/` — documentation only
@@ -130,7 +131,6 @@ See the full guide: [`docs/CONTRIBUTING-FRONTEND.md`](docs/CONTRIBUTING-FRONTEND
 - Run `npm run lint` to check for ESLint errors before submitting
 - Run `npm run format` to auto-format all source files with Prettier
 - Run `npm run build` to confirm there are no TypeScript errors before submitting
-
 
 ---
 
@@ -180,6 +180,7 @@ npm run generate:types
 ```
 
 This invokes `scripts/generate-types.sh`, which requires either:
+
 - `CONTRACT_ID` env var pointing to a deployed contract, or
 - A compiled WASM artifact at `contract/target/wasm32-unknown-unknown/release/payflow.wasm`
 

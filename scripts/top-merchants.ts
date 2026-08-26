@@ -14,6 +14,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { writeFileSync } from "node:fs";
+import { logger } from "./logger";
 
 interface EventRow {
   data: string;
@@ -32,11 +33,22 @@ function getArg(flag: string): string | undefined {
 
 function main() {
   const dbPath = getArg("--db");
-  if (!dbPath) { console.error("--db <path> required"); process.exit(1); }
+  if (!dbPath) {
+    console.error("--db <path> required");
+    process.exit(1);
+  }
 
   const limitArg = getArg("--limit");
   const limit = limitArg ? parseInt(limitArg, 10) : 20;
-  if (isNaN(limit) || limit < 1) { console.error("--limit must be a positive integer"); process.exit(1); }
+  if (isNaN(limit) || limit < 1) {
+    console.error("--limit must be a positive integer");
+    process.exit(1);
+  }
+  if (!dbPath) { logger.error("--db <path> required"); process.exit(1); }
+
+  const limitArg = getArg("--limit");
+  const limit = limitArg ? parseInt(limitArg, 10) : 20;
+  if (isNaN(limit) || limit < 1) { logger.error("--limit must be a positive integer"); process.exit(1); }
 
   const db = new DatabaseSync(dbPath, { open: true });
   const rows = db
@@ -53,17 +65,27 @@ function main() {
       const amount = BigInt(String(parsed.amount ?? "0"));
       const fee = BigInt(String(parsed.fee ?? "0"));
       revenue.set(merchant, (revenue.get(merchant) ?? 0n) + (amount - fee));
-    } catch { /* skip malformed rows */ }
+    } catch {
+      /* skip malformed rows */
+    }
   }
 
   const leaderboard: MerchantEntry[] = [...revenue.entries()]
     .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0))
     .slice(0, limit)
-    .map(([address, total], i) => ({ rank: i + 1, address, total_revenue: total.toString() }));
+    .map(([address, total], i) => ({
+      rank: i + 1,
+      address,
+      total_revenue: total.toString(),
+    }));
 
   const out = getArg("--out");
   const json = JSON.stringify(leaderboard, null, 2);
-  if (out) { writeFileSync(out, json); console.log(`Wrote leaderboard to ${out}`); }
+  if (out) {
+    writeFileSync(out, json);
+    console.log(`Wrote leaderboard to ${out}`);
+  } else process.stdout.write(json + "\n");
+  if (out) { writeFileSync(out, json); logger.info(`Wrote leaderboard to ${out}`); }
   else process.stdout.write(json + "\n");
 }
 

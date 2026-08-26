@@ -7,11 +7,7 @@
  * Issue #658
  */
 import React, { useEffect, useState, useCallback } from "react";
-import {
-  addListener,
-  setPanelOpen,
-  type TxEntry,
-} from "../services/txQueue";
+import { addListener, setPanelOpen, type TxEntry } from "../services/txQueue";
 import { explorerTxUrl } from "../stellar";
 import CopyButton from "./CopyButton";
 
@@ -80,10 +76,7 @@ function TxEntryRow({ entry }: TxEntryRowProps) {
       </div>
 
       <div className="tx-queue-entry__meta">
-        <time
-          className="tx-queue-entry__time text-muted text-sm"
-          dateTime={entry.timestamp}
-        >
+        <time className="tx-queue-entry__time text-muted text-sm" dateTime={entry.timestamp}>
           {formatTimestamp(entry.timestamp)}
         </time>
 
@@ -98,10 +91,7 @@ function TxEntryRow({ entry }: TxEntryRowProps) {
             >
               {truncateHash(entry.hash)}
             </a>
-            <CopyButton
-              text={entry.hash}
-              ariaLabel={`Copy transaction hash ${entry.hash}`}
-            />
+            <CopyButton text={entry.hash} ariaLabel={`Copy transaction hash ${entry.hash}`} />
           </span>
         )}
       </div>
@@ -172,10 +162,7 @@ export default function TxQueuePanel() {
         <span className="tx-queue-panel__title">
           Transactions
           {pendingCount > 0 && (
-            <span
-              className="tx-queue-panel__badge"
-              aria-label={`${pendingCount} in progress`}
-            >
+            <span className="tx-queue-panel__badge" aria-label={`${pendingCount} in progress`}>
               {pendingCount}
             </span>
           )}
@@ -197,11 +184,7 @@ export default function TxQueuePanel() {
               Close
             </button>
           </div>
-          <ul
-            id="tx-queue-list"
-            className="tx-queue-list"
-            aria-label="Recent transactions"
-          >
+          <ul id="tx-queue-list" className="tx-queue-list" aria-label="Recent transactions">
             {entries.map((entry) => (
               <TxEntryRow key={entry.id} entry={entry} />
             ))}

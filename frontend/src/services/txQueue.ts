@@ -9,7 +9,6 @@
 import { useState, useEffect } from "react";
 
 export type TxEntryStatus = "pending" | "submitted" | "confirmed" | "failed";
-
 export interface TxEntry {
   /** Unique entry id (monotonically increasing) */
   id: number;
@@ -81,25 +80,19 @@ export function enqueue(operation: string, retry: (() => Promise<void>) | null =
 
 /** Mark an entry as submitted (hash now known, waiting for confirmation). */
 export function markSubmitted(id: number, hash: string): void {
-  entries = entries.map((e) =>
-    e.id === id ? { ...e, hash, status: "submitted" } : e
-  );
+  entries = entries.map((e) => (e.id === id ? { ...e, hash, status: "submitted" } : e));
   notify();
 }
 
 /** Mark an entry as confirmed on-chain. */
 export function markConfirmed(id: number): void {
-  entries = entries.map((e) =>
-    e.id === id ? { ...e, status: "confirmed" } : e
-  );
+  entries = entries.map((e) => (e.id === id ? { ...e, status: "confirmed" } : e));
   notify();
 }
 
 /** Mark an entry as failed with an error message. */
 export function markFailed(id: number, error: string): void {
-  entries = entries.map((e) =>
-    e.id === id ? { ...e, status: "failed", error } : e
-  );
+  entries = entries.map((e) => (e.id === id ? { ...e, status: "failed", error } : e));
   notify();
 }
 
@@ -143,6 +136,10 @@ const queueStateListeners = new Set<QueueStateListener>();
 
 function notifyQueueState() {
   for (const listener of queueStateListeners) {
+    listener();
+  }
+}
+
 type QueueListener = () => void;
 const queueListeners = new Set<QueueListener>();
 
@@ -196,8 +193,6 @@ export function enqueueTransaction<T>(
 // React hook for consuming queue depth / pending label in UI components
 // ---------------------------------------------------------------------------
 
-import { useState, useEffect } from "react";
-
 export function useTxQueue() {
   const [state, setState] = useState({ pendingLabel, queueDepth });
 
@@ -206,9 +201,6 @@ export function useTxQueue() {
     queueStateListeners.add(listener);
     return () => {
       queueStateListeners.delete(listener);
-    queueListeners.add(listener);
-    return () => {
-      queueListeners.delete(listener);
     };
   }, []);
 

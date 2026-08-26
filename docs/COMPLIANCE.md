@@ -22,22 +22,22 @@ That means:
 
 ## What’s on-chain vs ephemeral
 
-### Durable enough for audit *if you retain it*
+### Durable enough for audit _if you retain it_
 
-| Artifact | Where it lives | What finance can use it for |
-| --- | --- | --- |
-| Contract events (`charged`, `subscribed`, `cancelled`, …) | Stellar ledger history | Complete billing journal: who paid whom, when, gross/fee/net |
-| `Subscription` record | Persistent contract storage | Current terms: merchant, amount, interval, pause/active flags |
-| Merchant revenue counters / day buckets / history | Persistent storage | Cumulative and daily revenue snapshots |
-| Charge history timestamps | Persistent storage | Recent charge *times* only (see limits below) |
-| Whitelist / freeze / referral / metadata | Persistent storage | Merchant directory and labels — not full payment proof |
+| Artifact                                                  | Where it lives              | What finance can use it for                                   |
+| --------------------------------------------------------- | --------------------------- | ------------------------------------------------------------- |
+| Contract events (`charged`, `subscribed`, `cancelled`, …) | Stellar ledger history      | Complete billing journal: who paid whom, when, gross/fee/net  |
+| `Subscription` record                                     | Persistent contract storage | Current terms: merchant, amount, interval, pause/active flags |
+| Merchant revenue counters / day buckets / history         | Persistent storage          | Cumulative and daily revenue snapshots                        |
+| Charge history timestamps                                 | Persistent storage          | Recent charge _times_ only (see limits below)                 |
+| Whitelist / freeze / referral / metadata                  | Persistent storage          | Merchant directory and labels — not full payment proof        |
 
 ### Ephemeral — do **not** treat as long-term evidence
 
-| Artifact | Storage tier | Behavior |
-| --- | --- | --- |
-| Daily spend limit / daily spent / day-start markers | Temporary | Expire after ~24 hours (`17,280` ledgers). Permanently deleted; not restorable. |
-| Pending fee / grace / upgrade proposals | Temporary | Short-lived propose → commit state (~1 day TTL). |
+| Artifact                                            | Storage tier | Behavior                                                                        |
+| --------------------------------------------------- | ------------ | ------------------------------------------------------------------------------- |
+| Daily spend limit / daily spent / day-start markers | Temporary    | Expire after ~24 hours (`17,280` ledgers). Permanently deleted; not restorable. |
+| Pending fee / grace / upgrade proposals             | Temporary    | Short-lived propose → commit state (~1 day TTL).                                |
 
 See [architecture/storage_and_ttl.md](./architecture/storage_and_ttl.md) for storage tiers and TTL policy, and [ARCHITECTURE.md](./ARCHITECTURE.md#storage-strategy) for the high-level map.
 
@@ -54,11 +54,11 @@ See [architecture/storage_and_ttl.md](./architecture/storage_and_ttl.md) for sto
 1. Node.js 18+ and dependencies under `scripts/` (`cd scripts && npm install`).
 2. Environment (Testnet defaults shown):
 
-| Variable | Purpose |
-| --- | --- |
-| `VITE_CONTRACT_ID` or `CONTRACT_ID` | FlowPay contract ID |
-| `VITE_RPC_URL` / `RPC_URL` | Soroban RPC endpoint |
-| `VITE_NETWORK_PASSPHRASE` | Network passphrase (defaults to Testnet) |
+| Variable                            | Purpose                                  |
+| ----------------------------------- | ---------------------------------------- |
+| `VITE_CONTRACT_ID` or `CONTRACT_ID` | FlowPay contract ID                      |
+| `VITE_RPC_URL` / `RPC_URL`          | Soroban RPC endpoint                     |
+| `VITE_NETWORK_PASSPHRASE`           | Network passphrase (defaults to Testnet) |
 
 3. Your merchant Stellar address (`G…`).
 4. Optionally, an indexer database if you run continuous event ingestion (required for day-summary and churn scripts).
@@ -115,7 +115,7 @@ CONTRACT_ID=C... node --experimental-require-module scripts/subscription-snapsho
   --addresses GABC...,GXYZ... --out snapshot.json
 ```
 
-Useful for proving *current* terms, not historical charges.
+Useful for proving _current_ terms, not historical charges.
 
 ### Step 4 — Cross-check recent charge timestamps on-chain
 
@@ -182,11 +182,11 @@ Full event schemas: [EVENTS.md](./EVENTS.md). Indexing patterns: [EVENT-DRIVEN-G
 
 If you already persist events to SQLite:
 
-| Script | Purpose |
-| --- | --- |
-| `scripts/daily-revenue-summary.ts` | UTC-day charge / fee / subscription totals |
-| `scripts/fee-revenue-report.ts` | Protocol fee totals from `charged.fee` |
-| `scripts/subscriber-churn-report.ts` | Cancellation / churn rates |
+| Script                               | Purpose                                    |
+| ------------------------------------ | ------------------------------------------ |
+| `scripts/daily-revenue-summary.ts`   | UTC-day charge / fee / subscription totals |
+| `scripts/fee-revenue-report.ts`      | Protocol fee totals from `charged.fee`     |
+| `scripts/subscriber-churn-report.ts` | Cancellation / churn rates                 |
 
 These do **not** replace a primary event archive; they summarize one.
 
@@ -196,20 +196,20 @@ These do **not** replace a primary event archive; they summarize one.
 
 ### Billing events in finance language
 
-| Event | Meaning for books |
-| --- | --- |
-| `subscribed` | Customer enrolled; recurring price (`amount`) and period (`interval` seconds) set |
-| `charged` | Recurring invoice collected: **gross** charged to customer, **fee** to protocol, **net** to merchant, at `charged_at` |
-| `pay_per_use` | One-off usage charge against an active subscription |
-| `cancelled` / `cancelled_with_refund` | Subscription ended; no further recurring charges (refund amount only on the refund variant) |
-| `paused` / `resumed` | Customer temporarily stopped / restarted billing |
-| `sub_amount_updated` / `sub_interval_updated` | Price or billing period changed |
-| `sub_transferred` | Subscription moved to another Stellar address |
-| `merchant_withdrawal` | Merchant withdrew accrued protocol-tracked revenue (payout) |
-| `daily_limit_set` / `daily_limit_removed` | Customer changed pay-per-use daily cap (control, not revenue) |
-| `fee_proposed` / `fee_committed` | Protocol fee schedule change (policy audit) |
-| `merchant_frozen` / `merchant_unfrozen` | Admin blocked / unblocked the merchant from new activity |
-| `contract_paused` / `contract_unpaused` | Protocol-wide halt / resume |
+| Event                                         | Meaning for books                                                                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `subscribed`                                  | Customer enrolled; recurring price (`amount`) and period (`interval` seconds) set                                     |
+| `charged`                                     | Recurring invoice collected: **gross** charged to customer, **fee** to protocol, **net** to merchant, at `charged_at` |
+| `pay_per_use`                                 | One-off usage charge against an active subscription                                                                   |
+| `cancelled` / `cancelled_with_refund`         | Subscription ended; no further recurring charges (refund amount only on the refund variant)                           |
+| `paused` / `resumed`                          | Customer temporarily stopped / restarted billing                                                                      |
+| `sub_amount_updated` / `sub_interval_updated` | Price or billing period changed                                                                                       |
+| `sub_transferred`                             | Subscription moved to another Stellar address                                                                         |
+| `merchant_withdrawal`                         | Merchant withdrew accrued protocol-tracked revenue (payout)                                                           |
+| `daily_limit_set` / `daily_limit_removed`     | Customer changed pay-per-use daily cap (control, not revenue)                                                         |
+| `fee_proposed` / `fee_committed`              | Protocol fee schedule change (policy audit)                                                                           |
+| `merchant_frozen` / `merchant_unfrozen`       | Admin blocked / unblocked the merchant from new activity                                                              |
+| `contract_paused` / `contract_unpaused`       | Protocol-wide halt / resume                                                                                           |
 
 Amounts on `charged` are the structured source for revenue recognition splits (gross vs fee vs net). Prefer event payloads over reconstructing from token transfers alone.
 
@@ -221,20 +221,20 @@ Amounts on `charged` are the structured source for revenue recognition splits (g
 4. Expect **gross − fee = net**. Protocol fees go to the configured fee collector, not the merchant — do not book fee as merchant revenue.
 5. Investigate gaps: missing events usually mean RPC retention lapsed without an indexer, or filters excluded the merchant.
 
-Token transfers prove value movement; contract events prove *why* (subscription charge vs pay-per-use vs withdrawal). Keep both in the audit package when possible.
+Token transfers prove value movement; contract events prove _why_ (subscription charge vs pay-per-use vs withdrawal). Keep both in the audit package when possible.
 
 ---
 
 ## Data retention
 
-| Concern | Fact | Recommendation |
-| --- | --- | --- |
-| RPC event history | Short retention (~week order) | Run `watch-events` / indexer continuously; archive to your own storage |
+| Concern                     | Fact                                                             | Recommendation                                                                      |
+| --------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| RPC event history           | Short retention (~week order)                                    | Run `watch-events` / indexer continuously; archive to your own storage              |
 | Subscription / metadata TTL | Persistent keys target ~1 year (`6,307,200` ledgers) when bumped | Idle subscriptions may archive; call `extend_subscription_ttl` or restore if needed |
-| Merchant revenue keys | Extended ~90 days on write in current code | Export reports regularly; do not rely on day buckets alone for multi-year books |
-| Charge history storage | Max **12** timestamps; clearable by user | Never use as sole multi-year evidence |
-| Temporary daily limits | Deleted after ~24h | Irrelevant for long-term audit |
-| Admin clears | Admin can clear merchant revenue history / reset revenue | Treat admin actions as privileged; log them off-chain |
+| Merchant revenue keys       | Extended ~90 days on write in current code                       | Export reports regularly; do not rely on day buckets alone for multi-year books     |
+| Charge history storage      | Max **12** timestamps; clearable by user                         | Never use as sole multi-year evidence                                               |
+| Temporary daily limits      | Deleted after ~24h                                               | Irrelevant for long-term audit                                                      |
+| Admin clears                | Admin can clear merchant revenue history / reset revenue         | Treat admin actions as privileged; log them off-chain                               |
 
 **Retention recommendation:** Keep an off-chain append-only event store (and periodic merchant report exports) for as long as your accounting and tax rules require. The chain is the source of truth, but RPC nodes and temporary storage will not keep a multi-year merchant archive for you.
 
@@ -244,15 +244,15 @@ Token transfers prove value movement; contract events prove *why* (subscription 
 
 PayFlow / FlowPay does **not** provide:
 
-| Expectation | Reality |
-| --- | --- |
-| KYC / identity verification | Addresses only — no identity documents or sanctions screening |
-| Tax calculation or filing | No tax engine, jurisdiction rules, or Form exports |
-| Legal dispute resolution | No on-chain arbitration for failed or disputed charges |
-| Guaranteed charge timing | Recurring charges depend on an external [keeper](./GLOSSARY.md#keeper) calling `charge` / `batch_charge` |
-| Complete on-chain invoice archive | Storage keeps only recent timestamps; full history requires indexed events |
-| Production Mainnet assurance | Testnet deployment; no formal security audit yet ([SECURITY.md](./SECURITY.md)) |
-| Custody or bank statements | Non-custodial protocol — bank-style statements are your responsibility off-chain |
+| Expectation                       | Reality                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| KYC / identity verification       | Addresses only — no identity documents or sanctions screening                                            |
+| Tax calculation or filing         | No tax engine, jurisdiction rules, or Form exports                                                       |
+| Legal dispute resolution          | No on-chain arbitration for failed or disputed charges                                                   |
+| Guaranteed charge timing          | Recurring charges depend on an external [keeper](./GLOSSARY.md#keeper) calling `charge` / `batch_charge` |
+| Complete on-chain invoice archive | Storage keeps only recent timestamps; full history requires indexed events                               |
+| Production Mainnet assurance      | Testnet deployment; no formal security audit yet ([SECURITY.md](./SECURITY.md))                          |
+| Custody or bank statements        | Non-custodial protocol — bank-style statements are your responsibility off-chain                         |
 
 Broad admin powers (pause, freeze merchants, clear history, upgrade) exist. Treat admin key holders as highly trusted for any compliance narrative.
 
@@ -260,12 +260,12 @@ Broad admin powers (pause, freeze merchants, clear history, upgrade) exist. Trea
 
 ## Related documentation
 
-| Document | Topic |
-| --- | --- |
-| [SECURITY.md](./SECURITY.md) | Security model, auth table, known limitations, disclosure |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Modules, storage strategy, event architecture |
-| [EVENTS.md](./EVENTS.md) | Full event payload reference |
-| [EVENT-DRIVEN-GUIDE.md](./EVENT-DRIVEN-GUIDE.md) | Indexing, replay, RPC retention |
-| [architecture/storage_and_ttl.md](./architecture/storage_and_ttl.md) | Storage tiers and TTL |
-| [API.md](./API.md) | Charge and charge-history APIs |
-| [GLOSSARY.md](./GLOSSARY.md) | Protocol terminology |
+| Document                                                             | Topic                                                     |
+| -------------------------------------------------------------------- | --------------------------------------------------------- |
+| [SECURITY.md](./SECURITY.md)                                         | Security model, auth table, known limitations, disclosure |
+| [ARCHITECTURE.md](./ARCHITECTURE.md)                                 | Modules, storage strategy, event architecture             |
+| [EVENTS.md](./EVENTS.md)                                             | Full event payload reference                              |
+| [EVENT-DRIVEN-GUIDE.md](./EVENT-DRIVEN-GUIDE.md)                     | Indexing, replay, RPC retention                           |
+| [architecture/storage_and_ttl.md](./architecture/storage_and_ttl.md) | Storage tiers and TTL                                     |
+| [API.md](./API.md)                                                   | Charge and charge-history APIs                            |
+| [GLOSSARY.md](./GLOSSARY.md)                                         | Protocol terminology                                      |

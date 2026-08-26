@@ -17,7 +17,7 @@ export default function ErrorRecovery({
   if (!error) return null;
 
   const raw = error.toLowerCase();
-  
+
   let message = friendlyError(error);
   let action: React.ReactNode = null;
 
@@ -47,14 +47,34 @@ export default function ErrorRecovery({
     // Unknown error
     message = `Contract Error: ${error}`;
     action = (
-      <a href="https://github.com/Dantama022/PayFlow/tree/main/docs/ERROR-CODES.md" target="_blank" rel="noopener noreferrer" className="btn-secondary" style={{ textDecoration: 'none', display: 'inline-block', fontSize: '0.875rem' }}>
+      <a
+        href="https://github.com/Dantama022/PayFlow/tree/main/docs/ERROR-CODES.md"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn-secondary"
+        style={{ textDecoration: "none", display: "inline-block", fontSize: "0.875rem" }}
+      >
         View Error Codes
       </a>
     );
   }
 
   return (
-    <div className="network-warning" role="alert" style={{ background: "var(--color-danger-bg)", color: "var(--color-danger-text)", borderColor: "var(--color-danger)", marginBottom: "var(--space-4)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-3)" }}>
+    <div
+      className="network-warning"
+      role="alert"
+      style={{
+        background: "var(--color-danger-bg)",
+        color: "var(--color-danger-text)",
+        borderColor: "var(--color-danger)",
+        marginBottom: "var(--space-4)",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: "var(--space-3)",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
         <span>⚠️</span>
         <span>{message}</span>

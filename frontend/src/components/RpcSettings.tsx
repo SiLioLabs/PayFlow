@@ -102,10 +102,7 @@ export default function RpcSettings({ onClose }: Props) {
           }}
         >
           <span className="text-muted">Current active URL: </span>
-          <code
-            style={{ wordBreak: "break-all", fontSize: "11px" }}
-            data-testid="active-rpc-url"
-          >
+          <code style={{ wordBreak: "break-all", fontSize: "11px" }} data-testid="active-rpc-url">
             {activeRpcUrl}
           </code>
           {isUsingDefault && (
@@ -128,7 +125,9 @@ export default function RpcSettings({ onClose }: Props) {
           <input
             type="url"
             aria-labelledby="rpc-url-label"
-            aria-describedby={validationError ? "rpc-url-error" : httpWarning ? "rpc-url-warning" : undefined}
+            aria-describedby={
+              validationError ? "rpc-url-error" : httpWarning ? "rpc-url-warning" : undefined
+            }
             aria-invalid={validationError !== null}
             placeholder={defaultUrl}
             value={inputValue}
@@ -198,11 +197,7 @@ export default function RpcSettings({ onClose }: Props) {
               Reset to default
             </button>
           )}
-          <button
-            className="btn-secondary"
-            onClick={onClose}
-            data-testid="rpc-cancel-btn"
-          >
+          <button className="btn-secondary" onClick={onClose} data-testid="rpc-cancel-btn">
             Cancel
           </button>
           <button

@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -924,7 +925,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#209)'"
+                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#219)'"
                 },
                 {
                   "u64": 7200

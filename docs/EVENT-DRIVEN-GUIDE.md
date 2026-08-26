@@ -1,6 +1,6 @@
 # Event-Driven Integration Cookbook
 
-[`docs/EVENTS.md`](EVENTS.md) is a reference: it lists every event the FlowPay contract emits and the shape of its payload. This guide is the companion **cookbook** — it shows you how to actually *build* something on top of those events: a keeper, an analytics pipeline, a notification service, or a reconciliation job.
+[`docs/EVENTS.md`](EVENTS.md) is a reference: it lists every event the FlowPay contract emits and the shape of its payload. This guide is the companion **cookbook** — it shows you how to actually _build_ something on top of those events: a keeper, an analytics pipeline, a notification service, or a reconciliation job.
 
 If you are looking for "what event fires when `X` happens", go to [EVENTS.md](EVENTS.md). If you are looking for "how do I reliably consume these events without missing or double-processing anything", you're in the right place. Merchants wiring `subscribed` / `charged` / `cancelled` / `pay_per_use` into a billing dashboard should also read the [Merchant Integration Cookbook](MERCHANT-INTEGRATION.md#4-handling-events).
 
@@ -80,7 +80,7 @@ A few properties matter for anyone building an integration:
 - **Events are per-ledger, per-transaction.** A single `batch_charge()` call can emit multiple `charged` events (one per user actually charged) inside one transaction, all attached to the same `ledger` and `txHash`.
 - **Events are not stored forever.** Soroban RPC only retains events for a limited retention window (this varies by RPC provider, but assume something on the order of a week on public RPC infrastructure). If you need history older than that, you must have already captured and persisted it — there is no "replay from genesis" via `getEvents`.
 
-This last point is the reason event-driven integrations need a *cursor* (see below) instead of re-querying "all events" on every run.
+This last point is the reason event-driven integrations need a _cursor_ (see below) instead of re-querying "all events" on every run.
 
 ---
 
@@ -129,7 +129,7 @@ do {
 
 [`scripts/replay-events.ts`](../scripts/replay-events.ts) implements exactly this pattern for backfilling a historical ledger range in batches (see `fetchBatch()`), which is the reference implementation to read alongside this section.
 
-**The rule that matters:** always persist the *last processed ledger* (or the last `pagingToken`) as your cursor. On every poll, resume from there — never from a hardcoded `startLedger`, or you will reprocess (and potentially double-react to) the same events forever.
+**The rule that matters:** always persist the _last processed ledger_ (or the last `pagingToken`) as your cursor. On every poll, resume from there — never from a hardcoded `startLedger`, or you will reprocess (and potentially double-react to) the same events forever.
 
 ### Filtering by topic
 
@@ -151,15 +151,15 @@ const response = await server.getEvents({
 });
 ```
 
-For most integrations, fetch *all* contract events and branch in application code — topic filters are an optimization once volume grows.
+For most integrations, fetch _all_ contract events and branch in application code — topic filters are an optimization once volume grows.
 
 ### Recommended polling interval
 
-| Consumer class | Recommended interval | Why |
-|---|---|---|
-| Real-time dashboards / notifications | **3–5 seconds** | Matches Soroban ~5 s ledger close; faster wastes RPC quota. [`watch-events.ts`](../scripts/watch-events.ts) defaults to `POLL_INTERVAL_MS = 3000`. |
-| Keepers reacting to events | **30–60 seconds** | Billing cycles are not sub-minute (see [`docs/KEEPER.md`](KEEPER.md)). |
-| Analytics / reconciliation jobs | **minutes to hours** | Usually process a completed ledger range, not the chain tip. |
+| Consumer class                       | Recommended interval | Why                                                                                                                                                |
+| ------------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real-time dashboards / notifications | **3–5 seconds**      | Matches Soroban ~5 s ledger close; faster wastes RPC quota. [`watch-events.ts`](../scripts/watch-events.ts) defaults to `POLL_INTERVAL_MS = 3000`. |
+| Keepers reacting to events           | **30–60 seconds**    | Billing cycles are not sub-minute (see [`docs/KEEPER.md`](KEEPER.md)).                                                                             |
+| Analytics / reconciliation jobs      | **minutes to hours** | Usually process a completed ledger range, not the chain tip.                                                                                       |
 
 Polling faster than the ledger close time wastes RPC quota without getting you fresher data; polling much slower than your reaction SLA means your keeper/notifier lags behind real activity.
 
@@ -176,7 +176,7 @@ Event consumers must be idempotent. There are several concrete reasons the same 
 3. **RPC node reorg/catch-up quirks.** Public RPC providers occasionally re-serve a small overlap window around their own indexing checkpoints.
 4. **Manual replay.** Running [`replay-events.ts`](../scripts/replay-events.ts) to backfill a range you've already processed (e.g., after a bug fix) will legitimately re-emit events you already have.
 
-None of these mean the chain emitted the event twice — the contract only publishes each event once, in the one transaction that triggered it. It's the *consumer side* that can observe the same event more than once.
+None of these mean the chain emitted the event twice — the contract only publishes each event once, in the one transaction that triggered it. It's the _consumer side_ that can observe the same event more than once.
 
 ### Deduplication key: `tx_hash` + `event_name` + `ledger`
 
@@ -221,7 +221,7 @@ async function upsertEvent(event: ParsedEvent): Promise<void> {
     `INSERT INTO contract_events (ledger, tx_hash, event_name, user_address, payload)
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (ledger, tx_hash, event_name, user_address) DO NOTHING`,
-    [event.ledger, event.txHash, event.type, event.user, event.data]
+    [event.ledger, event.txHash, event.type, event.user, event.data],
   );
 }
 ```
@@ -234,14 +234,15 @@ Replaying the same ledger range twice then produces the same final state — no 
 
 **Within a single transaction**, events are ordered exactly as the contract published them — Soroban preserves publish order within one contract invocation. For FlowPay, this means if `batch_charge()` charges users A, B, C in that order, the returned events (and the `ChargeResult` vector) preserve that order.
 
-**Within a single ledger**, transactions execute in the order the network applies them, and `getEvents` returns events in ledger-then-transaction-then-publish order. So events *within* one `getEvents` response for a given ledger are ordered.
+**Within a single ledger**, transactions execute in the order the network applies them, and `getEvents` returns events in ledger-then-transaction-then-publish order. So events _within_ one `getEvents` response for a given ledger are ordered.
 
-**Across ledgers fetched via polling, ordering is only as good as your poll loop.** If you fetch ledger range `[100, 105]` in one call, you get events in ledger order. But if two separate poll ticks fetch overlapping or out-of-sequence ranges (e.g., due to a bug in cursor handling, or fetching from two different RPC nodes with different indexing lag), you can *observe* events out of ledger order at the consumer even though the chain itself has a strict order.
+**Across ledgers fetched via polling, ordering is only as good as your poll loop.** If you fetch ledger range `[100, 105]` in one call, you get events in ledger order. But if two separate poll ticks fetch overlapping or out-of-sequence ranges (e.g., due to a bug in cursor handling, or fetching from two different RPC nodes with different indexing lag), you can _observe_ events out of ledger order at the consumer even though the chain itself has a strict order.
 
 **Practical guidance:**
+
 - If your reaction genuinely depends on order (e.g., a reconciliation job replaying `subscribed` → `charged` → `cancelled` to reconstruct a subscription's lifecycle), sort the batch you fetch by `(ledger, event index within ledger)` before processing, rather than assuming arrival order from RPC is authoritative — [`watch-events.ts`](../scripts/watch-events.ts) does this defensively (`newEvents.sort((a, b) => a.timestamp - b.timestamp)`) even though same-ledger events are already ordered.
 - Never assume "the event I received most recently is the newest state." Always key final state off the event's `ledger` (and transaction position within it if you need sub-ledger precision), not off wall-clock receipt time.
-- Do not parallelize processing of events for the *same user* — process them sequentially in ledger order, or you can apply a `charged` event before the `subscribed` event that created the subscription it belongs to.
+- Do not parallelize processing of events for the _same user_ — process them sequentially in ledger order, or you can apply a `charged` event before the `subscribed` event that created the subscription it belongs to.
 
 ---
 
@@ -251,7 +252,7 @@ Below are four illustrative patterns for reacting to FlowPay events. These are *
 
 ### 1. Keeper pattern
 
-A keeper doesn't strictly need to *consume* events to do its job (it drives `batch_charge()` proactively based on subscriber state, see [`docs/KEEPER.md`](KEEPER.md)) — but keepers commonly watch `charged` / `GracePeriodElapsed`-adjacent state to decide retry cadence and to avoid re-attempting users who were already charged this cycle by a concurrent keeper run.
+A keeper doesn't strictly need to _consume_ events to do its job (it drives `batch_charge()` proactively based on subscriber state, see [`docs/KEEPER.md`](KEEPER.md)) — but keepers commonly watch `charged` / `GracePeriodElapsed`-adjacent state to decide retry cadence and to avoid re-attempting users who were already charged this cycle by a concurrent keeper run.
 
 ```ts
 async function reactToChargeEvents(events: ParsedEvent[]) {
@@ -302,13 +303,15 @@ async function notifyUser(event: ParsedEvent) {
   const inserted = await db.query(
     `INSERT INTO notification_log (dedup_key) VALUES ($1)
      ON CONFLICT DO NOTHING RETURNING dedup_key`,
-    [dedupKey(event)]
+    [dedupKey(event)],
   );
   if (inserted.rowCount === 0) return; // already notified for this event
 
   switch (event.type) {
     case "charged":
-      await sendEmail(event.user, "payment-successful", { amount: event.amount });
+      await sendEmail(event.user, "payment-successful", {
+        amount: event.amount,
+      });
       break;
     case "cancelled":
       await sendEmail(event.user, "subscription-cancelled", {});
@@ -332,7 +335,9 @@ async function reconcile(fromLedger: number, toLedger: number) {
   for (const chainEvent of chainCharges) {
     const stored = await db.findCharge(dedupKey(chainEvent));
     if (!stored) {
-      console.warn(`Reconciliation gap: missing charge ${dedupKey(chainEvent)}`);
+      console.warn(
+        `Reconciliation gap: missing charge ${dedupKey(chainEvent)}`,
+      );
       await upsertEvent(chainEvent); // backfill
     }
   }
@@ -373,38 +378,38 @@ Combine this with the [reconciliation pattern](#4-reconciliation-pattern) run on
 
 ### Reliability pattern matrix
 
-| Failure mode | Symptom | Mitigation |
-|---|---|---|
-| RPC endpoint down | `getEvents` throws / times out | Retry with backoff; fall back to a secondary RPC URL; don't advance cursor |
-| Consumer crash mid-batch | Some events in a batch processed, some not | Idempotent upsert keyed on `ledger:txHash:eventName:user`; only persist cursor after full batch commit |
-| Cursor stuck / stale | Consumer alive but chain tip keeps moving away | Gap detection (`latestLedger - lastProcessedLedger`) with alerting threshold |
-| RPC event retention expiry | Old ledger range no longer queryable via `getEvents` | Never let the cursor fall behind the RPC's retention window; page proactively, don't wait to backfill |
-| Duplicate delivery | Same event observed twice across polls/replay | Composite dedup key + upsert semantics (never plain insert) |
-| Out-of-order arrival across polls | Later state applied before earlier state | Sort by `(ledger, position-in-ledger)` before applying; never trust receipt order |
+| Failure mode                      | Symptom                                              | Mitigation                                                                                             |
+| --------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| RPC endpoint down                 | `getEvents` throws / times out                       | Retry with backoff; fall back to a secondary RPC URL; don't advance cursor                             |
+| Consumer crash mid-batch          | Some events in a batch processed, some not           | Idempotent upsert keyed on `ledger:txHash:eventName:user`; only persist cursor after full batch commit |
+| Cursor stuck / stale              | Consumer alive but chain tip keeps moving away       | Gap detection (`latestLedger - lastProcessedLedger`) with alerting threshold                           |
+| RPC event retention expiry        | Old ledger range no longer queryable via `getEvents` | Never let the cursor fall behind the RPC's retention window; page proactively, don't wait to backfill  |
+| Duplicate delivery                | Same event observed twice across polls/replay        | Composite dedup key + upsert semantics (never plain insert)                                            |
+| Out-of-order arrival across polls | Later state applied before earlier state             | Sort by `(ledger, position-in-ledger)` before applying; never trust receipt order                      |
 
 ---
 
 ## Event → Consumer Reference Table
 
-| Event | Typical consumer | Why |
-|---|---|---|
-| `subscribed` | Analytics, Notifications | New subscriber count; welcome/confirmation message |
-| `charged` | Keeper, Analytics, Notifications, Reconciliation | Core revenue signal; payment receipt; reconciliation anchor |
-| `pay_per_use` | Analytics, Notifications | One-off usage billing signal |
-| `paused` / `resumed` | Analytics | Active-subscriber accounting |
-| `cancelled` | Analytics, Notifications | Churn tracking; cancellation confirmation |
-| `referred` | Analytics | Referral attribution |
-| `sub_amount_updated` / `sub_interval_updated` | Analytics, Notifications | Plan-change confirmation; MRR recalculation |
-| `merchant_added` / `merchant_removed` | Analytics, Notifications | Merchant directory sync |
-| `merchant_frozen` / `merchant_unfrozen` | Notifications, Reconciliation | Urgent operational alert to the affected merchant |
-| `merchant_withdrawal` | Analytics, Reconciliation | Merchant payout ledger |
-| `merch_hist_cleared` | Analytics, Reconciliation | Merchant revenue-history wipe — reset aggregates |
-| `daily_limit_set` / `daily_limit_removed` | Analytics | User risk/spend-limit configuration tracking |
-| `contract_paused` / `contract_unpaused` | Notifications, Reconciliation | Protocol-wide incident signal — page operators |
-| `admin_transferred` / `upgraded` | Reconciliation | Security-sensitive audit trail |
-| `min_interval` | Analytics, Reconciliation | Protocol policy change — billing eligibility floor |
-| `fee_proposed` / `fee_committed` | Analytics, Reconciliation | Fee-schedule audit trail |
-| `grace_period_proposed` / `grace_period_committed` | Analytics | Billing-policy audit trail |
+| Event                                              | Typical consumer                                 | Why                                                         |
+| -------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `subscribed`                                       | Analytics, Notifications                         | New subscriber count; welcome/confirmation message          |
+| `charged`                                          | Keeper, Analytics, Notifications, Reconciliation | Core revenue signal; payment receipt; reconciliation anchor |
+| `pay_per_use`                                      | Analytics, Notifications                         | One-off usage billing signal                                |
+| `paused` / `resumed`                               | Analytics                                        | Active-subscriber accounting                                |
+| `cancelled`                                        | Analytics, Notifications                         | Churn tracking; cancellation confirmation                   |
+| `referred`                                         | Analytics                                        | Referral attribution                                        |
+| `sub_amount_updated` / `sub_interval_updated`      | Analytics, Notifications                         | Plan-change confirmation; MRR recalculation                 |
+| `merchant_added` / `merchant_removed`              | Analytics, Notifications                         | Merchant directory sync                                     |
+| `merchant_frozen` / `merchant_unfrozen`            | Notifications, Reconciliation                    | Urgent operational alert to the affected merchant           |
+| `merchant_withdrawal`                              | Analytics, Reconciliation                        | Merchant payout ledger                                      |
+| `merch_hist_cleared`                               | Analytics, Reconciliation                        | Merchant revenue-history wipe — reset aggregates            |
+| `daily_limit_set` / `daily_limit_removed`          | Analytics                                        | User risk/spend-limit configuration tracking                |
+| `contract_paused` / `contract_unpaused`            | Notifications, Reconciliation                    | Protocol-wide incident signal — page operators              |
+| `admin_transferred` / `upgraded`                   | Reconciliation                                   | Security-sensitive audit trail                              |
+| `min_interval`                                     | Analytics, Reconciliation                        | Protocol policy change — billing eligibility floor          |
+| `fee_proposed` / `fee_committed`                   | Analytics, Reconciliation                        | Fee-schedule audit trail                                    |
+| `grace_period_proposed` / `grace_period_committed` | Analytics                                        | Billing-policy audit trail                                  |
 
 See [`docs/EVENTS.md`](EVENTS.md) for the full payload schema of each event.
 
@@ -412,10 +417,10 @@ See [`docs/EVENTS.md`](EVENTS.md) for the full payload schema of each event.
 
 ## Reference Implementations
 
-| Script | Demonstrates |
-|---|---|
-| [`scripts/watch-events.ts`](../scripts/watch-events.ts) | Live polling loop, in-memory dedup (`ledger:txHash:eventType:user`), color-coded real-time output, 3 s poll interval |
-| [`scripts/replay-events.ts`](../scripts/replay-events.ts) | Cursor-based pagination over a historical ledger range, batch processing, upsert integration point |
+| Script                                                    | Demonstrates                                                                                                         |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [`scripts/watch-events.ts`](../scripts/watch-events.ts)   | Live polling loop, in-memory dedup (`ledger:txHash:eventType:user`), color-coded real-time output, 3 s poll interval |
+| [`scripts/replay-events.ts`](../scripts/replay-events.ts) | Cursor-based pagination over a historical ledger range, batch processing, upsert integration point                   |
 
 Both scripts are intentionally minimal reference implementations — the patterns above show how to extend them into keeper, analytics, notification, or reconciliation services.
 

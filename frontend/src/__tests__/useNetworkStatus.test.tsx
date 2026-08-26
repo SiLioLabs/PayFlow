@@ -14,7 +14,7 @@
 import React from "react";
 import { render, screen, act } from "@testing-library/react";
 import { renderHook } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import OfflineBanner from "../components/OfflineBanner";

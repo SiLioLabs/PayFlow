@@ -23,11 +23,16 @@ vi.mock("../stellar", () => ({
 
 // We need to mock @stellar/stellar-sdk/rpc Server so RpcHealthProvider doesn't
 // make real network calls during tests.
-vi.mock("@stellar/stellar-sdk/rpc", () => ({
-  Server: vi.fn().mockImplementation(() => ({
-    getHealth: vi.fn().mockResolvedValue({}),
-  })),
-}));
+// Using a class mock ensures `new Server(url)` works correctly.
+const mockGetHealth = vi.fn().mockResolvedValue({});
+vi.mock("@stellar/stellar-sdk/rpc", () => {
+  class MockServer {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    constructor(_url: string) {}
+    getHealth = mockGetHealth;
+  }
+  return { Server: MockServer };
+});
 
 // ── Imports after mocks ───────────────────────────────────────────────────────
 import { validateRpcUrl, normalizeRpcUrl, RpcHealthProvider } from "../context/RpcHealthContext";
@@ -305,7 +310,10 @@ describe("RPC failure banner in App", () => {
   // To avoid the full App render complexity, we test the banner logic in
   // isolation by rendering a minimal component that mirrors the App banner.
 
-  function MockBanner({ rpcStatus, onOpenSettings }: {
+  function MockBanner({
+    rpcStatus,
+    onOpenSettings,
+  }: {
     rpcStatus: "healthy" | "degraded" | "unreachable";
     onOpenSettings: () => void;
   }) {

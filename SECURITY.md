@@ -5,23 +5,28 @@
 If you discover a security vulnerability in PayFlow, please report it responsibly:
 
 ### Preferred Method
+
 Use **GitHub Security Advisories** to report vulnerabilities privately:
+
 1. Go to the "Security" tab in this repository
 2. Click "Report a vulnerability"
 3. Fill out the advisory form
 
 ### Alternative Method
+
 Email: **security@payflow.dev**
 
 Subject: `[PayFlow Security] Brief description`
 
 ### What to Include
+
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact assessment
 - Suggested mitigations (if any)
 
 ### Response Timeline
+
 - **Acknowledgment:** Within 48 hours
 - **Fix timeline:** Within 14 days for critical issues (depending on complexity)
 - **Credit:** We will credit researchers in release notes unless you prefer anonymity
@@ -37,6 +42,7 @@ For the full threat model, auth matrix, and storage notes, see [docs/SECURITY.md
 ## Scope
 
 In scope for vulnerability reports:
+
 - Smart contract logic vulnerabilities
 - Authorization bypass issues
 - Fund loss or theft scenarios
@@ -44,6 +50,7 @@ In scope for vulnerability reports:
 - Integer overflow/underflow issues
 
 Out of scope:
+
 - Issues in third-party dependencies (report to upstream)
 - Social engineering attacks
 - Physical security issues

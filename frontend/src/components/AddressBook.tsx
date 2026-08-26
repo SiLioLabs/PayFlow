@@ -194,11 +194,7 @@ export default function AddressBook({ onSelect, onClose }: Props) {
 
   return (
     <>
-      <div
-        className="modal-overlay"
-        onClick={onClose}
-        role="presentation"
-      >
+      <div className="modal-overlay" onClick={onClose} role="presentation">
         <div
           ref={modalRef}
           className="modal-card card address-book-modal"
@@ -252,10 +248,7 @@ export default function AddressBook({ onSelect, onClose }: Props) {
                 // Find the true index in entries for deletion
                 const trueIdx = entries.indexOf(entry);
                 return (
-                  <li
-                    key={`${entry.address}-${idx}`}
-                    className="address-book__entry"
-                  >
+                  <li key={`${entry.address}-${idx}`} className="address-book__entry">
                     <div className="address-book__entry-info">
                       <span className="address-book__entry-name">{entry.name}</span>
                       <span className="address-book__entry-address text-mono text-sm text-muted">

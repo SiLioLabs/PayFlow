@@ -26,7 +26,12 @@ pub fn extend_trial(env: &Env, user: &Address, additional_seconds: u64) {
         env.panic_with_error(crate::errors::ContractError::SubscriptionInactive);
     }
 
-    sub.last_charged = sub.last_charged.checked_add(additional_seconds).unwrap();
+    // Fail closed with a typed error rather than a string panic when the trial
+    // end would run past u64::MAX.
+    sub.last_charged = sub
+        .last_charged
+        .checked_add(additional_seconds)
+        .unwrap_or_else(|| env.panic_with_error(crate::errors::ContractError::ArithmeticOverflow));
 
     storage::set_subscription(env, user, &sub);
 

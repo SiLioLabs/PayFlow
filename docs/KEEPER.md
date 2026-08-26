@@ -29,14 +29,17 @@ The contract also enforces a configurable grace period. If a charge is attempted
 
 `batch_charge(users)` accepts a list of user addresses and processes each one independently — a failure on one address does not abort the rest. Each entry in the returned `Vec<ChargeResult>` is one of:
 
-| Result | Meaning |
-|--------|---------|
-| `Charged` | Funds transferred successfully |
-| `Skipped` | Interval has not elapsed yet |
-| `NoSubscription` | No subscription found for this address |
-| `Inactive` | Subscription is cancelled |
-| `Paused` | Subscription is paused by the user |
-| `GracePeriodElapsed` | Charge window expired; subscription lapsed |
+| Result                    | Meaning                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Charged`                 | Funds transferred successfully                                                                          |
+| `Skipped`                 | Interval has not elapsed yet                                                                            |
+| `NoSubscription`          | No subscription found for this address                                                                  |
+| `Inactive`                | Subscription is cancelled                                                                               |
+| `Paused`                  | Subscription is paused by the user                                                                      |
+| `GracePeriodElapsed`      | Charge window expired; subscription lapsed                                                              |
+| `AllowanceInsufficient`   | Subscriber's token allowance to the contract is below the gross subscription amount (`sub.amount`). No funds were transferred. The subscription remains active. The keeper should log the address and wait for the subscriber to increase their allowance before the next cycle. |
+
+> **`AllowanceInsufficient` does not abort the batch.** Healthy subscribers before and after an under-allowanced subscriber are still charged normally.
 
 The keeper must page through the full subscriber index using `get_subscriber_index_size()` and `get_subscriber_at(offset)`, then pass slices of addresses to `batch_charge()`.
 
@@ -176,15 +179,15 @@ if __name__ == "__main__":
 
 All configuration is read from environment variables. No config file is required.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `KEEPER_CONTRACT_ID` | Yes | — | Deployed FlowPay contract ID |
-| `KEEPER_RPC_URL` | Yes | — | Soroban RPC endpoint (e.g. `https://soroban-testnet.stellar.org`) |
-| `KEEPER_SECRET_KEY` | Yes | — | Stellar secret key for the keeper account (starts with `S`) |
-| `KEEPER_INTERVAL` | No | `3600` | Seconds between charge cycles |
-| `KEEPER_PAGE_SIZE` | No | `100` | Addresses per `batch_charge()` call (max 100) |
-| `KEEPER_ALERT_WEBHOOK` | No | — | Webhook URL for alert notifications |
-| `KEEPER_MIN_BALANCE_XLM` | No | `10` | Alert threshold for keeper account balance |
+| Variable                 | Required | Default | Description                                                       |
+| ------------------------ | -------- | ------- | ----------------------------------------------------------------- |
+| `KEEPER_CONTRACT_ID`     | Yes      | —       | Deployed FlowPay contract ID                                      |
+| `KEEPER_RPC_URL`         | Yes      | —       | Soroban RPC endpoint (e.g. `https://soroban-testnet.stellar.org`) |
+| `KEEPER_SECRET_KEY`      | Yes      | —       | Stellar secret key for the keeper account (starts with `S`)       |
+| `KEEPER_INTERVAL`        | No       | `3600`  | Seconds between charge cycles                                     |
+| `KEEPER_PAGE_SIZE`       | No       | `100`   | Addresses per `batch_charge()` call (max 100)                     |
+| `KEEPER_ALERT_WEBHOOK`   | No       | —       | Webhook URL for alert notifications                               |
+| `KEEPER_MIN_BALANCE_XLM` | No       | `10`    | Alert threshold for keeper account balance                        |
 
 Store `KEEPER_SECRET_KEY` in a secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.) — never commit it to source control.
 
@@ -195,10 +198,10 @@ Store `KEEPER_SECRET_KEY` in a secrets manager (AWS Secrets Manager, HashiCorp V
 The right interval depends on the shortest subscription interval used in your deployment.
 
 | Shortest subscription interval | Recommended keeper cadence |
-|-------------------------------|---------------------------|
-| 1 day (86 400 s) | Every hour |
-| 1 week | Every 4–6 hours |
-| 1 month | Every 12–24 hours |
+| ------------------------------ | -------------------------- |
+| 1 day (86 400 s)               | Every hour                 |
+| 1 week                         | Every 4–6 hours            |
+| 1 month                        | Every 12–24 hours          |
 
 Run the keeper more frequently than the shortest subscription interval so that users are charged promptly and the grace period buffer is not consumed by keeper downtime.
 
@@ -210,13 +213,13 @@ For most deployments, **hourly** is the correct default. The full charge cycle f
 
 ### Key metrics to track
 
-| Metric | Warning threshold | Critical threshold | Action |
-|--------|-------------------|--------------------|--------|
-| Keeper account balance | < 50 XLM | < 10 XLM | Top up immediately |
-| Cycle duration | > 2 min | > 5 min | Check RPC health |
-| Failed `batch_charge` calls | > 0 | > 5% of pages | Review error logs |
-| Time since last successful cycle | > 1.5× interval | > 2× interval | Page on-call |
-| `GracePeriodElapsed` results | Any | — | Investigate missed cycles |
+| Metric                           | Warning threshold | Critical threshold | Action                    |
+| -------------------------------- | ----------------- | ------------------ | ------------------------- |
+| Keeper account balance           | < 50 XLM          | < 10 XLM           | Top up immediately        |
+| Cycle duration                   | > 2 min           | > 5 min            | Check RPC health          |
+| Failed `batch_charge` calls      | > 0               | > 5% of pages      | Review error logs         |
+| Time since last successful cycle | > 1.5× interval   | > 2× interval      | Page on-call              |
+| `GracePeriodElapsed` results     | Any               | —                  | Investigate missed cycles |
 
 ### Prometheus / Alertmanager example
 
@@ -270,9 +273,12 @@ This allows external uptime monitors (e.g. UptimeRobot, Pingdom) to verify the k
 ```
 [2026-06-26T10:00:01Z] INFO  GCXXX...=Skipped
 [2026-06-26T10:00:01Z] WARN  GDYYY...=GracePeriodElapsed
+[2026-06-26T10:00:01Z] WARN  GEZZZ...=AllowanceInsufficient
 ```
 
 `GracePeriodElapsed` results are worth alerting on — they indicate a subscription lapsed because the keeper was late. Investigate the cause (keeper downtime, network congestion).
+
+`AllowanceInsufficient` means the subscriber's token allowance to the contract is below their gross subscription amount. No funds were moved and the subscription stays active. The keeper should log the address; no retry is useful until the subscriber increases their allowance. Consider surfacing these to a merchant dashboard or alert channel so subscribers can be notified.
 
 ### Full cycle failures
 
@@ -379,12 +385,12 @@ Renew the lease before it expires. If a leader crashes, the lock expires and a f
 
 ### Incident response
 
-| Symptom | First check | Resolution |
-|---------|-------------|------------|
-| No cycles for > 2 h | `journalctl -u payflow-keeper` | Restart service; check balance |
-| `GracePeriodElapsed` spikes | Keeper uptime during the window | Manually invoke missed pages; investigate root cause |
-| `batch_charge` throws `InvalidArgument` | Contract upgrade happened | Redeploy keeper with updated ABI |
-| Cycle takes > 5 min | RPC node latency | Switch to a backup RPC endpoint |
+| Symptom                                 | First check                     | Resolution                                           |
+| --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
+| No cycles for > 2 h                     | `journalctl -u payflow-keeper`  | Restart service; check balance                       |
+| `GracePeriodElapsed` spikes             | Keeper uptime during the window | Manually invoke missed pages; investigate root cause |
+| `batch_charge` throws `InvalidArgument` | Contract upgrade happened       | Redeploy keeper with updated ABI                     |
+| Cycle takes > 5 min                     | RPC node latency                | Switch to a backup RPC endpoint                      |
 
 ---
 

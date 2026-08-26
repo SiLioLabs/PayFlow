@@ -1,22 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseAddressList,
-  isAddressListValid,
-  chunkAddresses,
-} from "../utils/addressValidation";
+import { parseAddressList, isAddressListValid, chunkAddresses } from "../utils/addressValidation";
 
 // A set of real-format valid Stellar addresses (Ed25519 G-keys, 56 chars)
-const VALID_A = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-const VALID_B = "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"; // placeholder-style
-// We'll use the known-good all-A key and vary the last chars for other valids.
-// For test purposes, any 56-char G-address that passes StrKey is fine.
-// Use Stellar testnet-style addresses:
-const ADDR1 = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-const ADDR2 = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGWKX2ZXK5QLNCNWX6XNPV"; // 56-char G-key
-// Use a definitely-valid pair from Stellar docs
-const ADDR_VALID_1 = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-const ADDR_VALID_2 = "GC3C4AKRBQLHOJ45U4XG35ESVWRDECWO5XLDGYADO6DPR3L7KIDVUMML";
-const ADDR_VALID_3 = "GDQERENWDDSQZS7R7WQMAGMWYYGOOLBHXD6CW5II5ANZDNR7MKEHQ7QD";
+// Generated via Keypair.random() — checksum-valid for StrKey.isValidEd25519PublicKey
+const ADDR_VALID_1 = "GCOEYT3WI3LY34I7DN7BR7AF33TNF2YF4OYTLVPJKMYAWT2RWEF5BUDK";
+const ADDR_VALID_2 = "GAEVL5Q7VI7A72TZLBHCNYEFGLC7GDQVOX4KKER67U6EUPR3LCZ3NULB";
+const ADDR_VALID_3 = "GDSG7FQANGG6BP2QNVPKOBHDTKHTOBKRWK2LD6Z7OLZ4GXQXZDXE6AEL";
 
 describe("parseAddressList", () => {
   it("returns valid addresses from a newline-separated list", () => {
@@ -79,10 +68,7 @@ describe("isAddressListValid", () => {
   });
 
   it("returns false for an empty string (no valid addresses)", () => {
-    // Empty string yields no valid addresses; invalid is also empty.
-    // isAddressListValid returns invalid.length === 0, which is true for empty.
-    // Semantics: an empty list has no invalids, so technically valid.
-    expect(isAddressListValid("")).toBe(true);
+    expect(isAddressListValid("")).toBe(false);
   });
 
   it("returns false for a string with only invalid addresses", () => {

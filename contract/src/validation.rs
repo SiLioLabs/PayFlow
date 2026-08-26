@@ -11,7 +11,6 @@ pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i
     }
 }
 
-
 /// Composable helper that asserts a subscription is ready to be used:
 /// the subscription must be active and the user must have sufficient
 /// allowance for the subscription's token and amount.

@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -920,7 +921,7 @@
               }
             ],
             "data": {
-              "string": "caught panic 'no pending admin' from contract function 'Symbol(obj#209)'"
+              "string": "caught panic 'no pending admin' from contract function 'Symbol(obj#219)'"
             }
           }
         }

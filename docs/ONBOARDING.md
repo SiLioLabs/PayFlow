@@ -3,6 +3,7 @@
 Welcome! This guide walks you from "I just heard about FlowPay" to "my first PR is open," assuming only general Rust and TypeScript experience — no prior Soroban, Stellar, or smart-contract background required.
 
 This is a narrative walkthrough. For reference material once you're up and running, see:
+
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — full contribution reference (branching, commit style, PR checklist)
 - [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md) — contract/Rust conventions in depth
 - [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md) — frontend/React conventions in depth
@@ -170,6 +171,8 @@ npm run dev
 
 You'll need a `VITE_CONTRACT_ID` in `.env.local` pointing at a deployed testnet contract to interact with real data — see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) if you want to deploy your own testnet instance. For contract-only or frontend-UI-only contributions, you generally don't need this step.
 
+For a complete reference of all environment variables and how RPC, passphrase, and contract ID must align across frontend, scripts, and contract tests, see [`docs/development/network-matrix.md`](development/network-matrix.md).
+
 ---
 
 ## 3. Choosing an Issue
@@ -275,7 +278,7 @@ Cross-check [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md) — it h
 - A new contract function that doesn't call `user.require_auth()` before mutating state.
 - Frontend component importing `@stellar/stellar-sdk` directly instead of going through `src/stellar.ts`.
 - Documentation added without updating the corresponding reference doc (e.g., a new event not added to [`docs/EVENTS.md`](EVENTS.md)).
-- PR description too thin to understand *why* the change was made.
+- PR description too thin to understand _why_ the change was made.
 
 ### PR checklist
 
@@ -285,12 +288,14 @@ Before opening, run through [`CONTRIBUTING.md`](../CONTRIBUTING.md#pull-request-
 
 ## 6. Troubleshooting
 
-| Problem | Likely cause | Fix |
-|---|---|---|
-| `error[E0463]: can't find crate for 'core'` (or similar) when building the contract | Missing the `wasm32-unknown-unknown` target | `rustup target add wasm32-unknown-unknown` |
-| `cargo test` fails with `unresolved import` or dependency errors right after cloning | Stale/partial `Cargo.lock` or first-time dependency download interrupted | `cd contract && cargo clean && cargo test` |
-| `npm run test` / `npm run build` fails immediately with module-not-found errors | `npm install` wasn't run, or was run in the wrong directory | Make sure you're in `frontend/` (not repo root) before running `npm install` |
-| `cargo clippy -- -D warnings` fails on code you didn't touch | You're on a stale `master` that predates a clippy/toolchain update | `git fetch origin && git rebase origin/master` |
-| Frontend dev server starts but the UI shows contract errors / can't fetch data | `VITE_CONTRACT_ID` not set (or points at a contract that isn't deployed on the network your `VITE_RPC_URL` targets) | Follow [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) to deploy a testnet contract, then set `.env.local` accordingly — or skip running the live UI if your change doesn't need it |
+For environment variable alignment issues (RPC URL, network passphrase, contract ID mismatch between frontend/scripts), see the [network matrix](development/network-matrix.md).
+
+| Problem                                                                              | Likely cause                                                                                                        | Fix                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `error[E0463]: can't find crate for 'core'` (or similar) when building the contract  | Missing the `wasm32-unknown-unknown` target                                                                         | `rustup target add wasm32-unknown-unknown`                                                                                                                                |
+| `cargo test` fails with `unresolved import` or dependency errors right after cloning | Stale/partial `Cargo.lock` or first-time dependency download interrupted                                            | `cd contract && cargo clean && cargo test`                                                                                                                                |
+| `npm run test` / `npm run build` fails immediately with module-not-found errors      | `npm install` wasn't run, or was run in the wrong directory                                                         | Make sure you're in `frontend/` (not repo root) before running `npm install`                                                                                              |
+| `cargo clippy -- -D warnings` fails on code you didn't touch                         | You're on a stale `master` that predates a clippy/toolchain update                                                  | `git fetch origin && git rebase origin/master`                                                                                                                            |
+| Frontend dev server starts but the UI shows contract errors / can't fetch data       | `VITE_CONTRACT_ID` not set (or points at a contract that isn't deployed on the network your `VITE_RPC_URL` targets) | Follow [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) to deploy a testnet contract, then set `.env.local` accordingly — or skip running the live UI if your change doesn't need it. Also check the [network matrix](development/network-matrix.md) for alignment rules. |
 
 If you hit something not covered here, open a GitHub Discussion or comment on your issue — see [Questions](../CONTRIBUTING.md#questions) in `CONTRIBUTING.md`.

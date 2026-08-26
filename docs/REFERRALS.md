@@ -1,23 +1,29 @@
 # Referral System Architecture and Integration
 
-This document is the canonical reference for PayFlow's referral tracking architecture, fee/payout mechanics for integrators, referral link and code workflows, on-chain APIs, and frontend TypeScript integration.
+This document is the **canonical** referral guide for PayFlow: data model, subscribe authentication, self-referral, events, frontend (`ReferralPanel`), and operations.
 
-A shorter usage overview also lives in [`REFERRAL.md`](./REFERRAL.md). For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md).
+[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 
 ## Table of Contents
 
+- [Overview](#overview)
 - [Design Summary](#design-summary)
 - [Architecture Overview](#architecture-overview)
 - [On-Chain Data Model](#on-chain-data-model)
 - [Lifecycle and State Transitions](#lifecycle-and-state-transitions)
+- [Subscribe authentication](#subscribe-authentication)
+- [Self-referral](#self-referral)
+- [Referred event](#referred-event)
 - [Integration Points](#integration-points)
 - [Fee Distribution and Payout Mechanics](#fee-distribution-and-payout-mechanics)
 - [Generating and Tracking Referral Links and Codes](#generating-and-tracking-referral-links-and-codes)
 - [API Reference](#api-reference)
 - [CLI Examples](#cli-examples)
+- [Frontend: ReferralPanel](#frontend-referralpanel)
 - [Frontend Integration (TypeScript)](#frontend-integration-typescript)
+- [Scripts and operations](#scripts-and-operations)
 - [Indexer and Analytics Patterns](#indexer-and-analytics-patterns)
 - [Error Handling](#error-handling)
 - [Security Considerations](#security-considerations)
@@ -25,17 +31,38 @@ A shorter usage overview also lives in [`REFERRAL.md`](./REFERRAL.md). For stora
 
 ---
 
+## Overview
+
+Referrals are **on-chain attribution**, not an on-chain reward vault. A subscriber may pass an optional referrer address when they subscribe. The contract stores that relationship and emits a `referred` event; payouts (bonuses, commissions) are built by integrators off-chain.
+
+| Where state lives | What |
+| --- | --- |
+| Persistent `DataKey::Referral(subscriber)` | Referrer `Address` (`contract/src/referral.rs`) |
+| `Subscription.referrer: Option<Address>` | Snapshot written at subscribe (`contract/src/lib.rs`) |
+
+| Component | Interaction |
+| --- | --- |
+| Contract `subscribe` / `subscribe_with_metadata` | User signs; optional `referrer` is stored |
+| Contract `get_referrer` / `get_referral` | Public reads of the referral key |
+| Indexer / RPC consumers | Index topic `referred` |
+| Frontend `ReferralPanel` | Share link `/?ref=<ADDRESS>`, referred-count display, self-referral warning |
+| Frontend `SubscribeForm` | Optional referrer text field passed into `buildSubscribeTx` |
+
+This is an attribution layer only. Protocol fees (`fee.rs`) do not pay referrers.
+
+---
+
 ## Design Summary
 
 PayFlow's referral feature is an **on-chain attribution layer**, not an on-chain reward vault.
 
-| Concern | On-chain? | Where |
-| --- | --- | --- |
-| Record who referred a subscriber | Yes | `DataKey::Referral(user)` + `Subscription.referrer` |
-| Emit attribution event | Yes | `referred` event |
-| Reject self-referral | Yes | `ContractError::SelfReferral` (code `11`) |
-| Split protocol fees to a fee collector | Yes | `fee.rs` (`FeeCollector` / `FeeBps`) — **not** referrer-aware |
-| Pay referrer bonuses / commissions | **No** | Off-chain (or a separate reward contract) using events + `get_referrer` |
+| Concern                                | On-chain? | Where                                                                   |
+| -------------------------------------- | --------- | ----------------------------------------------------------------------- |
+| Record who referred a subscriber       | Yes       | `DataKey::Referral(user)` + `Subscription.referrer`                     |
+| Emit attribution event                 | Yes       | `referred` event                                                        |
+| Reject self-referral                   | Yes       | `ContractError::SelfReferral` (code `11`)                               |
+| Split protocol fees to a fee collector | Yes       | `fee.rs` (`FeeCollector` / `FeeBps`) — **not** referrer-aware           |
+| Pay referrer bonuses / commissions     | **No**    | Off-chain (or a separate reward contract) using events + `get_referrer` |
 
 The contract stores a single optional referrer address per subscriber and emits a `referred` event when that address is set. Integrators use that attribution signal to run signup bonuses, recurring commissions, or tiered rewards outside the core FlowPay transfer path.
 
@@ -66,13 +93,13 @@ The contract stores a single optional referrer address per subscriber and emits 
 
 ### Module responsibilities
 
-| Layer | Responsibility |
-| --- | --- |
-| `contract/src/referral.rs` | Store, read, and clear `DataKey::Referral(user)`; reject self-referral; emit `referred`. |
-| `contract/src/lib.rs` (`subscribe_inner`, `cancel_inner`) | Pass `referrer` into storage on subscribe; remove referral on cancel; expose `get_referrer`. |
-| `contract/src/events.rs` | `publish_referred(env, user, referrer)`. |
-| Frontend / integrator | Resolve a referral **code or link** to a Stellar address; pass it as `referrer` on subscribe. |
-| Off-chain rewards service | Index `referred` / `charged` events; compute commissions; pay referrers. |
+| Layer                                                     | Responsibility                                                                                |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `contract/src/referral.rs`                                | Store, read, and clear `DataKey::Referral(user)`; reject self-referral; emit `referred`.      |
+| `contract/src/lib.rs` (`subscribe_inner`, `cancel_inner`) | Pass `referrer` into storage on subscribe; remove referral on cancel; expose `get_referrer`.  |
+| `contract/src/events.rs`                                  | `publish_referred(env, user, referrer)`.                                                      |
+| Frontend / integrator                                     | Resolve a referral **code or link** to a Stellar address; pass it as `referrer` on subscribe. |
+| Off-chain rewards service                                 | Index `referred` / `charged` events; compute commissions; pay referrers.                      |
 
 ---
 
@@ -85,13 +112,13 @@ The contract stores a single optional referrer address per subscriber and emits 
 Referral(Address), // keyed by subscriber (referred user)
 ```
 
-| Property | Value |
-| --- | --- |
-| Storage type | **Persistent** |
-| Value type | `Address` (the referrer) |
-| Written by | `referral::store_referral` during `subscribe` / `subscribe_with_metadata` |
-| Removed by | `referral::remove_referral` during `cancel` / `cancel_and_refund_prorated`, or `store_referral(..., None)` on resubscribe |
-| Read by | `get_referrer(user)` and off-chain indexers |
+| Property     | Value                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Storage type | **Persistent**                                                                                                            |
+| Value type   | `Address` (the referrer)                                                                                                  |
+| Written by   | `referral::store_referral` during `subscribe` / `subscribe_with_metadata`                                                 |
+| Removed by   | `referral::remove_referral` during `cancel` / `cancel_and_refund_prorated`, or `store_referral(..., None)` on resubscribe |
+| Read by      | `get_referrer(user)` and off-chain indexers                                                                               |
 
 ### Subscription struct field
 
@@ -146,6 +173,66 @@ Rules enforced by the running contract (`contract/src/referral.rs` + `subscribe_
 
 ---
 
+## Subscribe authentication
+
+Referral data enters the protocol **only** through `subscribe` / `subscribe_with_metadata` → `subscribe_inner` (`contract/src/lib.rs`).
+
+1. **Signer:** `user.require_auth()`. The subscriber must sign. The **referrer does not sign**.
+2. **Parameter:** last optional argument `referrer: Option<Address>` on `subscribe`; `subscribe_with_metadata` takes the same plus `label`.
+3. **Other subscribe checks** still apply (whitelist, frozen merchant, contract pause, amount, interval, token, allowance) before `referral::store_referral`.
+4. **Write:** `store_referral` persists `DataKey::Referral(user)` and `subscribe_inner` copies `referrer` onto `Subscription.referrer`.
+5. **Reads:** `get_referrer` and alias `get_referral` require **no auth**.
+
+There is no separate “set referrer” entrypoint. Changing attribution means a later subscribe (same user auth) with a new address or `None`.
+
+CLI and TypeScript examples: [CLI Examples](#cli-examples), [Frontend Integration (TypeScript)](#frontend-integration-typescript). Contract catalog: [`API.md`](./API.md#subscribe).
+
+---
+
+## Self-referral
+
+The contract **rejects** a referrer that equals the subscriber.
+
+```rust
+// contract/src/referral.rs — store_referral
+if r == user {
+    env.panic_with_error(ContractError::SelfReferral);
+}
+```
+
+| | |
+| --- | --- |
+| Symbol | `ContractError::SelfReferral` |
+| Code | **11** |
+| When | `subscribe` / `subscribe_with_metadata` when `referrer == user` |
+| Recovery | Omit the referrer or pass a different address; resubmit |
+
+Playbook: [`ERROR-CODES.md` — 11 `SelfReferral`](./ERROR-CODES.md#11--selfreferral).
+
+The dashboard [`ReferralPanel`](#frontend-referralpanel) warns when `?ref=` matches the connected wallet. That UI copy currently says the referral “will be ignored”; **on-chain the call panics** with `SelfReferral`. Do not treat self-referral as a silent no-op.
+
+---
+
+## Referred event
+
+Emitted from `events::publish_referred` when `store_referral` writes a `Some` referrer (`contract/src/events.rs`).
+
+| Field | Value |
+| --- | --- |
+| Name | `referred` |
+| Topics | `("referred", user)` — `user` is the **referee** (subscriber) |
+| Payload | `referrer: Address` |
+
+Full schema and JSON example: [`EVENTS.md` — referred](./EVENTS.md#referred).
+
+**Indexer / consumer use:**
+
+- Confirm on-chain attribution when a subscribe includes a referrer.
+- Topic `[1]` is the new subscriber, not the referrer. Counting “users I referred” requires reading the **payload** (or a store keyed by referrer), not filtering topic `[1]` as the referrer.
+- Pair with `charged` for paid-conversion rewards ([Fee Distribution](#fee-distribution-and-payout-mechanics)).
+
+---
+
 ## Integration Points
 
 ### 1. Subscription creation
@@ -167,12 +254,12 @@ Both funnel into `subscribe_inner`, which calls `referral::store_referral`.
 
 ### 4. Events
 
-| Event | Topics | Payload | When |
-| --- | --- | --- | --- |
-| `referred` | `("referred", user)` | `referrer: Address` | Referrer successfully stored on subscribe |
-| `subscribed` | `("subscribed", user)` | subscription fields | Every successful subscribe |
-| `charged` | `("charged", user)` | `(merchant, amount, timestamp)` | Successful recurring charge — used for recurring commissions |
-| `cancelled` | `("cancelled", user)` | `()` | Subscription cancelled |
+| Event        | Topics                 | Payload                         | When                                                         |
+| ------------ | ---------------------- | ------------------------------- | ------------------------------------------------------------ |
+| `referred`   | `("referred", user)`   | `referrer: Address`             | Referrer successfully stored on subscribe                    |
+| `subscribed` | `("subscribed", user)` | subscription fields             | Every successful subscribe                                   |
+| `charged`    | `("charged", user)`    | `(merchant, amount, timestamp)` | Successful recurring charge — used for recurring commissions |
+| `cancelled`  | `("cancelled", user)`  | `()`                            | Subscription cancelled                                       |
 
 ---
 
@@ -232,10 +319,10 @@ charged(user, amount)
 
 Example numbers (off-chain, not enforced by FlowPay):
 
-| Charge amount | Commission bps | Payout to referrer |
-| --- | --- | --- |
-| 50_0000000 stroops (50 XLM) | 500 (5%) | 2_5000000 stroops |
-| 10_0000000 stroops (10 XLM) | 250 (2.5%) | 2500000 stroops |
+| Charge amount               | Commission bps | Payout to referrer |
+| --------------------------- | -------------- | ------------------ |
+| 50_0000000 stroops (50 XLM) | 500 (5%)       | 2_5000000 stroops  |
+| 10_0000000 stroops (10 XLM) | 250 (2.5%)     | 2500000 stroops    |
 
 #### Model C — Tiered rewards
 
@@ -315,12 +402,12 @@ const referrer = await resolveReferrer(code);
 
 ### Step 6 — Track conversions
 
-| Signal | Use |
-| --- | --- |
-| Landing with `?ref=` | Click / visit analytics |
-| Successful `subscribe` + `referred` event | Attribution confirmed on-chain |
-| First `charged` event | Paid conversion (recommended for rewards) |
-| `get_referrer(user)` | Ad-hoc lookup / support tooling |
+| Signal                                    | Use                                       |
+| ----------------------------------------- | ----------------------------------------- |
+| Landing with `?ref=`                      | Click / visit analytics                   |
+| Successful `subscribe` + `referred` event | Attribution confirmed on-chain            |
+| First `charged` event                     | Paid conversion (recommended for rewards) |
+| `get_referrer(user)`                      | Ad-hoc lookup / support tooling           |
 
 ### Validation checklist for links
 
@@ -347,9 +434,9 @@ subscribe(
 )
 ```
 
-| Parameter | Type | Referral role |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber (must sign). Cannot equal `referrer`. |
+| Parameter  | Type              | Referral role                                                              |
+| ---------- | ----------------- | -------------------------------------------------------------------------- |
+| `user`     | `Address`         | Subscriber (must sign). Cannot equal `referrer`.                           |
 | `referrer` | `Option<Address>` | Optional referrer to store. `None` clears any prior referral on overwrite. |
 
 Auth: `user.require_auth()`.
@@ -372,21 +459,23 @@ Same referral semantics as `subscribe`, with an additional `label: String` (max 
 get_referrer(env: Env, user: Address) -> Option<Address>
 ```
 
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber whose referrer to look up |
+| Parameter | Type      | Description                          |
+| --------- | --------- | ------------------------------------ |
+| `user`    | `Address` | Subscriber whose referrer to look up |
 
 Auth: none.
 
 Returns: `Some(referrer)` if `DataKey::Referral(user)` exists; `None` otherwise (never set, cleared on resubscribe, or removed on cancel).
 
+`get_referral(env, user)` is a public alias of the same read (`lib.rs`).
+
 ### Internal helpers (not public entry points)
 
-| Function | Module | Behavior |
-| --- | --- | --- |
-| `store_referral` | `referral.rs` | Set or clear referral; emit `referred` when set |
-| `get_referrer` | `referral.rs` | Persistent read |
-| `remove_referral` | `referral.rs` | Delete key (used by cancel) |
+| Function          | Module        | Behavior                                        |
+| ----------------- | ------------- | ----------------------------------------------- |
+| `store_referral`  | `referral.rs` | Set or clear referral; emit `referred` when set |
+| `get_referrer`    | `referral.rs` | Persistent read                                 |
+| `remove_referral` | `referral.rs` | Delete key (used by cancel)                     |
 
 ---
 
@@ -480,9 +569,25 @@ soroban contract invoke \
 
 ---
 
+## Frontend: ReferralPanel
+
+Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` as `<ReferralPanel publicKey={userKey} />`.
+
+| Surface | Behavior |
+| --- | --- |
+| Referral code | Connected wallet public key (the shareable identifier) |
+| Share link | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>` |
+| Copy | Clipboard buttons for code and full URL (`useClipboard`) |
+| Users referred | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts` |
+| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey` |
+
+**Subscribe input is not on this panel.** [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) has an optional “Referrer (optional)” field; on submit it passes `referrer.trim() || null` into `buildSubscribeTx`. The form does **not** auto-fill from `?ref=` (the helper `getReferrerFromSearch` is used on the panel for the warning only). Integrators who want `?ref=` → subscribe should wire that themselves (see snippets below).
+
+---
+
 ## Frontend Integration (TypeScript)
 
-The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` already accepts `referrer: string | null`. The default subscribe form currently passes `null`; the snippets below show how to wire referral links end-to-end.
+The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` accepts `referrer: string | null`. `SubscribeForm` exposes a manual referrer field. The snippets below show an end-to-end `?ref=` → resolve → subscribe pattern (off-chain codes still need a backend lookup).
 
 ### Resolve URL code and subscribe
 
@@ -514,13 +619,13 @@ function optionAddress(addr: string | null): xdr.ScVal {
   }
   return nativeToScVal(
     { tag: "Some", val: addressVal(addr) },
-    { type: "option" }
+    { type: "option" },
   );
 }
 
 /** Read ?ref= and map to a Stellar address via your backend. */
 export async function referrerFromUrl(
-  lookup: (code: string) => Promise<string | null>
+  lookup: (code: string) => Promise<string | null>,
 ): Promise<string | null> {
   const code =
     new URLSearchParams(window.location.search).get("ref") ??
@@ -547,8 +652,11 @@ export async function buildSubscribeWithReferrer(params: {
     params.trialPeriodSec == null
       ? nativeToScVal(null, { type: "option" })
       : nativeToScVal(
-          { tag: "Some", val: nativeToScVal(params.trialPeriodSec, { type: "u64" }) },
-          { type: "option" }
+          {
+            tag: "Some",
+            val: nativeToScVal(params.trialPeriodSec, { type: "u64" }),
+          },
+          { type: "option" },
         );
 
   const tx = new TransactionBuilder(account, {
@@ -564,8 +672,8 @@ export async function buildSubscribeWithReferrer(params: {
         nativeToScVal(params.intervalSec, { type: "u64" }),
         addressVal(params.token),
         trial,
-        optionAddress(params.referrer)
-      )
+        optionAddress(params.referrer),
+      ),
     )
     .setTimeout(30)
     .build();
@@ -589,7 +697,7 @@ async function subscribeWithReferral(
   amountXlm: number,
   intervalSec: number,
   referrerAddress: string | null,
-  onSign: (xdr: string) => Promise<string>
+  onSign: (xdr: string) => Promise<string>,
 ) {
   const stroops = BigInt(Math.round(amountXlm * 10_000_000));
   const xdr = await buildSubscribeTx(
@@ -599,7 +707,7 @@ async function subscribeWithReferral(
     BigInt(intervalSec),
     DEFAULT_TOKEN,
     referrerAddress, // null = no referral
-    "" // label / symbol placeholder used by current helper
+    "", // label / symbol placeholder used by current helper
   );
   return onSign(xdr);
 }
@@ -662,6 +770,23 @@ Prefer constructing topic filters with `xdr.ScVal.scvSymbol("referred").toXDR("b
 
 ---
 
+## Scripts and operations
+
+There are **no** dedicated referral scripts under `scripts/` (no `referral` / `get_referrer` / `referred` usage in that tree).
+
+Useful operational workflows using existing tools:
+
+| Goal | How |
+| --- | --- |
+| Read referrer | `soroban contract invoke ... -- get_referrer --user <USER>` (or `get_referral`) |
+| Confirm attribution | Index `referred` via [`indexer.ts`](../scripts/indexer.ts) / [`query-events.ts`](../scripts/query-events.ts) `--type referred` |
+| Backfill events | [`EVENT-DRIVEN-GUIDE.md`](./EVENT-DRIVEN-GUIDE.md) + [`replay-events.ts`](../scripts/replay-events.ts) |
+| Subscribe with referrer | CLI examples above (user must sign) |
+
+Do not invent a keeper or payout daemon in this repo; commission settlement is integrator-owned.
+
+---
+
 ## Indexer and Analytics Patterns
 
 Recommended off-chain tables:
@@ -695,8 +820,8 @@ Pipeline:
 
 ## Error Handling
 
-| Code | Name | Cause | Integrator action |
-| --- | --- | --- | --- |
+| Code | Name           | Cause                           | Integrator action                                  |
+| ---- | -------------- | ------------------------------- | -------------------------------------------------- |
 | `11` | `SelfReferral` | `referrer == user` in subscribe | Drop self codes; show “You cannot refer yourself.” |
 
 See [`ERROR-CODES.md`](./ERROR-CODES.md) for the full catalog.
@@ -715,17 +840,20 @@ See [`ERROR-CODES.md`](./ERROR-CODES.md) for the full catalog.
 
 ## Related Source Files
 
-| Path | Role |
-| --- | --- |
-| [`contract/src/referral.rs`](../contract/src/referral.rs) | Store / get / remove referral; self-referral check; event |
-| [`contract/src/lib.rs`](../contract/src/lib.rs) | `subscribe`, `get_referrer`, `DataKey::Referral`, `Subscription.referrer` |
-| [`contract/src/events.rs`](../contract/src/events.rs) | `publish_referred` |
-| [`contract/src/errors.rs`](../contract/src/errors.rs) | `SelfReferral = 11` |
-| [`contract/src/fee.rs`](../contract/src/fee.rs) | Protocol fee split (not referrer-aware) |
-| [`frontend/src/stellar.ts`](../frontend/src/stellar.ts) | `buildSubscribeTx(..., referrer, ...)` |
-| [`docs/REFERRAL.md`](./REFERRAL.md) | Short usage guide |
-| [`docs/EVENTS.md`](./EVENTS.md) | `referred` event schema |
-| [`docs/API.md`](./API.md) | Full API reference |
+| Path                                                      | Role                                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [`contract/src/referral.rs`](../contract/src/referral.rs) | Store / get / remove referral; self-referral check; event                 |
+| [`contract/src/lib.rs`](../contract/src/lib.rs)           | `subscribe`, `get_referrer`, `DataKey::Referral`, `Subscription.referrer` |
+| [`contract/src/events.rs`](../contract/src/events.rs)     | `publish_referred`                                                        |
+| [`contract/src/errors.rs`](../contract/src/errors.rs)     | `SelfReferral = 11`                                                       |
+| [`contract/src/fee.rs`](../contract/src/fee.rs)           | Protocol fee split (not referrer-aware)                                   |
+| [`frontend/src/stellar.ts`](../frontend/src/stellar.ts)   | `buildSubscribeTx(..., referrer, ...)`                                    |
+| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning |
+| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Optional referrer field on subscribe |
+| [`docs/REFERRAL.md`](./REFERRAL.md)                       | Compatibility stub → this file                                            |
+| [`docs/EVENTS.md`](./EVENTS.md)                           | `referred` event schema                                                   |
+| [`docs/API.md`](./API.md)                                 | Full API reference                                                        |
+| [`docs/ERROR-CODES.md`](./ERROR-CODES.md)                 | `SelfReferral` (11)                                                       |
 
 ---
 

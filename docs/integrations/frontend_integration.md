@@ -18,13 +18,13 @@ The following operations are read-only and do not require authentication:
 **Code Example:**
 
 ```typescript
-import { StellarClient } from '@stellar/js-sdk';
+import { StellarClient } from "@stellar/js-sdk";
 
 const client = new StellarClient();
 
 // No signing required for read operations
 const status = await client.invoke({
-  method: 'get_subscription_status',
+  method: "get_subscription_status",
   args: {
     user_id: userId,
   },
@@ -44,7 +44,7 @@ Operations that modify state require a valid signature:
 
 ```typescript
 const signedInvocation = await client.invoke({
-  method: 'subscribe',
+  method: "subscribe",
   args: {
     merchant_id: merchantId,
     amount: tokenAmount,
@@ -70,11 +70,11 @@ enum SubscriptionStatus {
 // Parse returned value
 const statusCode = statusResponse.status;
 const statusMap = {
-  0: 'Active',
-  1: 'Paused',
-  2: 'Cancelled',
-  3: 'TrialActive',
-  4: 'GracePeriod',
+  0: "Active",
+  1: "Paused",
+  2: "Cancelled",
+  3: "TrialActive",
+  4: "GracePeriod",
 };
 
 const humanReadableStatus = statusMap[statusCode];
@@ -92,7 +92,7 @@ async function fetchAllSubscribers(pageSize = 100) {
 
   while (hasMore) {
     const page = await client.invoke({
-      method: 'get_subscriber_page',
+      method: "get_subscriber_page",
       args: {
         offset,
         limit: pageSize,
@@ -122,7 +122,7 @@ const [subscribers, setSubscribers] = useState([]);
 async function loadPage(pageNumber: number) {
   try {
     const data = await client.invoke({
-      method: 'get_subscriber_page',
+      method: "get_subscriber_page",
       args: {
         offset: pageNumber * PAGE_SIZE,
         limit: PAGE_SIZE,
@@ -131,7 +131,7 @@ async function loadPage(pageNumber: number) {
     setSubscribers(data.subscribers);
     setCurrentPage(pageNumber);
   } catch (error) {
-    console.error('Failed to load page:', error);
+    console.error("Failed to load page:", error);
   }
 }
 ```
@@ -141,7 +141,7 @@ async function loadPage(pageNumber: number) {
 ```typescript
 function SubscriptionCard({ subscription }) {
   const status = mapStatusCode(subscription.status);
-  
+
   return (
     <div className={`status-${status.toLowerCase()}`}>
       <h3>{subscription.merchant}</h3>
@@ -159,9 +159,9 @@ function SubscriptionCard({ subscription }) {
 try {
   const result = await client.invoke(/* ... */);
 } catch (error) {
-  if (error.includes('Unauthorized')) {
+  if (error.includes("Unauthorized")) {
     // Handle authentication failure
-  } else if (error.includes('InvalidAmount')) {
+  } else if (error.includes("InvalidAmount")) {
     // Handle validation error
   } else {
     // Log other errors

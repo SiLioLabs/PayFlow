@@ -38,8 +38,7 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin }: Props
   const [showConfirm, setShowConfirm] = useState(false);
 
   const { valid, invalid } = parseAddressList(rawInput);
-  const canSubmit =
-    isAdmin && valid.length > 0 && invalid.length === 0 && tx.status !== "pending";
+  const canSubmit = isAdmin && valid.length > 0 && invalid.length === 0 && tx.status !== "pending";
 
   const chunks = chunkAddresses(valid, MAX_WHITELIST_BATCH);
   const txCount = chunks.length;
@@ -47,8 +46,7 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin }: Props
   async function executeWhitelist() {
     setShowConfirm(false);
 
-    const builder =
-      action === "add" ? buildWhitelistBatchAddTx : buildWhitelistBatchRemoveTx;
+    const builder = action === "add" ? buildWhitelistBatchAddTx : buildWhitelistBatchRemoveTx;
     const verb = action === "add" ? "Added" : "Removed";
 
     try {

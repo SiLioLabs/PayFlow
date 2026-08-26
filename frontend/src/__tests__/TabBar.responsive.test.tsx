@@ -23,7 +23,9 @@ function setViewport(width: number) {
 }
 
 describe("TabBar – responsive & accessibility", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("renders tab-bar--mobile class on mobile viewport (375px)", () => {
     setViewport(375);

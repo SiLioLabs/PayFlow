@@ -76,6 +76,61 @@ pub fn publish_charged(
     );
 }
 
+// ─────────────────────────────────────────────────────────────
+// Batch charge skip summary
+// ─────────────────────────────────────────────────────────────
+//
+// `batch_charge` reports per-user outcomes in its return value, which only the
+// caller of the transaction sees. Event-driven consumers (scripts/indexer.ts,
+// scripts/watch-events.ts) therefore had no on-chain signal for a batch where
+// subscriptions were paused, cancelled, missing, or past their grace window.
+//
+// This event closes that gap with ONE summary per batch instead of one event
+// per skipped user: per-user emission would scale event fees and ledger
+// footprint with batch size, and the not-due case (`Skipped`) is the common,
+// uninteresting outcome that would dominate the stream. Per-user attribution
+// stays available off-chain via the return value and `get_batch_charge_estimate`.
+//
+// Emission is conditional: the event fires only when at least one *interesting*
+// outcome occurred (no_subscription / inactive / paused / grace_elapsed /
+// allowance_insufficient). An all-charged or all-not-due batch emits nothing,
+// so the steady state costs exactly what it did before.
+
+/// Aggregate outcome counts for a single `batch_charge` call.
+///
+/// `charged + not_due + no_subscription + inactive + grace_elapsed + paused
+/// + allowance_insufficient == total`.
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchChargeSkipsEventData {
+    /// Addresses submitted in the batch.
+    pub total: u32,
+    /// `ChargeResult::Charged`
+    pub charged: u32,
+    /// `ChargeResult::Skipped` — interval has not elapsed yet.
+    pub not_due: u32,
+    /// `ChargeResult::NoSubscription`
+    pub no_subscription: u32,
+    /// `ChargeResult::Inactive`
+    pub inactive: u32,
+    /// `ChargeResult::Paused`
+    pub paused: u32,
+    /// `ChargeResult::GracePeriodElapsed`
+    pub grace_elapsed: u32,
+    /// `ChargeResult::AllowanceInsufficient` — the subscriber's allowance is
+    /// below the gross amount. This is the alerting case: the subscription is
+    /// still active and will keep failing until the subscriber re-approves.
+    pub allowance_insufficient: u32,
+    pub ledger_sequence: u32,
+}
+
+/// Publishes the `batch_charge_skips` summary. Callers must only invoke this
+/// when at least one interesting (non-`Charged`, non-`Skipped`) outcome occurred.
+pub fn publish_batch_charge_skips(env: &Env, data: BatchChargeSkipsEventData) {
+    env.events()
+        .publish((Symbol::new(env, "batch_charge_skips"),), data);
+}
+
 pub fn publish_pay_per_use(env: &Env, user: &Address, merchant: &Address, amount: i128) {
     env.events().publish(
         (Symbol::new(env, "pay_per_use"), user.clone()),
@@ -171,6 +226,22 @@ pub fn publish_subscription_transferred(env: &Env, old_user: &Address, new_user:
     );
 }
 
+pub fn emit_subscription_transferred(env: &Env, from: &Address, to: &Address, sub: &Subscription) {
+    env.events().publish(
+        (
+            Symbol::new(env, "subscription_transferred"),
+            from.clone(),
+            to.clone(),
+        ),
+        (
+            sub.merchant.clone(),
+            sub.amount,
+            sub.interval,
+            sub.token.clone(),
+        ),
+    );
+}
+
 pub fn publish_upgraded(env: &Env, _new_wasm_hash: &BytesN<32>) {
     env.events().publish((Symbol::new(env, "upgrade"),), ());
 }
@@ -178,6 +249,11 @@ pub fn publish_upgraded(env: &Env, _new_wasm_hash: &BytesN<32>) {
 pub fn publish_upgrade_proposed(env: &Env, new_wasm_hash: &BytesN<32>) {
     env.events()
         .publish((Symbol::new(env, "upg_proposed"),), new_wasm_hash.clone());
+}
+
+pub fn publish_upgrade_cancelled(env: &Env) {
+    env.events()
+        .publish((Symbol::new(env, "upg_cancelled"),), ());
 }
 
 pub fn publish_contract_paused(env: &Env) {
@@ -201,8 +277,7 @@ pub fn publish_daily_limit_removed(env: &Env, user: &Address) {
 }
 
 pub fn publish_fee_cleared(env: &Env) {
-    env.events()
-        .publish((Symbol::new(env, "fee_cleared"),), ());
+    env.events().publish((Symbol::new(env, "fee_cleared"),), ());
 }
 
 pub fn publish_daily_window_started(env: &Env, user: &Address) {
@@ -301,8 +376,10 @@ pub fn publish_grace_period_committed(env: &Env, seconds: u64) {
 }
 
 pub fn publish_subscription_auto_resumed(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "subscription_auto_resumed"), user.clone()), ());
+    env.events().publish(
+        (Symbol::new(env, "subscription_auto_resumed"), user.clone()),
+        (),
+    );
 }
 
 pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
@@ -313,8 +390,14 @@ pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
 }
 
 pub fn publish_subscriber_index_ttl_extended(env: &Env, count: u64) {
+    env.events()
+        .publish((Symbol::new(env, "subscriber_index_ttl_extended"),), count);
+}
+
+pub fn publish_merchant_fee_recipient_set(env: &Env, merchant: &Address, recipient: &Address) {
     env.events().publish(
-        (Symbol::new(env, "subscriber_index_ttl_extended"),),
-        count,
+        (Symbol::new(env, "merchant_fee_recipient_set"), merchant.clone()),
+        recipient.clone(),
     );
 }
+

@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import AddressListInput from "../components/admin/AddressListInput";
 
-const VALID_ADDR_1 = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-const VALID_ADDR_2 = "GC3C4AKRBQLHOJ45U4XG35ESVWRDECWO5XLDGYADO6DPR3L7KIDVUMML";
+const VALID_ADDR_1 = "GAEVL5Q7VI7A72TZLBHCNYEFGLC7GDQVOX4KKER67U6EUPR3LCZ3NULB";
+const VALID_ADDR_2 = "GDSG7FQANGG6BP2QNVPKOBHDTKHTOBKRWK2LD6Z7OLZ4GXQXZDXE6AEL";
 
 describe("AddressListInput", () => {
   it("renders the label and textarea", () => {
@@ -47,17 +47,13 @@ describe("AddressListInput", () => {
   });
 
   it("does not set aria-invalid when all addresses are valid", () => {
-    render(
-      <AddressListInput label="Addresses" value={VALID_ADDR_1} onChange={vi.fn()} />
-    );
+    render(<AddressListInput label="Addresses" value={VALID_ADDR_1} onChange={vi.fn()} />);
     const textarea = screen.getByRole("textbox");
     expect(textarea.getAttribute("aria-invalid")).toBe("false");
   });
 
   it("is disabled when disabled prop is true", () => {
-    render(
-      <AddressListInput label="Addresses" value="" onChange={vi.fn()} disabled={true} />
-    );
+    render(<AddressListInput label="Addresses" value="" onChange={vi.fn()} disabled={true} />);
     expect(screen.getByRole("textbox")).toBeDisabled();
   });
 

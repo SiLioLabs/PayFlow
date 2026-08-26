@@ -3,38 +3,50 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import MerchantSubscriberTable, {
-  deriveStatus,
-} from "../components/MerchantSubscriberTable";
+import MerchantSubscriberTable, { deriveStatus } from "../components/MerchantSubscriberTable";
 import type { MerchantSubscriber } from "../stellar";
 
 // Mock CopyButton so it doesn't need clipboard access in tests
 vi.mock("../components/CopyButton", () => ({
-  default: ({ text }: { text: string }) => (
-    <button data-testid={`copy-${text}`}>Copy</button>
-  ),
+  default: ({ text }: { text: string }) => <button data-testid={`copy-${text}`}>Copy</button>,
 }));
 
 // ── Test data ──────────────────────────────────────────────────────────────────
 
 const NOW = Math.floor(Date.now() / 1000);
-const FUTURE = NOW + 86_400;   // 1 day ahead  → active
-const PAST   = NOW - 86_400;   // 1 day ago    → overdue
+const FUTURE = NOW + 86_400; // 1 day ahead  → active
+const PAST = NOW - 86_400; // 1 day ago    → overdue
 
-function makeSub(overrides: Partial<MerchantSubscriber> & { subscriber: string }): MerchantSubscriber {
+function makeSub(
+  overrides: Partial<MerchantSubscriber> & { subscriber: string }
+): MerchantSubscriber {
   return {
     subscriber: overrides.subscriber,
-    amount: overrides.amount ?? "100000000",      // 10 XLM
-    interval: overrides.interval ?? 2_592_000,    // 30 days
+    amount: overrides.amount ?? "100000000", // 10 XLM
+    interval: overrides.interval ?? 2_592_000, // 30 days
     lastCharged: overrides.lastCharged ?? NOW - 2_592_000,
     nextChargeAt: overrides.nextChargeAt ?? FUTURE,
   };
 }
 
-const ACTIVE_SUB = makeSub({ subscriber: "GACTIVE111111111111111111111111111111111111111111111111", nextChargeAt: FUTURE });
-const OVERDUE_SUB = makeSub({ subscriber: "GOVERDUE22222222222222222222222222222222222222222222222", nextChargeAt: PAST });
-const HIGH_AMOUNT_SUB = makeSub({ subscriber: "GHIGH333333333333333333333333333333333333333333333333333", amount: "500000000", nextChargeAt: FUTURE + 100 });
-const LOW_AMOUNT_SUB  = makeSub({ subscriber: "GLOW4444444444444444444444444444444444444444444444444444", amount: "10000000",  nextChargeAt: FUTURE + 200 });
+const ACTIVE_SUB = makeSub({
+  subscriber: "GACTIVE111111111111111111111111111111111111111111111111",
+  nextChargeAt: FUTURE,
+});
+const OVERDUE_SUB = makeSub({
+  subscriber: "GOVERDUE22222222222222222222222222222222222222222222222",
+  nextChargeAt: PAST,
+});
+const HIGH_AMOUNT_SUB = makeSub({
+  subscriber: "GHIGH333333333333333333333333333333333333333333333333333",
+  amount: "500000000",
+  nextChargeAt: FUTURE + 100,
+});
+const LOW_AMOUNT_SUB = makeSub({
+  subscriber: "GLOW4444444444444444444444444444444444444444444444444444",
+  amount: "10000000",
+  nextChargeAt: FUTURE + 200,
+});
 
 // ── deriveStatus unit tests ────────────────────────────────────────────────────
 
@@ -74,16 +86,10 @@ describe("MerchantSubscriberTable", () => {
 
   describe("renders subscribers", () => {
     it("renders a table row for each subscriber", () => {
-      render(
-        <MerchantSubscriberTable subscribers={[ACTIVE_SUB, OVERDUE_SUB]} />
-      );
+      render(<MerchantSubscriberTable subscribers={[ACTIVE_SUB, OVERDUE_SUB]} />);
       expect(screen.getByRole("table")).toBeInTheDocument();
-      expect(
-        screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)
-      ).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
     });
 
     it("renders all required column headers", () => {
@@ -110,9 +116,7 @@ describe("MerchantSubscriberTable", () => {
 
     it("renders CopyButton for each subscriber address", () => {
       render(<MerchantSubscriberTable subscribers={[ACTIVE_SUB]} />);
-      expect(
-        screen.getByTestId(`copy-${ACTIVE_SUB.subscriber}`)
-      ).toBeInTheDocument();
+      expect(screen.getByTestId(`copy-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
     });
 
     it("renders truncated subscriber address", () => {
@@ -136,14 +140,8 @@ describe("MerchantSubscriberTable", () => {
 
       const rows = screen.getAllByRole("row").slice(1); // skip header
       // LOW_AMOUNT_SUB (10 XLM) should come first
-      expect(rows[0]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${LOW_AMOUNT_SUB.subscriber}`
-      );
-      expect(rows[1]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${HIGH_AMOUNT_SUB.subscriber}`
-      );
+      expect(rows[0]).toHaveAttribute("data-testid", `mst-row-${LOW_AMOUNT_SUB.subscriber}`);
+      expect(rows[1]).toHaveAttribute("data-testid", `mst-row-${HIGH_AMOUNT_SUB.subscriber}`);
     });
 
     it("sorts by Amount descending on second click", async () => {
@@ -154,14 +152,8 @@ describe("MerchantSubscriberTable", () => {
       await userEvent.click(amountHeader); // desc
 
       const rows = screen.getAllByRole("row").slice(1);
-      expect(rows[0]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${HIGH_AMOUNT_SUB.subscriber}`
-      );
-      expect(rows[1]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${LOW_AMOUNT_SUB.subscriber}`
-      );
+      expect(rows[0]).toHaveAttribute("data-testid", `mst-row-${HIGH_AMOUNT_SUB.subscriber}`);
+      expect(rows[1]).toHaveAttribute("data-testid", `mst-row-${LOW_AMOUNT_SUB.subscriber}`);
     });
 
     it("sorts by Next Charge ascending (default)", () => {
@@ -169,14 +161,8 @@ describe("MerchantSubscriberTable", () => {
       render(<MerchantSubscriberTable subscribers={[LOW_AMOUNT_SUB, HIGH_AMOUNT_SUB]} />);
 
       const rows = screen.getAllByRole("row").slice(1);
-      expect(rows[0]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${HIGH_AMOUNT_SUB.subscriber}`
-      );
-      expect(rows[1]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${LOW_AMOUNT_SUB.subscriber}`
-      );
+      expect(rows[0]).toHaveAttribute("data-testid", `mst-row-${HIGH_AMOUNT_SUB.subscriber}`);
+      expect(rows[1]).toHaveAttribute("data-testid", `mst-row-${LOW_AMOUNT_SUB.subscriber}`);
     });
 
     it("sorts by Next Charge descending when header clicked once", async () => {
@@ -188,14 +174,8 @@ describe("MerchantSubscriberTable", () => {
       await userEvent.click(header); // asc → desc
 
       const rows = screen.getAllByRole("row").slice(1);
-      expect(rows[0]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${LOW_AMOUNT_SUB.subscriber}`
-      );
-      expect(rows[1]).toHaveAttribute(
-        "data-testid",
-        `mst-row-${HIGH_AMOUNT_SUB.subscriber}`
-      );
+      expect(rows[0]).toHaveAttribute("data-testid", `mst-row-${LOW_AMOUNT_SUB.subscriber}`);
+      expect(rows[1]).toHaveAttribute("data-testid", `mst-row-${HIGH_AMOUNT_SUB.subscriber}`);
     });
 
     it("applies secondary sort by address for stable tie-breaking", async () => {
@@ -259,12 +239,8 @@ describe("MerchantSubscriberTable", () => {
 
     it("shows all subscribers by default", () => {
       render(<MerchantSubscriberTable subscribers={subs} />);
-      expect(
-        screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)
-      ).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
     });
 
     it("filters to only active subscribers when Active is clicked", async () => {
@@ -272,12 +248,8 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show active/i }));
 
-      expect(
-        screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)
-      ).not.toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
     });
 
     it("filters to only overdue subscribers when Overdue is clicked", async () => {
@@ -285,12 +257,8 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
-      expect(
-        screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)
-      ).toBeInTheDocument();
+      expect(screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
     });
 
     it("shows 'no results' message when filter yields empty set", async () => {

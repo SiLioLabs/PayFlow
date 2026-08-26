@@ -15,11 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  buildExtendSubscriptionTtlTx,
-  estimateExtendTtlFee,
-  isArchivedError,
-} from "../stellar";
+import { buildExtendSubscriptionTtlTx, estimateExtendTtlFee, isArchivedError } from "../stellar";
 import { useTransaction } from "../hooks/useTransaction";
 import { useToast } from "../hooks/useToast";
 import { friendlyError } from "../utils/errors";
@@ -79,8 +75,7 @@ export default function SubscriptionRepairPanel({
   const isOwner = userKey === target;
 
   // Determine whether the archived state is active
-  const archivedFromError =
-    subscriptionError != null ? isArchivedError(subscriptionError) : false;
+  const archivedFromError = subscriptionError != null ? isArchivedError(subscriptionError) : false;
   const archived = isArchivedProp ?? archivedFromError;
 
   const tx = useTransaction();
@@ -188,8 +183,7 @@ export default function SubscriptionRepairPanel({
           </p>
           {tx.hash && (
             <p className="text-xs mt-1 text-muted">
-              Transaction:{" "}
-              <code className="text-xs">{tx.hash.slice(0, 12)}…</code>
+              Transaction: <code className="text-xs">{tx.hash.slice(0, 12)}…</code>
             </p>
           )}
         </div>
@@ -259,9 +253,7 @@ export default function SubscriptionRepairPanel({
 
       {/* ── Help text ── */}
       <details className="subscription-repair-panel__details mt-4">
-        <summary className="text-sm font-medium cursor-pointer">
-          Why does this happen?
-        </summary>
+        <summary className="text-sm font-medium cursor-pointer">Why does this happen?</summary>
         <div className="text-sm text-muted mt-2">
           <p>
             The Stellar network enforces a time-to-live (TTL) on persistent contract storage. If

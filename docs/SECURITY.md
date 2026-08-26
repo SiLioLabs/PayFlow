@@ -54,44 +54,44 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 
 ## Auth Model
 
-| Function | Required signer |
-| --- | --- |
-| `subscribe()` | `user` |
-| `subscribe_with_metadata()` | `user` |
-| `charge()` | None |
-| `extend_subscription_ttl()` | None |
-| `pay_per_use()` | `user` |
-| `cancel()` | `user` |
-| `pause()` | `user` |
-| `resume()` | `user` |
-| `transfer_admin()` | current admin |
-| `accept_admin()` | pending admin |
-| `upgrade()` | current implementation does not enforce a signer in the wrapper |
-| `set_subscription_amount()` | admin |
-| `set_subscription_interval()` | admin |
-| `set_min_interval()` | admin |
-| `add_merchant()` | admin |
-| `remove_merchant()` | admin |
-| `set_whitelist_enabled()` | admin |
-| `freeze_merchant()` | admin |
-| `unfreeze_merchant()` | admin |
-| `propose_fee()` | admin |
-| `commit_fee()` | admin |
-| `propose_grace_period()` | admin |
-| `commit_grace_period()` | admin |
-| `withdraw_merchant_revenue()` | merchant |
-| `set_daily_limit()` | `user` |
-| `remove_daily_limit()` | `user` |
-| `set_metadata()` | `user` |
-| `clear_metadata()` | `user` |
-| `clear_charge_history()` | `user` |
-| `transfer_subscription()` | `user` |
-| read-only getters | none |
-| `pause_contract()` / `unpause_contract()` | admin |
-| `clear_merchant_revenue_history()` | admin |
-| `reset_merchant_revenue()` | admin |
-| `set_initial_admin()` | none |
-| `migrate()` | none |
+| Function                                  | Required signer                                                 |
+| ----------------------------------------- | --------------------------------------------------------------- |
+| `subscribe()`                             | `user`                                                          |
+| `subscribe_with_metadata()`               | `user`                                                          |
+| `charge()`                                | None                                                            |
+| `extend_subscription_ttl()`               | None                                                            |
+| `pay_per_use()`                           | `user`                                                          |
+| `cancel()`                                | `user`                                                          |
+| `pause()`                                 | `user`                                                          |
+| `resume()`                                | `user`                                                          |
+| `transfer_admin()`                        | current admin                                                   |
+| `accept_admin()`                          | pending admin                                                   |
+| `upgrade()`                               | current implementation does not enforce a signer in the wrapper |
+| `set_subscription_amount()`               | admin                                                           |
+| `set_subscription_interval()`             | admin                                                           |
+| `set_min_interval()`                      | admin                                                           |
+| `add_merchant()`                          | admin                                                           |
+| `remove_merchant()`                       | admin                                                           |
+| `set_whitelist_enabled()`                 | admin                                                           |
+| `freeze_merchant()`                       | admin                                                           |
+| `unfreeze_merchant()`                     | admin                                                           |
+| `propose_fee()`                           | admin                                                           |
+| `commit_fee()`                            | admin                                                           |
+| `propose_grace_period()`                  | admin                                                           |
+| `commit_grace_period()`                   | admin                                                           |
+| `withdraw_merchant_revenue()`             | merchant                                                        |
+| `set_daily_limit()`                       | `user`                                                          |
+| `remove_daily_limit()`                    | `user`                                                          |
+| `set_metadata()`                          | `user`                                                          |
+| `clear_metadata()`                        | `user`                                                          |
+| `clear_charge_history()`                  | `user`                                                          |
+| `transfer_subscription()`                 | `user`                                                          |
+| read-only getters                         | none                                                            |
+| `pause_contract()` / `unpause_contract()` | admin                                                           |
+| `clear_merchant_revenue_history()`        | admin                                                           |
+| `reset_merchant_revenue()`                | admin                                                           |
+| `set_initial_admin()`                     | none                                                            |
+| `migrate()`                               | none                                                            |
 
 The current contract uses a mix of direct `require_auth()` checks and admin helper enforcement. That is intentional, but the auth path should be reviewed whenever a new public function is added.
 

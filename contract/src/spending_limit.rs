@@ -42,7 +42,7 @@ pub fn get_daily_spent(env: &Env, user: &Address) -> i128 {
     if !env.storage().temporary().has(&day_start_key) {
         return 0;
     }
-    
+
     env.storage()
         .temporary()
         .get(&DataKey::DailySpent(user.clone()))
@@ -65,14 +65,16 @@ pub fn record_spend(env: &Env, user: &Address, amount: i128) {
     let day_start_key = DataKey::DayStart(user.clone());
     let spent_key = DataKey::DailySpent(user.clone());
     let spent = get_daily_spent(env, user);
-    
+
     if !env.storage().temporary().has(&day_start_key) {
         let now = env.ledger().timestamp();
         env.storage().temporary().set(&day_start_key, &now);
-        env.storage().temporary().extend_ttl(&day_start_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
+        env.storage()
+            .temporary()
+            .extend_ttl(&day_start_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
         crate::events::publish_daily_window_started(env, user);
     }
-    
+
     env.storage().temporary().set(&spent_key, &(spent + amount));
     env.storage()
         .temporary()

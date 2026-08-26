@@ -36,8 +36,11 @@ import MerchantDashboard from "../components/MerchantDashboard";
 
 const NOW = Math.floor(Date.now() / 1000);
 
+// Checksum-valid Stellar public key (StrKey.isValidEd25519PublicKey)
+const VALID_ADDR_1 = "GCOEYT3WI3LY34I7DN7BR7AF33TNF2YF4OYTLVPJKMYAWT2RWEF5BUDK";
+
 const SAMPLE_SUBSCRIBER = {
-  subscriber: "GTESTER000000000000000000000000000000000000000000",
+  subscriber: VALID_ADDR_1,
   amount: "10000000",
   interval: 2592000,
   lastCharged: NOW - 2592000,
@@ -63,20 +66,15 @@ describe("MerchantDashboard", () => {
 
     await waitFor(() => expect(screen.getByText(/Merchant Dashboard/)).toBeTruthy());
 
-    // Table renders truncated address via formatAddress(addr, 8, 6)
-    expect(screen.getByText("GTESTER0…000000")).toBeTruthy();
+    // Table renders truncated address via formatAddress default (6, 4)
+    expect(screen.getByText("GCOEYT…BUDK")).toBeTruthy();
     // Amount column shows XLM value
     expect(screen.getByText("10.0000000 XLM")).toBeTruthy(); // Total Revenue
-    expect(screen.getByText("GTESTE…0000")).toBeTruthy();
     expect(screen.getByText("1.0000000 XLM")).toBeTruthy();
     // Status badge shows Active (nextChargeAt is in the future)
-    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByText(/active/i)).toBeTruthy();
     // CopyButton rendered for the subscriber address
-    expect(
-      screen.getByRole("button", {
-        name: /copy subscriber address GTESTER000000000000000000000000000000000000000000/i,
-      })
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /copy subscriber address/i })).toBeTruthy();
   });
 
   it("shows an empty state when there are no active subscribers", async () => {
@@ -85,9 +83,7 @@ describe("MerchantDashboard", () => {
 
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
-    await waitFor(() =>
-      expect(screen.getByText(/No subscribers yet/i)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/No active subscribers found/i)).toBeTruthy());
   });
 
   it("renders a virtualized window for large subscriber lists", async () => {

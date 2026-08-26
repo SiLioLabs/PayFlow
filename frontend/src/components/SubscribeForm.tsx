@@ -1,25 +1,40 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { StrKey } from "@stellar/stellar-sdk";
+import React, { useEffect, useState } from "react";
 import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
-import { friendlyError } from "../utils/errors";
-import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants"; // BILLING_INTERVALS used for initial value
-import { useFormValidation } from "../hooks/useFormValidation";
-import { useDebounce } from "../hooks/useDebounce";
-import { useToast } from "../hooks/useToast";
-import { useTransaction } from "../hooks/useTransaction";
-import { getReferrerFromSearch } from "./ReferralPanel";
+import {
+  useFormValidation,
+  validateAddress,
+  validateInterval,
+  validateStroopAmount,
+  type FormFields,
+} from "../hooks/useFormValidation";
+import { BILLING_INTERVALS, CONTRACT_LIMITS } from "../constants";
+import IntervalSelector from "./IntervalSelector";
 import BalanceDisplay from "./BalanceDisplay";
 import AllowanceDisplay from "./AllowanceDisplay";
-import ToastContainer from "./Toast";
-import IntervalSelector from "./IntervalSelector";
 import AddressBook from "./AddressBook";
+import ToastContainer from "./Toast";
+import { useToast } from "../hooks/useToast";
 
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   onSuccess: () => void;
-  announce: (message: string) => void;
-  onSubscribed?: () => void;
+  announce?: (message: string) => void;
+  isPaused?: boolean;
+}
+
+type TouchedFields = {
+  merchant: boolean;
+  amount: boolean;
+  interval: boolean;
+};
+
+function fieldsAreValid(fields: FormFields): boolean {
+  return (
+    validateAddress(fields.merchant).valid &&
+    validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
+    validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid
+  );
 }
 
 export default function SubscribeForm({
@@ -27,272 +42,222 @@ export default function SubscribeForm({
   onSign,
   onSuccess,
   announce,
-  onSubscribed,
+  isPaused = false,
 }: Props) {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [referrer, setReferrer] = useState("");
-  const [referrerError, setReferrerError] = useState<string | null>(null);
-  const [showAddressBook, setShowAddressBook] = useState(false);
-
-  // Track which fields have been blurred (touched) for inline validation
-  const [touched, setTouched] = useState<{ merchant: boolean; amount: boolean; interval: boolean }>({
+  const [touched, setTouched] = useState<TouchedFields>({
     merchant: false,
     amount: false,
     interval: false,
   });
+  const [showAddressBook, setShowAddressBook] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
-  const { errors, validate, validateAsync, validating, isValid } = useFormValidation();
+  const { errors, validate, validating } = useFormValidation();
   const { toasts, addToast, removeToast } = useToast();
-  const tx = useTransaction();
 
-  const debouncedMerchant = useDebounce(merchant, 500);
+  const fields: FormFields = { merchant, amount, interval };
+  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused;
 
-  // Pre-fill referrer from ?ref= URL query param (Issue #661)
+  // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {
-    const refParam = getReferrerFromSearch(window.location.search);
-    if (!refParam) return;
-
-    // Warn if the ref param equals the connected user (self-referral)
-    if (refParam === userKey) {
-      setReferrerError("Self-referral is not allowed — the contract will ignore it.");
-      return;
+    if (touched.merchant || touched.amount || touched.interval) {
+      validate(fields);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on field values + touched
+  }, [merchant, amount, interval, touched.merchant, touched.amount, touched.interval, validate]);
 
-    // Validate it looks like a Stellar address before pre-filling
-    if (StrKey.isValidEd25519PublicKey(refParam)) {
-      setReferrer(refParam);
-    }
-  }, [userKey]);
-
-  // Validate whenever any field changes (drives isValid for submit button)
-  useEffect(() => {
-    validate({ merchant, amount, interval });
-  }, [merchant, amount, interval, validate]);
-
-  useEffect(() => {
-    if (debouncedMerchant) {
-      validateAsync({
-        merchant: debouncedMerchant,
-        amount: amount || "1",
-        interval: interval || 30,
-      });
-    }
-  }, [debouncedMerchant, validateAsync]);
-
-  function handleBlur(field: "merchant" | "amount" | "interval") {
+  function handleBlur(field: keyof TouchedFields) {
     setTouched((prev) => ({ ...prev, [field]: true }));
+    validate(fields);
   }
 
-  function validateReferrer(value: string): string | null {
-    if (!value) return null; // optional field
-    if (value === userKey) return "Self-referral is not allowed.";
-    if (!StrKey.isValidEd25519PublicKey(value)) {
-      return "Invalid Stellar address format";
-    }
-    return null;
+  function handleMerchantChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setMerchant(e.target.value);
   }
 
-  function handleReferrerChange(value: string) {
-    setReferrer(value);
-    setReferrerError(validateReferrer(value));
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setAmount(e.target.value);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Mark all fields as touched on submit attempt
     setTouched({ merchant: true, amount: true, interval: true });
+    setStatus(null);
 
-    const isValidAsync = await validateAsync({ merchant, amount, interval });
-    if (!isValidAsync) return;
+    const ok = validate(fields);
+    if (!ok) return;
 
-    const refErr = validateReferrer(referrer);
-    if (refErr) {
-      setReferrerError(refErr);
-      return;
-    }
-
-    announce("Transaction submitted");
-    const hash = await tx.submit(async () => {
-      const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
-      const refAddr = referrer && StrKey.isValidEd25519PublicKey(referrer) ? referrer : null;
+    setPending(true);
+    announce?.("Transaction submitted");
+    try {
+      const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
       const xdr = await buildSubscribeTx(
         userKey,
         merchant,
         stroops,
         BigInt(interval),
         DEFAULT_TOKEN,
-        refAddr,
+        referrer.trim() || null,
         ""
       );
-      return onSign(xdr);
-    });
-
-    if (hash) {
+      const hash = await onSign(xdr);
+      setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       addToast("Subscribed!", "success", hash);
-      announce("Transaction confirmed");
-      onSubscribed?.();
+      announce?.("Transaction confirmed");
       onSuccess();
-    } else if (tx.error) {
-      const msg = `Error: ${friendlyError(tx.error)}`;
+    } catch (err: unknown) {
+      const msg = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      setStatus(msg);
       addToast(msg, "error");
-      announce(msg);
+      announce?.(msg);
+    } finally {
+      setPending(false);
     }
   }
 
-  const amountStroops = useMemo(() => {
-    const parsed = parseFloat(amount);
-    if (!amount || Number.isNaN(parsed) || parsed <= 0) return 0n;
-    return BigInt(Math.round(parsed * STROOPS_PER_XLM));
-  }, [amount]);
-
-  const pending = tx.status === "pending";
-  const disabled = pending || validating || !isValid;
-
-  // Only show errors for touched fields (blur-based inline validation)
-  const visibleErrors = {
-    merchant: touched.merchant ? errors.merchant : undefined,
-    amount: touched.amount ? errors.amount : undefined,
-    interval: touched.interval ? errors.interval : undefined,
-  };
+  const merchantError = touched.merchant && errors.merchant ? errors.merchant : undefined;
+  const amountError = touched.amount && errors.amount ? errors.amount : undefined;
+  const intervalError = touched.interval && errors.interval ? errors.interval : undefined;
 
   return (
-    <form onSubmit={handleSubmit} className="subscribe-form">
+    <form className="subscribe-form" onSubmit={handleSubmit} noValidate>
       <h2 className="subscribe-form__title">New Subscription</h2>
 
-      <label className="form-group">
-        <span className="form-label">Merchant address</span>
+      <div className="form-group">
+        <BalanceDisplay address={userKey} />
+      </div>
+
+      {/* Merchant Field */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="merchant-input">
+          Merchant address
+        </label>
         <input
+          id="merchant-input"
+          data-testid="merchant-input"
+          name="merchant"
+          className="input"
           placeholder="G…"
           value={merchant}
-          onChange={(e) => setMerchant(e.target.value)}
+          onChange={handleMerchantChange}
           onBlur={() => handleBlur("merchant")}
-          required
-          aria-invalid={touched.merchant ? !!errors.merchant : undefined}
-          aria-describedby={visibleErrors.merchant ? "merchant-error" : undefined}
-          data-testid="merchant-input"
+          aria-invalid={merchantError ? true : undefined}
+          aria-describedby={merchantError ? "merchant-error" : undefined}
+          autoComplete="off"
         />
-        {visibleErrors.merchant && (
+        <button type="button" className="btn-secondary" onClick={() => setShowAddressBook(true)}>
+          Select from Address Book
+        </button>
+        {merchantError && (
           <span
             id="merchant-error"
-            className="text-error"
-            role="alert"
             data-testid="merchant-error"
+            className="error-message text-error"
+            role="alert"
           >
-            {visibleErrors.merchant}
+            {merchantError}
           </span>
         )}
-        <button
-          type="button"
-          className="btn-secondary subscribe-form__address-book-btn"
-          onClick={() => setShowAddressBook(true)}
-          aria-label="Select merchant from address book"
-        >
-          📋 Select from Address Book
-        </button>
-      </label>
+      </div>
 
-      {showAddressBook && (
-        <AddressBook
-          onSelect={(address) => {
-            setMerchant(address);
-          }}
-          onClose={() => setShowAddressBook(false)}
-        />
-      )}
-
-      <BalanceDisplay address={userKey} />
-
-      <label className="form-group">
-        <span className="form-label">Amount (XLM per period)</span>
+      {/* Amount Field */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="amount-input">
+          Amount (XLM per period)
+        </label>
         <input
+          id="amount-input"
+          data-testid="amount-input"
+          name="amount"
+          className="input"
           type="number"
           min="0.0000001"
           step="0.0000001"
           placeholder="5"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={handleAmountChange}
           onBlur={() => handleBlur("amount")}
-          required
-          aria-invalid={touched.amount ? !!errors.amount : undefined}
-          aria-describedby={visibleErrors.amount ? "amount-error" : undefined}
-          data-testid="amount-input"
+          aria-invalid={amountError ? true : undefined}
+          aria-describedby={amountError ? "amount-error" : undefined}
         />
-        {visibleErrors.amount && (
+        {amountError && (
           <span
             id="amount-error"
-            className="text-error"
-            role="alert"
             data-testid="amount-error"
-          >
-            {visibleErrors.amount}
-          </span>
-        )}
-        {userKey && (
-          <AllowanceDisplay
-            userKey={userKey}
-            subscriptionAmount={amountStroops}
-            refreshTrigger={0}
-          />
-        )}
-      </label>
-
-      {/* #278 — Use dedicated IntervalSelector instead of inline <select> */}
-      <div
-        onBlur={() => handleBlur("interval")}
-        data-testid="interval-wrapper"
-      >
-        <IntervalSelector value={interval} onChange={setInterval} />
-      </div>
-      {visibleErrors.interval && (
-        <span
-          id="interval-error"
-          className="text-error"
-          role="alert"
-          data-testid="interval-error"
-          aria-live="polite"
-        >
-          {visibleErrors.interval}
-        </span>
-      )}
-
-      {/* Referrer field — pre-filled from ?ref= URL param (Issue #661) */}
-      <label className="form-group">
-        <span className="form-label">
-          Referrer address{" "}
-          <span className="text-muted" style={{ fontWeight: "normal" }}>
-            (optional)
-          </span>
-        </span>
-        <input
-          placeholder="G… (optional)"
-          value={referrer}
-          onChange={(e) => handleReferrerChange(e.target.value)}
-          aria-label="Referrer Stellar address (optional)"
-          aria-describedby={referrerError ? "referrer-error" : undefined}
-          aria-invalid={!!referrerError}
-          data-testid="referrer-input"
-        />
-      </label>
-
-      <div className="form-group">
-        {referrerError && (
-          <span
-            id="referrer-error"
-            className="text-error"
+            className="error-message text-error"
             role="alert"
-            data-testid="referrer-error"
           >
-            {referrerError}
+            {amountError}
           </span>
         )}
       </div>
 
-      <button type="submit" disabled={disabled} className="btn-primary subscribe-form__submit" aria-busy={pending || validating}>
-      <button type="submit" disabled={disabled} className="btn-primary subscribe-form__submit">
+      {/* Interval Field */}
+      <div data-testid="interval-wrapper" tabIndex={-1} onBlur={() => handleBlur("interval")}>
+        <IntervalSelector
+          value={interval}
+          onChange={(seconds) => {
+            setInterval(seconds);
+          }}
+        />
+        {intervalError && (
+          <span
+            id="interval-error"
+            data-testid="interval-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {intervalError}
+          </span>
+        )}
+      </div>
+
+      {/* Referrer / allowance */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="referrer-input">
+          Referrer (optional)
+        </label>
+        <input
+          id="referrer-input"
+          data-testid="referrer-input"
+          name="referrer"
+          className="input"
+          placeholder="Optional referrer G…"
+          value={referrer}
+          onChange={(e) => setReferrer(e.target.value)}
+          autoComplete="off"
+        />
+        <AllowanceDisplay userKey={userKey} subscriptionAmount={0n} refreshTrigger={0} />
+      </div>
+
+      <button
+        type="submit"
+        disabled={!canSubmit}
+        className="btn-primary subscribe-form__submit"
+        aria-busy={pending || validating}
+        aria-label={isPaused ? "Subscribe (unavailable during maintenance)" : undefined}
+      >
         {pending ? "Confirming…" : validating ? "Validating…" : "Subscribe"}
       </button>
+
+      {status && (
+        <p className={`form-status${status.startsWith("Error") ? " text-error" : ""}`}>{status}</p>
+      )}
+
+      {showAddressBook && (
+        <AddressBook
+          onSelect={(address) => {
+            setMerchant(address);
+            setShowAddressBook(false);
+          }}
+          onClose={() => setShowAddressBook(false)}
+        />
+      )}
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </form>
