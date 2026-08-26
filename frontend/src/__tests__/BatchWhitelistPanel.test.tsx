@@ -24,9 +24,8 @@ import * as stellar from "../stellar";
 import { useTransaction } from "../hooks/useTransaction";
 import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
 
-// Generated via Keypair.random() — checksum-valid for StrKey.isValidEd25519PublicKey
-const VALID_ADDR_1 = "GCOEYT3WI3LY34I7DN7BR7AF33TNF2YF4OYTLVPJKMYAWT2RWEF5BUDK";
-const VALID_ADDR_2 = "GAEVL5Q7VI7A72TZLBHCNYEFGLC7GDQVOX4KKER67U6EUPR3LCZ3NULB";
+const VALID_ADDR_1 = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+const VALID_ADDR_2 = "GC3C4AKRBQLHOJ45U4XG35ESVWRDECWO5XLDGYADO6DPR3L7KIDVUMML";
 
 describe("BatchWhitelistPanel", () => {
   const defaultProps = {

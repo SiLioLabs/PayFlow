@@ -23,7 +23,6 @@
         }
       ]
     ],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -252,7 +251,7 @@
                           ]
                         },
                         "val": {
-                          "u32": 3
+                          "u32": 2
                         }
                       },
                       {
@@ -1050,7 +1049,7 @@
             "data": {
               "vec": [
                 {
-                  "u32": 3
+                  "u32": 2
                 },
                 {
                   "u32": 0
@@ -1123,7 +1122,7 @@
               }
             ],
             "data": {
-              "u32": 3
+              "u32": 2
             }
           }
         }

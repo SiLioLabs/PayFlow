@@ -18,7 +18,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { logger } from "./logger";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,16 +63,14 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
     });
     if (!response.ok) {
       console.error(
-        `Webhook responded with HTTP ${response.status}: ${response.statusText}`,
-      logger.error(
         `Webhook responded with HTTP ${response.status}: ${response.statusText}`
       );
     } else {
-      logger.error(`Webhook delivered successfully (HTTP ${response.status})`);
+      console.error(`Webhook delivered successfully (HTTP ${response.status})`);
     }
   } catch (err) {
     // Log failure but do not crash — callers rely on non-zero exit only for fatal errors
-    logger.error(`Webhook delivery failed: ${err}`);
+    console.error(`Webhook delivery failed: ${err}`);
   }
 }
 
@@ -82,7 +79,7 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
 async function main(): Promise<void> {
   const webhookUrl = process.env.WEBHOOK_URL;
   if (!webhookUrl) {
-    logger.error("Error: WEBHOOK_URL environment variable is required.");
+    console.error("Error: WEBHOOK_URL environment variable is required.");
     process.exit(1);
   }
 
@@ -94,7 +91,7 @@ async function main(): Promise<void> {
   try {
     db = new DatabaseSync(dbPath, { open: true });
   } catch (err) {
-    logger.error(`Failed to open database at ${dbPath}: ${err}`);
+    console.error(`Failed to open database at ${dbPath}: ${err}`);
     process.exit(1);
   }
 
@@ -102,7 +99,7 @@ async function main(): Promise<void> {
     `SELECT data FROM events
      WHERE event_name = 'charge_failed'
        AND timestamp >= ?
-     ORDER BY timestamp DESC`,
+     ORDER BY timestamp DESC`
   );
 
   const rows = query.all(sinceTs) as Array<{ data: string }>;
@@ -123,16 +120,16 @@ async function main(): Promise<void> {
   };
 
   if (failedCharges.length === 0) {
-    logger.error("No failed charges found. No webhook sent.");
-    logger.info(JSON.stringify(payload, null, 2));
+    console.error("No failed charges found. No webhook sent.");
+    console.log(JSON.stringify(payload, null, 2));
     return;
   }
 
-  logger.info(JSON.stringify(payload, null, 2));
+  console.log(JSON.stringify(payload, null, 2));
   await sendWebhook(webhookUrl, payload);
 }
 
 main().catch((err) => {
-  logger.error(`Fatal error: ${err}`);
+  console.error(`Fatal error: ${err}`);
   process.exit(1);
 });

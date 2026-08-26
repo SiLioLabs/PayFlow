@@ -23,7 +23,6 @@
         }
       ]
     ],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -665,14 +664,6 @@
                           "hi": 0,
                           "lo": 10000000
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "created_at"
-                      },
-                      "val": {
-                        "u64": 0
                       }
                     },
                     {
@@ -2011,14 +2002,6 @@
                       "hi": 0,
                       "lo": 10000000
                     }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "created_at"
-                  },
-                  "val": {
-                    "u64": 0
                   }
                 },
                 {

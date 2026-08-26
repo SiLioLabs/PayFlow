@@ -1,23 +1,21 @@
 import { StrKey } from "@stellar/stellar-sdk";
 
-// Regex to validate Stellar Federated Addresses (e.g., user*domain.com)
-const FEDERATED_ADDRESS_REGEX = /^[^*]+[*][^*]+\.[^*]+$/;
-
-export function isValidStellarAddress(address: string): boolean {
-  return StrKey.isValidEd25519PublicKey(address) || FEDERATED_ADDRESS_REGEX.test(address);
-}
-
 /**
- * Parses a multiline or delimiter-separated string of Stellar addresses.
+ * Parses a multiline string of Stellar addresses.
+ *
+ * - Trims each line
+ * - Removes blank lines
+ * - Deduplicates (preserving first occurrence)
+ *
+ * Returns two arrays: valid and invalid addresses.
  */
 export function parseAddressList(raw: string): {
   valid: string[];
   invalid: string[];
   duplicates: string[];
 } {
-  // Split by newlines, commas, or spaces
   const lines = raw
-    .split(/[\n,\s]+/)
+    .split(/[\n,]+/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
@@ -33,7 +31,7 @@ export function parseAddressList(raw: string): {
     }
     seen.add(line);
 
-    if (isValidStellarAddress(line)) {
+    if (StrKey.isValidEd25519PublicKey(line)) {
       valid.push(line);
     } else {
       invalid.push(line);
@@ -43,9 +41,10 @@ export function parseAddressList(raw: string): {
   return { valid, invalid, duplicates };
 }
 
+/** Returns true when every non-blank line in the raw input is a valid Stellar address. */
 export function isAddressListValid(raw: string): boolean {
-  const { valid, invalid } = parseAddressList(raw);
-  return valid.length > 0 && invalid.length === 0;
+  const { invalid } = parseAddressList(raw);
+  return invalid.length === 0;
 }
 
 /**

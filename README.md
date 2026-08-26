@@ -37,7 +37,6 @@ pub fn get_daily_limit(env: &Env, user: &Address) -> Option<i128> {
 
 The public contract method exposes this to callers. No auth is required — reading your own limit is a view-only operation:
 
-
 ```rust
 /// Returns the current daily spending limit for the caller, or `None` if unset.
 pub fn get_daily_limit(env: Env, user: Address) -> Option<i128> {
@@ -53,16 +52,15 @@ pub fn get_daily_limit(env: Env, user: Address) -> Option<i128> {
 get_daily_limit(env: Env, user: Address) -> Option<i128>
 ```
 
-| Parameter | Type      | Description                     |
-| --------- | --------- | ------------------------------- |
-| `user`    | `Address` | The subscriber address to query |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user` | `Address` | The subscriber address to query |
 
 **Returns:** `Some(limit)` in stroops if a limit is set, `None` otherwise.  
 **Auth:** None required.  
 **Storage:** Reads `DataKey::DailyLimit(user)` from temporary storage.
 
 **CLI example:**
-
 ```bash
 soroban contract invoke \
   --id <CONTRACT_ID> \
@@ -140,7 +138,6 @@ cargo test daily_limit
 ```
 
 Expected output:
-
 ```
 test test::test_daily_limit_allows_spend_within_limit ... ok
 test test::test_daily_limit_accumulates_across_calls ... ok
@@ -158,7 +155,6 @@ test test::test_daily_limit_visibility_and_spend_tracking ... ok
 ### What is a keeper and how do I run one locally?
 
 A keeper is an off-chain scheduler (cron job, AWS Lambda, or any scripted process) that calls `batch_charge(users)` on the FlowPay contract whenever subscribers' billing intervals have elapsed. Because Soroban has no native scheduler, recurring charges depend entirely on this external trigger. To run one locally, maintain a list of subscriber addresses sourced from contract events and invoke `batch_charge` on a schedule — the contract handles all eligibility checks, so ineligible users are silently skipped without aborting the transaction. See [Architecture — Keeper Service](docs/ARCHITECTURE.md#keeper-service) for the recommended pattern.
-
 
 ### How do I spin up a local validation environment for testing?
 
@@ -204,11 +200,11 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 
 ## Prerequisites
 
-| Tool          | Version | Install                                    |
-| ------------- | ------- | ------------------------------------------ |
-| Rust          | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`     |
-| wasm32 target | —       | `rustup target add wasm32-unknown-unknown` |
-| Soroban CLI   | 21.x    | `cargo install --locked soroban-cli`       |
+| Tool | Version | Install |
+|------|---------|---------|
+| Rust | 1.70+ | `curl https://sh.rustup.rs -sSf \| sh` |
+| wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
+| Soroban CLI | 21.x | `cargo install --locked soroban-cli` |
 
 ---
 
@@ -220,7 +216,6 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 - `pay_per_use(user, amount)` — the function this limit applies to
 - Full API reference: [`docs/API.md`](docs/API.md)
 - Architecture overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Referral system (canonical): [`docs/REFERRALS.md`](docs/REFERRALS.md)
 - Developer Integration Guide: [`docs/INTEGRATION-GUIDE.md`](docs/INTEGRATION-GUIDE.md)
 - Mainnet deployment checklist: [`docs/MAINNET-DEPLOYMENT.md`](docs/MAINNET-DEPLOYMENT.md)
 - Merchant Integration Cookbook: [`docs/MERCHANT-INTEGRATION.md`](docs/MERCHANT-INTEGRATION.md)

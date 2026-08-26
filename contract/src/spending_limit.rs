@@ -69,9 +69,7 @@ pub fn record_spend(env: &Env, user: &Address, amount: i128) {
     if !env.storage().temporary().has(&day_start_key) {
         let now = env.ledger().timestamp();
         env.storage().temporary().set(&day_start_key, &now);
-        env.storage()
-            .temporary()
-            .extend_ttl(&day_start_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
+        env.storage().temporary().extend_ttl(&day_start_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
         crate::events::publish_daily_window_started(env, user);
     }
 

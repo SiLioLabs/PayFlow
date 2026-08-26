@@ -8,9 +8,7 @@ interface WalletSelectModalProps {
 }
 
 export default function WalletSelectModal({ adapters, onSelect, onClose }: WalletSelectModalProps) {
-  const [installedAdapters, setInstalledAdapters] = useState<
-    { adapter: WalletAdapter; installed: boolean }[]
-  >([]);
+  const [installedAdapters, setInstalledAdapters] = useState<{ adapter: WalletAdapter; installed: boolean }[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -43,12 +41,7 @@ export default function WalletSelectModal({ adapters, onSelect, onClose }: Walle
               key={adapter.id}
               className="btn-secondary"
               onClick={() => onSelect(adapter)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "var(--space-3) var(--space-4)",
-              }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--space-3) var(--space-4)" }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
                 <span style={{ fontSize: "1.5rem" }}>{adapter.icon}</span>

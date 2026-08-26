@@ -160,6 +160,7 @@ Thumbs.db
 dist/
 build/
 out/
+target/
 
 # Temporary files
 tmp/
@@ -186,6 +187,13 @@ config/local.json
 # Backup files
 *.bak
 *.backup
-contract/target/
 
-contract/target/
+.agents/
+.claude/
+skills-lock.json
+
+# Generated testnet test-fixture manifests (contain throwaway testnet secret keys)
+scripts/.testnet-manifest.*.json
+issue.mdkiro-cli.deb
+kiro-cli.deb.1
+.antigravitycli/

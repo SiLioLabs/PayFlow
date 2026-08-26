@@ -12,43 +12,39 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ## Quick-Reference Table
 
-| Code | Name                        | Category     | When it occurs (short)             |
-| ---- | --------------------------- | ------------ | ---------------------------------- |
-| 1    | `AlreadyInitialized`        | State        | `initialize()` called twice        |
-| 2    | `AmountMustBePositive`      | Validation   | Amount ≤ 0                         |
-| 3    | `IntervalMustBePositive`    | Validation   | Interval ≤ 0                       |
-| 4    | `NoSubscriptionFound`       | State        | No subscription for user/token     |
-| 5    | `SubscriptionInactive`      | State        | Charge/pay on cancelled sub        |
-| 6    | `IntervalNotElapsed`        | Limit        | Charge before interval ends        |
-| 7    | `NotInitialized`            | State        | Call before `initialize()`         |
-| 8    | `InsufficientAllowance`     | Auth / Limit | Token allowance too low            |
-| 9    | `GracePeriodElapsed`        | Limit        | Charge after grace window          |
-| 10   | `MerchantNotWhitelisted`    | Auth         | Merchant not on whitelist          |
-| 11   | `SelfReferral`              | Validation   | Referrer == subscriber             |
-| 12   | `InvalidTokenAddress`       | Validation   | Token is not a contract/SAC        |
-| 13   | `InvalidFeeBps`             | Validation   | Fee bps > 10000                    |
-| 14   | `MetadataLabelTooLong`      | Validation   | Label > 64 bytes                   |
-| 15   | `AmountExceedsMaximum`      | Limit        | Amount above max                   |
-| 16   | `SubscriptionNotActive`     | State        | Op requires active sub             |
-| 17   | `SubscriptionPaused`        | State        | Charge while user-paused           |
-| 18   | `ContractPaused`            | State        | Op while protocol paused           |
-| 19   | `IntervalTooShort`          | Validation   | Interval below min floor           |
-| 20   | `BatchTooLarge`             | Limit        | Batch size above max               |
-| 21   | `ZeroBalanceAvailable`      | State        | Merchant withdraw with 0           |
-| 22   | `MerchantFrozen`            | Auth         | Subscribe to frozen merchant       |
-| 23   | `NoPendingProposal`         | State        | Commit without proposal            |
-| 24   | `SubscriptionAlreadyActive` | State        | Transfer target already subscribed |
-| 25   | `DailyLimitExceeded`        | Limit        | `pay_per_use` over daily cap       |
-| 26   | `InvalidFeeCollector`       | Validation   | Fee collector invalid              |
-| 27   | `InvalidPauseExpiry`        | Validation   | Pause expiry not in future         |
-| 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
-| 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
-| 30   | `ContractPausedError`       | State        | Subscribe while paused             |
-| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid          |
-| 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
-| 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
-| 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
-| 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| Code | Name | Category | When it occurs (short) |
+| --- | --- | --- | --- |
+| 1 | `AlreadyInitialized` | State | `initialize()` called twice |
+| 2 | `AmountMustBePositive` | Validation | Amount ≤ 0 |
+| 3 | `IntervalMustBePositive` | Validation | Interval ≤ 0 |
+| 4 | `NoSubscriptionFound` | State | No subscription for user/token |
+| 5 | `SubscriptionInactive` | State | Charge/pay on cancelled sub |
+| 6 | `IntervalNotElapsed` | Limit | Charge before interval ends |
+| 7 | `NotInitialized` | State | Call before `initialize()` |
+| 8 | `InsufficientAllowance` | Auth / Limit | Token allowance too low |
+| 9 | `GracePeriodElapsed` | Limit | Charge after grace window |
+| 10 | `MerchantNotWhitelisted` | Auth | Merchant not on whitelist |
+| 11 | `SelfReferral` | Validation | Referrer == subscriber |
+| 12 | `InvalidTokenAddress` | Validation | Token is not a contract/SAC |
+| 13 | `InvalidFeeBps` | Validation | Fee bps > 10000 |
+| 14 | `MetadataLabelTooLong` | Validation | Label > 64 bytes |
+| 15 | `AmountExceedsMaximum` | Limit | Amount above max |
+| 16 | `SubscriptionNotActive` | State | Op requires active sub |
+| 17 | `SubscriptionPaused` | State | Charge while user-paused |
+| 18 | `ContractPaused` | State | Op while protocol paused |
+| 19 | `IntervalTooShort` | Validation | Interval below min floor |
+| 20 | `BatchTooLarge` | Limit | Batch size above max |
+| 21 | `ZeroBalanceAvailable` | State | Merchant withdraw with 0 |
+| 22 | `MerchantFrozen` | Auth | Subscribe to frozen merchant |
+| 23 | `NoPendingProposal` | State | Commit without proposal |
+| 24 | `SubscriptionAlreadyActive` | State | Transfer target already subscribed |
+| 25 | `DailyLimitExceeded` | Limit | `pay_per_use` over daily cap |
+| 26 | `InvalidFeeCollector` | Validation | Fee collector invalid |
+| 27 | `InvalidPauseExpiry` | Validation | Pause expiry not in future |
+| 28 | `GlobalVolumeExceeded` | Limit | Protocol volume cap hit |
+| 29 | `InvalidBatchSize` | Validation | Configured batch limit invalid |
+| 30 | `ContractPausedError` | State | Subscribe while paused |
+| 32 | `InvalidRecipient` | Validation | Recipient address invalid |
 
 > **Note:** Code `31` is intentionally unused. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -58,10 +54,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 1 — `AlreadyInitialized`
 
-| Field               | Detail                                                                          |
-| ------------------- | ------------------------------------------------------------------------------- |
-| **When it occurs**  | Calling `initialize()` on a contract that already has an admin/token configured |
-| **Immediate cause** | Instance storage already holds initialization state                             |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Calling `initialize()` on a contract that already has an admin/token configured |
+| **Immediate cause** | Instance storage already holds initialization state |
 
 **Recovery steps**
 
@@ -75,10 +71,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 2 — `AmountMustBePositive`
 
-| Field               | Detail                                                                  |
-| ------------------- | ----------------------------------------------------------------------- |
-| **When it occurs**  | `subscribe()`, `pay_per_use()`, or amount setters receive `amount <= 0` |
-| **Immediate cause** | Validation rejects non-positive amounts                                 |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `subscribe()`, `pay_per_use()`, or amount setters receive `amount <= 0` |
+| **Immediate cause** | Validation rejects non-positive amounts |
 
 **Recovery steps**
 
@@ -92,10 +88,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 3 — `IntervalMustBePositive`
 
-| Field               | Detail                                                      |
-| ------------------- | ----------------------------------------------------------- |
-| **When it occurs**  | `subscribe()` (or interval setters) receive `interval <= 0` |
-| **Immediate cause** | Interval failed the positive check                          |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `subscribe()` (or interval setters) receive `interval <= 0` |
+| **Immediate cause** | Interval failed the positive check |
 
 **Recovery steps**
 
@@ -109,10 +105,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 4 — `NoSubscriptionFound`
 
-| Field               | Detail                                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **When it occurs**  | `charge()`, `pause()`, `resume()`, `cancel()`, getters, or related ops for a user with no stored subscription |
-| **Immediate cause** | Persistent storage has no `Subscription` for that user                                                        |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `charge()`, `pause()`, `resume()`, `cancel()`, getters, or related ops for a user with no stored subscription |
+| **Immediate cause** | Persistent storage has no `Subscription` for that user |
 
 **Recovery steps**
 
@@ -126,10 +122,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 5 — `SubscriptionInactive`
 
-| Field               | Detail                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| **When it occurs**  | Charging or paying against a cancelled / inactive subscription |
-| **Immediate cause** | Subscription exists but `active == false`                      |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Charging or paying against a cancelled / inactive subscription |
+| **Immediate cause** | Subscription exists but `active == false` |
 
 **Recovery steps**
 
@@ -143,10 +139,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 6 — `IntervalNotElapsed`
 
-| Field               | Detail                                                     |
-| ------------------- | ---------------------------------------------------------- |
-| **When it occurs**  | `charge()` / batch charge before `last_charged + interval` |
-| **Immediate cause** | Billing interval has not completed                         |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `charge()` / batch charge before `last_charged + interval` |
+| **Immediate cause** | Billing interval has not completed |
 
 **Recovery steps**
 
@@ -160,9 +156,9 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 7 — `NotInitialized`
 
-| Field               | Detail                                                        |
-| ------------------- | ------------------------------------------------------------- |
-| **When it occurs**  | Any operational call before successful `initialize()`         |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Any operational call before successful `initialize()` |
 | **Immediate cause** | Admin/token (or related) config missing from instance storage |
 
 **Recovery steps**
@@ -177,20 +173,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 8 — `InsufficientAllowance`
 
-| Field               | Detail                                                               |
-| ------------------- | -------------------------------------------------------------------- |
-| **When it occurs**  | Charge, subscribe, or pay-per-use path finds token allowance below required amount |
-| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down             |
-
-`charge()` and `pay_per_use*()` preflight the allowance against the **gross**
-amount before any transfer runs. When a protocol fee is configured the charge
-is pulled in two legs (fee → collector, net → merchant) against that same
-allowance, so an allowance covering only the fee leg is rejected up front
-rather than part-way through. Budget for `amount`, not `amount - fee`.
-
-`batch_charge()` does **not** raise this error: it records
-`ChargeResult::AllowanceInsufficient` for that subscriber and continues the
-batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Charge or subscribe path finds token allowance below required amount |
+| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down |
 
 **Recovery steps**
 
@@ -204,9 +190,9 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 9 — `GracePeriodElapsed`
 
-| Field               | Detail                                                             |
-| ------------------- | ------------------------------------------------------------------ |
-| **When it occurs**  | Charge attempted after `last_charged + interval + grace_period`    |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Charge attempted after `last_charged + interval + grace_period` |
 | **Immediate cause** | Billing window closed; subscription treated as lapsed for charging |
 
 **Recovery steps**
@@ -221,10 +207,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 10 — `MerchantNotWhitelisted`
 
-| Field               | Detail                                                              |
-| ------------------- | ------------------------------------------------------------------- |
-| **When it occurs**  | Subscribe when whitelist mode is enabled and merchant is not listed |
-| **Immediate cause** | `is_whitelist_enabled` and merchant missing from whitelist storage  |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Subscribe when whitelist mode is enabled and merchant is not listed |
+| **Immediate cause** | `is_whitelist_enabled` and merchant missing from whitelist storage |
 
 **Recovery steps**
 
@@ -238,9 +224,9 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 11 — `SelfReferral`
 
-| Field               | Detail                                    |
-| ------------------- | ----------------------------------------- |
-| **When it occurs**  | `subscribe()` with `referrer == user`     |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `subscribe()` with `referrer == user` |
 | **Immediate cause** | Referral validation rejects self-referral |
 
 **Recovery steps**
@@ -254,10 +240,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 12 — `InvalidTokenAddress`
 
-| Field               | Detail                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| **When it occurs**  | Initialize/subscribe with a non-contract / invalid SAC address |
-| **Immediate cause** | Address fails contract/SAC validation                          |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Initialize/subscribe with a non-contract / invalid SAC address |
+| **Immediate cause** | Address fails contract/SAC validation |
 
 **Recovery steps**
 
@@ -271,10 +257,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 13 — `InvalidFeeBps`
 
-| Field               | Detail                              |
-| ------------------- | ----------------------------------- |
-| **When it occurs**  | Fee proposal/set with `bps > 10000` |
-| **Immediate cause** | Basis points outside `[0, 10000]`   |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Fee proposal/set with `bps > 10000` |
+| **Immediate cause** | Basis points outside `[0, 10000]` |
 
 **Recovery steps**
 
@@ -288,10 +274,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 14 — `MetadataLabelTooLong`
 
-| Field               | Detail                                                              |
-| ------------------- | ------------------------------------------------------------------- |
-| **When it occurs**  | `set_metadata` / subscribe-with-metadata label longer than 64 bytes |
-| **Immediate cause** | Label byte length > 64                                              |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `set_metadata` / subscribe-with-metadata label longer than 64 bytes |
+| **Immediate cause** | Label byte length > 64 |
 
 **Recovery steps**
 
@@ -304,9 +290,9 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 15 — `AmountExceedsMaximum`
 
-| Field               | Detail                                         |
-| ------------------- | ---------------------------------------------- |
-| **When it occurs**  | Payment/subscription amount above protocol max |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Payment/subscription amount above protocol max |
 | **Immediate cause** | Amount failed `require_valid_amount` max check |
 
 **Recovery steps**
@@ -321,10 +307,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 16 — `SubscriptionNotActive`
 
-| Field               | Detail                                                               |
-| ------------------- | -------------------------------------------------------------------- |
-| **When it occurs**  | Lifecycle ops (e.g. pause flows) that require an active subscription |
-| **Immediate cause** | Subscription state is not active                                     |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Lifecycle ops (e.g. pause flows) that require an active subscription |
+| **Immediate cause** | Subscription state is not active |
 
 **Recovery steps**
 
@@ -338,10 +324,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 17 — `SubscriptionPaused`
 
-| Field               | Detail                                                                  |
-| ------------------- | ----------------------------------------------------------------------- |
-| **When it occurs**  | `charge()` / `pay_per_use()` while the user has paused the subscription |
-| **Immediate cause** | Pause flag / pause-until state blocks billing                           |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `charge()` / `pay_per_use()` while the user has paused the subscription |
+| **Immediate cause** | Pause flag / pause-until state blocks billing |
 
 **Recovery steps**
 
@@ -355,10 +341,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 18 — `ContractPaused`
 
-| Field               | Detail                                                     |
-| ------------------- | ---------------------------------------------------------- |
-| **When it occurs**  | Sensitive operations while the admin circuit breaker is on |
-| **Immediate cause** | Instance `ContractPaused` flag is true                     |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Sensitive operations while the admin circuit breaker is on |
+| **Immediate cause** | Instance `ContractPaused` flag is true |
 
 **Recovery steps**
 
@@ -372,10 +358,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 19 — `IntervalTooShort`
 
-| Field               | Detail                                        |
-| ------------------- | --------------------------------------------- |
-| **When it occurs**  | Interval `< 60` or below admin `min_interval` |
-| **Immediate cause** | Floor check in subscribe/validation           |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Interval `< 60` or below admin `min_interval` |
+| **Immediate cause** | Floor check in subscribe/validation |
 
 **Recovery steps**
 
@@ -388,10 +374,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 20 — `BatchTooLarge`
 
-| Field               | Detail                                                       |
-| ------------------- | ------------------------------------------------------------ |
-| **When it occurs**  | `batch_charge` (or related batch APIs) with too many entries |
-| **Immediate cause** | Batch length exceeds configured/hard max (typically 100)     |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `batch_charge` (or related batch APIs) with too many entries |
+| **Immediate cause** | Batch length exceeds configured/hard max (typically 100) |
 
 **Recovery steps**
 
@@ -405,10 +391,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 21 — `ZeroBalanceAvailable`
 
-| Field               | Detail                                                  |
-| ------------------- | ------------------------------------------------------- |
-| **When it occurs**  | `withdraw_merchant_revenue()` with zero accrued balance |
-| **Immediate cause** | Merchant revenue storage is empty/zero                  |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `withdraw_merchant_revenue()` with zero accrued balance |
+| **Immediate cause** | Merchant revenue storage is empty/zero |
 
 **Recovery steps**
 
@@ -422,10 +408,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 22 — `MerchantFrozen`
 
-| Field               | Detail                                  |
-| ------------------- | --------------------------------------- |
-| **When it occurs**  | Subscribe to a merchant frozen by admin |
-| **Immediate cause** | Merchant freeze flag set                |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Subscribe to a merchant frozen by admin |
+| **Immediate cause** | Merchant freeze flag set |
 
 **Recovery steps**
 
@@ -438,10 +424,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 23 — `NoPendingProposal`
 
-| Field               | Detail                                                                    |
-| ------------------- | ------------------------------------------------------------------------- |
-| **When it occurs**  | Two-step commit (`accept_admin`, fee/grace commit, etc.) with no proposal |
-| **Immediate cause** | Temporary proposal storage missing or expired                             |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Two-step commit (`accept_admin`, fee/grace commit, etc.) with no proposal |
+| **Immediate cause** | Temporary proposal storage missing or expired |
 
 **Recovery steps**
 
@@ -455,10 +441,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 24 — `SubscriptionAlreadyActive`
 
-| Field               | Detail                                                                        |
-| ------------------- | ----------------------------------------------------------------------------- |
-| **When it occurs**  | `transfer_subscription` to an address that already has an active subscription |
-| **Immediate cause** | Target user already holds an active sub                                       |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `transfer_subscription` to an address that already has an active subscription |
+| **Immediate cause** | Target user already holds an active sub |
 
 **Recovery steps**
 
@@ -471,10 +457,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 25 — `DailyLimitExceeded`
 
-| Field               | Detail                                                           |
-| ------------------- | ---------------------------------------------------------------- |
-| **When it occurs**  | `pay_per_use` would push `DailySpent + amount` over `DailyLimit` |
-| **Immediate cause** | User-set daily spending cap                                      |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `pay_per_use` would push `DailySpent + amount` over `DailyLimit` |
+| **Immediate cause** | User-set daily spending cap |
 
 **Recovery steps**
 
@@ -488,10 +474,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 26 — `InvalidFeeCollector`
 
-| Field               | Detail                                                                 |
-| ------------------- | ---------------------------------------------------------------------- |
-| **When it occurs**  | Fee config uses an invalid collector (e.g. the contract’s own address) |
-| **Immediate cause** | Fee module validation rejected collector                               |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Fee config uses an invalid collector (e.g. the contract’s own address) |
+| **Immediate cause** | Fee module validation rejected collector |
 
 **Recovery steps**
 
@@ -504,10 +490,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 27 — `InvalidPauseExpiry`
 
-| Field               | Detail                                                            |
-| ------------------- | ----------------------------------------------------------------- |
-| **When it occurs**  | `pause_until` / pause APIs with expiry not strictly in the future |
-| **Immediate cause** | `expiry_timestamp <= now`                                         |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | `pause_until` / pause APIs with expiry not strictly in the future |
+| **Immediate cause** | `expiry_timestamp <= now` |
 
 **Recovery steps**
 
@@ -520,10 +506,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 28 — `GlobalVolumeExceeded`
 
-| Field               | Detail                                               |
-| ------------------- | ---------------------------------------------------- |
-| **When it occurs**  | A charge would exceed the protocol global volume cap |
-| **Immediate cause** | Global volume accounting hit the configured ceiling  |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | A charge would exceed the protocol global volume cap |
+| **Immediate cause** | Global volume accounting hit the configured ceiling |
 
 **Recovery steps**
 
@@ -537,10 +523,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 29 — `InvalidBatchSize`
 
-| Field               | Detail                                                                |
-| ------------------- | --------------------------------------------------------------------- |
-| **When it occurs**  | Admin/config sets an invalid batch size limit at initialize or update |
-| **Immediate cause** | Configured batch limit fails validation                               |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Admin/config sets an invalid batch size limit at initialize or update |
+| **Immediate cause** | Configured batch limit fails validation |
 
 **Recovery steps**
 
@@ -553,9 +539,9 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 30 — `ContractPausedError`
 
-| Field               | Detail                                                                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| **When it occurs**  | New `subscribe()` (and similar entry paths) while the contract is paused                        |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | New `subscribe()` (and similar entry paths) while the contract is paused |
 | **Immediate cause** | Pause flag blocks new subscriptions (`ContractPausedError` distinct from code 18 on some paths) |
 
 **Recovery steps**
@@ -570,10 +556,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 32 — `InvalidRecipient`
 
-| Field               | Detail                                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **When it occurs**  | Transfer/withdraw paths with an invalid recipient (e.g. contract address where an account is required) |
-| **Immediate cause** | Recipient failed address-type validation                                                               |
+| Field | Detail |
+| --- | --- |
+| **When it occurs** | Transfer/withdraw paths with an invalid recipient (e.g. contract address where an account is required) |
+| **Immediate cause** | Recipient failed address-type validation |
 
 **Recovery steps**
 
@@ -584,84 +570,14 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 33 — `InvalidVolumeCap`
-
-| Field               | Detail                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_global_volume_cap` with `new_cap <= 0`              |
-| **Immediate cause** | Configured hourly volume cap must be strictly positive         |
-
-**Recovery steps**
-
-1. Choose a positive cap in stroops.
-2. Retry `set_global_volume_cap` as admin.
-
-**Prevention:** Validate `new_cap > 0` in admin tooling. See [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap).
-
----
-
-### 34 — `InvalidFeeBounds`
-
-| Field               | Detail                                                                      |
-| ------------------- | --------------------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_fee_bounds` with `min_bps > max_bps` or `max_bps > 10_000`      |
-| **Immediate cause** | Fee bound range is empty or exceeds 100% (10_000 bps)                       |
-
-**Recovery steps**
-
-1. Choose `min_bps <= max_bps` with `max_bps <= 10000`.
-2. Retry `set_fee_bounds` as admin.
-
-**Prevention:** Validate bounds in admin UI before signing. See [`API.md`](./API.md#set_fee_bounds).
-
----
-
-### 35 — `FeeOutOfBoundsAtCommit`
-
-| Field               | Detail                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| **When it occurs**  | `commit_fee` when pending bps is outside current `[MinFeeBps, MaxFeeBps]`              |
-| **Immediate cause** | Bounds were tightened (or never matched) between `propose_fee` and `commit_fee`        |
-
-**Recovery steps**
-
-1. Call `get_fee_bounds` and `get_fee` / inspect pending proposal.
-2. Either `set_fee_bounds` to include the pending bps, or `propose_fee` again with in-range bps, then `commit_fee`.
-
-**Prevention:** Set bounds before proposing; do not tighten bounds under an in-flight proposal unless that is intended.
-
----
-
-### 36 — `ArithmeticOverflow`
-
-| Field               | Detail                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **When it occurs**  | A checked operation would leave range: trial extension, fee multiplication, protocol-fee accrual, or global volume accumulation |
-| **Immediate cause** | Inputs or accumulated state near the type's limit (`u64::MAX`, `i128::MAX`)                                  |
-
-**Recovery steps**
-
-1. Do not retry unchanged — the same inputs overflow deterministically.
-2. Shrink the offending input (e.g. a smaller `additional_seconds` on `extend_trial`, a smaller amount).
-3. If the overflow came from accumulated protocol state rather than the call's
-   inputs, escalate: the counter, not the caller, is at its limit.
-
-**Distinct from `28 GlobalVolumeExceeded`:** #28 means the protocol is at its
-hourly volume cap (a policy decision, retry next window); #36 means the value
-is not representable at all.
-
-**Prevention:** Bound amounts and durations client-side against the documented caps.
-
----
-
 ## Error Categories
 
-| Category       | Codes                                    | Typical owners                |
-| -------------- | ---------------------------------------- | ----------------------------- |
-| Auth / access  | 8, 10, 22                                | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35 | Client / admin tooling        |
-| Limit / timing | 6, 9, 15, 20, 25, 28                     | Keeper + user                 |
+| Category | Codes | Typical owners |
+| --- | --- | --- |
+| Auth / access | 8, 10, 22 | User + admin |
+| State | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30 | Deployer, user, admin, keeper |
+| Validation | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32 | Client / admin tooling |
+| Limit / timing | 6, 9, 15, 20, 25, 28 | Keeper + user |
 
 ---
 
@@ -706,15 +622,15 @@ is not representable at all.
 
 `batch_charge` is designed so **per-user failures should not abort the whole batch** when returned as `ChargeResult`. Full transaction panics (e.g. `BatchTooLarge`, `ContractPaused`) abort the invocation.
 
-| Error / result                                 | Keeper action                               | Alert?              |
-| ---------------------------------------------- | ------------------------------------------- | ------------------- |
-| Interval not elapsed / Skipped                 | Continue; normal                            | No                  |
-| InsufficientAllowance                          | Log user; optional user notify webhook      | Low                 |
-| GracePeriodElapsed                             | Log + count; investigate cycle lag if spike | Yes if spike        |
-| SubscriptionPaused / Inactive / None           | Skip; prune index cache                     | No                  |
-| BatchTooLarge (20)                             | Lower page size; split batch                | Yes                 |
-| ContractPaused (18) / ContractPausedError (30) | **Stop** the loop; page on-call             | Critical            |
-| RPC / timeout                                  | Retry with backoff; failover RPC            | Yes after N retries |
+| Error / result | Keeper action | Alert? |
+| --- | --- | --- |
+| Interval not elapsed / Skipped | Continue; normal | No |
+| InsufficientAllowance | Log user; optional user notify webhook | Low |
+| GracePeriodElapsed | Log + count; investigate cycle lag if spike | Yes if spike |
+| SubscriptionPaused / Inactive / None | Skip; prune index cache | No |
+| BatchTooLarge (20) | Lower page size; split batch | Yes |
+| ContractPaused (18) / ContractPausedError (30) | **Stop** the loop; page on-call | Critical |
+| RPC / timeout | Retry with backoff; failover RPC | Yes after N retries |
 
 **Recovery checklist for keepers**
 
@@ -728,35 +644,35 @@ is not representable at all.
 
 ### Show to the user (user-facing copy)
 
-| Codes        | Guidance                                                      |
-| ------------ | ------------------------------------------------------------- |
-| 8            | “Increase your token allowance and try again.”                |
-| 9            | “This subscription lapsed. Please subscribe again.”           |
-| 11           | “You cannot refer yourself.”                                  |
-| 14           | “Label must be 64 bytes or fewer.”                            |
-| 17           | “Resume your subscription to continue.”                       |
-| 22           | “This merchant is temporarily unavailable.”                   |
-| 24           | “Destination already has an active subscription.”             |
-| 25           | “Daily spending limit reached. Try a smaller amount or wait.” |
-| 27           | “Pick a pause end time in the future.”                        |
-| 2, 3, 15, 19 | Inline field validation messages                              |
+| Codes | Guidance |
+| --- | --- |
+| 8 | “Increase your token allowance and try again.” |
+| 9 | “This subscription lapsed. Please subscribe again.” |
+| 11 | “You cannot refer yourself.” |
+| 14 | “Label must be 64 bytes or fewer.” |
+| 17 | “Resume your subscription to continue.” |
+| 22 | “This merchant is temporarily unavailable.” |
+| 24 | “Destination already has an active subscription.” |
+| 25 | “Daily spending limit reached. Try a smaller amount or wait.” |
+| 27 | “Pick a pause end time in the future.” |
+| 2, 3, 15, 19 | Inline field validation messages |
 
 ### Handle silently or as soft status (no scary toast)
 
-| Codes                           | Guidance                                              |
-| ------------------------------- | ----------------------------------------------------- |
-| 6                               | Expected when polling early — show “Next charge at …” |
-| 4, 5                            | Reflect empty/cancelled state in UI                   |
-| Keeper-only Skipped equivalents | Do not surface as errors                              |
+| Codes | Guidance |
+| --- | --- |
+| 6 | Expected when polling early — show “Next charge at …” |
+| 4, 5 | Reflect empty/cancelled state in UI |
+| Keeper-only Skipped equivalents | Do not surface as errors |
 
 ### Escalate / maintenance banner (not “you did something wrong”)
 
-| Codes     | Guidance                                                  |
-| --------- | --------------------------------------------------------- |
-| 7, 18, 30 | “Service temporarily unavailable.”                        |
-| 10        | “Merchant pending approval.”                              |
-| 28        | “Protocol capacity reached; try later.”                   |
-| 20, 29    | Operator/config bugs — log to telemetry, don’t blame user |
+| Codes | Guidance |
+| --- | --- |
+| 7, 18, 30 | “Service temporarily unavailable.” |
+| 10 | “Merchant pending approval.” |
+| 28 | “Protocol capacity reached; try later.” |
+| 20, 29 | Operator/config bugs — log to telemetry, don’t blame user |
 
 Always map numeric Soroban contract errors to this document before inventing new copy.
 
@@ -765,7 +681,6 @@ Always map numeric Soroban contract errors to this document before inventing new
 ## Related
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)
 - Security model: [`docs/SECURITY.md`](SECURITY.md)

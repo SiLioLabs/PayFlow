@@ -115,13 +115,13 @@ Rationale:
 
 ### Critical Metrics
 
-| Metric                     | Threshold    | Action                                |
-| -------------------------- | ------------ | ------------------------------------- |
-| **Keeper Account Balance** | < 10 XLM     | CRITICAL - Refund keeper              |
-| **Batch Charge Latency**   | > 30 seconds | WARNING - Check network               |
-| **Failed Charges**         | > 5% of page | WARNING - Review error logs           |
-| **Page Processing Time**   | > 60 seconds | WARNING - Possible network congestion |
-| **Keeper Availability**    | 100% uptime  | CRITICAL - Ensure HA setup            |
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| **Keeper Account Balance** | < 10 XLM | CRITICAL - Refund keeper |
+| **Batch Charge Latency** | > 30 seconds | WARNING - Check network |
+| **Failed Charges** | > 5% of page | WARNING - Review error logs |
+| **Page Processing Time** | > 60 seconds | WARNING - Possible network congestion |
+| **Keeper Availability** | 100% uptime | CRITICAL - Ensure HA setup |
 
 ### Health Check Implementation
 
@@ -157,17 +157,17 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: "keeper_metrics"
+  - job_name: 'keeper_metrics'
     static_configs:
-      - targets: ["localhost:8000"]
+      - targets: ['localhost:8000']
 
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ["alertmanager:9093"]
+        - targets: ['alertmanager:9093']
 
 rule_files:
-  - "keeper_alerts.yml"
+  - 'keeper_alerts.yml'
 ```
 
 ```yaml
@@ -203,7 +203,6 @@ groups:
 **Root Cause:** Keeper account has insufficient XLM for transaction fees
 
 **Resolution:**
-
 ```bash
 # Check current balance
 stellar account info keeper_account
@@ -224,7 +223,6 @@ stellar account info keeper_account
 **Root Cause:** Contract signature changed during deployment; keeper still using old ABI
 
 **Resolution:**
-
 ```bash
 # Update keeper bot with new contract ABI
 # Redeploy contract with new signature
@@ -241,7 +239,6 @@ stellar contract read --id CONTRACT_ID
 **Root Cause:** Page offset exceeds total subscription count; no early termination
 
 **Resolution:**
-
 ```python
 # Keeper should check for empty pages and exit loop
 if charged_count == 0 and page_offset > 0:
@@ -262,7 +259,6 @@ max_pages = (total_subs + page_size - 1) // page_size
 **Root Cause:** High load on RPC node or Stellar network congestion
 
 **Monitoring & Response:**
-
 ```python
 # Track latency percentiles
 latency_p95 = get_latency_percentile(95)
@@ -285,7 +281,6 @@ if latency_p95 > 30000:  # 30 seconds
 ```
 
 **Risks:**
-
 - Single point of failure
 - Missed billing cycles if keeper offline
 - No redundancy
@@ -612,11 +607,11 @@ Use this when billing is impaired, funds may be at risk, or the contract must be
 
 ### Severity & who to alert
 
-| Severity | Examples                                                                 | Alert                                                     |
-| -------- | ------------------------------------------------------------------------ | --------------------------------------------------------- |
-| SEV-1    | Unexpected drains, admin key suspected compromise, uncontrolled charges  | Page on-call **and** protocol admin; security@payflow.dev |
-| SEV-2    | Contract paused unexpectedly, keeper down > 1 interval, RPC total outage | Page on-call; notify merchants if charges delay           |
-| SEV-3    | DLQ buildup, elevated skip rates, single-region RPC degrade              | Ticket + Slack; fix in business hours                     |
+| Severity | Examples | Alert |
+| --- | --- | --- |
+| SEV-1 | Unexpected drains, admin key suspected compromise, uncontrolled charges | Page on-call **and** protocol admin; security@payflow.dev |
+| SEV-2 | Contract paused unexpectedly, keeper down > 1 interval, RPC total outage | Page on-call; notify merchants if charges delay |
+| SEV-3 | DLQ buildup, elevated skip rates, single-region RPC degrade | Ticket + Slack; fix in business hours |
 
 ### What to check (first 15 minutes)
 
@@ -691,12 +686,3 @@ soroban contract invoke --id "$KEEPER_CONTRACT_ID" --network "$NETWORK" -- healt
 redis-cli LLEN keeper:dlq
 # Expected: trending to 0 after replay
 ```
-
----
-
-## Related Documentation
-
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](troubleshooting.md)
-- Error codes reference: [`docs/ERROR-CODES.md`](../ERROR-CODES.md)
-- Testing guide: [`docs/TESTING.md`](../TESTING.md)
-- Keeper guide: [`docs/KEEPER.md`](../KEEPER.md)

@@ -11,7 +11,6 @@ This guide is designed for third-party applications (such as SaaS billing dashbo
 Before writing any integration code, ensure your environment is set up.
 
 ### Dependencies
-
 You will need the official Stellar JavaScript/TypeScript SDK:
 
 ```bash
@@ -19,9 +18,7 @@ npm install @stellar/stellar-sdk
 ```
 
 ### Authentication
-
 Depending on your integration, you will authenticate transactions via:
-
 1. **Client-side (Wallets):** Freighter, Albedo, or xBull.
 2. **Server-side (Keepers/Backend):** Raw Stellar keypairs (using `Keypair.fromSecret()`).
 
@@ -32,13 +29,11 @@ Depending on your integration, you will authenticate transactions via:
 While developing, you should point your application to the Stellar Testnet.
 
 **Testnet Configuration:**
-
 - **RPC URL:** `https://soroban-testnet.stellar.org`
 - **Network Passphrase:** `Test SDF Network ; September 2015`
 
 **Funding Test Accounts:**
 You can instantly fund testing accounts using Friendbot:
-
 ```javascript
 const response = await fetch(`https://friendbot.stellar.org?addr=${publicKey}`);
 ```
@@ -50,13 +45,13 @@ const response = await fetch(`https://friendbot.stellar.org?addr=${publicKey}`);
 To interact with the PayFlow smart contract, instantiate it using the Stellar SDK.
 
 ```javascript
-import { rpc, Contract, xdr, Keypair, Networks } from "@stellar/stellar-sdk";
+import { rpc, Contract, xdr, Keypair, Networks } from '@stellar/stellar-sdk';
 
 // Initialize the RPC server
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const server = new rpc.Server('https://soroban-testnet.stellar.org');
 
 // The deployed PayFlow contract ID
-const CONTRACT_ID = "C...";
+const CONTRACT_ID = 'C...';
 const payFlowContract = new Contract(CONTRACT_ID);
 ```
 
@@ -65,42 +60,28 @@ const payFlowContract = new Contract(CONTRACT_ID);
 ## 4. Subscribing a User Programmatically
 
 Subscribing requires two steps:
-
 1. **Token Allowance:** The user must approve the PayFlow contract to pull funds.
 2. **Subscribe:** The user calls the `subscribe` function on PayFlow.
 
 ```javascript
-async function subscribeUser(
-  userKeypair,
-  merchantAddress,
-  amountStroops,
-  intervalSeconds,
-  tokenAddress,
-) {
+async function subscribeUser(userKeypair, merchantAddress, amountStroops, intervalSeconds, tokenAddress) {
   const source = await server.getAccount(userKeypair.publicKey());
 
   // 1. Build the Subscribe transaction
-  const tx = new TransactionBuilder(source, {
-    fee: "1000",
-    networkPassphrase: Networks.TESTNET,
-  })
+  const tx = new TransactionBuilder(source, { fee: '1000', networkPassphrase: Networks.TESTNET })
     .addOperation(
-      payFlowContract.call(
-        "subscribe",
-        xdr.ScVal.scvAddress(userKeypair.publicKey()), // user
-        xdr.ScVal.scvAddress(merchantAddress), // merchant
-        xdr.ScVal.scvI128(
-          new xdr.Int128Parts({
-            // amount
+      payFlowContract.call('subscribe',
+        xdr.ScVal.scvAddress(userKeypair.publicKey()),   // user
+        xdr.ScVal.scvAddress(merchantAddress),           // merchant
+        xdr.ScVal.scvI128(new xdr.Int128Parts({          // amount
             hi: xdr.Int64.fromString("0"),
-            lo: xdr.Uint64.fromString(amountStroops.toString()),
-          }),
-        ),
+            lo: xdr.Uint64.fromString(amountStroops.toString())
+        })),
         xdr.ScVal.scvU64(xdr.Uint64.fromString(intervalSeconds.toString())), // interval
-        xdr.ScVal.scvAddress(tokenAddress), // token
-        xdr.ScVal.scvVoid(), // trial_period (Option<u64> -> None)
-        xdr.ScVal.scvVoid(), // referrer (Option<Address> -> None)
-      ),
+        xdr.ScVal.scvAddress(tokenAddress),              // token
+        xdr.ScVal.scvVoid(),                             // trial_period (Option<u64> -> None)
+        xdr.ScVal.scvVoid()                              // referrer (Option<Address> -> None)
+      )
     )
     .setTimeout(30)
     .build();
@@ -128,14 +109,11 @@ async function processBatchCharges(keeperKeypair, userAddresses) {
   const source = await server.getAccount(keeperKeypair.publicKey());
 
   // Build SCVal array of addresses
-  const scvUsers = userAddresses.map((addr) => xdr.ScVal.scvAddress(addr));
+  const scvUsers = userAddresses.map(addr => xdr.ScVal.scvAddress(addr));
   const scvVecUsers = xdr.ScVal.scvVec(scvUsers);
 
-  const tx = new TransactionBuilder(source, {
-    fee: "1000",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(payFlowContract.call("batch_charge", scvVecUsers))
+  const tx = new TransactionBuilder(source, { fee: '1000', networkPassphrase: Networks.TESTNET })
+    .addOperation(payFlowContract.call('batch_charge', scvVecUsers))
     .setTimeout(30)
     .build();
 
@@ -145,98 +123,6 @@ async function processBatchCharges(keeperKeypair, userAddresses) {
   return await server.sendTransaction(preparedTx);
 }
 ```
-
----
-
-## 5b. Pay-Per-Use with Custom Recipient (`pay_per_use_to`)
-
-`pay_per_use_to(user, amount, recipient)` works like `pay_per_use` but routes the net payment to `recipient` instead of the subscription's merchant. This enables scenarios like marketplace settlement, affiliate payouts, or splitting metered revenue.
-
-### When to use `pay_per_use_to`
-
-- The subscriber's subscription is with Merchant A, but the metered charge should go to Merchant B (or a shared treasury).
-- A merchant wants fee-recipient-customized routing per microtransaction.
-
-### Auth and validation
-
-Like `pay_per_use`, this call requires authorization from `user`. The contract additionally validates:
-
-1. `recipient` must not be the contract address — panics with `ContractError::InvalidRecipient` (code 32).
-2. If the merchant whitelist is enabled, `recipient` must be whitelisted — panics with `ContractError::MerchantNotWhitelisted` (code 10).
-3. The user's daily spending limit (shared with `pay_per_use`) is enforced.
-
-> **Note:** `pay_per_use` (without `_to`) does **not** re-validate the whitelist at call time — it trusts the merchant was validated at `subscribe` time. Only the `pay_per_use_to` path re-checks whitelist membership for the custom recipient.
-
-### Fee routing
-
-Fees are calculated against the `recipient`, not the original merchant:
-
-1. The contract checks for a **per-recipient custom fee recipient** via `get_merchant_fee_recipient(recipient)`.
-2. If none is set, it falls back to the **global fee collector** (`get_fee_collector()`).
-3. If no fee collector is set or fee BPS is 0, no fee is deducted.
-
-```text
-Subscriber token balance
-        │
-        ├─ fee ──► Fee collector (or recipient's custom fee recipient)
-        │
-        └─ net ──► recipient
-                     │
-                     └─ MerchantRevenue(recipient) += net
-```
-
-### Example (TypeScript)
-
-```typescript
-async function payPerUseToRecipient(
-  userKeypair,
-  recipientAddress,
-  amountStroops,
-  tokenAddress,
-) {
-  const source = await server.getAccount(userKeypair.publicKey());
-
-  const tx = new TransactionBuilder(source, {
-    fee: "1000",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      payFlowContract.call(
-        "pay_per_use_to",
-        xdr.ScVal.scvAddress(userKeypair.publicKey()), // user
-        xdr.ScVal.scvI128(
-          new xdr.Int128Parts({
-            hi: xdr.Int64.fromString("0"),
-            lo: xdr.Uint64.fromString(amountStroops.toString()),
-          }),
-        ), // amount
-        xdr.ScVal.scvAddress(recipientAddress), // recipient
-      ),
-    )
-    .setTimeout(30)
-    .build();
-
-  const preparedTx = await server.prepareTransaction(tx);
-  preparedTx.sign(userKeypair);
-  return await server.sendTransaction(preparedTx);
-}
-```
-
-### Events
-
-The `pay_per_use` event is emitted with `recipient` in place of the subscription merchant. See [EVENTS.md — `pay_per_use`](EVENTS.md#pay_per_use).
-
-### Error reference
-
-| Error | Code | When |
-| --- | --- | --- |
-| `InvalidRecipient` | 32 | `recipient` is the contract address |
-| `MerchantNotWhitelisted` | 10 | Whitelist enabled and `recipient` not whitelisted |
-| `SubscriptionPaused` | 17 | User's subscription is paused |
-| `SubscriptionInactive` | 5 | User's subscription is cancelled |
-| `DailyLimitExceeded` | 25 | Pay-per-use would exceed daily spending cap |
-
-For full error details, see [ERROR-CODES.md](ERROR-CODES.md).
 
 ---
 
@@ -252,12 +138,14 @@ async function listenForCharges() {
       {
         type: "contract",
         contractIds: [CONTRACT_ID],
-        topics: [[xdr.ScVal.scvSymbol("charged").toXDR("base64")]],
-      },
-    ],
+        topics: [
+          [xdr.ScVal.scvSymbol("charged").toXDR("base64")]
+        ]
+      }
+    ]
   });
 
-  response.events.forEach((event) => {
+  response.events.forEach(event => {
     console.log(`Charge processed at ledger: ${event.ledger}`);
     // Decode event.value here to get amount, merchant, and timestamp
   });
@@ -285,25 +173,19 @@ Common errors you should catch:
 - `"interval not elapsed yet"`: Your keeper tried to charge the user too early.
 - `"grace period elapsed"`: The keeper failed to charge within the allowed grace period window.
 - `"daily spending limit exceeded"`: A `pay_per_use` call exceeded the user's daily configured limit.
-- `"invalid recipient"`: `pay_per_use_to` was called with the contract address as `recipient`, or `set_merchant_fee_recipient` was called with the contract address as `recipient`. Use a valid account address instead.
-- `"merchant not whitelisted"`: `pay_per_use_to` was called with a `recipient` that is not on the merchant whitelist, and the whitelist is enabled. Ask the admin to `add_merchant` for the recipient first. Note: `pay_per_use` (without `_to`) does **not** re-check the whitelist — only `pay_per_use_to` validates it.
 - **Token Allowance Failed:** If the token contract throws an error during a charge, the user likely revoked their allowance or has an insufficient balance.
 
 **Handling Errors:**
-
 ```javascript
 try {
-  const preparedTx = await server.prepareTransaction(tx);
-  // ...
+    const preparedTx = await server.prepareTransaction(tx);
+    // ...
 } catch (error) {
-  if (error.response?.data?.extras?.result_codes?.operations) {
-    console.error(
-      "Contract Execution Failed:",
-      error.response.data.extras.result_codes.operations,
-    );
-  } else {
-    console.error("RPC Error:", error);
-  }
+    if (error.response?.data?.extras?.result_codes?.operations) {
+        console.error("Contract Execution Failed:", error.response.data.extras.result_codes.operations);
+    } else {
+        console.error("RPC Error:", error);
+    }
 }
 ```
 
@@ -319,23 +201,19 @@ The full mechanics — ring buffer diagram, worked examples, and an offset/limit
 async function getChargeHistoryPage(userAddress, offset, limit) {
   const source = await server.getAccount(userAddress);
 
-  const tx = new TransactionBuilder(source, {
-    fee: "1000",
-    networkPassphrase: Networks.TESTNET,
-  })
+  const tx = new TransactionBuilder(source, { fee: '1000', networkPassphrase: Networks.TESTNET })
     .addOperation(
-      payFlowContract.call(
-        "get_charge_history_page",
+      payFlowContract.call('get_charge_history_page',
         xdr.ScVal.scvAddress(userAddress),
         xdr.ScVal.scvU32(offset),
-        xdr.ScVal.scvU32(limit),
-      ),
+        xdr.ScVal.scvU32(limit)
+      )
     )
     .setTimeout(30)
     .build();
 
   const sim = await server.simulateTransaction(tx);
-  if ("error" in sim) throw new Error(sim.error);
+  if ('error' in sim) throw new Error(sim.error);
 
   // sim.result.retval decodes to a Vec<u64> of charge timestamps (oldest → newest).
   return sim.result.retval;

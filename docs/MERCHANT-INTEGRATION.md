@@ -22,13 +22,13 @@ If you are building a SaaS billing dashboard, a marketplace settlement backend, 
 
 ### 1.1 Prerequisites
 
-| Requirement                  | Notes                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Stellar account (G…)         | Your merchant wallet. Fund it on Testnet via [Friendbot](https://friendbot.stellar.org).                                 |
+| Requirement | Notes |
+| --- | --- |
+| Stellar account (G…) | Your merchant wallet. Fund it on Testnet via [Friendbot](https://friendbot.stellar.org). |
 | Deployed PayFlow contract ID | Set as `VITE_CONTRACT_ID` in the frontend, or pass `--id` to the Soroban CLI. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md). |
-| Token (SAC) address          | The Stellar Asset Contract subscribers will pay with (e.g. Testnet XLM SAC).                                             |
-| Node.js 18+ / TypeScript     | For the examples below. Install `@stellar/stellar-sdk`.                                                                  |
-| Soroban / Stellar CLI        | For CLI walkthroughs (`soroban` / `stellar`).                                                                            |
+| Token (SAC) address | The Stellar Asset Contract subscribers will pay with (e.g. Testnet XLM SAC). |
+| Node.js 18+ / TypeScript | For the examples below. Install `@stellar/stellar-sdk`. |
+| Soroban / Stellar CLI | For CLI walkthroughs (`soroban` / `stellar`). |
 
 Install the SDK:
 
@@ -45,10 +45,10 @@ Testnet defaults used throughout this guide:
 
 PayFlow can optionally restrict which addresses may receive subscriptions via a **merchant whitelist**:
 
-| State                                                      | Behavior                                                                                                              |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Whitelist **disabled** (`is_whitelist_enabled() == false`) | Any address can be passed as `merchant` in `subscribe()`. No admin action required.                                   |
-| Whitelist **enabled**                                      | `subscribe()` panics with `ContractError::MerchantNotWhitelisted` unless the merchant was added via `add_merchant()`. |
+| State | Behavior |
+| --- | --- |
+| Whitelist **disabled** (`is_whitelist_enabled() == false`) | Any address can be passed as `merchant` in `subscribe()`. No admin action required. |
+| Whitelist **enabled** | `subscribe()` panics with `ContractError::MerchantNotWhitelisted` unless the merchant was added via `add_merchant()`. |
 
 Additionally, admins can **freeze** a merchant (`freeze_merchant`). A frozen merchant cannot accept new subscriptions; check status with `is_merchant_frozen`.
 
@@ -120,7 +120,7 @@ function addressVal(addr: string): xdr.ScVal {
 async function buildTx(
   sourcePublicKey: string,
   method: string,
-  args: xdr.ScVal[],
+  args: xdr.ScVal[]
 ): Promise<string> {
   const account = await server.getAccount(sourcePublicKey);
   const contract = new Contract(CONTRACT_ID);
@@ -146,7 +146,7 @@ async function buildTx(
 async function simulateRead(
   sourcePublicKey: string,
   method: string,
-  args: xdr.ScVal[],
+  args: xdr.ScVal[]
 ): Promise<xdr.ScVal | null> {
   const account = await server.getAccount(sourcePublicKey);
   const contract = new Contract(CONTRACT_ID);
@@ -181,13 +181,6 @@ When a keeper (or any account) successfully calls `charge(user)` / `batch_charge
 
 `pay_per_use(user, amount)` follows the same fee/net split and also increments merchant revenue, then emits `pay_per_use`.
 
-`pay_per_use_to(user, amount, recipient)` works the same way but routes the net payment to `recipient` instead of the subscription's merchant. This enables marketplace settlement, affiliate payouts, or splitting metered revenue. When using `pay_per_use_to`:
-
-1. **Whitelist re-validation:** If the merchant whitelist is enabled, `recipient` must be whitelisted — panics with `MerchantNotWhitelisted` (code 10) if not. This is a stricter check than `pay_per_use`, which trusts the merchant was validated at `subscribe` time.
-2. **Self-send prevention:** `recipient` cannot be the contract address — panics with `InvalidRecipient` (code 32).
-3. **Fee routing:** Fees are calculated against the `recipient` (not the subscription's merchant). The contract checks for a per-recipient custom fee recipient first, then falls back to the global fee collector (same resolution chain as subscription charges).
-4. **Revenue attribution:** `MerchantRevenue(recipient)` is incremented by the net amount, not the subscription merchant's counter.
-
 ```text
 Subscriber token balance
         │
@@ -204,10 +197,10 @@ Amounts are always in **stroops** (1 XLM = 10,000,000 stroops). See [API.md — 
 
 There are two related notions:
 
-| Concept                                      | Meaning                                                                                                                                                                                      |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wallet balance**                           | After a successful `charge` / `pay_per_use`, the **net** tokens are already in your Stellar account (or fee-recipient address). You can spend them immediately like any other token balance. |
-| **Tracked revenue (`get_merchant_revenue`)** | A persistent on-chain counter of cumulative net revenue. Useful for dashboards and for `withdraw_merchant_revenue`.                                                                          |
+| Concept | Meaning |
+| --- | --- |
+| **Wallet balance** | After a successful `charge` / `pay_per_use`, the **net** tokens are already in your Stellar account (or fee-recipient address). You can spend them immediately like any other token balance. |
+| **Tracked revenue (`get_merchant_revenue`)** | A persistent on-chain counter of cumulative net revenue. Useful for dashboards and for `withdraw_merchant_revenue`. |
 
 `withdraw_merchant_revenue` transfers the **tracked** amount from the **contract’s** token balance to the merchant, then resets the counter to zero. It is available when:
 
@@ -218,52 +211,7 @@ There are two related notions:
 
 ### 2.3 Optional fee recipient
 
-Merchants can redirect net proceeds to a different address via `set_merchant_fee_recipient`. This affects both subscription charges and `pay_per_use` / `pay_per_use_to` calls routed through the merchant.
-
-**Setting a custom fee recipient (CLI):**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <MERCHANT_KEY> \
-  --network testnet \
-  -- set_merchant_fee_recipient \
-  --merchant <MERCHANT_ADDRESS> \
-  --recipient <FEE_RECIPIENT_ADDRESS>
-```
-
-**Setting a custom fee recipient (TypeScript):**
-
-```typescript
-async function setMerchantFeeRecipient(merchantKeypair, recipientAddress) {
-  const source = await server.getAccount(merchantKeypair.publicKey());
-  const tx = new TransactionBuilder(source, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      new Contract(CONTRACT_ID).call(
-        "set_merchant_fee_recipient",
-        addressVal(merchantKeypair.publicKey()),
-        addressVal(recipientAddress),
-      ),
-    )
-    .setTimeout(30)
-    .build();
-  const preparedTx = await server.prepareTransaction(tx);
-  preparedTx.sign(merchantKeypair);
-  return await server.sendTransaction(preparedTx);
-}
-```
-
-**Important notes:**
-
-- The `recipient` cannot be the contract address — this panics with `InvalidRecipient` (code 32).
-- The call requires merchant authentication (`merchant.require_auth()`).
-- Revenue counters still key off the **merchant** identity used in `subscribe`, not the fee recipient wallet. The fee recipient only changes where protocol fees are routed.
-- For `pay_per_use_to`, fee routing resolves against the **recipient** (the custom pay-per-use target), not the subscription merchant. This means a `pay_per_use_to` call to a different merchant will use that merchant's fee recipient configuration.
-
-Revenue counters still key off the **merchant** identity used in `subscribe`, not the recipient wallet. See [`docs/MULTI-TOKEN.md`](MULTI-TOKEN.md) for the full fee resolution chain.
+Merchants can redirect net proceeds to a different address via `MerchantFeeRecipient` (admin/ops configuration). Details are in [`docs/MULTI-TOKEN.md`](MULTI-TOKEN.md). Revenue counters still key off the **merchant** identity used in `subscribe`, not the recipient wallet.
 
 ---
 
@@ -271,13 +219,13 @@ Revenue counters still key off the **merchant** identity used in `subscribe`, no
 
 ### 3.1 On-chain counters
 
-| Function                                                                              | Returns     | Use                                                                                        |
-| ------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------ |
-| [`get_merchant_sub_count(merchant)`](API.md#get_merchant_sub_count)                   | `u32`       | Active subscriber count for your merchant address.                                         |
-| [`get_merchant_subscriber_count(merchant)`](API.md#get_merchant_subscriber_count)     | `u64`       | Same underlying `MerchantSubCount` storage (wider type). Prefer either; both stay in sync. |
-| [`get_merchant_revenue(merchant)`](API.md#get_merchant_revenue)                       | `i128`      | Cumulative tracked net revenue in stroops.                                                 |
-| [`get_merchant_revenue_history(merchant, days)`](API.md#get_merchant_revenue_history) | `Vec<i128>` | Recent per-charge / daily history entries (oldest → newest).                               |
-| [`get_merchant_revenue_day(merchant, day)`](API.md#get_merchant_revenue_day)          | `i128`      | Single day bucket (`day = ledger_timestamp / 86400`).                                      |
+| Function | Returns | Use |
+| --- | --- | --- |
+| [`get_merchant_sub_count(merchant)`](API.md#get_merchant_sub_count) | `u32` | Active subscriber count for your merchant address. |
+| [`get_merchant_subscriber_count(merchant)`](API.md#get_merchant_subscriber_count) | `u64` | Same underlying `MerchantSubCount` storage (wider type). Prefer either; both stay in sync. |
+| [`get_merchant_revenue(merchant)`](API.md#get_merchant_revenue) | `i128` | Cumulative tracked net revenue in stroops. |
+| [`get_merchant_revenue_history(merchant, days)`](API.md#get_merchant_revenue_history) | `Vec<i128>` | Recent per-charge / daily history entries (oldest → newest). |
+| [`get_merchant_revenue_day(merchant, day)`](API.md#get_merchant_revenue_day) | `i128` | Single day bucket (`day = ledger_timestamp / 86400`). |
 
 CLI:
 
@@ -349,7 +297,7 @@ for (const row of mine) {
   console.log(
     row.subscriber,
     `amount=${row.amount}`,
-    `next=${new Date(row.nextChargeAt * 1000).toISOString()}`,
+    `next=${new Date(row.nextChargeAt * 1000).toISOString()}`
   );
 }
 ```
@@ -358,13 +306,13 @@ For production-grade cursor pagination, gap detection, and deduplication, follow
 
 ### 3.3 Health checks merchants should run
 
-| Check                | Call                                      | Healthy signal                |
-| -------------------- | ----------------------------------------- | ----------------------------- |
-| Still whitelisted    | `is_merchant_whitelisted`                 | `true` when whitelist is on   |
-| Not frozen           | `is_merchant_frozen`                      | `false`                       |
-| Contract not paused  | `is_contract_paused`                      | `false`                       |
-| Subscribers accruing | `get_merchant_sub_count`                  | Matches your off-chain index  |
-| Revenue moving       | `get_merchant_revenue` / `charged` events | Increases after keeper cycles |
+| Check | Call | Healthy signal |
+| --- | --- | --- |
+| Still whitelisted | `is_merchant_whitelisted` | `true` when whitelist is on |
+| Not frozen | `is_merchant_frozen` | `false` |
+| Contract not paused | `is_contract_paused` | `false` |
+| Subscribers accruing | `get_merchant_sub_count` | Matches your off-chain index |
+| Revenue moving | `get_merchant_revenue` / `charged` events | Increases after keeper cycles |
 
 ---
 
@@ -372,12 +320,12 @@ For production-grade cursor pagination, gap detection, and deduplication, follow
 
 Merchants should subscribe (via RPC polling) to four core events. Full schemas live in [`docs/EVENTS.md`](EVENTS.md).
 
-| Event         | Topics                  | What it means for you                                                                              | Suggested action                                                                                            |
-| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `subscribed`  | `["subscribed", user]`  | A user just started (or switched to) billing **you**. Payload includes merchant, amount, interval. | Upsert subscriber in your DB; schedule entitlement provisioning; verify `merchant` is your address.         |
-| `charged`     | `["charged", user]`     | A recurring charge succeeded. Payload: `{ merchant, gross, fee, net, charged_at }`.                | Credit the user for the billing period; append to revenue ledger; reconcile against `get_merchant_revenue`. |
-| `cancelled`   | `["cancelled", user]`   | Subscription deactivated.                                                                          | Revoke access; decrement local active count; stop expecting further charges.                                |
-| `pay_per_use` | `["pay_per_use", user]` | One-time / metered payment. Payload: `(merchant, amount)`.                                         | Deliver the metered unit of work; update usage counters.                                                    |
+| Event | Topics | What it means for you | Suggested action |
+| --- | --- | --- | --- |
+| `subscribed` | `["subscribed", user]` | A user just started (or switched to) billing **you**. Payload includes merchant, amount, interval. | Upsert subscriber in your DB; schedule entitlement provisioning; verify `merchant` is your address. |
+| `charged` | `["charged", user]` | A recurring charge succeeded. Payload: `{ merchant, gross, fee, net, charged_at }`. | Credit the user for the billing period; append to revenue ledger; reconcile against `get_merchant_revenue`. |
+| `cancelled` | `["cancelled", user]` | Subscription deactivated. | Revoke access; decrement local active count; stop expecting further charges. |
+| `pay_per_use` | `["pay_per_use", user]` | One-time / metered payment. Payload: `(merchant, amount)`. | Deliver the metered unit of work; update usage counters. |
 
 Also watch (ops / risk):
 
@@ -390,12 +338,7 @@ Also watch (ops / risk):
 ```typescript
 /** Poll recent events and handle the merchant-relevant set. */
 export async function pollMerchantEvents(merchant: string, cursor?: string) {
-  const interesting = [
-    "subscribed",
-    "charged",
-    "cancelled",
-    "pay_per_use",
-  ] as const;
+  const interesting = ["subscribed", "charged", "cancelled", "pay_per_use"] as const;
 
   for (const name of interesting) {
     // fetchEvents filters by topic[0] === eventName (see stellar.ts)
@@ -419,12 +362,7 @@ export async function pollMerchantEvents(merchant: string, cursor?: string) {
           console.log("new sub", ev.address, data);
           break;
         case "charged":
-          console.log(
-            "charged",
-            ev.address,
-            "net=",
-            data?._value?.net ?? data?.net,
-          );
+          console.log("charged", ev.address, "net=", data?._value?.net ?? data?.net);
           break;
         case "cancelled":
           console.log("cancelled", ev.address);
@@ -494,7 +432,7 @@ A successful withdrawal emits `merchant_withdrawal` with the amount transferred.
 ```typescript
 /** Build a signable withdraw_merchant_revenue transaction (merchant must sign). */
 export async function buildWithdrawMerchantRevenueTx(
-  merchant: string,
+  merchant: string
 ): Promise<string> {
   return buildTx(merchant, "withdraw_merchant_revenue", [addressVal(merchant)]);
 }
@@ -559,37 +497,28 @@ Work through this checklist:
 
 The deployment has `set_whitelist_enabled(true)` and your address is not in `MerchantWhitelist`. Ask the admin to `add_merchant`, then retry. See [§ 1.3](#13-requesting-whitelist-access).
 
-### Why did `pay_per_use_to` fail with MerchantNotWhitelisted?
-
-The whitelist is enabled and the `recipient` address you specified is not whitelisted. Unlike `pay_per_use` (which trusts the merchant was validated at subscribe time), `pay_per_use_to` re-validates whitelist membership for the custom recipient. Ask the admin to `add_merchant` for the recipient address first. See [§ 1.3](#13-requesting-whitelist-access).
-
-### Why did `pay_per_use_to` or `set_merchant_fee_recipient` fail with InvalidRecipient?
-
-The `recipient` address is the contract address itself. Both `pay_per_use_to` and `set_merchant_fee_recipient` reject the contract address as a valid recipient. Use a regular Stellar account address (G...) instead.
-
 ### Why did `withdraw_merchant_revenue` panic?
 
-| Symptom                      | Cause                          | Fix                                                                   |
-| ---------------------------- | ------------------------------ | --------------------------------------------------------------------- |
-| `ZeroBalanceAvailable` (#21) | Tracked revenue ≤ 0            | Wait for charges, or you already withdrew                             |
-| Auth failure                 | Wrong signer                   | Sign as the merchant address                                          |
-| Contract paused              | Admin pause                    | Wait for unpause                                                      |
-| Transfer failure             | Contract token balance too low | Ensure the contract holds the tracked amount of the initialized token |
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `ZeroBalanceAvailable` (#21) | Tracked revenue ≤ 0 | Wait for charges, or you already withdrew |
+| Auth failure | Wrong signer | Sign as the merchant address |
+| Contract paused | Admin pause | Wait for unpause |
+| Transfer failure | Contract token balance too low | Ensure the contract holds the tracked amount of the initialized token |
 
 ---
 
 ## 7. Related Docs
 
-| Doc                                                                         | Why                                                      |
-| --------------------------------------------------------------------------- | -------------------------------------------------------- |
-| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events              |
-| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)   |
-| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                   |
-| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on |
-| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                    |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                       |
-| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                  |
-| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                  |
-| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients               |
-| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance               |
-| [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |
+| Doc | Why |
+| --- | --- |
+| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) | Subscriber-side subscribe / charge / events |
+| [`API.md`](API.md) | Full contract reference (merchant + admin entrypoints) |
+| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption |
+| [`KEEPER.md`](KEEPER.md) | Running the off-chain bill collector merchants depend on |
+| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md) | Trial, pause, cancel, grace semantics |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Storage keys, fee path, module map |
+| [`ERROR-CODES.md`](ERROR-CODES.md) | Numeric contract errors |
+| [`SECURITY.md`](SECURITY.md) | Auth matrix for merchant vs admin calls |
+| [`MULTI-TOKEN.md`](MULTI-TOKEN.md) | Per-subscription tokens and fee recipients |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deploying / configuring a testnet instance |
