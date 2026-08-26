@@ -3,22 +3,7 @@
  * Usage: npx tsx scripts/migrate-contract.ts [--dry-run]
  */
 
-import {
-  Contract,
-  Networks,
-  TransactionBuilder,
-  BASE_FEE,
-  nativeToScVal,
-  Address,
-  xdr,
-} from "@stellar/stellar-sdk";
-
-const RPC_URL =
-  process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-  process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
 import { Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
-import { logger } from "./logger";
 
 const RPC_URL = process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE = process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
@@ -34,9 +19,7 @@ async function getSchemaVersion(): Promise<number> {
   const contract = new Contract(CONTRACT_ID);
 
   // Use a dummy account for simulation
-  const account = await server.getAccount(
-    "GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6",
-  );
+  const account = await server.getAccount("GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6");
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
@@ -61,9 +44,7 @@ async function migrate(users: string[]): Promise<void> {
   const contract = new Contract(CONTRACT_ID);
 
   // Use a dummy account for simulation (in production, use admin wallet)
-  const account = await server.getAccount(
-    "GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6",
-  );
+  const account = await server.getAccount("GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6");
 
   const usersVec = users.map((u) => addressVal(u));
 
@@ -78,54 +59,45 @@ async function migrate(users: string[]): Promise<void> {
   const result = await server.simulateTransaction(tx);
   if ("error" in result) throw new Error(result.error);
 
-  logger.info("Migration transaction simulated successfully");
+  console.log("Migration transaction simulated successfully");
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
 
-  logger.info("Starting contract migration...\n");
+  console.log("Starting contract migration...\n");
 
   // Get pre-migration version
   const preVersion = await getSchemaVersion();
-  logger.info(`Pre-migration schema version: ${preVersion}`);
+  console.log(`Pre-migration schema version: ${preVersion}`);
 
   if (dryRun) {
-    logger.info("\n[Dry-run mode] Skipping actual migration");
-    logger.info(`Post-migration version would be: ${preVersion}`);
+    console.log("\n[Dry-run mode] Skipping actual migration");
+    console.log(`Post-migration version would be: ${preVersion}`);
     return;
   }
 
   // Get users to migrate (empty for now, could be loaded from env or args)
   const users: string[] = [];
 
-  logger.info("\nCalling migrate...");
+  console.log("\nCalling migrate...");
   await migrate(users);
 
   // Get post-migration version
   const postVersion = await getSchemaVersion();
-  logger.info(`Post-migration schema version: ${postVersion}`);
+  console.log(`Post-migration schema version: ${postVersion}`);
 
   // Verify version incremented
   if (postVersion <= preVersion) {
-    console.error(
-      `\nERROR: Schema version did not increment! (${preVersion} -> ${postVersion})`,
-    );
+    console.error(`\nERROR: Schema version did not increment! (${preVersion} -> ${postVersion})`);
     process.exit(1);
   }
 
-  console.log(
-    `\nMigration successful! Version incremented from ${preVersion} to ${postVersion}`,
-  );
-    logger.error(`\nERROR: Schema version did not increment! (${preVersion} -> ${postVersion})`);
-    process.exit(1);
-  }
-
-  logger.info(`\nMigration successful! Version incremented from ${preVersion} to ${postVersion}`);
+  console.log(`\nMigration successful! Version incremented from ${preVersion} to ${postVersion}`);
 }
 
 main().catch((err) => {
-  logger.error("Migration failed:", err.message);
+  console.error("Migration failed:", err.message);
   process.exit(1);
 });

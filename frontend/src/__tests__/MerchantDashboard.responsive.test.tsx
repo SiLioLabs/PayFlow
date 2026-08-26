@@ -33,9 +33,7 @@ import * as stellar from "../stellar";
 import MerchantDashboard from "../components/MerchantDashboard";
 
 describe("MerchantDashboard – responsive layout", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
+  afterEach(() => vi.clearAllMocks());
 
   it("applies dashboard--mobile class on mobile viewport (375px)", async () => {
     setViewport(375);

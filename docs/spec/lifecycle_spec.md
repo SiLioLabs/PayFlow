@@ -46,20 +46,17 @@ A subscription exists in a multi-dimensional state space defined by:
 ### 1. Nonexistent
 
 **Storage Condition:**
-
 ```rust
 env.storage().persistent().get(&DataKey::Subscription(user)) == None
 ```
 
 **Characteristics:**
-
 - No subscription data exists for the user
 - Cannot be charged
 - Cannot be cancelled
 - Can be created via `subscribe()` or `subscribe_with_metadata()`
 
 **Valid Transitions:**
-
 - → **Active (Standard)** via `subscribe()` or `subscribe_with_metadata()`
 - → **Active (Trial)** via `subscribe()` or `subscribe_with_metadata()` with `trial_period: Some(u64)`
 
@@ -68,7 +65,6 @@ env.storage().persistent().get(&DataKey::Subscription(user)) == None
 ### 2. Active (Standard)
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: true,
@@ -79,21 +75,18 @@ Subscription {
 ```
 
 **Characteristics:**
-
 - Fully operational subscription
 - `last_charged` equals subscription creation timestamp
 - Eligible for charge when `current_time >= last_charged + interval`
 - No trial period active
 
 **Valid Transitions:**
-
 - → **Active (Chargeable)** when `current_time >= last_charged + interval`
 - → **Paused** via `pause()`
 - → **Cancelled** via `cancel()`
 - → **Active (Standard)** via `subscribe()` (overwrites existing subscription)
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ✅
 - `charge()`: ❌ (IntervalNotElapsed until chargeable)
 - `pause()`: ✅
@@ -104,7 +97,6 @@ Subscription {
 ### 3. Active (Trial)
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: true,
@@ -115,21 +107,18 @@ Subscription {
 ```
 
 **Characteristics:**
-
 - Subscription is active but billing is deferred
 - `last_charged` is set to a future timestamp (`subscribe_time + trial_period`)
 - User can use `pay_per_use()` immediately
 - Cannot be charged until trial expires
 
 **Valid Transitions:**
-
 - → **Active (Standard)** when `current_time >= last_charged` (trial expires)
 - → **Active (Chargeable)** when `current_time >= last_charged + interval` (trial expires + interval elapses)
 - → **Paused** via `pause()`
 - → **Cancelled** via `cancel()`
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ✅
 - `charge()`: ❌ (IntervalNotElapsed until trial expires)
 - `pause()`: ✅
@@ -140,7 +129,6 @@ Subscription {
 ### 4. Active (Chargeable)
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: true,
@@ -151,20 +139,17 @@ where current_time >= T + interval
 ```
 
 **Characteristics:**
-
 - Billing interval has elapsed
 - Eligible for immediate charge
 - Still within grace period (if configured)
 
 **Valid Transitions:**
-
 - → **Active (Standard)** via `charge()` (resets `last_charged` to current timestamp)
 - → **Active (Grace Expired)** when `current_time > last_charged + interval + grace_period` (if grace period > 0)
 - → **Paused** via `pause()`
 - → **Cancelled** via `cancel()`
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ✅
 - `charge()`: ✅
 - `pause()`: ✅
@@ -175,7 +160,6 @@ where current_time >= T + interval
 ### 5. Active (Grace Expired)
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: true,
@@ -186,19 +170,16 @@ where grace_period > 0 && current_time > T + interval + grace_period
 ```
 
 **Characteristics:**
-
 - Charge window has elapsed
 - Grace period has expired
 - Charge attempts will fail with `GracePeriodElapsed`
 - Subscription remains active but unchargeable until interval advances again
 
 **Valid Transitions:**
-
 - → **Active (Standard)** via `subscribe()` (resets subscription state)
 - → **Cancelled** via `cancel()`
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ✅
 - `charge()`: ❌ (GracePeriodElapsed)
 - `pause()`: ✅
@@ -209,7 +190,6 @@ where grace_period > 0 && current_time > T + interval + grace_period
 ### 6. Paused
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: true,
@@ -219,19 +199,16 @@ Subscription {
 ```
 
 **Characteristics:**
-
 - Subscription exists and is marked active
 - All payment operations are blocked
 - `last_charged` is frozen (does not advance)
 - User retains control and can resume or cancel
 
 **Valid Transitions:**
-
 - → **Active (Standard)** or **Active (Chargeable)** via `resume()` (depends on current time vs `last_charged + interval`)
 - → **Cancelled** via `cancel()`
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ❌ (subscription is paused)
 - `charge()`: ❌ (subscription is paused)
 - `pause()`: ❌ (already paused)
@@ -243,7 +220,6 @@ Subscription {
 ### 7. Cancelled
 
 **Storage Condition:**
-
 ```rust
 Subscription {
     active: false,
@@ -252,18 +228,15 @@ Subscription {
 ```
 
 **Characteristics:**
-
 - Subscription exists in storage but is marked inactive
 - All payment operations are permanently blocked
 - Cannot be resumed
 - Can only be replaced by resubscribing
 
 **Valid Transitions:**
-
 - → **Active (Standard)** or **Active (Trial)** via `subscribe()` or `subscribe_with_metadata()` (creates new subscription, overwrites cancelled state)
 
 **Operations Allowed:**
-
 - `pay_per_use()`: ❌ (subscription is not active)
 - `charge()`: ❌ (subscription is not active)
 - `pause()`: ❌ (subscription is not active)
@@ -350,13 +323,11 @@ Subscription {
 **Storage Key:** `DataKey::SubscriptionMeta(user)`
 
 **Structure:**
-
 ```rust
 String // max 64 bytes
 ```
 
 **Lifecycle:**
-
 - Created via `set_metadata()` or `subscribe_with_metadata()`
 - Persists independently of subscription state
 - Not deleted on `cancel()`
@@ -367,13 +338,11 @@ String // max 64 bytes
 **Storage Key:** `DataKey::ChargeHistory(user)`
 
 **Structure:**
-
 ```rust
 Vec<u64> // last 12 charge timestamps
 ```
 
 **Lifecycle:**
-
 - Appends a timestamp on each successful `charge()` call
 - Capped at 12 entries (FIFO)
 - Persists through pause/resume cycles
@@ -384,13 +353,11 @@ Vec<u64> // last 12 charge timestamps
 **Storage Key:** `DataKey::Referral(user)`
 
 **Structure:**
-
 ```rust
 Address // referrer address
 ```
 
 **Lifecycle:**
-
 - Set on first `subscribe()` or `subscribe_with_metadata()` call with `referrer: Some(Address)`
 - Immutable after first write
 - Persists through subscription rewrites
@@ -415,7 +382,6 @@ Address // referrer address
   - After window: `GracePeriodElapsed` error
 
 **State Integrity:**
-
 - Grace period changes do not retroactively affect existing subscriptions
 - Each `charge()` call evaluates grace period against the current global setting
 
@@ -426,7 +392,6 @@ Address // referrer address
 **Parameter:** `trial_period: Option<u64>` (passed to `subscribe()` or `subscribe_with_metadata()`)
 
 **Implementation:**
-
 ```rust
 let last_charged = match trial_period {
     Some(period) => now + period,
@@ -435,7 +400,6 @@ let last_charged = match trial_period {
 ```
 
 **State Implications:**
-
 - Trial subscriptions are immediately **Active** but not **Chargeable**
 - `pay_per_use()` works immediately during trial
 - First `charge()` can occur at `last_charged + interval` (i.e., `subscribe_time + trial_period + interval`)
@@ -447,19 +411,16 @@ let last_charged = match trial_period {
 ### Pause
 
 **Preconditions:**
-
 - Subscription must exist
 - `active == true`
 
 **State Changes:**
-
 ```rust
 sub.paused = true;
 // last_charged unchanged
 ```
 
 **Effect:**
-
 - Freezes subscription state
 - All payment operations blocked
 - Time does not advance billing eligibility
@@ -467,20 +428,17 @@ sub.paused = true;
 ### Resume
 
 **Preconditions:**
-
 - Subscription must exist
 - `active == true`
 - `paused == true`
 
 **State Changes:**
-
 ```rust
 sub.paused = false;
 // last_charged unchanged
 ```
 
 **Effect:**
-
 - Unfreezes subscription
 - Billing eligibility resumes based on original `last_charged` timestamp
 - If `current_time >= last_charged + interval` immediately after resume, subscription is **Active (Chargeable)**
@@ -492,13 +450,11 @@ sub.paused = false;
 **Operation:** `subscribe()` or `subscribe_with_metadata()` on a user with an existing subscription
 
 **Effect:**
-
 - Completely overwrites the existing subscription struct
 - Resets all fields (`merchant`, `amount`, `interval`, `last_charged`, `active`, `paused`, `token`)
 - Does not modify `active_count` if previous subscription was active (no double-increment)
 
 **Use Case:**
-
 - Upgrading/downgrading plan
 - Switching merchant
 - Switching token
@@ -511,18 +467,15 @@ sub.paused = false;
 **Operation:** `cancel()`
 
 **Preconditions:**
-
 - Subscription must exist
 
 **State Changes:**
-
 ```rust
 sub.active = false;
 // all other fields unchanged
 ```
 
 **Side Effects:**
-
 - Decrements `ActiveCount` (global counter)
 - Emits `cancelled` event
 - Does not delete subscription from storage
@@ -564,7 +517,6 @@ sub.active = false;
 **Storage:** `DataKey::GlobalVolumeWindow` (instance storage)
 
 **Structure:**
-
 ```rust
 pub struct GlobalVolumeWindow {
     pub current_window_start: u64,
@@ -577,7 +529,6 @@ pub struct GlobalVolumeWindow {
 **Window Duration:** `HOUR_IN_SECONDS = 3600`
 
 **Behavior:**
-
 - Tracks cumulative transaction volume across all users
 - Window resets when `current_time >= current_window_start + 3600`
 - Increments on every successful `charge()` and `pay_per_use()` transfer
@@ -585,7 +536,6 @@ pub struct GlobalVolumeWindow {
 - Uses `checked_add` to prevent overflow
 
 **State Integrity:**
-
 - Only successful transfers contribute to volume tracking
 - Failed transactions (e.g., insufficient balance) do not increment volume
 - Volume check occurs **after** `transfer_from()` succeeds
@@ -597,13 +547,11 @@ pub struct GlobalVolumeWindow {
 **Storage:** `DataKey::ContractPaused` (instance storage, `bool`)
 
 **Effect:**
-
 - When `true`, all protocol operations can be blocked (implementation-dependent)
 - Readable via `get_protocol_stats().contract_paused`
 - Controlled by admin via `pause_contract()` and `unpause_contract()`
 
 **Current Implementation:**
-
 - No operations currently check `ContractPaused` flag
 - Reserved for future emergency stop functionality
 
@@ -611,30 +559,30 @@ pub struct GlobalVolumeWindow {
 
 ## Summary of State Flags
 
-| State                  | `active` | `paused` | Chargeable | PPU Allowed |
-| ---------------------- | -------- | -------- | ---------- | ----------- |
-| Nonexistent            | N/A      | N/A      | ❌         | ❌          |
-| Active (Standard)      | `true`   | `false`  | ❌         | ✅          |
-| Active (Trial)         | `true`   | `false`  | ❌         | ✅          |
-| Active (Chargeable)    | `true`   | `false`  | ✅         | ✅          |
-| Active (Grace Expired) | `true`   | `false`  | ❌         | ✅          |
-| Paused                 | `true`   | `true`   | ❌         | ❌          |
-| Cancelled              | `false`  | *        | ❌         | ❌          |
+| State | `active` | `paused` | Chargeable | PPU Allowed |
+|---|---|---|---|---|
+| Nonexistent | N/A | N/A | ❌ | ❌ |
+| Active (Standard) | `true` | `false` | ❌ | ✅ |
+| Active (Trial) | `true` | `false` | ❌ | ✅ |
+| Active (Chargeable) | `true` | `false` | ✅ | ✅ |
+| Active (Grace Expired) | `true` | `false` | ❌ | ✅ |
+| Paused | `true` | `true` | ❌ | ❌ |
+| Cancelled | `false` | * | ❌ | ❌ |
 
 ---
 
 ## Appendix: Storage Schema
 
-| Key                      | Type                 | Scope      | TTL                       |
-| ------------------------ | -------------------- | ---------- | ------------------------- |
-| `Subscription(user)`     | `Subscription`       | Persistent | 6307200 ledgers (~1 year) |
-| `SubscriptionMeta(user)` | `String`             | Persistent | Not extended by charge    |
-| `ChargeHistory(user)`    | `Vec<u64>`           | Persistent | Not extended by charge    |
-| `Referral(user)`         | `Address`            | Persistent | Not extended by charge    |
-| `ActiveCount`            | `u64`                | Instance   | Contract lifetime         |
-| `GracePeriod`            | `u64`                | Instance   | Contract lifetime         |
-| `GlobalVolumeWindow`     | `GlobalVolumeWindow` | Instance   | Contract lifetime         |
-| `ContractPaused`         | `bool`               | Instance   | Contract lifetime         |
+| Key | Type | Scope | TTL |
+|---|---|---|---|
+| `Subscription(user)` | `Subscription` | Persistent | 6307200 ledgers (~1 year) |
+| `SubscriptionMeta(user)` | `String` | Persistent | Not extended by charge |
+| `ChargeHistory(user)` | `Vec<u64>` | Persistent | Not extended by charge |
+| `Referral(user)` | `Address` | Persistent | Not extended by charge |
+| `ActiveCount` | `u64` | Instance | Contract lifetime |
+| `GracePeriod` | `u64` | Instance | Contract lifetime |
+| `GlobalVolumeWindow` | `GlobalVolumeWindow` | Instance | Contract lifetime |
+| `ContractPaused` | `bool` | Instance | Contract lifetime |
 
 ---
 

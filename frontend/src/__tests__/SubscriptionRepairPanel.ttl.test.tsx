@@ -44,9 +44,7 @@ const MOCK_ON_SIGN = vi.fn().mockResolvedValue("mock-tx-hash");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function renderPanel(
-  overrides: Partial<React.ComponentProps<typeof SubscriptionRepairPanel>> = {}
-) {
+function renderPanel(overrides: Partial<React.ComponentProps<typeof SubscriptionRepairPanel>> = {}) {
   return render(
     <SubscriptionRepairPanel
       userKey={USER_KEY}
@@ -77,13 +75,17 @@ describe("SubscriptionRepairPanel (TTL / archived state)", () => {
 
   it("renders the panel when isArchived is true", () => {
     renderPanel({ isArchived: true });
-    expect(screen.getByRole("region", { name: /subscription archived/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /subscription archived/i })
+    ).toBeInTheDocument();
   });
 
   it("renders the panel when subscriptionError matches an archived pattern", () => {
     vi.mocked(stellar.isArchivedError).mockReturnValue(true);
     renderPanel({ isArchived: undefined, subscriptionError: "entryExpired" });
-    expect(screen.getByRole("region", { name: /subscription archived/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /subscription archived/i })
+    ).toBeInTheDocument();
   });
 
   it("does not render when subscriptionError is unrelated", () => {
@@ -106,7 +108,9 @@ describe("SubscriptionRepairPanel (TTL / archived state)", () => {
 
   it("renders the 'Restore Subscription' button", () => {
     renderPanel();
-    expect(screen.getByRole("button", { name: /restore subscription/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /restore subscription/i })
+    ).toBeInTheDocument();
   });
 
   // ── Fee estimate ────────────────────────────────────────────────────────────
@@ -243,7 +247,9 @@ describe("SubscriptionRepairPanel (TTL / archived state)", () => {
 
   it("panel section has an accessible region label", () => {
     renderPanel();
-    expect(screen.getByRole("region", { name: /subscription archived/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /subscription archived/i })
+    ).toBeInTheDocument();
   });
 
   it("has aria-live on the panel for screen reader announcements", () => {

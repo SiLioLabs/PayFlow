@@ -394,7 +394,9 @@ describe("SubscribeForm address book integration", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /select.*address book/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /select.*address book/i })
+    ).toBeInTheDocument();
   });
 
   it("opens AddressBook modal when button is clicked", async () => {
@@ -433,7 +435,7 @@ describe("SubscribeForm address book integration", () => {
     await user.click(screen.getByRole("button", { name: /select alice/i }));
 
     // The merchant input should now contain the selected address
-    const merchantInput = screen.getByTestId("merchant-input");
+    const merchantInput = screen.getByPlaceholderText(/^G…$/);
     expect(merchantInput).toHaveValue(VALID_ADDRESS_1);
   });
 

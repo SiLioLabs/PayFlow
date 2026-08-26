@@ -156,6 +156,7 @@ describe("useWallet", () => {
       await result.current.connect(AVAILABLE_WALLETS[0]);
     });
 
+
     expect(result.current.publicKey).toBe(key);
     expect(localStorage.getItem(STORAGE_KEY)).toBe(key);
   });
@@ -167,6 +168,7 @@ describe("useWallet", () => {
     await act(async () => {
       await result.current.connect(AVAILABLE_WALLETS[0]);
     });
+
 
     expect(result.current.error).toMatch(/freighter wallet not found/i);
     expect(result.current.publicKey).toBeNull();
@@ -184,6 +186,7 @@ describe("useWallet", () => {
     await act(async () => {
       await result.current.connect(AVAILABLE_WALLETS[0]);
     });
+
 
     expect(result.current.error).toMatch(/unlock freighter/i);
   });

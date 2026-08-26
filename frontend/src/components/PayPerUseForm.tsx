@@ -7,7 +7,6 @@ import { useDebounce } from "../hooks/useDebounce";
 interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;
   loading: boolean;
-  isPaused?: boolean;
 }
 
 function validate(raw: string): { stroops: bigint | null; error: string | null } {
@@ -30,7 +29,7 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
 }
 
 const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
-  ({ onPay, loading, isPaused = false }, ref) => {
+  ({ onPay, loading }, ref) => {
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [lastValue, setLastValue] = useState(amount);
@@ -87,7 +86,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               onBlur={handleBlur}
-              disabled={loading || isPaused}
+              disabled={loading}
               style={{ width: "100%" }}
             />
             {error && <span className="text-error">{error}</span>}
@@ -97,9 +96,8 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
           </div>
           <button
             onClick={handleSubmit}
-            disabled={!validationResult.valid || loading || isPaused}
+            disabled={!validationResult.valid || loading}
             className="btn-primary ppu-card__pay-btn"
-            aria-label={isPaused ? "Pay now (unavailable during maintenance)" : undefined}
           >
             {loading ? <Spinner size="sm" /> : "Pay now"}
           </button>

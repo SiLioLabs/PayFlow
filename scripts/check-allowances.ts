@@ -8,7 +8,6 @@
 
 import { MultiEndpointServer } from "./rpc-client.js";
 import {
-import { logger } from "./logger";
   Contract,
   Networks,
   TransactionBuilder,
@@ -22,15 +21,11 @@ import { logger } from "./logger";
 
 const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
-const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
-  Networks.TESTNET) as string;
+const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET) as string;
 
 if (!CONTRACT_ID) {
   console.error("Error: CONTRACT_ID environment variable is required");
   console.error(
-    "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]",
-  logger.error("Error: CONTRACT_ID environment variable is required");
-  logger.error(
     "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]"
   );
   process.exit(1);
@@ -54,13 +49,13 @@ async function parseAddressListFromFile(path: string): Promise<string[]> {
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
   } catch (err) {
-    logger.error(`Error reading file ${path}: ${err}`);
+    console.error(`Error reading file ${path}: ${err}`);
     process.exit(1);
   }
 }
 
 function showHelp(): void {
-  logger.info(`
+  console.log(`
 Usage: tsx check-allowances.ts [options] [addresses...]
 
 Options:
@@ -90,13 +85,8 @@ function addressVal(addr: string): xdr.ScVal {
 }
 
 async function getSubscription(
-  user: string,
-): Promise<{
-  amount: bigint;
-  token: string;
-  active: boolean;
-  paused: boolean;
-} | null> {
+  user: string
+): Promise<{ amount: bigint; token: string; active: boolean; paused: boolean } | null> {
   try {
     const contract = new Contract(CONTRACT_ID);
     const account = await server.getAccount(user);
@@ -112,8 +102,7 @@ async function getSubscription(
     const result = await server.simulateTransaction(tx);
     if ("error" in result) return null;
 
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
-      ?.retval;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
 
     const fields: Record<string, unknown> = {};
@@ -162,8 +151,8 @@ async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
         tokenContract.call(
           "allowance",
           addressVal(owner),
-          nativeToScVal(FlowPayAddress, { type: "address" }),
-        ),
+          nativeToScVal(FlowPayAddress, { type: "address" })
+        )
       )
       .setTimeout(30)
       .build();
@@ -171,8 +160,7 @@ async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) return 0n;
 
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
-      ?.retval;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
     if (!retval || retval.switch().name === "scvVoid") return 0n;
 
     return BigInt(retval.i128().toString());
@@ -254,25 +242,25 @@ function printHumanReadable(results: AuditResult[]): void {
   const noSub = results.filter((r) => r.error === "no_subscription");
   const healthy = results.filter((r) => !r.atRisk && !r.error && r.active);
 
-  logger.info(`\nAudited ${results.length} subscriber(s)\n`);
+  console.log(`\nAudited ${results.length} subscriber(s)\n`);
 
   if (noSub.length > 0) {
-    logger.info(`${noSub.length} with no subscription:`);
+    console.log(`${noSub.length} with no subscription:`);
     for (const r of noSub) {
-      logger.info(`  ${r.address}`);
+      console.log(`  ${r.address}`);
     }
-    logger.info();
+    console.log();
   }
 
   if (atRisk.length > 0) {
-    logger.info(`${atRisk.length} at risk of failed charge:`);
+    console.log(`${atRisk.length} at risk of failed charge:`);
     const header =
       "  ADDRESS".padEnd(56) +
       "AMOUNT".padStart(10) +
       "ALLOWANCE".padStart(12) +
       "GAP".padStart(10) +
       "TOKEN".padStart(56);
-    logger.info(header);
+    console.log(header);
     for (const r of atRisk) {
       const line =
         r.address.padEnd(56) +
@@ -280,32 +268,28 @@ function printHumanReadable(results: AuditResult[]): void {
         stroopsToXlm(r.allowance).padStart(12) +
         stroopsToXlm(r.gap).padStart(10) +
         r.token.padStart(56);
-      logger.info(`  ${line}`);
+      console.log(`  ${line}`);
     }
-    logger.info();
+    console.log();
   }
 
   if (healthy.length > 0) {
-    logger.info(`${healthy.length} healthy:`);
+    console.log(`${healthy.length} healthy:`);
     for (const r of healthy) {
       console.log(
-        `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscriptionAmount).padStart(10)} ${stroopsToXlm(r.allowance).padStart(10)}`,
-      logger.info(
         `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscriptionAmount).padStart(10)} ${stroopsToXlm(r.allowance).padStart(10)}`
       );
     }
-    logger.info();
+    console.log();
   }
 
   console.log(
-    `Summary: healthy=${healthy.length}, atRisk=${atRisk.length}, noSubscription=${noSub.length}`,
-  logger.info(
     `Summary: healthy=${healthy.length}, atRisk=${atRisk.length}, noSubscription=${noSub.length}`
   );
 }
 
 function printJson(results: AuditResult[]): void {
-  logger.info(JSON.stringify(results, null, 2));
+  console.log(JSON.stringify(results, null, 2));
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────────
@@ -326,7 +310,7 @@ async function main(): Promise<void> {
     } else if (arg === "--file") {
       filePath = argv[++i];
     } else if (arg.startsWith("-")) {
-      logger.error(`Unknown option: ${arg}`);
+      console.error(`Unknown option: ${arg}`);
       showHelp();
     } else {
       addresses.push(arg);
@@ -344,7 +328,7 @@ async function main(): Promise<void> {
   }
 
   if (allAddresses.length === 0) {
-    logger.error("No valid addresses provided.");
+    console.error("No valid addresses provided.");
     process.exit(1);
   }
 
@@ -362,6 +346,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  logger.error(`Fatal error: ${error}`);
+  console.error(`Fatal error: ${error}`);
   process.exit(1);
 });
