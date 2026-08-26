@@ -6692,3 +6692,178 @@ fn test_extend_subscriber_index_ttl_non_admin_panics() {
 
     client.extend_subscriber_index_ttl();
 }
+
+#[test]
+fn test_get_active_subscriber_page_mid_index_cancellations() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Create 10 subscribers
+    let mut users = soroban_sdk::Vec::new(&env);
+    for _ in 0..10 {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    // Cancel subscribers at middle indices: 2, 3, 5, 7
+    client.cancel(&users.get(2).unwrap());
+    client.cancel(&users.get(3).unwrap());
+    client.cancel(&users.get(5).unwrap());
+    client.cancel(&users.get(7).unwrap());
+
+    // Active users expected: indices 0, 1, 4, 6, 8, 9
+    let page1 = client.get_active_subscriber_page(&0, &3);
+    assert_eq!(page1.len(), 3);
+    assert_eq!(page1.get(0).unwrap(), users.get(0).unwrap());
+    assert_eq!(page1.get(1).unwrap(), users.get(1).unwrap());
+    assert_eq!(page1.get(2).unwrap(), users.get(4).unwrap());
+
+    // Next page starting at slot 5
+    let page2 = client.get_active_subscriber_page(&5, &10);
+    assert_eq!(page2.len(), 3);
+    assert_eq!(page2.get(0).unwrap(), users.get(6).unwrap());
+    assert_eq!(page2.get(1).unwrap(), users.get(8).unwrap());
+    assert_eq!(page2.get(2).unwrap(), users.get(9).unwrap());
+}
+
+#[test]
+fn test_get_active_subscriber_page_sequential_keeper_sweep() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let total = 20;
+    let mut users = soroban_sdk::Vec::new(&env);
+    for _ in 0..total {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    // Cancel all odd indices
+    for i in 0..total {
+        if i % 2 == 1 {
+            client.cancel(&users.get(i).unwrap());
+        }
+    }
+
+    let mut discovered = soroban_sdk::Vec::new(&env);
+    let sub_count = client.get_subscriber_count();
+    let mut cursor = 0u64;
+
+    while cursor < sub_count {
+        let page = client.get_active_subscriber_page(&cursor, &5);
+        for u in page.iter() {
+            if !discovered.contains(&u) {
+                discovered.push_back(u);
+            }
+        }
+        cursor += 5; // advance cursor by scan slot increment
+    }
+
+    // Should discover all 10 even active subscribers, 0 skipped
+    assert_eq!(discovered.len(), 10);
+    for i in 0..total {
+        if i % 2 == 0 {
+            let expected = users.get(i).unwrap();
+            assert!(discovered.contains(&expected));
+        }
+    }
+}
+
+#[test]
+fn test_get_active_subscriber_page_dense_tombstones() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Insert 120 tombstoned slots in storage
+    let dummy_addr = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriberIndexSize, &120u64);
+        for i in 0..120 {
+            env.storage()
+                .persistent()
+                .set(&DataKey::SubscriberIndex(i), &dummy_addr);
+            env.storage()
+                .persistent()
+                .set(&DataKey::SubscriberIndexRemoved(i), &true);
+        }
+    });
+
+    // An active subscriber at slot 110
+    let u = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+    sac.mint(&u, &10_000_0000000);
+    token.approve(&u, &contract_id, &10_000_0000000, &200);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriberIndex(110), &u);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SubscriberIndexRemoved(110));
+        let sub = Subscription {
+            merchant,
+            amount: 1_0000000,
+            interval: 86400,
+            last_charged: env.ledger().timestamp(),
+            active: true,
+            paused: false,
+            token: token_addr,
+            referrer: None,
+            label: Symbol::new(&env, ""),
+            trial_duration: 0,
+        };
+        env.storage().persistent().set(&DataKey::Subscription(u.clone()), &sub);
+    });
+
+    // Page from 0 inspects 0..120. Finds subscriber at slot 110 safely without panic
+    let page1 = client.get_active_subscriber_page(&0, &10);
+    assert_eq!(page1.len(), 1);
+    assert_eq!(page1.get(0).unwrap(), u);
+}
+
+#[test]
+fn test_get_active_subscriber_page_edge_cases() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // 1. Empty index
+    let page_empty = client.get_active_subscriber_page(&0, &10);
+    assert_eq!(page_empty.len(), 0);
+
+    // 2. All subscribers cancelled (100% tombstones)
+    let u1 = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+    sac.mint(&u1, &10_000_0000000);
+    token.approve(&u1, &contract_id, &10_000_0000000, &200);
+    client.subscribe(&u1, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.cancel(&u1);
+
+    let page_all_cancelled = client.get_active_subscriber_page(&0, &10);
+    assert_eq!(page_all_cancelled.len(), 0);
+
+    // 3. Single active subscriber at end of sparse index
+    let u2 = Address::generate(&env);
+    sac.mint(&u2, &10_000_0000000);
+    token.approve(&u2, &contract_id, &10_000_0000000, &200);
+    client.subscribe(&u2, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // u1 at slot 0 is cancelled, u2 at slot 1 is active
+    let page_end = client.get_active_subscriber_page(&0, &10);
+    assert_eq!(page_end.len(), 1);
+    assert_eq!(page_end.get(0).unwrap(), u2);
+}

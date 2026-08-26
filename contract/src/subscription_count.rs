@@ -81,7 +81,12 @@ pub fn remove_subscriber_index(env: &Env, user: &Address) {
     }
 }
 
-/// Returns whether the subscriber index slot at `index` has been pruned.
+/// Returns whether the subscriber index slot at `index` has been pruned (tombstoned).
+///
+/// When a user cancels their subscription, `remove_subscriber_index` writes a
+/// `SubscriberIndexRemoved(index)` tombstone. Functions scanning active subscribers
+/// (`get_active_subscriber_page`) check this flag to skip tombstoned slots efficiently
+/// without performing secondary reads for subscriber account data.
 pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
     env.storage()
         .persistent()
