@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import prettierConfig from "eslint-config-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
 
 const browserGlobals = {
   window: "readonly",
@@ -14,6 +15,8 @@ const browserGlobals = {
   localStorage: "readonly",
   sessionStorage: "readonly",
   navigator: "readonly",
+  Navigator: "readonly",
+  Node: "readonly",
   location: "readonly",
   history: "readonly",
   fetch: "readonly",
@@ -79,9 +82,11 @@ export default [
       },
       globals: browserGlobals,
     },
-    plugins: { "@typescript-eslint": tsPlugin },
+    plugins: { "@typescript-eslint": tsPlugin, "react-hooks": reactHooks },
     rules: {
       ...tsPlugin.configs.recommended.rules,
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
@@ -96,9 +101,11 @@ export default [
       },
       globals: { ...browserGlobals, ...vitestGlobals },
     },
-    plugins: { "@typescript-eslint": tsPlugin },
+    plugins: { "@typescript-eslint": tsPlugin, "react-hooks": reactHooks },
     rules: {
       ...tsPlugin.configs.recommended.rules,
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },

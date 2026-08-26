@@ -11,6 +11,7 @@ import {
   BASE_FEE,
   nativeToScVal,
   Address,
+  Account,
   xdr,
 } from "@stellar/stellar-sdk";
 import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
@@ -450,7 +451,6 @@ export function getSubscriptionHealth(user: string): Promise<SubscriptionHealth 
   });
 }
 
-
 function parseEventValueField(value: any, field: string): string {
   if (!value) return "";
   const base = value._value?.[field] ?? value[field];
@@ -776,6 +776,49 @@ export async function getChargeHistory(user: string): Promise<ChargeEvent[]> {
   }
 }
 
+// ── Contract pause state ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if the contract is currently paused, false if not.
+ * Returns null if the RPC call fails — callers must treat null as "unknown"
+ * and must NOT show the pause banner when the result is uncertain.
+ *
+ * Uses a static read-only simulation source; no wallet connection required.
+ */
+export async function getContractPaused(): Promise<boolean | null> {
+  if (!CONTRACT_ID) return null;
+
+  try {
+    // Soroban simulates read-only calls without requiring a funded source account.
+    // We supply a static source; the node ignores sequence/balance for pure
+    // view-function simulations.
+    const source = new Account(
+      // Well-known Stellar "zero" address — safe to use as a sim-only source.
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+      "0"
+    );
+
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(source, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call("is_contract_paused"))
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return null;
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval || retval.switch().name === "scvVoid") return null;
+
+    return retval.b?.() ?? false;
+  } catch {
+    return null;
+  }
+}
+
 // ── Admin diagnostics ───────────────────────────────────────────────────────
 
 export interface ContractHealthReport {
@@ -1097,6 +1140,7 @@ export async function buildWhitelistBatchRemoveTx(
       { type: "vec" }
     ),
   ]);
+}
 // ── TTL / Archived-state helpers ──────────────────────────────────────────────
 
 /**
@@ -1122,11 +1166,7 @@ const ARCHIVED_ERROR_PATTERNS = [
  */
 export function isArchivedError(err: unknown): boolean {
   const msg =
-    err instanceof Error
-      ? err.message
-      : typeof err === "string"
-        ? err
-        : JSON.stringify(err ?? "");
+    err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err ?? "");
 
   return ARCHIVED_ERROR_PATTERNS.some((pattern) => pattern.test(msg));
 }

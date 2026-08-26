@@ -22,8 +22,7 @@ vi.mock("../hooks/useClipboard", () => ({
   }),
 }));
 
-const TEST_PUBLIC_KEY =
-  "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ";
+const TEST_PUBLIC_KEY = "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ";
 
 // ── Pure helper unit tests ─────────────────────────────────────────────────────
 
@@ -46,9 +45,7 @@ describe("buildReferralUrl", () => {
 
 describe("getReferrerFromSearch", () => {
   it("returns the ref param value when present", () => {
-    expect(
-      getReferrerFromSearch(`?ref=${TEST_PUBLIC_KEY}`)
-    ).toBe(TEST_PUBLIC_KEY);
+    expect(getReferrerFromSearch(`?ref=${TEST_PUBLIC_KEY}`)).toBe(TEST_PUBLIC_KEY);
   });
 
   it("returns null when ref param is absent", () => {
@@ -64,9 +61,7 @@ describe("getReferrerFromSearch", () => {
   });
 
   it("trims whitespace from ref param value", () => {
-    expect(
-      getReferrerFromSearch(`?ref=%20${TEST_PUBLIC_KEY}%20`)
-    ).toBe(TEST_PUBLIC_KEY);
+    expect(getReferrerFromSearch(`?ref=%20${TEST_PUBLIC_KEY}%20`)).toBe(TEST_PUBLIC_KEY);
   });
 });
 
@@ -75,7 +70,7 @@ describe("getReferrerFromSearch", () => {
 describe("ReferralPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetchEvents.mockResolvedValue([]);
+    mockFetchEvents.mockResolvedValue({ events: [] });
     // Reset location search
     Object.defineProperty(window, "location", {
       writable: true,
@@ -85,16 +80,14 @@ describe("ReferralPanel", () => {
 
   it("renders the referral panel section", () => {
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
-    expect(
-      screen.getByRole("region", { name: /referral program/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /referral program/i })).toBeInTheDocument();
   });
 
   it("shows placeholder text when wallet is not connected (publicKey null)", () => {
     render(<ReferralPanel publicKey={null} />);
-    expect(
-      screen.getByTestId("referral-code")
-    ).toHaveTextContent("Connect wallet to see your referral code");
+    expect(screen.getByTestId("referral-code")).toHaveTextContent(
+      "Connect wallet to see your referral code"
+    );
   });
 
   it("displays the connected wallet address as the referral code", () => {
@@ -121,7 +114,7 @@ describe("ReferralPanel", () => {
   });
 
   it("shows referred count of 0 when no events returned", async () => {
-    mockFetchEvents.mockResolvedValue([]);
+    mockFetchEvents.mockResolvedValue({ events: [] });
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
 
     await waitFor(() => {
@@ -130,11 +123,34 @@ describe("ReferralPanel", () => {
   });
 
   it("shows correct referred count based on unique referral events", async () => {
-    mockFetchEvents.mockResolvedValue([
-      { address: "GABC111", eventName: "referred", data: {}, ledger: 1, timestamp: "", txHash: "tx1" },
-      { address: "GDEF222", eventName: "referred", data: {}, ledger: 2, timestamp: "", txHash: "tx2" },
-      { address: "GABC111", eventName: "referred", data: {}, ledger: 3, timestamp: "", txHash: "tx3" }, // duplicate
-    ]);
+    mockFetchEvents.mockResolvedValue({
+      events: [
+        {
+          address: "GABC111",
+          eventName: "referred",
+          data: {},
+          ledger: 1,
+          timestamp: "",
+          txHash: "tx1",
+        },
+        {
+          address: "GDEF222",
+          eventName: "referred",
+          data: {},
+          ledger: 2,
+          timestamp: "",
+          txHash: "tx2",
+        },
+        {
+          address: "GABC111",
+          eventName: "referred",
+          data: {},
+          ledger: 3,
+          timestamp: "",
+          txHash: "tx3",
+        }, // duplicate
+      ],
+    });
 
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
 
@@ -154,7 +170,7 @@ describe("ReferralPanel", () => {
   });
 
   it("calls fetchEvents with 'referred' event name and user address", async () => {
-    mockFetchEvents.mockResolvedValue([]);
+    mockFetchEvents.mockResolvedValue({ events: [] });
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
 
     await waitFor(() => {
@@ -176,9 +192,7 @@ describe("ReferralPanel", () => {
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
 
     expect(screen.getByTestId("self-referral-warning")).toBeInTheDocument();
-    expect(screen.getByTestId("self-referral-warning")).toHaveTextContent(
-      /cannot refer yourself/i
-    );
+    expect(screen.getByTestId("self-referral-warning")).toHaveTextContent(/cannot refer yourself/i);
   });
 
   it("does not show self-referral warning when ?ref= is a different address", async () => {
@@ -189,15 +203,22 @@ describe("ReferralPanel", () => {
     });
 
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
-    expect(
-      screen.queryByTestId("self-referral-warning")
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("self-referral-warning")).not.toBeInTheDocument();
   });
 
   it("has accessible aria-label on the referred count element", async () => {
-    mockFetchEvents.mockResolvedValue([
-      { address: "GABC111", eventName: "referred", data: {}, ledger: 1, timestamp: "", txHash: "tx1" },
-    ]);
+    mockFetchEvents.mockResolvedValue({
+      events: [
+        {
+          address: "GABC111",
+          eventName: "referred",
+          data: {},
+          ledger: 1,
+          timestamp: "",
+          txHash: "tx1",
+        },
+      ],
+    });
     render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
 
     await waitFor(() => {

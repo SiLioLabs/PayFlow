@@ -59,7 +59,11 @@ export function deriveStatus(nextChargeAt: number): "active" | "overdue" {
 
 function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
   if (sort.field !== field) {
-    return <span className="sort-icon sort-icon--inactive" aria-hidden="true">⇅</span>;
+    return (
+      <span className="sort-icon sort-icon--inactive" aria-hidden="true">
+        ⇅
+      </span>
+    );
   }
   return (
     <span className="sort-icon sort-icon--active" aria-hidden="true">
@@ -77,9 +81,7 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
   // ── Filter ────────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     if (filter === "all") return subscribers;
-    return subscribers.filter(
-      (s) => deriveStatus(s.nextChargeAt) === filter
-    );
+    return subscribers.filter((s) => deriveStatus(s.nextChargeAt) === filter);
   }, [subscribers, filter]);
 
   // ── Sort ──────────────────────────────────────────────────────────────────
@@ -127,7 +129,9 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
   if (subscribers.length === 0) {
     return (
       <div className="mst-empty" data-testid="mst-empty-state">
-        <p className="text-muted">No subscribers yet. Share your merchant address to get started.</p>
+        <p className="text-muted">
+          No subscribers yet. Share your merchant address to get started.
+        </p>
       </div>
     );
   }
@@ -141,8 +145,8 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
             f === "all"
               ? `All (${subscribers.length})`
               : f === "active"
-              ? `Active (${activeCount})`
-              : `Overdue (${overdueCount})`;
+                ? `Active (${activeCount})`
+                : `Overdue (${overdueCount})`;
           return (
             <button
               key={f}
@@ -170,7 +174,9 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
           <table className="mst-table" aria-label="Merchant subscriber list">
             <thead>
               <tr className="mst-head-row">
-                <th scope="col" className="mst-th">Subscriber Address</th>
+                <th scope="col" className="mst-th">
+                  Subscriber Address
+                </th>
                 <th
                   scope="col"
                   className="mst-th mst-th--sortable"
@@ -189,8 +195,12 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
                   Amount (XLM)
                   <SortIcon field="amount" sort={sort} />
                 </th>
-                <th scope="col" className="mst-th">Interval</th>
-                <th scope="col" className="mst-th">Last Charged</th>
+                <th scope="col" className="mst-th">
+                  Interval
+                </th>
+                <th scope="col" className="mst-th">
+                  Last Charged
+                </th>
                 <th
                   scope="col"
                   className="mst-th mst-th--sortable"
@@ -209,7 +219,9 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
                   Next Charge
                   <SortIcon field="nextCharge" sort={sort} />
                 </th>
-                <th scope="col" className="mst-th">Status</th>
+                <th scope="col" className="mst-th">
+                  Status
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -223,9 +235,7 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
                   >
                     {/* Subscriber address */}
                     <td className="mst-cell mst-cell--address">
-                      <span className="mst-address">
-                        {formatAddress(sub.subscriber, 8, 6)}
-                      </span>
+                      <span className="mst-address">{formatAddress(sub.subscriber, 8, 6)}</span>
                       <CopyButton
                         text={sub.subscriber}
                         ariaLabel={`Copy subscriber address ${sub.subscriber}`}
@@ -233,24 +243,16 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
                     </td>
 
                     {/* Amount */}
-                    <td className="mst-cell mst-cell--amount">
-                      {formatXlm(sub.amount)}
-                    </td>
+                    <td className="mst-cell mst-cell--amount">{formatXlm(sub.amount)}</td>
 
                     {/* Interval */}
-                    <td className="mst-cell">
-                      {formatInterval(sub.interval)}
-                    </td>
+                    <td className="mst-cell">{formatInterval(sub.interval)}</td>
 
                     {/* Last charged */}
-                    <td className="mst-cell mst-cell--date">
-                      {formatDate(sub.lastCharged)}
-                    </td>
+                    <td className="mst-cell mst-cell--date">{formatDate(sub.lastCharged)}</td>
 
                     {/* Next charge */}
-                    <td className="mst-cell mst-cell--date">
-                      {formatDate(sub.nextChargeAt)}
-                    </td>
+                    <td className="mst-cell mst-cell--date">{formatDate(sub.nextChargeAt)}</td>
 
                     {/* Status badge */}
                     <td className="mst-cell">

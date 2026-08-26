@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import type * as StellarModule from "../stellar";
 
 import SubscribeForm from "../components/SubscribeForm";
 import {
@@ -546,9 +545,12 @@ describe("SubscribeForm component — inline validation on blur", () => {
     await userEvent.type(merchantInput, VALID_MERCHANT);
     await userEvent.type(amountInput, "5");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
+      },
+      { timeout: 3000 }
+    );
   });
 
   it("submit marks all fields as touched — merchant error shown when merchant is empty", async () => {
@@ -602,9 +604,12 @@ describe("SubscribeForm component — inline validation on blur", () => {
     await userEvent.type(merchantInput, VALID_MERCHANT);
     await userEvent.type(amountInput, "5");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
+      },
+      { timeout: 3000 }
+    );
 
     await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
 

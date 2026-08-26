@@ -27,7 +27,7 @@ A single-step admin call is one signed transaction away from an irreversible, co
 - **Wrong address.** Transferring admin to a mistyped or unreachable address in one step would permanently lock the contract out of any admin action — there'd be no admin left who could undo it.
 - **Compromised key, single window.** If an admin key is compromised, a single-step design lets one signed transaction do irreversible damage (drain fees to an attacker address, "upgrade" to malicious WASM) with no opportunity for anyone to notice and react in between.
 
-Splitting each of these into a **propose** step (records the intent, changes nothing observable) and a separate **commit** (or **accept**) step (actually applies it) buys two things: a window — however short in practice — between intent and effect where the proposal is visible on-chain (via the `*_proposed` event) before it takes hold, and a requirement that the same authority (or, for admin transfer, a *different* authority) deliberately issue a second transaction. Neither step alone can complete the change.
+Splitting each of these into a **propose** step (records the intent, changes nothing observable) and a separate **commit** (or **accept**) step (actually applies it) buys two things: a window — however short in practice — between intent and effect where the proposal is visible on-chain (via the `*_proposed` event) before it takes hold, and a requirement that the same authority (or, for admin transfer, a _different_ authority) deliberately issue a second transaction. Neither step alone can complete the change.
 
 This does **not** make these operations timelocked in the sense of a mandatory delay — nothing stops an admin from calling `propose_fee` and `commit_fee` back to back in the same block. The protection is procedural (two distinct signed calls, one of which reveals intent via an event before the other executes), not a built-in cooldown.
 
@@ -39,7 +39,7 @@ PayFlow actually implements two different flavors of "two-step," and it's worth 
 
 ### Propose → Commit (same authority)
 
-Used by **fee**, **grace period**, and **upgrade**. The admin calls `propose_*`, then the *same* admin later calls `commit_*`. This protects against fat-fingering and gives observers (anyone watching events) a chance to flag a bad proposal before it's committed — but it does **not** protect against a single compromised admin key, since that one key can perform both steps.
+Used by **fee**, **grace period**, and **upgrade**. The admin calls `propose_*`, then the _same_ admin later calls `commit_*`. This protects against fat-fingering and gives observers (anyone watching events) a chance to flag a bad proposal before it's committed — but it does **not** protect against a single compromised admin key, since that one key can perform both steps.
 
 ```text
    admin                              admin
@@ -53,7 +53,7 @@ Used by **fee**, **grace period**, and **upgrade**. The admin calls `propose_*`,
 
 ### Propose → Accept (different authority)
 
-Used only by **admin transfer**. The *current* admin calls `transfer_admin`, but the *new* admin — a different key entirely — must call `accept_admin` to complete the change. This is the stronger protection: it guarantees the new admin address is actually controlled by someone who can sign for it, and a compromised current-admin key alone cannot complete a transfer to an address the attacker doesn't control.
+Used only by **admin transfer**. The _current_ admin calls `transfer_admin`, but the _new_ admin — a different key entirely — must call `accept_admin` to complete the change. This is the stronger protection: it guarantees the new admin address is actually controlled by someone who can sign for it, and a compromised current-admin key alone cannot complete a transfer to an address the attacker doesn't control.
 
 ```text
  current admin                      proposed new admin
@@ -100,8 +100,8 @@ pub fn accept_admin(env: &Env) {
 └──────────────┘                        └───────────────────┘                     └────────────────┘
 ```
 
-- **Step 1 auth:** the *current* admin (`current_admin.require_auth()`).
-- **Step 2 auth:** the *proposed* admin (`pending.require_auth()`) — `A` (the old admin) cannot call `accept_admin` on `new`'s behalf, and `new` cannot self-nominate by calling `transfer_admin`.
+- **Step 1 auth:** the _current_ admin (`current_admin.require_auth()`).
+- **Step 2 auth:** the _proposed_ admin (`pending.require_auth()`) — `A` (the old admin) cannot call `accept_admin` on `new`'s behalf, and `new` cannot self-nominate by calling `transfer_admin`.
 - Until `accept_admin` is called, `A` remains the fully-functional admin — `PendingAdmin` being set does not restrict what `A` can still do.
 - Emits `admin_transferred(old_admin, new_admin)` only on successful completion of step 2.
 
@@ -201,7 +201,7 @@ pub fn commit_grace_period(env: &Env) {
 └────────────────────┘                              └───────────────────────────┘                            └────────────────────┘
 ```
 
-Both `propose_grace_period` and `commit_grace_period` call `admin::require_admin(env)`, which internally does `get_admin(env).require_auth()` — this flow *is* fully admin-gated on both steps, unlike protocol fee above. Applying a new grace period is **not retroactive**: `charge()` reads the live `GracePeriod` value at the moment it's called, so committing a change affects every subscriber's very next charge attempt, not just ones that subscribe afterward (see [SUBSCRIBER-LIFECYCLE.md § Grace Period, In Depth](../SUBSCRIBER-LIFECYCLE.md#grace-period-in-depth)).
+Both `propose_grace_period` and `commit_grace_period` call `admin::require_admin(env)`, which internally does `get_admin(env).require_auth()` — this flow _is_ fully admin-gated on both steps, unlike protocol fee above. Applying a new grace period is **not retroactive**: `charge()` reads the live `GracePeriod` value at the moment it's called, so committing a change affects every subscriber's very next charge attempt, not just ones that subscribe afterward (see [SUBSCRIBER-LIFECYCLE.md § Grace Period, In Depth](../SUBSCRIBER-LIFECYCLE.md#grace-period-in-depth)).
 
 ```bash
 # Step 1 — propose a new grace period (in seconds)
@@ -265,12 +265,12 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 
 ## Storage and Expiry Reference
 
-| Flow | Pending key | Storage type | Expires without commit? | Step 1 auth | Step 2 auth |
-| --- | --- | --- | --- | --- | --- |
-| Admin transfer | `PendingAdmin` | instance | No — persists until accepted or overwritten by a new `transfer_admin` call | current admin | proposed (new) admin |
-| Protocol fee | `PendingFee` | temporary | Yes — ~17,280 ledgers (~1 day) after the last `propose_fee` call | *(undocumented gap — see above)* | *(undocumented gap — see above)* |
-| Grace period | `PendingGracePeriod` | temporary | Yes — ~17,280 ledgers (~1 day) after the last `propose_grace_period` call | admin | admin |
-| Contract upgrade | `PendingUpgrade` | temporary | Yes — ~17,280 ledgers (~1 day) after the last `propose_upgrade` call | admin | admin |
+| Flow             | Pending key          | Storage type | Expires without commit?                                                    | Step 1 auth                      | Step 2 auth                      |
+| ---------------- | -------------------- | ------------ | -------------------------------------------------------------------------- | -------------------------------- | -------------------------------- |
+| Admin transfer   | `PendingAdmin`       | instance     | No — persists until accepted or overwritten by a new `transfer_admin` call | current admin                    | proposed (new) admin             |
+| Protocol fee     | `PendingFee`         | temporary    | Yes — ~17,280 ledgers (~1 day) after the last `propose_fee` call           | _(undocumented gap — see above)_ | _(undocumented gap — see above)_ |
+| Grace period     | `PendingGracePeriod` | temporary    | Yes — ~17,280 ledgers (~1 day) after the last `propose_grace_period` call  | admin                            | admin                            |
+| Contract upgrade | `PendingUpgrade`     | temporary    | Yes — ~17,280 ledgers (~1 day) after the last `propose_upgrade` call       | admin                            | admin                            |
 
 Soroban's temporary storage entries become inaccessible once their TTL lapses — the entry isn't explicitly deleted by any PayFlow code, it simply stops existing from the contract's point of view, and a subsequent `commit_*` call reads it as absent and panics with `ContractError::NoPendingProposal`, identical to never having called `propose_*` at all.
 
@@ -289,7 +289,7 @@ Every `commit_*` function reads its pending key with `.unwrap_or_else(|| env.pan
 There is no dedicated `cancel_*` entry point for any of the four flows. In practice:
 
 - **Fee, grace period, upgrade:** call `propose_*` again with a different value to overwrite the pending one (the temporary-storage entry is simply replaced), or just do nothing — the proposal auto-expires after ~17,280 ledgers (~1 day) and a subsequent `commit_*` will fail with `NoPendingProposal` as if it were never proposed.
-- **Admin transfer:** the current admin can call `transfer_admin` again — either pointing at a different address, or at themselves — to overwrite `PendingAdmin`. Because this key lives in instance storage with no expiry, this is the *only* way to clear a stale or mistaken admin proposal; it will not time out on its own.
+- **Admin transfer:** the current admin can call `transfer_admin` again — either pointing at a different address, or at themselves — to overwrite `PendingAdmin`. Because this key lives in instance storage with no expiry, this is the _only_ way to clear a stale or mistaken admin proposal; it will not time out on its own.
 
 ### "My proposal seems to have disappeared"
 

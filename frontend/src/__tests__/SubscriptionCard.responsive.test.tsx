@@ -12,11 +12,20 @@ vi.mock("../components/NextChargeCountdown", () => ({
 vi.mock("../components/CopyButton", () => ({
   default: ({ text }: { text: string }) => <button data-testid={`copy-${text}`}>Copy</button>,
 }));
-vi.mock("../stellar", () => ({
-  buildPauseTx: vi.fn(),
-  buildResumeTx: vi.fn(),
-  buildCancelTx: vi.fn(),
-}));
+vi.mock("../stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stellar")>();
+  return {
+    ...actual,
+    RPC_URL: "https://soroban-testnet.stellar.org",
+    getAllowance: vi.fn(() => Promise.resolve(0n)),
+    getTrialEnd: vi.fn(() => Promise.resolve(null)),
+    getSubscription: vi.fn(() => Promise.resolve(null)),
+    buildCancelTx: vi.fn(),
+    buildPayPerUseTx: vi.fn(),
+    buildPauseTx: vi.fn(),
+    buildResumeTx: vi.fn(),
+  };
+});
 
 // ─── responsive mock helpers ─────────────────────────────────────────────────
 function setViewport(width: number) {
@@ -58,7 +67,9 @@ function renderCard() {
 }
 
 describe("SubscriptionCard – responsive layout", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("applies subscription-row--stacked class on mobile (375px)", () => {
     setViewport(375);

@@ -619,6 +619,32 @@ input::placeholder {
   font-weight: var(--font-medium);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Contract Pause Banner (feat/contract-pause-banner)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.contract-pause-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: #1e1b4b;
+  color: #c7d2fe;
+  border: 1px solid #4338ca;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.contract-pause-banner__icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.contract-pause-banner__message {
+  flex: 1;
+}
+
 .merchant-row {
   display: flex;
   align-items: center;
@@ -1129,10 +1155,13 @@ input::placeholder {
   }
 }
 
-   Transaction Queue Panel (Issue #658)
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.tx-queue-panel {
+Transaction
+  Queue
+  Panel
+  (Issue #658)
+  ─────────────────────────────────────────────────────────────────────────────
+  */
+  .tx-queue-panel {
   position: fixed;
   bottom: var(--space-4);
   right: var(--space-4);
@@ -1167,6 +1196,11 @@ input::placeholder {
 }
 
 .tx-queue-panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .wallet-bar__address-row {
   display: flex;
   align-items: center;
@@ -1694,6 +1728,8 @@ button.allowance-health-badge:focus-visible {
   width: 40px;
   height: 24px;
   vertical-align: middle;
+}
+
 /* Admin subscription repair panel */
 .subscription-repair-panel__violations {
   margin: 0;
@@ -1879,4 +1915,201 @@ button.allowance-health-badge:focus-visible {
 .subscribe-form__address-book-btn {
   margin-top: var(--space-2);
   font-size: var(--text-sm);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Light Theme — extended overrides (Issue #47)
+   Fills in variables not covered by the base [data-theme="light"] block.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="light"] {
+  --color-primary: #6d28d9;
+  --color-primary-hover: #5b21b6;
+  --color-primary-active: #4c1d95;
+
+  --color-info: #2563eb;
+  --color-info-hover: #1d4ed8;
+}
+
+[data-theme="light"] .btn-danger:hover:not(:disabled) {
+  background: #fecaca;
+  color: #7f1d1d;
+}
+
+[data-theme="light"] .badge-warning {
+  background: #fef9c3;
+  color: #92400e;
+}
+
+[data-theme="light"] .network-warning {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fbbf24;
+}
+
+[data-theme="light"] .network-warning--degraded {
+  background: #fef3c7;
+  color: #78350f;
+  border-color: #f59e0b;
+}
+
+[data-theme="light"] .modal-overlay {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="light"] .skeleton {
+  background: var(--color-surface-raised);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-theme="light"] .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-raised) 25%,
+      var(--color-border-light) 50%,
+      var(--color-surface-raised) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ThemeToggle label (Issue #47)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.theme-toggle__label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   EventFeed Component (Issue #46)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.event-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.event-feed__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.event-feed__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.event-feed__row {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  transition: background var(--transition-fast);
+}
+
+.event-feed__row:last-child {
+  border-bottom: none;
+}
+
+.event-feed__row:hover {
+  background: var(--color-surface-overlay);
+}
+
+.event-feed__row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.event-feed__row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.event-feed__tx-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-family: monospace;
+}
+
+.event-feed__tx-link:hover {
+  text-decoration: underline;
+}
+
+.event-feed__empty {
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.event-feed__error {
+  padding: var(--space-2) 0;
+}
+
+.event-feed__load-more {
+  padding-top: var(--space-2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SubscriptionExport Component (Issue #48)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.subscription-export {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.subscription-export__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.subscription-export__format-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.subscription-export__format-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.subscription-export__format-label:hover {
+  color: var(--color-text);
+}
+
+.subscription-export__radio {
+  width: auto;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.subscription-export__btn {
+  flex-shrink: 0;
+}
+
+.subscription-export__empty {
+  font-style: italic;
 }

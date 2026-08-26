@@ -33,11 +33,7 @@ export default function AddressListInput({
   const hasContent = value.trim().length > 0;
   const hasInvalid = invalid.length > 0;
 
-  const stateClass = !hasContent
-    ? ""
-    : hasInvalid
-      ? "input--error"
-      : "input--valid";
+  const stateClass = !hasContent ? "" : hasInvalid ? "input--error" : "input--valid";
 
   return (
     <div className="form-group">
@@ -85,8 +81,7 @@ export default function AddressListInput({
             )}
             {duplicates.length > 0 && (
               <li style={{ color: "var(--color-warning, #f59e0b)" }}>
-                ⚠ {duplicates.length} duplicate{duplicates.length !== 1 ? "s" : ""} will be
-                removed
+                ⚠ {duplicates.length} duplicate{duplicates.length !== 1 ? "s" : ""} will be removed
               </li>
             )}
           </ul>

@@ -83,23 +83,23 @@ Auditors should treat the following as **required properties** of a correct depl
 
 Mapped from [`threat_matrix.md`](threat_matrix.md) and [`SECURITY.md`](../SECURITY.md). Ratings are qualitative for briefing (Likelihood × Impact: L/M/H).
 
-| Threat | Category | L | I | Primary mitigations |
-| --- | --- | --- | --- | --- |
-| Token allowance draining via repeated charges | Access / funds | M | H | Per-tx max amount; min interval; grace window; SAC allowance ceiling |
-| Unauthenticated admin actions | Access control | L | H | `require_auth` / admin checks on privileged entrypoints; two-step admin transfer |
-| Short-interval spam / resource exhaustion | DoS | M | M | Min interval floor; batch size caps; pagination |
-| Excessive permissionless `charge()` calls | Abuse | H | L | Interval + grace checks; fail closed; no auth does not bypass amount rules |
-| Keeper downtime / delayed billing | Liveness | M | M | Off-chain HA keepers; monitoring; user re-subscribe after grace |
-| Admin key compromise | Access control | L | H | Hardware wallet / multisig before mainnet; pause circuit breaker |
-| Storage TTL expiry / stale temporary proposals | Integrity | M | M | Persistent TTL refresh on lifecycle; temp data treated as non-authoritative |
-| Malicious or buggy upgrade | Upgrade | L | H | Explicit migrate; governance of upgrade authority; WASM hash verification |
+| Threat                                         | Category       | L   | I   | Primary mitigations                                                              |
+| ---------------------------------------------- | -------------- | --- | --- | -------------------------------------------------------------------------------- |
+| Token allowance draining via repeated charges  | Access / funds | M   | H   | Per-tx max amount; min interval; grace window; SAC allowance ceiling             |
+| Unauthenticated admin actions                  | Access control | L   | H   | `require_auth` / admin checks on privileged entrypoints; two-step admin transfer |
+| Short-interval spam / resource exhaustion      | DoS            | M   | M   | Min interval floor; batch size caps; pagination                                  |
+| Excessive permissionless `charge()` calls      | Abuse          | H   | L   | Interval + grace checks; fail closed; no auth does not bypass amount rules       |
+| Keeper downtime / delayed billing              | Liveness       | M   | M   | Off-chain HA keepers; monitoring; user re-subscribe after grace                  |
+| Admin key compromise                           | Access control | L   | H   | Hardware wallet / multisig before mainnet; pause circuit breaker                 |
+| Storage TTL expiry / stale temporary proposals | Integrity      | M   | M   | Persistent TTL refresh on lifecycle; temp data treated as non-authoritative      |
+| Malicious or buggy upgrade                     | Upgrade        | L   | H   | Explicit migrate; governance of upgrade authority; WASM hash verification        |
 
 ### Threat categories for audit deep-dives
 
-1. **Access control** — admin, merchant freeze/whitelist, user auth boundaries  
-2. **Arithmetic / accounting** — fees, daily limits, global volume, revenue balances  
-3. **Reentrancy / external calls** — token contract interactions, fail-closed panics  
-4. **Liveness & operational** — keeper permissionless charge, pause behavior  
+1. **Access control** — admin, merchant freeze/whitelist, user auth boundaries
+2. **Arithmetic / accounting** — fees, daily limits, global volume, revenue balances
+3. **Reentrancy / external calls** — token contract interactions, fail-closed panics
+4. **Liveness & operational** — keeper permissionless charge, pause behavior
 
 ---
 
@@ -107,22 +107,22 @@ Mapped from [`threat_matrix.md`](threat_matrix.md) and [`SECURITY.md`](../SECURI
 
 ### In scope
 
-| Component | Path / artifact | Notes |
-| --- | --- | --- |
-| FlowPay Soroban contract | `contract/src/**` | All public entrypoints and modules |
-| Error taxonomy | `contract/src/errors.rs` | Panic codes and fail-closed behavior |
-| Build & tests | `contract/Cargo.toml`, `contract/src/test.rs` | Unit/integration tests in-repo |
-| Deployed WASM at audit tag | Release build `flow_pay.wasm` | Hash must match tag |
+| Component                  | Path / artifact                               | Notes                                |
+| -------------------------- | --------------------------------------------- | ------------------------------------ |
+| FlowPay Soroban contract   | `contract/src/**`                             | All public entrypoints and modules   |
+| Error taxonomy             | `contract/src/errors.rs`                      | Panic codes and fail-closed behavior |
+| Build & tests              | `contract/Cargo.toml`, `contract/src/test.rs` | Unit/integration tests in-repo       |
+| Deployed WASM at audit tag | Release build `flow_pay.wasm`                 | Hash must match tag                  |
 
 ### Out of scope (unless explicitly added)
 
-| Component | Reason |
-| --- | --- |
-| Frontend (`frontend/`) | UX / wallet integration; not on-chain fund custody logic |
-| Scripts (`scripts/`) | Operational helpers; not consensus-critical |
+| Component                          | Reason                                                                              |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| Frontend (`frontend/`)             | UX / wallet integration; not on-chain fund custody logic                            |
+| Scripts (`scripts/`)               | Operational helpers; not consensus-critical                                         |
 | Keeper bots / off-chain schedulers | Liveness dependency; document assumptions but not full code audit unless contracted |
-| Third-party SAC / Stellar core | Platform trust assumptions |
-| Marketing site / docs typos | Non-security unless they contradict invariants |
+| Third-party SAC / Stellar core     | Platform trust assumptions                                                          |
+| Marketing site / docs typos        | Non-security unless they contradict invariants                                      |
 
 ### Assumptions auditors may rely on
 
@@ -136,15 +136,15 @@ Mapped from [`threat_matrix.md`](threat_matrix.md) and [`SECURITY.md`](../SECURI
 
 Document these so reviewers do **not** file them as unexpected vulnerabilities without context.
 
-| Behavior | Why it exists | Residual risk |
-| --- | --- | --- |
-| **`charge()` / `batch_charge()` are permissionless** | Keepers (or anyone) must trigger billing without holding user keys | Spam txs / griefing gas; mitigated by interval checks and fail-closed transfers |
-| **Broad admin powers** (pause, freeze, fee, upgrade-related ops) | Early protocol needs emergency control | Key compromise impact is high — require HW wallet / multisig for mainnet |
-| **External keeper liveness** | Soroban has no native cron | Missed cycles → grace elapsed → user re-subscribe |
-| **No on-chain dispute layer** | Product scope | Failed/delayed charges handled operationally |
-| **Single-token-per-deployment default** | Simplifies accounting | Multi-token needs separate instances or future design |
-| **Temporary storage for daily limits / proposals** | TTL auto-reset / short-lived commits | Entries can disappear; code must tolerate absence |
-| **Upgrade wrapper present** | Allows bugfix evolution | Upgrade authority must be governed carefully |
+| Behavior                                                         | Why it exists                                                      | Residual risk                                                                   |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **`charge()` / `batch_charge()` are permissionless**             | Keepers (or anyone) must trigger billing without holding user keys | Spam txs / griefing gas; mitigated by interval checks and fail-closed transfers |
+| **Broad admin powers** (pause, freeze, fee, upgrade-related ops) | Early protocol needs emergency control                             | Key compromise impact is high — require HW wallet / multisig for mainnet        |
+| **External keeper liveness**                                     | Soroban has no native cron                                         | Missed cycles → grace elapsed → user re-subscribe                               |
+| **No on-chain dispute layer**                                    | Product scope                                                      | Failed/delayed charges handled operationally                                    |
+| **Single-token-per-deployment default**                          | Simplifies accounting                                              | Multi-token needs separate instances or future design                           |
+| **Temporary storage for daily limits / proposals**               | TTL auto-reset / short-lived commits                               | Entries can disappear; code must tolerate absence                               |
+| **Upgrade wrapper present**                                      | Allows bugfix evolution                                            | Upgrade authority must be governed carefully                                    |
 
 > Permissionless charge is **by design**: correctness comes from allowance + interval + active-state checks, not from keeper identity. See FAQ in [`README.md`](../../README.md) and [`SECURITY.md`](../SECURITY.md).
 
@@ -154,20 +154,20 @@ Document these so reviewers do **not** file them as unexpected vulnerabilities w
 
 Provide auditors with a short written brief containing:
 
-1. Tag / commit SHA and WASM hash  
-2. Link to this document + threat matrix  
-3. Top three concerns you want emphasized (e.g. fee math, pause paths, batch_charge)  
-4. Timeline and severity triage SLA  
+1. Tag / commit SHA and WASM hash
+2. Link to this document + threat matrix
+3. Top three concerns you want emphasized (e.g. fee math, pause paths, batch_charge)
+4. Timeline and severity triage SLA
 5. Disclosure preference (GitHub Security Advisories / email)
 
 ---
 
 ## 7. After the Audit
 
-- [ ] Triage findings by severity; assign owners  
-- [ ] Patch in private forks if needed; re-run full `cargo test`  
-- [ ] Re-audit or delta-review critical fixes  
-- [ ] Publish report (or summary) before mainnet  
-- [ ] Update [`SECURITY.md`](../SECURITY.md) status from “not audited” when complete  
+- [ ] Triage findings by severity; assign owners
+- [ ] Patch in private forks if needed; re-run full `cargo test`
+- [ ] Re-audit or delta-review critical fixes
+- [ ] Publish report (or summary) before mainnet
+- [ ] Update [`SECURITY.md`](../SECURITY.md) status from “not audited” when complete
 
 For mainnet go-live gates after audit, see [`MAINNET-DEPLOYMENT.md`](../MAINNET-DEPLOYMENT.md) (when present) and [`DEPLOYMENT.md`](../DEPLOYMENT.md).

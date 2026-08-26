@@ -34,6 +34,7 @@
 **Threat:** Attacker exploits unlimited allowance to drain user tokens.
 
 **Attack Vector:**
+
 - Malicious merchant requests infinite allowance
 - User unknowingly approves excessive spending
 - Contract executes repeated charges exceeding authorized amount
@@ -63,6 +64,7 @@ fn validate_billing_interval(interval: u64) -> Result<(), Error> {
 ```
 
 **Mitigation Strategy:**
+
 - ✓ Hard cap on transaction amount (`MAX_AMOUNT`)
 - ✓ Minimum billing interval prevents rapid draining
 - ✓ User-controlled allowance limits at token level
@@ -75,6 +77,7 @@ fn validate_billing_interval(interval: u64) -> Result<(), Error> {
 **Threat:** Unauthorized caller attempts administrative operations.
 
 **Attack Vector:**
+
 - Attacker calls `admin_emergency_freeze()` without authorization
 - Attacker modifies critical parameters via `admin_update_*` functions
 - Contract state corrupted or service halted
@@ -86,11 +89,11 @@ fn validate_billing_interval(interval: u64) -> Result<(), Error> {
 fn admin_emergency_freeze(env: Env) -> Result<(), Error> {
     let admin = env.storage().instance().get::<Address>(&ADMIN_KEY)?;
     let caller = env.invoker();
-    
+
     if caller != admin {
         return Err(Error::Unauthorized);
     }
-    
+
     // Execute freeze logic
     Ok(())
 }
@@ -106,6 +109,7 @@ fn require_admin(env: &Env) -> Result<Address, Error> {
 ```
 
 **Mitigation Strategy:**
+
 - ✓ Every admin function validates `env.invoker()` against stored admin address
 - ✓ Admin address immutable after deployment (no transfer function)
 - ✓ All modifications require explicit authorization check
@@ -118,6 +122,7 @@ fn require_admin(env: &Env) -> Result<Address, Error> {
 **Threat:** Attacker uses minimal billing intervals to spam blockchain and exhaust resources.
 
 **Attack Vector:**
+
 - Create subscription with 1-second interval
 - Spam `batch_charge()` call thousands of times per minute
 - Exhaust keeper bot resources or degrade network performance
@@ -136,28 +141,29 @@ fn validate_charge_eligibility(
 ) -> Result<(), Error> {
     let next_charge_time = last_charge_time.checked_add(billing_interval)
         .ok_or(Error::ArithmeticOverflow)?;
-    
+
     if current_time < next_charge_time {
         return Err(Error::TooEarlyToCharge);
     }
-    
+
     Ok(())
 }
 
 // batch.rs: Pagination prevents single-transaction overload
 fn batch_charge(env: Env, page_offset: u32, page_size: u32) -> Result<u32, Error> {
     const MAX_PAGE_SIZE: u32 = 100;
-    
+
     if page_size > MAX_PAGE_SIZE {
         return Err(Error::PageSizeTooLarge);
     }
-    
+
     // Process only one page per invocation
     Ok(process_page(env, page_offset, page_size)?)
 }
 ```
 
 **Mitigation Strategy:**
+
 - ✓ Minimum 24-hour billing interval enforced at contract validation
 - ✓ `batch_charge()` processes limited pages per call (max 100 subscriptions)
 - ✓ Timestamp validation prevents charging same subscription twice in interval
@@ -181,6 +187,7 @@ fn admin_emergency_freeze(env: Env) -> Result<(), Error> {
 ```
 
 **Risks & Mitigations:**
+
 - **Risk:** Freezing contract stops all billing (potential revenue loss)
 - **Mitigation:** Only callable by admin; requires off-chain governance approval
 - **Risk:** Indefinite freeze state could orphan active subscriptions

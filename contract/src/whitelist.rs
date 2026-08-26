@@ -1,7 +1,58 @@
+use crate::errors::ContractError;
 use crate::events;
 use crate::merchant_stats;
 use crate::DataKey;
+use crate::{MAX_BATCH_SIZE_CEILING, MAX_WHITELIST_BATCH_SIZE};
 use soroban_sdk::{Address, Env, Vec};
+
+// ─────────────────────────────────────────────────────────────
+// Whitelist batch limit
+// ─────────────────────────────────────────────────────────────
+//
+// Design note (CONTRACT-16 follow-up):
+//
+// Whitelist batches get their *own* configurable cap rather than reusing
+// `DataKey::MaxBatchSize` (which bounds `batch_charge` / `batch_extend_*`).
+// The two batch families have very different per-entry costs — a whitelist
+// entry is a handful of persistent writes plus one event, while a charge
+// entry performs token `transfer_from` calls — so a single shared knob would
+// force operators to tune the cheap path down whenever they tune the
+// expensive one down (and vice versa). Keeping them separate lets admins size
+// each batch against its real instruction cost.
+//
+// Both knobs share `MAX_BATCH_SIZE_CEILING` so no configuration can produce an
+// unbounded batch, and the default here stays at the historical
+// `MAX_WHITELIST_BATCH_SIZE` (50) so behaviour is unchanged until an admin
+// deliberately opts into a different value.
+
+/// Returns the effective whitelist batch cap, defaulting to
+/// `MAX_WHITELIST_BATCH_SIZE` (50) when no override has been configured.
+pub fn get_max_whitelist_batch_size(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxWhitelistBatchSize)
+        .unwrap_or(MAX_WHITELIST_BATCH_SIZE)
+}
+
+/// Sets the whitelist batch cap. Callers must gate this on admin auth.
+///
+/// Panics with `InvalidBatchSize` when `size` is zero (which would brick the
+/// admin batch entrypoints) or above `MAX_BATCH_SIZE_CEILING`.
+pub fn set_max_whitelist_batch_size(env: &Env, size: u32) {
+    if size == 0 || size > MAX_BATCH_SIZE_CEILING {
+        env.panic_with_error(ContractError::InvalidBatchSize);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxWhitelistBatchSize, &size);
+}
+
+/// Panics with `BatchTooLarge` when `len` exceeds the configured whitelist cap.
+pub fn require_batch_within_limit(env: &Env, len: u32) {
+    if len > get_max_whitelist_batch_size(env) {
+        env.panic_with_error(ContractError::BatchTooLarge);
+    }
+}
 
 /// Checks if a merchant is whitelisted.
 pub fn is_whitelisted(env: &Env, merchant: &Address) -> bool {
@@ -27,17 +78,26 @@ pub fn add_merchant(env: &Env, merchant: &Address) {
     }
     let key = DataKey::MerchantWhitelist(merchant.clone());
     env.storage().persistent().set(&key, &true);
-    env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 1555200, 1555200);
 
     let size = get_whitelist_size(env);
     let index_key = DataKey::WhitelistIndex(size);
     env.storage().persistent().set(&index_key, merchant);
-    env.storage().persistent().extend_ttl(&index_key, 1555200, 1555200);
+    env.storage()
+        .persistent()
+        .extend_ttl(&index_key, 1555200, 1555200);
 
     let size_key = DataKey::WhitelistIndexSize;
     env.storage().persistent().set(&size_key, &(size + 1));
-    env.storage().persistent().extend_ttl(&size_key, 1555200, 1555200);
+    env.storage()
+        .persistent()
+        .extend_ttl(&size_key, 1555200, 1555200);
 
+        env.storage()
+        .persistent()
+        .set(&DataKey::MerchantWhitelist(merchant.clone()), &true);
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_added(env, merchant);
 }
@@ -62,15 +122,23 @@ pub fn remove_merchant(env: &Env, merchant: &Address) {
                     let last_idx = size - 1;
                     if i != last_idx {
                         let last_key = DataKey::WhitelistIndex(last_idx);
-                        if let Some(last_addr) = env.storage().persistent().get::<_, Address>(&last_key) {
+                        if let Some(last_addr) =
+                            env.storage().persistent().get::<_, Address>(&last_key)
+                        {
                             env.storage().persistent().set(&key, &last_addr);
-                            env.storage().persistent().extend_ttl(&key, 1555200, 1555200);
+                            env.storage()
+                                .persistent()
+                                .extend_ttl(&key, 1555200, 1555200);
                         }
                     }
-                    env.storage().persistent().remove(&DataKey::WhitelistIndex(last_idx));
+                    env.storage()
+                        .persistent()
+                        .remove(&DataKey::WhitelistIndex(last_idx));
                     let size_key = DataKey::WhitelistIndexSize;
                     env.storage().persistent().set(&size_key, &(size - 1));
-                    env.storage().persistent().extend_ttl(&size_key, 1555200, 1555200);
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&size_key, 1555200, 1555200);
                     break;
                 }
             }
@@ -96,7 +164,6 @@ pub fn get_whitelist_page(env: &Env, offset: u32, limit: u32) -> Vec<Address> {
     }
     out
 }
-
 
 /// Checks if the merchant whitelist is currently enabled. Defaults to true.
 pub fn is_whitelist_enabled(env: &Env) -> bool {
@@ -146,7 +213,7 @@ pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>
             .persistent()
             .set(&DataKey::MerchantFreezeReason(merchant.clone()), r);
     }
-    
+
     env.storage()
         .persistent()
         .set(&DataKey::MerchantFrozen(merchant.clone()), &true);

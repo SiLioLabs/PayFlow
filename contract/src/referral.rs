@@ -26,7 +26,7 @@ pub fn store_referral(env: &Env, user: &Address, referrer: &Option<Address>) {
         env.storage().persistent().set(&key, r);
 
         events::publish_referred(env, user, r);
-    } else {
+    } else if env.storage().persistent().has(&key) {
         env.storage().persistent().remove(&key);
     }
 }

@@ -20,6 +20,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { writeFileSync } from "node:fs";
+import { logger } from "./logger";
 
 interface EventRow {
   timestamp: number;
@@ -50,20 +51,28 @@ function toDateStr(ts: number): string {
 
 function tableExists(db: DatabaseSync, name: string): boolean {
   const row = db
-    .prepare("SELECT COUNT(*) as n FROM sqlite_master WHERE type='table' AND name=?")
+    .prepare(
+      "SELECT COUNT(*) as n FROM sqlite_master WHERE type='table' AND name=?",
+    )
     .get(name) as { n: number };
   return row.n > 0;
 }
 
 function main() {
   const dbPath = getArg("--db");
-  if (!dbPath) { console.error("--db <path> required"); process.exit(1); }
+  if (!dbPath) {
+    console.error("--db <path> required");
+    process.exit(1);
+  }
+  if (!dbPath) { logger.error("--db <path> required"); process.exit(1); }
 
   const db = new DatabaseSync(dbPath, { open: true });
 
   // Cancelled events grouped by day
   const cancelRows = db
-    .prepare("SELECT timestamp FROM events WHERE event_name = 'cancelled' ORDER BY timestamp ASC")
+    .prepare(
+      "SELECT timestamp FROM events WHERE event_name = 'cancelled' ORDER BY timestamp ASC",
+    )
     .all() as unknown as EventRow[];
 
   // Active subscriber counts per day (optional table)
@@ -78,11 +87,14 @@ function main() {
   } else {
     // Fallback: use total subscriber count from events
     const totalRow = db
-      .prepare("SELECT COUNT(DISTINCT json_extract(data, '$.user')) as n FROM events WHERE event_name = 'subscribed'")
+      .prepare(
+        "SELECT COUNT(DISTINCT json_extract(data, '$.user')) as n FROM events WHERE event_name = 'subscribed'",
+      )
       .get() as { n: number };
     const fallbackTotal = totalRow?.n ?? 0;
     // Populate all encountered days with the fallback
-    for (const r of cancelRows) activeMap.set(toDateStr(r.timestamp), fallbackTotal);
+    for (const r of cancelRows)
+      activeMap.set(toDateStr(r.timestamp), fallbackTotal);
   }
 
   db.close();
@@ -99,7 +111,12 @@ function main() {
     total += count;
     const active = activeMap.get(date) ?? 0;
     const rate = active > 0 ? (count / active).toFixed(6) : "0.000000";
-    days.push({ date, cancellations: count, active_subscribers: active, churn_rate: rate });
+    days.push({
+      date,
+      cancellations: count,
+      active_subscribers: active,
+      churn_rate: rate,
+    });
   }
 
   const report: Report = {
@@ -111,7 +128,11 @@ function main() {
 
   const out = getArg("--out");
   const json = JSON.stringify(report, null, 2);
-  if (out) { writeFileSync(out, json); console.log(`Wrote report to ${out}`); }
+  if (out) {
+    writeFileSync(out, json);
+    console.log(`Wrote report to ${out}`);
+  } else process.stdout.write(json + "\n");
+  if (out) { writeFileSync(out, json); logger.info(`Wrote report to ${out}`); }
   else process.stdout.write(json + "\n");
 }
 

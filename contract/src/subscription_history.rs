@@ -13,6 +13,18 @@ pub fn get_charge_history(env: &Env, user: &Address) -> Vec<u64> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+/// Returns the count of stored charge timestamps for a subscriber.
+pub fn get_charge_history_count(env: &Env, user: &Address) -> u32 {
+    let opt_history: Option<Vec<u64>> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::ChargeHistory(user.clone()));
+    match opt_history {
+        Some(history) => history.len(),
+        None => 0,
+    }
+}
+
 /// Appends `timestamp` to the subscriber's charge history.
 /// Drops the oldest entry when the buffer exceeds `MAX_HISTORY`.
 pub fn record_charge(env: &Env, user: &Address, timestamp: u64) {

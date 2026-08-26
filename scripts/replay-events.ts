@@ -18,11 +18,16 @@
 
 import { Contract, Networks } from "@stellar/stellar-sdk";
 import { MultiEndpointServer } from "./rpc-client.js";
+import { logger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const CONTRACT_ID = process.env.CONTRACT_ID || process.env.VITE_CONTRACT_ID || "";
-const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID || process.env.VITE_CONTRACT_ID || "";
+const RPC_URL =
+  process.env.RPC_URL ||
+  process.env.VITE_RPC_URL ||
+  "https://soroban-testnet.stellar.org";
 
 /**
  * Number of ledgers to fetch per batch. Keeps RPC responses manageable
@@ -56,29 +61,33 @@ function parseArgs(argv: string[]): ReplayArgs {
         break;
       default:
         console.error(`Unknown argument: ${argv[i]}`);
-        console.error("Usage: replay-events.ts --from-ledger <n> --to-ledger <n>");
+        console.error(
+          "Usage: replay-events.ts --from-ledger <n> --to-ledger <n>",
+        );
+        logger.error(`Unknown argument: ${argv[i]}`);
+        logger.error("Usage: replay-events.ts --from-ledger <n> --to-ledger <n>");
         process.exit(1);
     }
   }
 
   if (fromLedger === undefined || toLedger === undefined) {
-    console.error("ERROR: Both --from-ledger and --to-ledger are required.");
-    console.error("Usage: replay-events.ts --from-ledger <n> --to-ledger <n>");
+    logger.error("ERROR: Both --from-ledger and --to-ledger are required.");
+    logger.error("Usage: replay-events.ts --from-ledger <n> --to-ledger <n>");
     process.exit(1);
   }
 
   if (!Number.isInteger(fromLedger) || !Number.isInteger(toLedger)) {
-    console.error("ERROR: --from-ledger and --to-ledger must be integers.");
+    logger.error("ERROR: --from-ledger and --to-ledger must be integers.");
     process.exit(1);
   }
 
   if (fromLedger < 0 || toLedger < 0) {
-    console.error("ERROR: Ledger values must be non-negative.");
+    logger.error("ERROR: Ledger values must be non-negative.");
     process.exit(1);
   }
 
   if (toLedger < fromLedger) {
-    console.error("ERROR: --to-ledger must be >= --from-ledger.");
+    logger.error("ERROR: --to-ledger must be >= --from-ledger.");
     process.exit(1);
   }
 
@@ -110,7 +119,14 @@ function parseEvent(rawEvent: any): ReplayEvent {
     : new Date().toISOString();
   const txHash = rawEvent.txHash ?? rawEvent.id ?? "";
 
-  return { eventName, address, data: rawEvent.value, ledger, timestamp, txHash };
+  return {
+    eventName,
+    address,
+    data: rawEvent.value,
+    ledger,
+    timestamp,
+    txHash,
+  };
 }
 
 /**
@@ -145,7 +161,7 @@ async function upsertEvent(event: ReplayEvent): Promise<void> {
 async function fetchBatch(
   server: MultiEndpointServer,
   startLedger: number,
-  endLedger: number
+  endLedger: number,
 ): Promise<ReplayEvent[]> {
   const events: ReplayEvent[] = [];
   let cursor: string | undefined;
@@ -192,22 +208,26 @@ async function main(): Promise<void> {
   const { fromLedger, toLedger } = parseArgs(process.argv);
 
   if (!CONTRACT_ID) {
-    console.error("ERROR: CONTRACT_ID environment variable is not set.");
+    logger.error("ERROR: CONTRACT_ID environment variable is not set.");
     process.exit(1);
   }
 
   const server = new MultiEndpointServer(RPC_URL);
 
-  console.log("Replay started");
-  console.log("");
-  console.log(`Ledgers: ${fromLedger} → ${toLedger}`);
-  console.log("");
+  logger.info("Replay started");
+  logger.info("");
+  logger.info(`Ledgers: ${fromLedger} → ${toLedger}`);
+  logger.info("");
 
   let totalEvents = 0;
   let batchCount = 0;
 
   // Process in batches to handle large ledger ranges incrementally
-  for (let batchStart = fromLedger; batchStart <= toLedger; batchStart += BATCH_SIZE) {
+  for (
+    let batchStart = fromLedger;
+    batchStart <= toLedger;
+    batchStart += BATCH_SIZE
+  ) {
     const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, toLedger);
     batchCount++;
 
@@ -224,25 +244,30 @@ async function main(): Promise<void> {
       // Progress reporting
       const progress = Math.min(
         100,
-        Math.round(((batchEnd - fromLedger + 1) / (toLedger - fromLedger + 1)) * 100)
+        Math.round(
+          ((batchEnd - fromLedger + 1) / (toLedger - fromLedger + 1)) * 100,
+        ),
       );
-      console.log(
+      logger.info(
         `  Batch ${batchCount}: ledgers ${batchStart}–${batchEnd} | ` +
-        `${events.length} events | ${progress}% complete`
+          `${events.length} events | ${progress}% complete`,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`);
+      console.error(
+        `ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`,
+      );
+      logger.error(`ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`);
       process.exit(1);
     }
   }
 
-  console.log("");
-  console.log(`Processed batches: ${batchCount}`);
-  console.log("");
-  console.log(`Events replayed: ${totalEvents}`);
-  console.log("");
-  console.log("Replay completed");
+  logger.info("");
+  logger.info(`Processed batches: ${batchCount}`);
+  logger.info("");
+  logger.info(`Events replayed: ${totalEvents}`);
+  logger.info("");
+  logger.info("Replay completed");
 
   process.exit(0);
 }

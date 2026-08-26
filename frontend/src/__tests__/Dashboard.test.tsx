@@ -3,19 +3,52 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-vi.mock("../stellar", () => ({
-  buildCancelTx: vi.fn(),
-  buildPayPerUseTx: vi.fn(),
-  getSubscription: vi.fn(() => Promise.resolve(null)),
-  getAllowance: vi.fn(() => Promise.resolve(0n)),
-  getDailyLimit: vi.fn(() => Promise.resolve(null)),
-  getDailySpent: vi.fn(() => Promise.resolve(0n)),
-  fetchEvents: vi.fn(() => Promise.resolve([])),
-  explorerTxUrl: vi.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
-  server: {
-    getTransaction: vi.fn(() => Promise.resolve({ status: "SUCCESS" })),
-  },
-}));
+const toast = {
+  error: vi.fn(),
+  success: vi.fn(),
+};
+
+vi.mock("../hooks/useToast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../hooks/useToast")>();
+  return {
+    ...actual,
+    useToast: () => {
+      const hook = actual.useToast();
+      return {
+        ...hook,
+        addToast: (
+          message: string,
+          variant: "success" | "error" | "info" = "info",
+          txHash?: string
+        ) => {
+          if (variant === "error") toast.error(message);
+          if (variant === "success") toast.success(message);
+          return hook.addToast(message, variant, txHash);
+        },
+      };
+    },
+  };
+});
+
+vi.mock("../stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stellar")>();
+  return {
+    ...actual,
+    RPC_URL: "https://soroban-testnet.stellar.org",
+    getAllowance: vi.fn(() => Promise.resolve(0n)),
+    getTrialEnd: vi.fn(() => Promise.resolve(null)),
+    getSubscription: vi.fn(() => Promise.resolve(null)),
+    getDailyLimit: vi.fn(() => Promise.resolve(null)),
+    getDailySpent: vi.fn(() => Promise.resolve(0n)),
+    fetchEvents: vi.fn(() => Promise.resolve([])),
+    buildCancelTx: vi.fn(),
+    buildPayPerUseTx: vi.fn(),
+    explorerTxUrl: vi.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
+    server: {
+      getTransaction: vi.fn(() => Promise.resolve({ status: "SUCCESS" })),
+    },
+  };
+});
 vi.mock("../hooks/usePolling", () => ({ usePolling: () => {} }));
 vi.mock("../hooks/useRpcHealth", () => ({
   useRpcHealth: vi.fn(() => ({ status: "healthy", latencyMs: 50, error: null })),
@@ -53,7 +86,11 @@ function setup(sub: typeof ACTIVE_SUB | null = ACTIVE_SUB) {
 }
 
 describe("Dashboard", () => {
-  afterEach(() => vi.resetAllMocks());
+  afterEach(() => {
+    vi.resetAllMocks();
+    toast.error.mockClear();
+    toast.success.mockClear();
+  });
 
   it("shows no-subscription message when sub is null", async () => {
     setup(null);
@@ -106,11 +143,12 @@ describe("Dashboard", () => {
     vi.mocked(stellar.buildPayPerUseTx).mockResolvedValue("ppu-xdr");
     setup();
 
-    await waitFor(() => screen.getByRole("spinbutton"));
+    await waitFor(() => screen.getAllByRole("spinbutton").length > 0);
 
-    const input = screen.getByRole("spinbutton");
-    await userEvent.clear(input);
-    await userEvent.type(input, "1");
+    // Replace single getByRole with getAllByRole and pick the pay-per-use input:
+    const amountInputs = screen.getAllByRole("spinbutton");
+    await userEvent.clear(amountInputs[0]);
+    await userEvent.type(amountInputs[0], "10");
     await userEvent.click(screen.getByRole("button", { name: /pay/i }));
 
     await waitFor(() => expect(screen.getByText(/Paid!/)).toBeTruthy());
@@ -124,6 +162,8 @@ describe("Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
-    await waitFor(() => expect(screen.getByText(/user rejected/i)).toBeTruthy());
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/user rejected/i));
+    });
   });
 });

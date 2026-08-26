@@ -23,8 +23,8 @@ export function useWallet() {
   const [connecting, setConnecting] = useState(false);
   const [ready, setReady] = useState(false);
   const [activeAdapterId, setActiveAdapterId] = useState<string | null>(null);
-  
-  const activeAdapter = AVAILABLE_WALLETS.find(a => a.id === activeAdapterId) || null;
+
+  const activeAdapter = AVAILABLE_WALLETS.find((a) => a.id === activeAdapterId) || null;
 
   useEffect(() => {
     let mounted = true;
@@ -38,7 +38,7 @@ export function useWallet() {
         return;
       }
 
-      const adapter = AVAILABLE_WALLETS.find(a => a.id === cachedId);
+      const adapter = AVAILABLE_WALLETS.find((a) => a.id === cachedId);
       if (!adapter) {
         localStorage.removeItem(STORAGE_KEY_PK);
         localStorage.removeItem(STORAGE_KEY_ID);
@@ -51,12 +51,12 @@ export function useWallet() {
         if (!isInstalled) {
           throw new Error("Wallet not installed");
         }
-        
+
         // Some wallets require explicitly connecting again, others might just work.
         // For standard revalidation, we just assume it's still connected if we have the key,
         // or we try to connect quietly.
         const liveKey = await adapter.connect();
-        
+
         if (mounted) {
           setPublicKey(liveKey);
           setActiveAdapterId(adapter.id);
@@ -86,7 +86,7 @@ export function useWallet() {
       if (!isInstalled) {
         throw new Error(`${adapter.name} wallet not found. Please install it.`);
       }
-      
+
       const key = await adapter.connect();
       localStorage.setItem(STORAGE_KEY_PK, key);
       localStorage.setItem(STORAGE_KEY_ID, adapter.id);
@@ -99,13 +99,16 @@ export function useWallet() {
     }
   }, []);
 
-  const signAndSubmit = useCallback(async (xdr: string): Promise<string> => {
-    if (!activeAdapter) throw new Error("No wallet connected");
-    const signed = await activeAdapter.signTransaction(xdr, NETWORK_PASSPHRASE);
-    const tx = new Transaction(signed, NETWORK_PASSPHRASE);
-    const result = await server.sendTransaction(tx);
-    return result.hash;
-  }, [activeAdapter]);
+  const signAndSubmit = useCallback(
+    async (xdr: string): Promise<string> => {
+      if (!activeAdapter) throw new Error("No wallet connected");
+      const signed = await activeAdapter.signTransaction(xdr, NETWORK_PASSPHRASE);
+      const tx = new Transaction(signed, NETWORK_PASSPHRASE);
+      const result = await server.sendTransaction(tx);
+      return result.hash;
+    },
+    [activeAdapter]
+  );
 
   const disconnect = useCallback(async () => {
     if (activeAdapter) {
@@ -122,14 +125,14 @@ export function useWallet() {
     setError(null);
   }, [activeAdapter]);
 
-  return { 
-    publicKey, 
-    connect, 
-    signAndSubmit, 
-    disconnect, 
-    error, 
-    connecting, 
+  return {
+    publicKey,
+    connect,
+    signAndSubmit,
+    disconnect,
+    error,
+    connecting,
     ready,
-    activeAdapter 
+    activeAdapter,
   };
 }

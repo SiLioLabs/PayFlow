@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -902,7 +903,12 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                "void"
+              ]
             }
           }
         }
@@ -924,11 +930,12 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#209)'"
+                  "string": "caught panic 'admin not set' from contract function 'Symbol(obj#219)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                }
+                },
+                "void"
               ]
             }
           }
@@ -990,7 +997,8 @@
                   "vec": [
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                    }
+                    },
+                    "void"
                   ]
                 }
               ]

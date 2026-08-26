@@ -1,16 +1,20 @@
 /**
  * validate-config.ts — Environment configuration validator for FlowPay.
  *
- * Reads .env or .env.local and validates that all required variables are present
- * and correctly formatted. Useful for CI pipelines and local developer workflows.
+ * Reads .env or .env.local and validates that all required keeper variables
+ * are present and correctly formatted using Zod schemas defined in config.ts.
+ * Useful for CI pipelines and local developer workflows.
  *
  * Usage:
- *   npx ts-node scripts/validate-config.ts
+ *   npx tsx scripts/validate-config.ts
  *
  * Checks:
- *   - Required variables exist and are non-empty
- *   - Contract IDs start with 'C' and are 56 characters long
- *   - RPC URLs are valid URLs with a protocol
+ *   - CONTRACT_ID     — non-empty, valid Stellar contract ID
+ *   - RPC_URL          — valid http/https URL
+ *   - SECRET_KEY       — valid Stellar secret key
+ *   - BATCH_SIZE       — integer 1–200
+ *   - INTERVAL_SECONDS — integer ≥ 60
+ *   - WEBHOOK_URL      — optional, validated if present
  *
  * Exit codes:
  *   0 — all validations passed
@@ -18,17 +22,13 @@
  */
 
 import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+import { ConfigSchema, formatConfigErrors } from "./config";
+import { logger } from "./logger";
 
-interface ValidationResult {
-  variable: string;
-  passed: boolean;
-  reason?: string;
-}
-
-type Validator = (value: string) => { valid: boolean; reason?: string };
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── .env Parsing ─────────────────────────────────────────────────────────────
 
@@ -75,18 +75,18 @@ function loadEnv(projectRoot: string): Map<string, string> {
   const envDefault = resolve(projectRoot, ".env");
 
   if (existsSync(envLocal)) {
-    console.log(`Reading configuration from: .env.local`);
+    logger.info(`Reading configuration from: .env.local`);
     return parseEnvFile(envLocal);
   }
 
   if (existsSync(envDefault)) {
-    console.log(`Reading configuration from: .env`);
+    logger.info(`Reading configuration from: .env`);
     return parseEnvFile(envDefault);
   }
 
-  console.error("ERROR: No .env or .env.local file found in project root.");
-  console.error("  Create one from .env.example:");
-  console.error("    cp frontend/.env.example .env.local");
+  logger.error("ERROR: No .env or .env.local file found in project root.");
+  logger.error("  Create one from .env.example or set required variables:");
+  logger.error("    CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS");
   process.exit(1);
 }
 
@@ -96,16 +96,25 @@ function loadEnv(projectRoot: string): Map<string, string> {
  * Validate that a value is a Stellar contract ID.
  * Contract IDs begin with 'C' and are exactly 56 characters (base32-encoded).
  */
-function validateContractId(value: string): { valid: boolean; reason?: string } {
+function validateContractId(value: string): {
+  valid: boolean;
+  reason?: string;
+} {
   if (!value.startsWith("C")) {
     return { valid: false, reason: "must start with 'C'" };
   }
   if (value.length !== 56) {
-    return { valid: false, reason: `must be 56 characters (got ${value.length})` };
+    return {
+      valid: false,
+      reason: `must be 56 characters (got ${value.length})`,
+    };
   }
   // Stellar contract IDs use uppercase base32 (A-Z, 2-7)
   if (!/^[A-Z2-7]+$/.test(value)) {
-    return { valid: false, reason: "contains invalid characters (expected base32: A-Z, 2-7)" };
+    return {
+      valid: false,
+      reason: "contains invalid characters (expected base32: A-Z, 2-7)",
+    };
   }
   return { valid: true };
 }
@@ -157,7 +166,7 @@ const REQUIRED_VARIABLES: Array<{ name: string; validators: Validator[] }> = [
 function validateVariable(
   name: string,
   envVars: Map<string, string>,
-  validators: Validator[]
+  validators: Validator[],
 ): ValidationResult {
   const value = envVars.get(name);
 
@@ -187,37 +196,45 @@ function main(): void {
   const projectRoot = resolve(__dirname, "..");
   const envVars = loadEnv(projectRoot);
 
-  console.log("");
-
-  const results: ValidationResult[] = [];
-
-  for (const { name, validators } of REQUIRED_VARIABLES) {
-    const result = validateVariable(name, envVars, validators);
-    results.push(result);
+  // Convert Map to plain object for Zod
+  const envObject: Record<string, string | undefined> = {};
+  for (const [key, value] of envVars) {
+    envObject[key] = value;
   }
 
-  // Display results
-  let hasFailures = false;
+  logger.info("");
 
-  for (const result of results) {
-    if (result.passed) {
-      console.log(`\u2713 ${result.variable}`);
-    } else {
-      console.log(`\u2717 ${result.variable} — ${result.reason}`);
-      hasFailures = true;
+  const result = ConfigSchema.safeParse(envObject);
+
+  if (result.success) {
+    const config = result.data;
+    logger.info("✓ CONTRACT_ID ..............", config.CONTRACT_ID);
+    logger.info("✓ RPC_URL ..................", config.RPC_URL);
+    logger.info("✓ SECRET_KEY ...............", "******** (valid)");
+    logger.info("✓ BATCH_SIZE ...............", config.BATCH_SIZE);
+    logger.info("✓ INTERVAL_SECONDS .........", config.INTERVAL_SECONDS);
+    if (config.WEBHOOK_URL) {
+      logger.info("✓ WEBHOOK_URL ..............", config.WEBHOOK_URL);
     }
+    if (config.NETWORK_PASSPHRASE) {
+      logger.info("✓ NETWORK_PASSPHRASE .......", config.NETWORK_PASSPHRASE);
+    }
+    logger.info("\nAll configuration checks passed.\n");
+    process.exit(0);
   }
 
-  console.log("");
+  // Validation failed — display all issues with human-readable messages
+  const errors = formatConfigErrors(result.error);
 
-  if (hasFailures) {
-    const failCount = results.filter((r) => !r.passed).length;
-    console.log(`Validation failed: ${failCount} issue(s) found.`);
-    process.exit(1);
+  logger.info("Configuration validation failed:\n");
+  for (const msg of errors) {
+    logger.info(`  ${msg}`);
   }
 
-  console.log(`All ${results.length} checks passed.`);
-  process.exit(0);
+  logger.info("");
+  logger.info(`Validation failed: ${errors.length} issue(s) found.`);
+  logger.info("Fix the above errors and re-run.");
+  process.exit(1);
 }
 
 main();

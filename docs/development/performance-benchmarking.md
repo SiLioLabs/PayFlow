@@ -89,22 +89,22 @@ Each benchmark prints two numbers:
 
 There's no universal "good" number — it depends entirely on what the function does. What you're actually watching for is:
 
-1. **Comparative stability.** The same function, called the same way, should produce (approximately) the same instruction count on every run — Soroban's budget metering is deterministic given deterministic inputs, so unlike wall-clock benchmarks, there's no run-to-run noise to average out. If a number changes between two runs of the *same* code, something is non-deterministic (e.g., iterating a `Map` whose insertion order affects iteration) and worth investigating on its own.
-2. **Proportionality to work done.** `batch_charge()` over 10 users measured at 6,706,059 instructions is roughly 13× `charge()`'s 508,118 — i.e., a bit more than linear in user count, since batch overhead (loading the subscriber list, one shared transaction context) is amortized but per-user work (storage read/write, token transfer, event emission) dominates. If a future change made `batch_charge` scale *worse* than linear with subscriber count, that would be a red flag independent of any fixed baseline.
+1. **Comparative stability.** The same function, called the same way, should produce (approximately) the same instruction count on every run — Soroban's budget metering is deterministic given deterministic inputs, so unlike wall-clock benchmarks, there's no run-to-run noise to average out. If a number changes between two runs of the _same_ code, something is non-deterministic (e.g., iterating a `Map` whose insertion order affects iteration) and worth investigating on its own.
+2. **Proportionality to work done.** `batch_charge()` over 10 users measured at 6,706,059 instructions is roughly 13× `charge()`'s 508,118 — i.e., a bit more than linear in user count, since batch overhead (loading the subscriber list, one shared transaction context) is amortized but per-user work (storage read/write, token transfer, event emission) dominates. If a future change made `batch_charge` scale _worse_ than linear with subscriber count, that would be a red flag independent of any fixed baseline.
 3. **Headroom under the enforced threshold.** `bench.rs` asserts each measured call stays under a `MAX_*_INSTRUCTIONS` constant (see below). As long as you're comfortably under threshold with margin, you're "good"; crossing it fails the test outright.
 
 ### Actual measured baselines vs. the threshold constants
 
 Running the suite locally produced instruction counts substantially **lower** than the `MAX_*_INSTRUCTIONS` threshold constants defined at the top of `bench.rs` (those constants were set with ~10% headroom over baselines recorded against an earlier SDK snapshot per the file's own doc comment). Concretely:
 
-| Function | Measured CPU | Threshold constant (`bench.rs`) | Headroom |
-|---|---|---|---|
-| `subscribe()` | 261,022 | `MAX_SUBSCRIBE_INSTRUCTIONS` = 4,620,000 | ~17.7× |
-| `charge()` | 508,118 | `MAX_CHARGE_INSTRUCTIONS` = 4,180,000 | ~8.2× |
-| `pay_per_use()` | 530,622 | `MAX_PAY_PER_USE_INSTRUCTIONS` = 3,960,000 | ~7.5× |
-| `batch_charge()` (10 users) | 6,706,059 | `MAX_BATCH_10_INSTRUCTIONS` = 30,800,000 | ~4.6× |
+| Function                    | Measured CPU | Threshold constant (`bench.rs`)            | Headroom |
+| --------------------------- | ------------ | ------------------------------------------ | -------- |
+| `subscribe()`               | 261,022      | `MAX_SUBSCRIBE_INSTRUCTIONS` = 4,620,000   | ~17.7×   |
+| `charge()`                  | 508,118      | `MAX_CHARGE_INSTRUCTIONS` = 4,180,000      | ~8.2×    |
+| `pay_per_use()`             | 530,622      | `MAX_PAY_PER_USE_INSTRUCTIONS` = 3,960,000 | ~7.5×    |
+| `batch_charge()` (10 users) | 6,706,059    | `MAX_BATCH_10_INSTRUCTIONS` = 30,800,000   | ~4.6×    |
 
-This gap is expected and not a bug: the threshold constants exist to catch *regressions*, not to track the current number tightly. They were set generously so ordinary feature work doesn't spuriously fail CI. If you're doing dedicated optimization work, use the **actual measured numbers** in the table above as your working baseline, not the threshold constants — the thresholds only tell you the outer bound before the benchmark test fails.
+This gap is expected and not a bug: the threshold constants exist to catch _regressions_, not to track the current number tightly. They were set generously so ordinary feature work doesn't spuriously fail CI. If you're doing dedicated optimization work, use the **actual measured numbers** in the table above as your working baseline, not the threshold constants — the thresholds only tell you the outer bound before the benchmark test fails.
 
 > Numbers on your machine may differ slightly by Soroban SDK / `soroban-env-host` patch version. Always treat "the number this exact benchmark printed on `master` before your change" as the ground truth for regression comparisons (see [Regression Detection](#regression-detection)), not the numbers hardcoded in this document.
 
@@ -159,13 +159,14 @@ Because the benchmarks are deterministic given the same code and SDK version, co
 
 ### What counts as a regression vs. noise
 
-Because Soroban's budget metering is deterministic (not wall-clock timing), there is no "run it 10 times and average" step — the same inputs against the same compiled contract produce the same instruction count every time. If two runs of *identical* code produce different numbers, that itself is a bug worth investigating (usually nondeterministic iteration order over an unordered collection), not something to average away.
+Because Soroban's budget metering is deterministic (not wall-clock timing), there is no "run it 10 times and average" step — the same inputs against the same compiled contract produce the same instruction count every time. If two runs of _identical_ code produce different numbers, that itself is a bug worth investigating (usually nondeterministic iteration order over an unordered collection), not something to average away.
 
 A meaningful regression is any increase not explained by an intentional feature change, especially in `charge()` or `batch_charge()` since those run on every keeper billing cycle across every active subscriber — a regression there multiplies across the whole subscriber base, unlike a one-time `subscribe()` cost.
 
 ### Comparing against a committed baseline
 
 Keep the "Actual measured baselines" table in this document current. When you deliberately shift a baseline by more than ~5%, update:
+
 1. This table.
 2. The baselines table in [`docs/CONTRIBUTING-CONTRACT.md`](../CONTRIBUTING-CONTRACT.md#benchmarks).
 3. The `MAX_*_INSTRUCTIONS` constants in `bench.rs` if the new number no longer leaves reasonable headroom under the threshold.
@@ -235,12 +236,12 @@ The `Backend (Rust)` workflow ([`.github/workflows/rust.yml`](../../.github/work
 To add a dedicated, visible benchmark-reporting step (rather than relying on failures buried in the general `cargo test` output), add a step after the existing `Run tests` step:
 
 ```yaml
-    - name: Run tests
-      run: cargo test --verbose
-      working-directory: contract
-    - name: Run benchmarks
-      run: cargo test --features testutils bench -- --nocapture
-      working-directory: contract
+- name: Run tests
+  run: cargo test --verbose
+  working-directory: contract
+- name: Run benchmarks
+  run: cargo test --features testutils bench -- --nocapture
+  working-directory: contract
 ```
 
 This re-runs the same benchmark tests (they already ran once as part of `cargo test --verbose` above) but with `--nocapture`, so the CPU/memory numbers for every benchmark show up directly in the Actions log for each PR — useful for a reviewer eyeballing whether a PR touching `subscribe`/`charge`/`pay_per_use`/`batch_charge` shifted the numbers, without needing to run anything locally.

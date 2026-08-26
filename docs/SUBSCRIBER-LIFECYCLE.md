@@ -84,7 +84,7 @@ A narrative walkthrough of everything that can happen to a PayFlow subscription,
                                  └───────────────┘
 ```
 
-Every state below is defined purely by the two flags on the `Subscription` record (`active`, `paused`) plus the current ledger timestamp compared against `last_charged`, `interval`, and the global `grace_period`. There is no separate "status" enum stored anywhere — a subscription's state is always *derived*, never stored directly, which is why every state description below starts from the stored fields.
+Every state below is defined purely by the two flags on the `Subscription` record (`active`, `paused`) plus the current ledger timestamp compared against `last_charged`, `interval`, and the global `grace_period`. There is no separate "status" enum stored anywhere — a subscription's state is always _derived_, never stored directly, which is why every state description below starts from the stored fields.
 
 ```rust
 pub struct Subscription {
@@ -105,7 +105,7 @@ pub struct Subscription {
 
 ## 1. Nonexistent
 
-**What it means:** No `Subscription(user)` record exists in persistent storage. This is the starting state for every address, and the state a cancelled subscriber's *identity* never fully leaves — see [Cancelled](#7-cancelled) for why "nonexistent" and "cancelled" are actually different states in this contract.
+**What it means:** No `Subscription(user)` record exists in persistent storage. This is the starting state for every address, and the state a cancelled subscriber's _identity_ never fully leaves — see [Cancelled](#7-cancelled) for why "nonexistent" and "cancelled" are actually different states in this contract.
 
 **How to enter it:** This is the default — nothing to do. A subscriber only reaches this state before their first `subscribe()` call.
 
@@ -201,7 +201,7 @@ See [Pause and Resume, In Depth](#pause-and-resume-in-depth) for the indefinite-
 
 **How to exit it:** only `subscribe()` / `subscribe_with_metadata()` — a full new subscription that overwrites the cancelled record.
 
-**Operations allowed:** nothing on the cancelled subscription itself — `pay_per_use()` ❌, `charge()` ❌, `pause()`/`resume()` ❌, `cancel()` ❌ (already cancelled, `NoSubscriptionFound` does *not* apply here — a second `cancel()` call re-reads the same inactive record. Check the current contract behavior in [`lib.rs::cancel_inner`](../contract/src/lib.rs) before relying on idempotency, since the lifecycle spec's transition table treats double-cancel as blocked rather than erroring). `subscribe()` ✅ to start over.
+**Operations allowed:** nothing on the cancelled subscription itself — `pay_per_use()` ❌, `charge()` ❌, `pause()`/`resume()` ❌, `cancel()` ❌ (already cancelled, `NoSubscriptionFound` does _not_ apply here — a second `cancel()` call re-reads the same inactive record. Check the current contract behavior in [`lib.rs::cancel_inner`](../contract/src/lib.rs) before relying on idempotency, since the lifecycle spec's transition table treats double-cancel as blocked rather than erroring). `subscribe()` ✅ to start over.
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- \
@@ -236,12 +236,12 @@ It returns `Some(last_charged)` exactly while `last_charged` is still in the fut
 
 **Worked example.** Alice subscribes at `t = 1,000,000` with a 7-day trial (`trial_period = 604800`) to a merchant charging 10 USDC every 30 days (`interval = 2592000`):
 
-| Time | `last_charged` | State | `get_trial_end()` |
-| --- | --- | --- | --- |
-| `t = 1,000,000` (subscribe) | `1,604,800` | Active (Trial) | `Some(1,604,800)` |
-| `t = 1,300,000` (mid-trial) | `1,604,800` | Active (Trial) — `pay_per_use()` still works | `Some(1,604,800)` |
-| `t = 1,700,000` (trial over) | `1,604,800` | Active (Standard) — not yet chargeable | `None` |
-| `t = 4,196,800` (`1,604,800 + 2,592,000`) | `1,604,800` | Active (Chargeable) — first `charge()` succeeds here | `None` |
+| Time                                      | `last_charged` | State                                                | `get_trial_end()` |
+| ----------------------------------------- | -------------- | ---------------------------------------------------- | ----------------- |
+| `t = 1,000,000` (subscribe)               | `1,604,800`    | Active (Trial)                                       | `Some(1,604,800)` |
+| `t = 1,300,000` (mid-trial)               | `1,604,800`    | Active (Trial) — `pay_per_use()` still works         | `Some(1,604,800)` |
+| `t = 1,700,000` (trial over)              | `1,604,800`    | Active (Standard) — not yet chargeable               | `None`            |
+| `t = 4,196,800` (`1,604,800 + 2,592,000`) | `1,604,800`    | Active (Chargeable) — first `charge()` succeeds here | `None`            |
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- \
@@ -271,15 +271,15 @@ With `grace_period > 0`, the valid charge window becomes:
 - Inside the window: `charge()` succeeds normally.
 - After the window closes: `charge()` panics with `ContractError::GracePeriodElapsed`, and the subscription is now [Active (Grace Expired)](#5-active-grace-expired).
 
-Grace period changes are **not retroactive** — each `charge()` call evaluates the grace period against whatever value is configured *at charge time*, not at subscribe time, so raising or lowering it affects every existing subscriber's next charge immediately.
+Grace period changes are **not retroactive** — each `charge()` call evaluates the grace period against whatever value is configured _at charge time_, not at subscribe time, so raising or lowering it affects every existing subscriber's next charge immediately.
 
 **Worked example.** `grace_period = 86400` (1 day). Bob's subscription has `last_charged = 2,000,000`, `interval = 604800` (7 days), so the charge window is `[2,604,800, 2,691,200]`.
 
-| `now` | Inside window? | `charge()` result |
-| --- | --- | --- |
-| `2,600,000` | No — before `2,604,800` | `IntervalNotElapsed` |
-| `2,650,000` | Yes | Succeeds; `last_charged` resets to `2,650,000` |
-| `2,700,000` (no charge happened) | No — after `2,691,200` | `GracePeriodElapsed`; now in Active (Grace Expired) |
+| `now`                            | Inside window?          | `charge()` result                                   |
+| -------------------------------- | ----------------------- | --------------------------------------------------- |
+| `2,600,000`                      | No — before `2,604,800` | `IntervalNotElapsed`                                |
+| `2,650,000`                      | Yes                     | Succeeds; `last_charged` resets to `2,650,000`      |
+| `2,700,000` (no charge happened) | No — after `2,691,200`  | `GracePeriodElapsed`; now in Active (Grace Expired) |
 
 ---
 
@@ -363,7 +363,7 @@ No refund is issued — the subscriber keeps whatever they already paid for the 
 
 ### Cancel with prorated refund — `cancel_and_refund_prorated(user, merchant)`
 
-This variant requires **both** the subscriber's and the merchant's authorization (`user.require_auth()` *and* `merchant.require_auth()` — a merchant can't be forced into refunding, and a subscriber can't self-refund from the merchant's pocket unilaterally):
+This variant requires **both** the subscriber's and the merchant's authorization (`user.require_auth()` _and_ `merchant.require_auth()` — a merchant can't be forced into refunding, and a subscriber can't self-refund from the merchant's pocket unilaterally):
 
 ```rust
 let elapsed = now.saturating_sub(sub.last_charged);
@@ -376,7 +376,7 @@ if refund > 0 {
 cancel_inner(&env, &user);
 ```
 
-The refund is a straight linear proration of the *current* billing period: the fraction of the interval not yet consumed, times the subscription amount. It transfers directly from the merchant's own token balance back to the user — this is a merchant-funded refund, not something PayFlow itself escrows, so the merchant address must hold (and have approved, if their token requires it for `transfer`) enough balance to cover it, or the transfer panics and the whole cancellation reverts.
+The refund is a straight linear proration of the _current_ billing period: the fraction of the interval not yet consumed, times the subscription amount. It transfers directly from the merchant's own token balance back to the user — this is a merchant-funded refund, not something PayFlow itself escrows, so the merchant address must hold (and have approved, if their token requires it for `transfer`) enough balance to cover it, or the transfer panics and the whole cancellation reverts.
 
 **Worked example.** Carol's subscription: `amount = 30 XLM`, `interval = 30 days (2,592,000s)`, last charged at `t = 5,000,000`. She cancels with proration at `t = 5,864,000` (10 days, or 864,000 seconds, into the period):
 

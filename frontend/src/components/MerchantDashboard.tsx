@@ -16,9 +16,10 @@ import { useVirtualList } from "../hooks/useVirtualList";
 import { useResponsive } from "../hooks/useResponsive";
 import CopyButton from "./CopyButton";
 import RevenueSparkline from "./RevenueSparkline";
+import EventFeed from "./EventFeed";
+import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
-
 
 const SUBSCRIBER_ROW_HEIGHT = 72;
 const SUBSCRIBER_LIST_HEIGHT = 400;
@@ -27,6 +28,7 @@ interface Props {
   merchantKey: string;
   onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
+  isPaused?: boolean;
 }
 
 function formatNextCharge(nextChargeAt: number): string {
@@ -34,7 +36,12 @@ function formatNextCharge(nextChargeAt: number): string {
   return date.toLocaleString();
 }
 
-export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger }: Props) {
+export default function MerchantDashboard({
+  merchantKey,
+  onSign,
+  refreshTrigger,
+  isPaused = false,
+}: Props) {
   const [subscribers, setSubscribers] = useState<MerchantSubscriber[]>([]);
   const [revenue, setRevenue] = useState<bigint>(0n);
   const [revenueHistory, setRevenueHistory] = useState<bigint[]>([]);
@@ -143,7 +150,9 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
         </div>
       </div>
 
-      <div className={`merchant-stats-grid grid gap-4 mb-6${isMobile ? " grid-cols-1" : " grid-cols-2"}`}>
+      <div
+        className={`merchant-stats-grid grid gap-4 mb-6${isMobile ? " grid-cols-1" : " grid-cols-2"}`}
+      >
         <div className="card">
           <span className="text-sm text-muted block mb-1">Total Revenue</span>
           <span className="text-2xl font-bold">{displayCurrentAmount(revenue)}</span>
@@ -154,14 +163,9 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
         </div>
       </div>
 
-      {error && (
-        <ErrorRecovery error={error} />
-      )}
+      {error && <ErrorRecovery error={error} />}
 
-      {tx.error && (
-        <ErrorRecovery error={tx.error} />
-      )}
-
+      {tx.error && <ErrorRecovery error={tx.error} />}
 
       {subscribers.length === 0 ? (
         <div className="card">
@@ -186,7 +190,10 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
               <button
                 className="btn-primary w-full"
                 onClick={handleBatchCharge}
-                disabled={tx.status === "pending"}
+                disabled={tx.status === "pending" || isPaused}
+                aria-label={
+                  isPaused ? "Charge subscribers (unavailable during maintenance)" : undefined
+                }
               >
                 {tx.status === "pending"
                   ? "Processing Batch Charge..."
@@ -226,10 +233,15 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
                       <span className="merchant-row__address">
                         {formatAddress(entry.subscriber)}
                       </span>
-                      <CopyButton text={entry.subscriber} />
+                      <CopyButton
+                        text={entry.subscriber}
+                        ariaLabel={`Copy subscriber address ${entry.subscriber}`}
+                      />
                     </div>
                     <div className="merchant-subscriber-value">
-                      <span className="subscription-row__value">{displayCurrentAmount(entry.amount)}</span>
+                      <span className="subscription-row__value">
+                        {displayCurrentAmount(entry.amount)}
+                      </span>
                       <div className="merchant-subscriber-meta-right">
                         <span className="subscription-row__label">
                           Next charge {formatNextCharge(entry.nextChargeAt)}
@@ -248,6 +260,39 @@ export default function MerchantDashboard({ merchantKey, onSign, refreshTrigger 
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Real-time event feed for merchant activity (Issue #46) */}
+      <EventFeed
+        address={merchantKey}
+        eventName="charged"
+        title="Live Charge Events"
+        maxEvents={25}
+      />
+
+      {/* Subscriber data export (Issue #48) */}
+      {subscribers.length > 0 && (
+        <div className="card">
+          <div className="flex-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Export Subscriber Data</h3>
+              <p className="text-sm text-muted">
+                Download subscriber list for accounting or external reporting.
+              </p>
+            </div>
+          </div>
+          <SubscriptionExport
+            data={subscribers.map((s) => ({
+              subscriber: s.subscriber,
+              amount_stroops: s.amount,
+              interval_seconds: s.interval,
+              last_charged: s.lastCharged,
+              next_charge_at: s.nextChargeAt,
+            }))}
+            filename={`subscribers-${merchantKey.slice(0, 8)}`}
+            label="Export Subscribers"
+          />
         </div>
       )}
     </div>

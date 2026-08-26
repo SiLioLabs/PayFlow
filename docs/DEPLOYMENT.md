@@ -6,13 +6,13 @@ Covers building the FlowPay contract, deploying to Testnet and Mainnet using the
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Rust | 1.70+ | `curl https://sh.rustup.rs -sSf \| sh` |
-| wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
-| Soroban CLI | 21.x | `cargo install --locked soroban-cli` |
-| Node.js | 18+ | [nodejs.org](https://nodejs.org/) |
-| Freighter Wallet | — | [freighter.app](https://www.freighter.app/) |
+| Tool             | Version | Install                                     |
+| ---------------- | ------- | ------------------------------------------- |
+| Rust             | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`      |
+| wasm32 target    | —       | `rustup target add wasm32-unknown-unknown`  |
+| Soroban CLI      | 21.x    | `cargo install --locked soroban-cli`        |
+| Node.js          | 18+     | [nodejs.org](https://nodejs.org/)           |
+| Freighter Wallet | —       | [freighter.app](https://www.freighter.app/) |
 
 Verify your setup:
 
@@ -44,6 +44,7 @@ bash scripts/deploy.sh --network testnet --source <DEPLOYER_KEYPAIR> --token <SA
 ```
 
 The script:
+
 1. Uploads the WASM and obtains a hash.
 2. Deploys the contract and captures the contract ID.
 3. Calls `initialize(token, admin)` with the provided SAC address.
@@ -93,12 +94,12 @@ bash scripts/verify-contract.sh --network <testnet|mainnet> --id <CONTRACT_ID>
 
 The script calls the following read functions and asserts expected values:
 
-| Check | Expected |
-|-------|----------|
-| `get_schema_version` | Latest version |
-| `get_health` | `is_healthy: true` |
-| Token configured | Non-empty address |
-| Admin configured | Non-empty address |
+| Check                | Expected           |
+| -------------------- | ------------------ |
+| `get_schema_version` | Latest version     |
+| `get_health`         | `is_healthy: true` |
+| Token configured     | Non-empty address  |
+| Admin configured     | Non-empty address  |
 
 You can also run these manually:
 
@@ -125,10 +126,10 @@ Subsequent calls are safe no-ops. See [Migration History](#migration-history) be
 
 ### Migration History
 
-| Version | Changes |
-|---------|---------|
-| v1 | Initial schema |
-| v2 | Added `SchemaVersion`, `Referral`, `SubscriptionMeta`, `ChargeHistory` keys |
+| Version | Changes                                                                     |
+| ------- | --------------------------------------------------------------------------- |
+| v1      | Initial schema                                                              |
+| v2      | Added `SchemaVersion`, `Referral`, `SubscriptionMeta`, `ChargeHistory` keys |
 
 ---
 
@@ -189,11 +190,11 @@ FlowPay does not support automatic rollback. To revert to a previous WASM:
 
 ## Frontend Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VITE_CONTRACT_ID` | Yes | `""` | Deployed contract ID |
-| `VITE_RPC_URL` | No | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
-| `VITE_NETWORK_PASSPHRASE` | No | `Networks.TESTNET` | Stellar network passphrase |
+| Variable                  | Required | Default                               | Description                |
+| ------------------------- | -------- | ------------------------------------- | -------------------------- |
+| `VITE_CONTRACT_ID`        | Yes      | `""`                                  | Deployed contract ID       |
+| `VITE_RPC_URL`            | No       | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint       |
+| `VITE_NETWORK_PASSPHRASE` | No       | `Networks.TESTNET`                    | Stellar network passphrase |
 
 ---
 

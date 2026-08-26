@@ -44,11 +44,11 @@ Standard recurring charges via `charge()` / `batch_charge()` **do not** consume 
 
 All daily-limit state lives in **temporary** Soroban storage under three keys (see `DataKey` in `contract/src/lib.rs`):
 
-| Key | Type stored | Purpose |
-| --- | --- | --- |
-| `DailyLimit(user)` | `i128` (stroops) | The user-configured cap |
-| `DailySpent(user)` | `i128` (stroops) | Accumulated gross spend in the current window |
-| `DayStart(user)` | `()` (presence marker) | Anchors the start of the current ~24-hour window |
+| Key                | Type stored            | Purpose                                          |
+| ------------------ | ---------------------- | ------------------------------------------------ |
+| `DailyLimit(user)` | `i128` (stroops)       | The user-configured cap                          |
+| `DailySpent(user)` | `i128` (stroops)       | Accumulated gross spend in the current window    |
+| `DayStart(user)`   | `()` (presence marker) | Anchors the start of the current ~24-hour window |
 
 **Units:** All amounts are **stroops**. `1 XLM = 10,000,000` stroops. Example: a 10 XLM limit is `100_000_000` stroops (`10_0000000` in Rust literal style used throughout the contract tests).
 
@@ -80,12 +80,12 @@ When `set_daily_limit` writes `DailyLimit`, and when `record_spend` creates `Day
 
 ### Why this is approximate, not exact
 
-| Factor | Effect |
-| --- | --- |
-| Variable ledger close time | If ledgers close faster or slower than 5 s, real time drifts from 24 h |
-| Network congestion / empty slots | Close intervals can stretch, delaying TTL expiry in wall-clock terms |
-| Testnet vs Pubnet timing | Testnet ledgers can be less regular; do not assume exact midnight resets |
-| TTL is ledger-count based | Expiry is tied to `sequence_number` advancement, not `timestamp` alone |
+| Factor                           | Effect                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| Variable ledger close time       | If ledgers close faster or slower than 5 s, real time drifts from 24 h   |
+| Network congestion / empty slots | Close intervals can stretch, delaying TTL expiry in wall-clock terms     |
+| Testnet vs Pubnet timing         | Testnet ledgers can be less regular; do not assume exact midnight resets |
+| TTL is ledger-count based        | Expiry is tied to `sequence_number` advancement, not `timestamp` alone   |
 
 So “after 24 hours” means **after approximately 17,280 ledgers have closed since the TTL was last set for that key** — not “at 00:00 UTC.”
 
@@ -135,11 +135,11 @@ Error surface for UIs: simulate the transaction first; on `DailyLimitExceeded`, 
 
 There is no separate per-merchant or per-recipient daily budget. Example from contract tests (`test_pay_per_use_to_daily_limit_shared_with_pay_per_use`):
 
-| Step | Call | Limit | Cumulative spent | Result |
-| --- | --- | --- | --- | --- |
-| 1 | `set_daily_limit(user, 10 XLM)` | 10 XLM | 0 | OK |
-| 2 | `pay_per_use(user, 6 XLM)` | 10 XLM | 6 XLM | OK |
-| 3 | `pay_per_use_to(user, 6 XLM, recipient)` | 10 XLM | would be 12 | **Rejected** (`DailyLimitExceeded`) |
+| Step | Call                                     | Limit  | Cumulative spent | Result                              |
+| ---- | ---------------------------------------- | ------ | ---------------- | ----------------------------------- |
+| 1    | `set_daily_limit(user, 10 XLM)`          | 10 XLM | 0                | OK                                  |
+| 2    | `pay_per_use(user, 6 XLM)`               | 10 XLM | 6 XLM            | OK                                  |
+| 3    | `pay_per_use_to(user, 6 XLM, recipient)` | 10 XLM | would be 12      | **Rejected** (`DailyLimitExceeded`) |
 
 Routing payment to a different recipient does **not** create a second pool. Frontends that offer both “pay merchant” and “pay custom recipient” must sum pending intent against the **same** remaining balance.
 
@@ -196,12 +196,12 @@ remaining = if limit is Some(L): max(L - spent, 0) else: unbounded
 
 ### Interpretation matrix
 
-| `get_daily_limit` | `get_day_start` | `get_daily_spent` | Meaning |
-| --- | --- | --- | --- |
-| `None` | `false` | `0` | No cap; no window started |
-| `None` | `true` | `> 0` | Cap expired/removed but window marker still alive until TTL (rare mid-transition); treat as uncapped |
-| `Some(L)` | `false` | `0` | Cap set; no spend yet today (or window expired and not yet spent) |
-| `Some(L)` | `true` | `S` | Active window; remaining ≈ `L - S` |
+| `get_daily_limit` | `get_day_start` | `get_daily_spent` | Meaning                                                                                              |
+| ----------------- | --------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `None`            | `false`         | `0`               | No cap; no window started                                                                            |
+| `None`            | `true`          | `> 0`             | Cap expired/removed but window marker still alive until TTL (rare mid-transition); treat as uncapped |
+| `Some(L)`         | `false`         | `0`               | Cap set; no spend yet today (or window expired and not yet spent)                                    |
+| `Some(L)`         | `true`          | `S`               | Active window; remaining ≈ `L - S`                                                                   |
 
 **Concrete example:** Limit is 10 XLM (`100_000_000` stroops), spent is 7 XLM (`70_000_000` stroops), remaining is **3 XLM** (`30_000_000` stroops). A `pay_per_use` of 4 XLM would panic; 3 XLM would succeed and leave remaining at 0.
 
@@ -221,11 +221,11 @@ Assume `1 XLM = 10_000_000` stroops.
 
 ### Example A — within limit
 
-| Action | Amount (XLM) | Amount (stroops) | Spent after | Remaining (limit 10 XLM) |
-| --- | --- | --- | --- | --- |
-| `set_daily_limit` | 10 | `100_000_000` | 0 | 10 XLM |
-| `pay_per_use` | 4 | `40_000_000` | 4 XLM | 6 XLM |
-| `pay_per_use` | 3 | `30_000_000` | 7 XLM | 3 XLM |
+| Action            | Amount (XLM) | Amount (stroops) | Spent after | Remaining (limit 10 XLM) |
+| ----------------- | ------------ | ---------------- | ----------- | ------------------------ |
+| `set_daily_limit` | 10           | `100_000_000`    | 0           | 10 XLM                   |
+| `pay_per_use`     | 4            | `40_000_000`     | 4 XLM       | 6 XLM                    |
+| `pay_per_use`     | 3            | `30_000_000`     | 7 XLM       | 3 XLM                    |
 
 ### Example B — single-call overspend blocked
 
@@ -338,9 +338,7 @@ async function readI128(
     fee: BASE_FEE,
     networkPassphrase,
   })
-    .addOperation(
-      contract.call(method, new Address(user).toScVal()),
-    )
+    .addOperation(contract.call(method, new Address(user).toScVal()))
     .setTimeout(30)
     .build();
 
@@ -390,7 +388,11 @@ export async function loadDailyLimitView(user: string) {
 
   const spentVal = spent ?? 0n;
   const remaining =
-    limit === null || limit === undefined ? null : limit > spentVal ? limit - spentVal : 0n;
+    limit === null || limit === undefined
+      ? null
+      : limit > spentVal
+        ? limit - spentVal
+        : 0n;
 
   return {
     limitLabel: limit == null ? "Not set" : formatXlm(limit),
@@ -399,9 +401,7 @@ export async function loadDailyLimitView(user: string) {
     dayWindowActive: dayActive,
     // Example: limit 10 XLM, spent 7 XLM → remaining 3 XLM
     progressPct:
-      limit != null && limit > 0n
-        ? Number((spentVal * 100n) / limit)
-        : 0,
+      limit != null && limit > 0n ? Number((spentVal * 100n) / limit) : 0,
   };
 }
 ```
@@ -461,17 +461,17 @@ cargo test daily_limit
 
 Notable cases:
 
-| Test | Behavior covered |
-| --- | --- |
-| `test_daily_limit_allows_spend_within_limit` | Single spend under cap |
-| `test_daily_limit_blocks_overspend` | Single spend over cap |
-| `test_daily_limit_accumulates_across_calls` | Multi-call accumulation |
-| `test_daily_limit_blocks_cumulative_overspend` | Cumulative breach |
-| `test_daily_limit_visibility_and_spend_tracking` | `get_daily_limit` / `get_daily_spent` lifecycle |
-| `test_daily_limit_day_start_boundary` | TTL / sequence expiry resets spent |
-| `test_pay_per_use_to_daily_limit_shared_with_pay_per_use` | Shared budget across entrypoints |
-| `test_daily_limit_set_event_emitted` / `test_daily_limit_removed_event_emitted` | Events |
-| `test_get_day_start_visibility` | `get_day_start` before/after spend and after remove |
+| Test                                                                            | Behavior covered                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `test_daily_limit_allows_spend_within_limit`                                    | Single spend under cap                              |
+| `test_daily_limit_blocks_overspend`                                             | Single spend over cap                               |
+| `test_daily_limit_accumulates_across_calls`                                     | Multi-call accumulation                             |
+| `test_daily_limit_blocks_cumulative_overspend`                                  | Cumulative breach                                   |
+| `test_daily_limit_visibility_and_spend_tracking`                                | `get_daily_limit` / `get_daily_spent` lifecycle     |
+| `test_daily_limit_day_start_boundary`                                           | TTL / sequence expiry resets spent                  |
+| `test_pay_per_use_to_daily_limit_shared_with_pay_per_use`                       | Shared budget across entrypoints                    |
+| `test_daily_limit_set_event_emitted` / `test_daily_limit_removed_event_emitted` | Events                                              |
+| `test_get_day_start_visibility`                                                 | `get_day_start` before/after spend and after remove |
 
 ---
 
