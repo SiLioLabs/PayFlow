@@ -1016,6 +1016,20 @@ impl FlowPay {
         trial::get_trial_end(env, user)
     }
 
+    /// Returns the pause expiry timestamp for `user`, or `None` if no timed
+    /// pause is active.
+    ///
+    /// A non-`None` value means the subscription was paused via `pause_until()`
+    /// and will auto-resume when the ledger timestamp reaches the returned value.
+    /// A value of `u64::MAX` indicates an indefinite pause set by `pause()`.
+    ///
+    /// # Auth
+    ///
+    /// None required — view-only read.
+    pub fn get_pause_expiry(env: Env, user: Address) -> Option<u64> {
+        storage::get_pause_expiry(&env, &user)
+    }
+
     /// Proposes a new contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn propose_grace_period(env: Env, seconds: u64) {
@@ -1134,9 +1148,11 @@ impl FlowPay {
     }
 
     /// Sets the minimum allowed subscription interval in seconds.
-    /// Only the contract admin can call this. Panics if seconds == 0.
+    /// Only the contract admin can call this. Returns IntervalMustBePositive if seconds == 0.
     pub fn set_min_interval(env: Env, seconds: u64) {
-        assert!(seconds > 0, "min interval must be positive");
+        if seconds == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
         admin::require_admin(&env);
         min_interval::set_min_interval(&env, seconds);
     }
@@ -1796,7 +1812,7 @@ impl FlowPay {
     /// Sets the contract admin. Can only be called once; subsequent calls panic.
     pub fn set_initial_admin(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("admin already set");
+            env.panic_with_error(ContractError::AlreadyInitialized);
         }
         storage::set_admin(&env, &admin);
     }
@@ -2204,10 +2220,10 @@ fn subscribe_inner(
     validation::require_valid_amount(env, amount);
     validation::validate_interval(env, interval);
 
-    use soroban_sdk::xdr::ToXdr;
-    if token.clone().to_xdr(env).get(7) == Some(0) {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
+    // Validate token address and SAC interface before writing any subscription
+    // state. Uses require_valid_token_address which checks XDR discriminant +
+    // probes the token interface. No subscription row is written on failure.
+    validation::require_valid_token_address(env, &token);
 
     validation::check_allowance(env, &user, &token, amount);
 

@@ -34,7 +34,7 @@ pub fn accept_admin(env: &Env) {
         .storage()
         .instance()
         .get(&DataKey::PendingAdmin)
-        .expect("no pending admin");
+        .unwrap_or_else(|| env.panic_with_error(crate::errors::ContractError::NoPendingAdmin));
     pending.require_auth();
 
     let old_admin = get_admin(env);

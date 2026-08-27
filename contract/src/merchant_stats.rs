@@ -2,6 +2,30 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::DataKey;
 
+// ─────────────────────────────────────────────────────────────
+// Day-index cap (Issue #817)
+// ─────────────────────────────────────────────────────────────
+//
+// High-volume merchants can accumulate an unbounded number of distinct revenue
+// days, which inflates persistent storage and makes `get_merchant_revenue_day_page`
+// reads proportionally expensive to process on-chain.
+//
+// This constant is the hard ceiling on how many day-buckets a single merchant
+// may have in their `MerchantRevenueDayIndex`. 365 days is chosen to cover
+// roughly one year of daily revenue, which is large enough for normal usage and
+// conservative enough to keep storage bounded to a predictable size (~365 * 2
+// Soroban persistent entries per merchant at most).
+//
+// When the index is at capacity:
+//   • Adding a *new* day fails closed with `MerchantDayIndexFull` (#41). This
+//     ensures the ledger never silently drops revenue data.
+//   • Updating an *existing* day's bucket always succeeds because no new entry
+//     is appended to the index.
+//
+// Operators must call `prune_merchant_revenue_days` to remove expired or
+// unneeded buckets before the cap blocks new days from being recorded.
+pub const MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE: u32 = 365;
+
 /// Returns the total revenue accumulated for a merchant.
 pub fn get_merchant_revenue(env: &Env, merchant: &Address) -> i128 {
     env.storage()
@@ -79,6 +103,13 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
             .persistent()
             .get(&index_key)
             .unwrap_or_else(|| Vec::new(env));
+        // Enforce the day-index cap before appending. If the index is already
+        // at MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE, reject the new day so storage
+        // pressure stays bounded. Operators must call `prune_merchant_revenue_days`
+        // to free capacity.
+        if index.len() >= MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE {
+            env.panic_with_error(crate::errors::ContractError::MerchantDayIndexFull);
+        }
         index.push_back(today);
         env.storage().persistent().set(&index_key, &index);
         env.storage()

@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 #![allow(
     clippy::bool_assert_comparison,
     unused_variables,
@@ -5014,7 +5014,7 @@ fn test_old_admin_loses_access_after_transfer() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #42)")]
 fn test_accept_admin_without_proposal_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -5689,7 +5689,7 @@ fn test_subscribe_after_set_min_interval_lower_succeeds() {
 
 /// set_min_interval(0) panics.
 #[test]
-#[should_panic(expected = "min interval must be positive")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_set_min_interval_zero_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -5701,7 +5701,7 @@ fn test_set_min_interval_zero_panics() {
 
 /// Calling set_min_interval without a configured admin panics.
 #[test]
-#[should_panic(expected = "admin not set")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_set_min_interval_non_admin_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -5783,7 +5783,7 @@ fn test_clear_merchant_revenue_history_idempotent() {
 
 /// Calling clear_merchant_revenue_history without an admin configured panics.
 #[test]
-#[should_panic(expected = "admin not set")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_clear_merchant_revenue_history_non_admin_panics() {
     let (env, contract_id, _token_addr, _user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -9813,3 +9813,569 @@ fn test_batch_charge_single_interesting_failure_emits_with_not_due_count() {
     assert_eq!(summary.charged, 0);
 }
 
+
+
+// ─────────────────────────────────────────────────────────────
+// Issue #816: get_pause_expiry read API + auto-resume event consistency
+// ─────────────────────────────────────────────────────────────
+
+/// get_pause_expiry returns None when no pause is active.
+#[test]
+fn test_pause_until_get_pause_expiry_none_when_not_paused() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    assert_eq!(client.get_pause_expiry(&user), None);
+}
+
+/// get_pause_expiry returns the expiry set by pause_until.
+#[test]
+fn test_pause_until_get_pause_expiry_returns_expiry() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &300_000);
+
+    assert_eq!(client.get_pause_expiry(&user), Some(300_000u64));
+}
+
+/// pause() sets expiry to u64::MAX (indefinite); get_pause_expiry reflects that.
+#[test]
+fn test_pause_get_pause_expiry_returns_max() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause(&user);
+
+    assert_eq!(client.get_pause_expiry(&user), Some(u64::MAX));
+}
+
+/// resume() clears PauseExpiry; get_pause_expiry returns None afterwards.
+#[test]
+fn test_pause_until_get_pause_expiry_cleared_on_resume() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &300_000);
+
+    assert_eq!(client.get_pause_expiry(&user), Some(300_000u64));
+
+    client.resume(&user);
+    assert_eq!(client.get_pause_expiry(&user), None);
+}
+
+/// charge() at expiry auto-resumes and clears PauseExpiry; get_pause_expiry returns None.
+#[test]
+fn test_pause_until_auto_resume_on_charge_clears_expiry_get_pause_expiry() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90_000);
+
+    // Confirm expiry is set
+    assert_eq!(client.get_pause_expiry(&user), Some(90_000u64));
+
+    // Advance past expiry + interval
+    env.ledger().set_timestamp(90_000);
+    client.charge(&user);
+
+    // Expiry must be cleared after auto-resume
+    assert_eq!(client.get_pause_expiry(&user), None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.paused, false);
+    assert_eq!(sub.active, true);
+}
+
+/// charge() at expiry emits subscription_auto_resumed event.
+#[test]
+fn test_pause_until_charge_emits_auto_resumed_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90_000);
+
+    env.ledger().set_timestamp(90_000);
+    client.charge(&user);
+
+    // Verify "subscription_auto_resumed" event was emitted
+    let found = env.events().all().iter().any(|(_, topics, _)| {
+        let sym: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        sym == Symbol::new(&env, "subscription_auto_resumed")
+    });
+    assert!(found, "expected subscription_auto_resumed event after charge auto-resume");
+}
+
+/// batch_charge() at expiry auto-resumes and clears PauseExpiry; get_pause_expiry returns None.
+#[test]
+fn test_pause_until_batch_charge_clears_expiry_get_pause_expiry() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90_000);
+
+    assert_eq!(client.get_pause_expiry(&user), Some(90_000u64));
+
+    env.ledger().set_timestamp(90_000);
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+    let result = client.batch_charge(&users);
+
+    assert_eq!(result.get(0).unwrap(), crate::ChargeResult::Charged);
+    assert_eq!(client.get_pause_expiry(&user), None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.paused, false);
+    assert_eq!(sub.active, true);
+}
+
+/// batch_charge() at expiry emits subscription_auto_resumed event.
+#[test]
+fn test_pause_until_batch_charge_emits_auto_resumed_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90_000);
+
+    env.ledger().set_timestamp(90_000);
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+    client.batch_charge(&users);
+
+    let found = env.events().all().iter().any(|(_, topics, _)| {
+        let sym: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        sym == Symbol::new(&env, "subscription_auto_resumed")
+    });
+    assert!(found, "expected subscription_auto_resumed event after batch_charge auto-resume");
+}
+
+/// Subscription before expiry stays paused; charge returns error.
+#[test]
+fn test_pause_until_before_expiry_charge_still_paused() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90_000);
+
+    env.ledger().set_timestamp(86_400);
+    let res = client.try_charge(&user);
+    assert!(res.is_err(), "charge before expiry should fail");
+    assert_eq!(client.get_pause_expiry(&user), Some(90_000u64));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #817: MerchantRevenueDayIndex max size enforcement
+// ─────────────────────────────────────────────────────────────
+
+/// Helper: directly seed MerchantRevenueDayIndex with `n` fake day entries
+/// so tests don't have to run hundreds of actual charges.
+fn seed_day_index(env: &Env, contract_id: &Address, merchant: &Address, n: u32) {
+    env.as_contract(contract_id, || {
+        let index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
+        let mut index: soroban_sdk::Vec<u64> = soroban_sdk::Vec::new(env);
+        for i in 0..n {
+            index.push_back(i as u64); // fake day values; just need n entries
+        }
+        env.storage().persistent().set(&index_key, &index);
+    });
+}
+
+/// At cap-1 entries in the index, a charge that lands on a new day succeeds
+/// (appends the cap-th entry without hitting the limit).
+#[test]
+fn test_merchant_day_index_cap_minus_one_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let interval: u64 = 86_400;
+
+    client.subscribe(&user, &merchant, &1_000, &interval, &token_addr, &None, &None);
+
+    let cap = crate::merchant_stats::MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE;
+
+    // Seed cap-1 fake entries directly so we don't loop 364 times.
+    seed_day_index(&env, &contract_id, &merchant, cap - 1);
+
+    // Charge on a day that is NOT in the seeded index (day value = cap+100).
+    // We place the ledger timestamp on that day and ensure the interval has elapsed.
+    let new_day = cap as u64 + 100;
+    let ts = new_day * 86_400 + 1;
+    env.ledger().set_timestamp(ts);
+
+    // Must succeed: index was cap-1 entries, now becomes cap.
+    client.charge(&user);
+
+    let index_len = env.as_contract(&contract_id, || {
+        let index: soroban_sdk::Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MerchantRevenueDayIndex(merchant.clone()))
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        index.len()
+    });
+    assert_eq!(index_len, cap, "index should now have exactly cap entries");
+}
+
+/// After the day-index is full (cap entries), charging on a new day fails
+/// with MerchantDayIndexFull (#41).
+#[test]
+fn test_merchant_day_index_at_cap_new_day_fails_typed_error() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let interval: u64 = 86_400;
+
+    client.subscribe(&user, &merchant, &1_000, &interval, &token_addr, &None, &None);
+
+    let cap = crate::merchant_stats::MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE;
+
+    // Seed exactly cap entries — index is now full.
+    seed_day_index(&env, &contract_id, &merchant, cap);
+
+    // Charge on a new day (not in the seeded index).
+    let new_day = cap as u64 + 200;
+    let ts = new_day * 86_400 + 1;
+    env.ledger().set_timestamp(ts);
+
+    let res = client.try_charge(&user);
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(41))),
+        "expected MerchantDayIndexFull (#41) when day index is full"
+    );
+}
+
+/// Updating an existing day bucket (same calendar day as the last charge)
+/// when the index is at cap succeeds — no new index entry is appended.
+#[test]
+fn test_merchant_day_index_at_cap_existing_day_update_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let cap = crate::merchant_stats::MAX_MERCHANT_REVENUE_DAY_INDEX_SIZE;
+    let short_interval: u64 = 500; // sub-day interval so two charges fit in one day
+
+    client.subscribe(&user, &merchant, &1_000, &short_interval, &token_addr, &None, &None);
+
+    // First charge: lands on day 1, appends day 1 to the real index (len = 1).
+    let day1_ts: u64 = 86_401; // day 1 of Unix time
+    env.ledger().set_timestamp(day1_ts);
+    client.charge(&user);
+
+    // Now seed cap-1 MORE fake entries so total index size = cap.
+    seed_day_index(&env, &contract_id, &merchant, cap - 1);
+    // After seed_day_index the real day-1 entry is replaced with fake ones.
+    // We need to restore day 1 so `is_new_day` is false on the next charge.
+    // Instead, set a timestamp still on day 1 so today == day1 (same day bucket).
+    let same_day_ts = day1_ts + short_interval;
+    env.ledger().set_timestamp(same_day_ts);
+
+    // Now force-set the index so it contains the actual day value (1) plus cap-1 fakes.
+    env.as_contract(&contract_id, || {
+        let index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
+        let mut index: soroban_sdk::Vec<u64> = soroban_sdk::Vec::new(&env);
+        // The actual calendar day for same_day_ts
+        let actual_day = same_day_ts / 86_400;
+        index.push_back(actual_day); // real day already in index
+        for i in 1..cap {
+            index.push_back(1_000_000 + i as u64); // fake far-future days
+        }
+        env.storage().persistent().set(&index_key, &index);
+    });
+
+    let revenue_before = client.get_merchant_revenue(&merchant);
+
+    // Charge again on the same calendar day — is_new_day == false → no append → succeeds.
+    client.charge(&user);
+
+    // Revenue incremented
+    assert!(
+        client.get_merchant_revenue(&merchant) > revenue_before,
+        "same-day charge should succeed and increment revenue"
+    );
+
+    // Index size unchanged (still cap)
+    let index_len = env.as_contract(&contract_id, || {
+        let index: soroban_sdk::Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MerchantRevenueDayIndex(merchant.clone()))
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        index.len()
+    });
+    assert_eq!(index_len, cap, "index size must not grow on existing-day update");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #818: Token address / SAC interface validation on subscribe
+// ─────────────────────────────────────────────────────────────
+
+/// Subscribing with a valid SAC token succeeds.
+#[test]
+fn test_custom_sac_token_subscribe_valid_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // token_addr from setup() is a proper SAC registered via register_stellar_asset_contract_v2
+    client.subscribe(&user, &merchant, &1_000, &86_400, &token_addr, &None, &None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(sub.active);
+    assert_eq!(sub.token, token_addr);
+}
+
+/// Subscribing with a second valid SAC token also succeeds.
+#[test]
+fn test_custom_sac_token_subscribe_second_token_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let second_token = setup_second_token(&env, &contract_id, &user);
+    client.subscribe(&user, &merchant, &1_000, &86_400, &second_token, &None, &None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(sub.active);
+    assert_eq!(sub.token, second_token);
+}
+
+/// Subscribing with a random contract address (one that has no token interface)
+/// is rejected and no subscription row is written.
+///
+/// In the Soroban test environment, `Address::generate()` produces a contract-type
+/// address (32-byte hash), which passes the XDR discriminant check but fails the
+/// SAC `decimals()` interface probe with a host-level error, correctly preventing
+/// a malformed subscription from being written.
+#[test]
+fn test_custom_sac_token_plain_account_address_rejected() {
+    let (env, contract_id, _token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Random address with no token interface — fails the SAC decimals() probe.
+    let non_token_addr = Address::generate(&env);
+    let res = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_000,
+        &86_400,
+        &non_token_addr,
+        &None,
+        &None,
+    );
+    // Must fail (SAC probe panics) — the error type is host-level, not #12
+    assert!(res.is_err(), "subscribing with non-SAC address should fail");
+
+    // No subscription row written
+    assert_eq!(client.get_subscription(&user), None);
+}
+
+/// Validation failure leaves no subscription row behind.
+#[test]
+fn test_custom_sac_token_no_row_written_on_validation_failure() {
+    let (env, contract_id, _token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let plain_account = Address::generate(&env);
+    let _ = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_000,
+        &86_400,
+        &plain_account,
+        &None,
+        &None,
+    );
+
+    assert_eq!(
+        client.get_subscription(&user),
+        None,
+        "no subscription should exist after failed token validation"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #819: Typed ContractError conversions — admin, fee, grace, upgrade
+// ─────────────────────────────────────────────────────────────
+
+/// accept_admin without a pending proposal returns NoPendingAdmin (#42).
+#[test]
+fn test_accept_admin_without_proposal_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let new_admin = Address::generate(&env);
+    // No transfer_admin called — accept_admin must fail with typed error
+    let res = client.try_accept_admin();
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(42))),
+        "expected NoPendingAdmin (#42) when no pending transfer exists"
+    );
+}
+
+/// set_min_interval(0) returns IntervalMustBePositive (#3) as a typed error.
+#[test]
+fn test_set_min_interval_zero_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let res = client.try_set_min_interval(&0u64);
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(3))),
+        "expected IntervalMustBePositive (#3) when seconds == 0"
+    );
+}
+
+/// propose_grace_period with value > u64::MAX/2 returns AmountExceedsMaximum (#15).
+#[test]
+fn test_propose_grace_period_too_large_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let too_large = u64::MAX / 2 + 1;
+    let res = client.try_propose_grace_period(&too_large);
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(15))),
+        "expected AmountExceedsMaximum (#15) for overly large grace period"
+    );
+}
+
+/// commit_fee without a pending proposal returns NoPendingProposal (#23).
+#[test]
+fn test_commit_fee_without_proposal_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let res = client.try_commit_fee();
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(23))),
+        "expected NoPendingProposal (#23) when commit_fee called without propose_fee"
+    );
+}
+
+/// commit_grace_period without a pending proposal returns NoPendingProposal (#23).
+#[test]
+fn test_commit_grace_period_without_proposal_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let res = client.try_commit_grace_period();
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(23))),
+        "expected NoPendingProposal (#23) when commit_grace_period called without proposal"
+    );
+}
+
+/// commit_upgrade without a pending proposal returns NoPendingProposal (#23).
+#[test]
+fn test_commit_upgrade_without_proposal_returns_typed_error() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let res = client.try_commit_upgrade();
+    assert_eq!(
+        res,
+        Err(Ok(soroban_sdk::Error::from_contract_error(23))),
+        "expected NoPendingProposal (#23) when commit_upgrade called without proposal"
+    );
+}
+
+/// Two-step admin transfer happy path still works after typed error conversion.
+#[test]
+fn test_admin_transfer_two_step_happy_path() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let new_admin = Address::generate(&env);
+    client.transfer_admin(&new_admin);
+
+    // Pending admin should be set
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+
+    // Accept completes the transfer
+    client.accept_admin();
+    assert_eq!(client.get_admin(), Some(new_admin));
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+/// Two-step fee happy path still works after typed error conversion.
+#[test]
+fn test_fee_two_step_happy_path() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let collector = Address::generate(&env);
+    client.propose_fee(&collector, &500u32);
+    client.commit_fee();
+
+    let fee = client.get_fee().unwrap();
+    assert_eq!(fee.1, 500u32);
+}
+
+/// Two-step grace period happy path still works after typed error conversion.
+#[test]
+fn test_grace_period_two_step_happy_path() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.propose_grace_period(&3600u64);
+    client.commit_grace_period();
+
+    assert_eq!(client.get_grace_period(), 3600u64);
+}

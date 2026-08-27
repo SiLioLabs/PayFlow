@@ -14,7 +14,9 @@ pub fn get_grace_period(env: &Env) -> u64 {
 
 /// Proposes a new contract-wide grace period.
 pub fn propose_grace_period(env: &Env, seconds: u64) {
-    assert!(seconds <= u64::MAX / 2, "grace period too large");
+    if seconds > u64::MAX / 2 {
+        env.panic_with_error(crate::errors::ContractError::AmountExceedsMaximum);
+    }
     crate::admin::require_admin(env);
 
     env.storage()

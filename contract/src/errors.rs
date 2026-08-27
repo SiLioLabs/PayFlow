@@ -79,4 +79,10 @@ pub enum ContractError {
     RefundAmountMustBePositive = 39,
     /// Returned when the merchant cannot fund the requested refund
     InsufficientMerchantBalance = 40,
+    /// Returned when the merchant revenue day-index has reached its maximum allowed size.
+    /// Operators must call `prune_merchant_revenue_days` to free capacity before new
+    /// revenue days can be appended.
+    MerchantDayIndexFull = 41,
+    /// Returned when `accept_admin` is called but no admin transfer has been proposed.
+    NoPendingAdmin = 42,
 }

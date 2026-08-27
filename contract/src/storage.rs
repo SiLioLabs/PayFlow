@@ -54,7 +54,7 @@ pub fn get_admin(env: &Env) -> Address {
     env.storage()
         .instance()
         .get(&DataKey::Admin)
-        .expect("admin not set")
+        .unwrap_or_else(|| env.panic_with_error(crate::errors::ContractError::NotInitialized))
 }
 
 pub fn get_admin_optional(env: &Env) -> Option<Address> {
