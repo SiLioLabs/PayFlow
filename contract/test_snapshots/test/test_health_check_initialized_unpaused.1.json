@@ -1124,14 +1124,6 @@
                 },
                 {
                   "key": {
-                    "symbol": "pending_merchant_revenue_count"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "schema_version"
                   },
                   "val": {

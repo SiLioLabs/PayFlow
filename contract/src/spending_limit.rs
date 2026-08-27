@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env};
 
-use crate::DataKey;
+use crate::{DataKey, DailyLimitStatus};
 
 /// Approximate number of ledgers in one day.
 /// Stellar closes ~1 ledger every 5 seconds → 17,280 ledgers/day.
@@ -57,6 +57,21 @@ pub fn get_day_start(env: &Env, user: &Address) -> Option<u64> {
     env.storage()
         .temporary()
         .get(&DataKey::DayStart(user.clone()))
+}
+
+/// Returns all daily spending fields from one view of temporary storage.
+pub fn get_daily_limit_status(env: &Env, user: &Address) -> DailyLimitStatus {
+    let limit = get_daily_limit(env, user);
+    let spent = get_daily_spent(env, user);
+    let day_start = get_day_start(env, user);
+    let remaining = limit.map(|value| value.saturating_sub(spent).max(0));
+
+    DailyLimitStatus {
+        limit,
+        spent,
+        day_start,
+        remaining,
+    }
 }
 
 /// Records `amount` as spent today for the user.

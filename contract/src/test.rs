@@ -640,6 +640,320 @@ fn test_pay_per_use_allowance_below_gross_fails_closed() {
     assert_eq!(client.get_total_protocol_fees(), 0);
 }
 
+// ─────────────────────────────────────────────
+// Issue #837 / Issue 042: shared allowance-requirement helper
+// ─────────────────────────────────────────────
+
+struct AllowanceReqCase {
+    allowance: i128,
+    gross: i128,
+    fee_bps: u32,
+    expected: bool,
+    label: &'static str,
+}
+
+/// Table-driven unit tests for the shared allowance helper: zero, exact, and
+/// insufficient allowance, plus fee-off vs fee-on gross (never net-only).
+#[test]
+fn test_allowance_covers_gross_table() {
+    let gross: i128 = 10_000;
+    let fee_on_bps: u32 = 500; // 5%
+    let fee_on_net: i128 = gross - (gross * fee_on_bps as i128 / 10_000); // 9_500
+
+    let cases = [
+        AllowanceReqCase {
+            allowance: 0,
+            gross,
+            fee_bps: 0,
+            expected: false,
+            label: "zero allowance, fee_bps = 0",
+        },
+        AllowanceReqCase {
+            allowance: 0,
+            gross,
+            fee_bps: fee_on_bps,
+            expected: false,
+            label: "zero allowance, fee_bps > 0",
+        },
+        AllowanceReqCase {
+            allowance: gross,
+            gross,
+            fee_bps: 0,
+            expected: true,
+            label: "exact allowance, fee_bps = 0",
+        },
+        AllowanceReqCase {
+            allowance: gross,
+            gross,
+            fee_bps: fee_on_bps,
+            expected: true,
+            label: "exact gross allowance, fee_bps > 0",
+        },
+        AllowanceReqCase {
+            allowance: gross - 1,
+            gross,
+            fee_bps: 0,
+            expected: false,
+            label: "insufficient (one stroop short), fee_bps = 0",
+        },
+        AllowanceReqCase {
+            allowance: gross - 1,
+            gross,
+            fee_bps: fee_on_bps,
+            expected: false,
+            label: "insufficient (one stroop short of gross), fee_bps > 0",
+        },
+        AllowanceReqCase {
+            allowance: fee_on_net,
+            gross,
+            fee_bps: fee_on_bps,
+            expected: false,
+            label: "fee-on net-only allowance is insufficient vs gross",
+        },
+        AllowanceReqCase {
+            allowance: gross + 1,
+            gross,
+            fee_bps: 0,
+            expected: true,
+            label: "surplus allowance, fee_bps = 0",
+        },
+        AllowanceReqCase {
+            allowance: gross + 1,
+            gross,
+            fee_bps: fee_on_bps,
+            expected: true,
+            label: "surplus allowance, fee_bps > 0",
+        },
+    ];
+
+    for c in cases {
+        assert_eq!(
+            validation::required_allowance(c.gross, c.fee_bps),
+            c.gross,
+            "required allowance must be gross ({})",
+            c.label
+        );
+        assert_eq!(
+            validation::allowance_covers_gross(c.allowance, c.gross, c.fee_bps),
+            c.expected,
+            "{}",
+            c.label
+        );
+    }
+}
+
+struct SimulateAllowanceCase {
+    fee_bps: u32,
+    allowance: i128,
+    expected: ChargeSimResult,
+    label: &'static str,
+}
+
+/// `simulate_charge` uses the shared helper: fee-off and fee-on both require
+/// the gross amount, so a net-only allowance fails when fees are on.
+#[test]
+fn test_simulate_charge_allowance_requirement_table() {
+    let amount: i128 = 10_0000000;
+    let interval: u64 = 86400;
+    let fee_on_bps: u32 = 500;
+    let fee_on_net: i128 = amount - (amount * fee_on_bps as i128 / 10_000);
+
+    let cases = [
+        SimulateAllowanceCase {
+            fee_bps: 0,
+            allowance: 0,
+            expected: ChargeSimResult::InsufficientAllowance,
+            label: "zero allowance, fee_bps = 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: 0,
+            allowance: amount,
+            expected: ChargeSimResult::WouldSucceed,
+            label: "exact allowance, fee_bps = 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: 0,
+            allowance: amount - 1,
+            expected: ChargeSimResult::InsufficientAllowance,
+            label: "insufficient allowance, fee_bps = 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: 0,
+            expected: ChargeSimResult::InsufficientAllowance,
+            label: "zero allowance, fee_bps > 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: amount,
+            expected: ChargeSimResult::WouldSucceed,
+            label: "exact gross allowance, fee_bps > 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: amount - 1,
+            expected: ChargeSimResult::InsufficientAllowance,
+            label: "one stroop short of gross, fee_bps > 0",
+        },
+        SimulateAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: fee_on_net,
+            expected: ChargeSimResult::InsufficientAllowance,
+            label: "net-only allowance, fee_bps > 0",
+        },
+    ];
+
+    for c in cases {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+        let token = TokenClient::new(&env, &token_addr);
+
+        if c.fee_bps > 0 {
+            configure_fee(&env, &contract_id, c.fee_bps);
+        }
+
+        client.subscribe(
+            &user,
+            &merchant,
+            &amount,
+            &interval,
+            &token_addr,
+            &None,
+            &None,
+        );
+        token.approve(&user, &contract_id, &c.allowance, &200000);
+        env.ledger().with_mut(|l| {
+            l.timestamp += interval + 1;
+        });
+
+        assert_eq!(client.simulate_charge(&user), c.expected, "{}", c.label);
+    }
+}
+
+struct SubscribeAllowanceCase {
+    fee_bps: u32,
+    allowance: i128,
+    expect_ok: bool,
+    label: &'static str,
+}
+
+/// subscribe() validation uses the same gross-allowance helper, including
+/// when protocol fees are configured (requirement is still the gross amount).
+#[test]
+fn test_subscribe_allowance_requirement_table() {
+    let amount: i128 = 10_0000000;
+    let fee_on_bps: u32 = 500;
+    let fee_on_net: i128 = amount - (amount * fee_on_bps as i128 / 10_000);
+
+    let cases = [
+        SubscribeAllowanceCase {
+            fee_bps: 0,
+            allowance: 0,
+            expect_ok: false,
+            label: "zero allowance, fee_bps = 0",
+        },
+        SubscribeAllowanceCase {
+            fee_bps: 0,
+            allowance: amount,
+            expect_ok: true,
+            label: "exact allowance, fee_bps = 0",
+        },
+        SubscribeAllowanceCase {
+            fee_bps: 0,
+            allowance: amount - 1,
+            expect_ok: false,
+            label: "insufficient allowance, fee_bps = 0",
+        },
+        SubscribeAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: 0,
+            expect_ok: false,
+            label: "zero allowance, fee_bps > 0",
+        },
+        SubscribeAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: amount,
+            expect_ok: true,
+            label: "exact gross allowance, fee_bps > 0",
+        },
+        SubscribeAllowanceCase {
+            fee_bps: fee_on_bps,
+            allowance: fee_on_net,
+            expect_ok: false,
+            label: "net-only allowance, fee_bps > 0",
+        },
+    ];
+
+    for c in cases {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+        let token = TokenClient::new(&env, &token_addr);
+
+        if c.fee_bps > 0 {
+            configure_fee(&env, &contract_id, c.fee_bps);
+        }
+
+        token.approve(&user, &contract_id, &c.allowance, &200000);
+        let result =
+            client.try_subscribe(&user, &merchant, &amount, &86400, &token_addr, &None, &None);
+
+        if c.expect_ok {
+            assert!(result.is_ok(), "{}", c.label);
+            let sub = client.get_subscription(&user).unwrap();
+            assert_eq!(sub.amount, amount, "{}", c.label);
+        } else {
+            assert_eq!(
+                result,
+                Err(Ok(soroban_sdk::Error::from_contract_error(8))),
+                "{}",
+                c.label
+            );
+            assert!(
+                client.get_subscription(&user).is_none(),
+                "failed subscribe must not write storage ({})",
+                c.label
+            );
+        }
+    }
+}
+
+/// `has_sufficient_allowance` reads SAC allowance and never transfers.
+#[test]
+fn test_has_sufficient_allowance_does_not_transfer() {
+    let (env, contract_id, token_addr, user, _merchant) = setup();
+    let token = TokenClient::new(&env, &token_addr);
+    let amount: i128 = 1_0000000;
+    let balance_before = token.balance(&user);
+
+    env.as_contract(&contract_id, || {
+        assert!(validation::has_sufficient_allowance(
+            &env,
+            &user,
+            &token_addr,
+            amount
+        ));
+    });
+
+    token.approve(&user, &contract_id, &0, &200000);
+
+    env.as_contract(&contract_id, || {
+        assert!(!validation::has_sufficient_allowance(
+            &env,
+            &user,
+            &token_addr,
+            amount
+        ));
+        assert!(validation::has_sufficient_allowance(
+            &env,
+            &user,
+            &token_addr,
+            0
+        ));
+    });
+
+    assert_eq!(token.balance(&user), balance_before);
+}
+
 // Note: setter input validation is covered in contract code; invoking it directly
 // via the generated client isn't available in these tests. The storage-level
 // behavior for routing is covered by the tests above.
@@ -3213,6 +3527,67 @@ fn test_get_daily_limit() {
 }
 
 #[test]
+fn test_get_daily_limit_status_absent_limit() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.get_daily_limit_status(&user),
+        DailyLimitStatus {
+            limit: None,
+            spent: 0,
+            day_start: None,
+            remaining: None,
+        }
+    );
+}
+
+#[test]
+fn test_get_daily_limit_status_snapshot_and_rollover() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.set_daily_limit(&user, &10_0000000);
+    client.pay_per_use(&user, &2_0000000);
+
+    let status = client.get_daily_limit_status(&user);
+    assert_eq!(status.limit, Some(10_0000000));
+    assert_eq!(status.spent, 2_0000000);
+    assert_eq!(status.remaining, Some(8_0000000));
+    assert_eq!(status.day_start, client.get_day_start(&user));
+
+    env.as_contract(&contract_id, || {
+        env.storage().temporary().extend_ttl(
+            &DataKey::DailyLimit(user.clone()),
+            35000,
+            35000,
+        );
+    });
+    env.ledger().with_mut(|ledger| {
+        ledger.sequence_number += 17281;
+    });
+
+    assert_eq!(
+        client.get_daily_limit_status(&user),
+        DailyLimitStatus {
+            limit: Some(10_0000000),
+            spent: 0,
+            day_start: None,
+            remaining: Some(10_0000000),
+        }
+    );
+}
+
+#[test]
 fn test_daily_limit_allows_spend_within_limit() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -3833,13 +4208,134 @@ fn test_grace_period_ttl_extension() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_double_initialize() {
     let (env, contract_id, token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&token_addr, &admin);
     client.initialize(&token_addr, &admin);
+}
+
+// ─────────────────────────────────────────────
+// Issue #839 / Issue 044: deploy-facing initialize invariants
+// Relied on by scripts/deploy-pipeline.ts and scripts/testnet-setup.ts.
+// Signature must remain initialize(token, admin). Failures that scripts map
+// must be ContractError (AlreadyInitialized = 1), not a host string panic.
+// ─────────────────────────────────────────────
+
+/// Successful initialize persists both the default token and the admin.
+/// Deploy health checks require `token_configured` and `admin_configured`.
+#[test]
+fn test_initialize_deploy_invariant_persists_token_and_admin() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr, &admin);
+
+    assert_eq!(
+        client.get_token(),
+        Some(token_addr.clone()),
+        "initialize must persist the token readable via get_token"
+    );
+    assert_eq!(
+        client.get_admin(),
+        Some(admin.clone()),
+        "initialize must persist the admin readable via get_admin"
+    );
+
+    let report = client.contract_health_check();
+    assert!(report.token_configured);
+    assert!(report.admin_configured);
+}
+
+/// Storage read used by deploy scripts: get_admin returns the initialized admin.
+#[test]
+fn test_initialize_deploy_invariant_stored_admin() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    assert!(client.get_admin().is_none());
+    client.initialize(&token_addr, &admin);
+    assert_eq!(client.get_admin(), Some(admin));
+}
+
+/// Storage read used by deploy scripts: get_token returns the initialized token.
+#[test]
+fn test_initialize_deploy_invariant_stored_token() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    assert!(client.get_token().is_none());
+    client.initialize(&token_addr, &admin);
+    assert_eq!(client.get_token(), Some(token_addr));
+}
+
+/// A second initialize must return typed AlreadyInitialized (code 1), not a string panic.
+#[test]
+fn test_initialize_deploy_invariant_double_init_already_initialized() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr, &admin);
+
+    let result = client.try_initialize(&token_addr, &admin);
+    assert_eq!(
+        result,
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            crate::errors::ContractError::AlreadyInitialized as u32
+        ))),
+        "double initialize must map to ContractError::AlreadyInitialized"
+    );
+
+    // First initialize state is unchanged.
+    assert_eq!(client.get_token(), Some(token_addr));
+    assert_eq!(client.get_admin(), Some(admin));
+}
+
+/// Initialize without admin authorization must fail and must not persist token or admin.
+#[test]
+fn test_initialize_deploy_invariant_requires_admin_auth() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.set_auths(&[]);
+
+    let result = client.try_initialize(&token_addr, &admin);
+    assert!(result.is_err(), "initialize without admin auth must fail");
+    assert_ne!(
+        result,
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            crate::errors::ContractError::AlreadyInitialized as u32
+        ))),
+        "missing admin auth is an authorization failure, not AlreadyInitialized"
+    );
+
+    assert!(
+        client.get_token().is_none(),
+        "failed initialize must not persist token"
+    );
+    assert!(
+        client.get_admin().is_none(),
+        "failed initialize must not persist admin"
+    );
+}
+
+/// Backward-compat: current initialize(token, admin) arity remains the deploy entrypoint.
+#[test]
+fn test_initialize_deploy_invariant_token_admin_signature() {
+    let (env, contract_id, token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr, &admin);
+    assert_eq!(client.get_token(), Some(token_addr));
+    assert_eq!(client.get_admin(), Some(admin));
 }
 
 #[test]
@@ -4844,6 +5340,53 @@ fn test_initialize_sets_instance_ttl() {
 }
 
 #[test]
+fn test_bump_instance_ttl_is_permissionless_and_state_preserving() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    env.ledger().with_mut(|ledger| {
+        ledger.max_entry_ttl = SUBSCRIPTION_TTL_LEDGERS * 2;
+    });
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&token_addr, &admin);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    let admin_before = client.get_admin();
+    let token_before = client.get_token();
+    let fee_before = client.get_fee();
+    let subscription_before = client.get_subscription(&user);
+    env.ledger().with_mut(|ledger| {
+        ledger.sequence_number += SUBSCRIPTION_TTL_LEDGERS / 2 + 100;
+    });
+    let ttl_before = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+
+    env.set_auths(&[]);
+    client.bump_instance_ttl();
+
+    let ttl_after = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+    assert!(ttl_after > ttl_before);
+    assert!(ttl_after >= SUBSCRIPTION_TTL_LEDGERS);
+    assert_eq!(client.get_admin(), admin_before);
+    assert_eq!(client.get_token(), token_before);
+    assert_eq!(client.get_fee(), fee_before);
+    assert_eq!(client.get_subscription(&user), subscription_before);
+
+    client.bump_instance_ttl();
+    let repeated_ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+    assert!(repeated_ttl >= ttl_after);
+}
+
+#[test]
 #[should_panic]
 fn test_subscribe_interval_under_60_panics() {
     let (env, contract_id, token_addr, user, merchant) = setup();
@@ -5687,6 +6230,96 @@ fn test_subscribe_after_set_min_interval_lower_succeeds() {
     assert!(client.get_subscription(&user).unwrap().active);
 }
 
+#[test]
+fn prop_subscribe_interval_respects_min_interval_floor() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let default_floor = client.get_min_interval();
+
+    let mut state = 0x9e3779b97f4a7c15u64;
+    for sample in 0..4 {
+        state ^= state << 7;
+        state ^= state >> 9;
+        let interval = if sample == 0 {
+            0
+        } else {
+            state % default_floor
+        };
+        let user = setup_funded_user(&env, &contract_id, &token_addr);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.subscribe(
+                &user,
+                &merchant,
+                &1_0000000,
+                &interval,
+                &token_addr,
+                &None,
+                &None,
+            );
+        }));
+        assert!(result.is_err(), "interval {interval} must be rejected");
+    }
+
+    for offset in 0..4 {
+        let interval = default_floor + offset;
+        let user = setup_funded_user(&env, &contract_id, &token_addr);
+        client.subscribe(
+            &user,
+            &merchant,
+            &1_0000000,
+            &interval,
+            &token_addr,
+            &None,
+            &None,
+        );
+        assert_eq!(client.get_subscription(&user).unwrap().interval, interval);
+    }
+
+    let admin = Address::generate(&env);
+    client.set_initial_admin(&admin);
+    let updated_floor = 97u64;
+    client.set_min_interval(&updated_floor);
+    assert_eq!(client.get_min_interval(), updated_floor);
+
+    for sample in 0..4 {
+        state ^= state << 7;
+        state ^= state >> 9;
+        let interval = if sample == 0 {
+            0
+        } else {
+            state % updated_floor
+        };
+        let user = setup_funded_user(&env, &contract_id, &token_addr);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.subscribe(
+                &user,
+                &merchant,
+                &1_0000000,
+                &interval,
+                &token_addr,
+                &None,
+                &None,
+            );
+        }));
+        assert!(result.is_err(), "updated floor rejected interval {interval}");
+    }
+
+    for offset in 0..4 {
+        let interval = updated_floor + offset;
+        let user = setup_funded_user(&env, &contract_id, &token_addr);
+        client.subscribe(
+            &user,
+            &merchant,
+            &1_0000000,
+            &interval,
+            &token_addr,
+            &None,
+            &None,
+        );
+        assert_eq!(client.get_subscription(&user).unwrap().interval, interval);
+    }
+}
+
 /// set_min_interval(0) panics.
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
@@ -6256,6 +6889,124 @@ fn test_non_admin_set_grace_period_panics() {
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+// -------------------------------------------------------------
+// Issue #45: resume/cancel on grace-lapsed subscriptions
+// -------------------------------------------------------------
+
+
+/// resume on a grace-lapsed subscription must panic with ResumeGraceLapsed (#100).
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")]
+fn test_resume_after_grace_lapse_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    let grace_period: u64 = 86400;
+    let interval: u64 = 86400;
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+    client.pause(&user);
+
+    // Advance past interval + grace window
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + grace_period + 1;
+    });
+
+    // resume must be rejected because the grace window has closed
+    client.resume(&user);
+}
+
+/// cancel on a grace-lapsed subscription must still succeed.
+#[test]
+fn test_cancel_after_grace_lapse_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    let grace_period: u64 = 86400;
+    let interval: u64 = 86400;
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+    client.pause(&user);
+
+    // Advance past interval + grace window
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + grace_period + 1;
+    });
+
+    // cancel must still be allowed so the user can exit cleanly
+    client.cancel(&user);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(!sub.active, "subscription should be inactive after cancel");
+}
+
+/// resume within a valid (non-lapsed) grace window must succeed normally.
+#[test]
+fn test_resume_within_grace_window_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    let grace_period: u64 = 86400;
+    let interval: u64 = 86400;
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+    client.pause(&user);
+
+    // Advance past interval but still inside the grace window
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + grace_period / 2;
+    });
+
+    // resume must succeed because the grace window has not yet closed
+    client.resume(&user);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(!sub.paused, "subscription should not be paused after resume");
+    assert!(sub.active, "subscription should remain active");
+}
+
+/// resume when no grace period is configured must succeed regardless of elapsed time.
+#[test]
+fn test_resume_no_grace_period_always_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // No grace period set -- default is 0
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+    client.pause(&user);
+
+    // Advance far past the interval -- grace is 0 so lapse check is skipped
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval * 10;
+    });
+
+    // resume must succeed because grace_period == 0 means no lapse
+    client.resume(&user);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(!sub.paused, "subscription should not be paused after resume");
+}
+
 // Issue #243: Token address validation
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -7492,6 +8243,58 @@ fn test_admin_batch_cancel_subscriptions_cancels_multiple_accounts() {
 }
 
 #[test]
+fn test_batch_cancel_matches_single_cancel_side_effects() {
+    let (env, contract_id, token_addr, user_single, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let user_batch = setup_funded_user(&env, &contract_id, &token_addr);
+    let referrer = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(
+        &user_single,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &Some(referrer.clone()),
+    );
+    client.subscribe(
+        &user_batch,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &Some(referrer),
+    );
+
+    client.cancel(&user_single);
+    let mut users = Vec::new(&env);
+    users.push_back(user_batch.clone());
+    let results = client.batch_cancel(&users);
+
+    assert_eq!(results.get(0).unwrap(), CancelResult::Cancelled);
+    assert_eq!(
+        client.get_subscription(&user_single),
+        client.get_subscription(&user_batch)
+    );
+    assert_eq!(client.get_referrer(&user_single), None);
+    assert_eq!(client.get_referrer(&user_batch), None);
+    assert_eq!(client.get_active_count(), 0);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 0);
+    assert_eq!(client.get_subscriber_count(), 2);
+    assert!(client.get_subscriber_at(&0).is_none());
+    assert!(client.get_subscriber_at(&1).is_none());
+    assert_eq!(count_user_events(&env, "cancelled", &user_single), 1);
+    assert_eq!(count_user_events(&env, "cancelled", &user_batch), 1);
+}
+
+#[test]
 #[should_panic]
 fn test_batch_cancel_requires_admin_auth() {
     let env = Env::default();
@@ -7526,6 +8329,28 @@ fn test_batch_cancel_exceeds_max_size_panics() {
         users.push_back(Address::generate(&env));
     }
     client.batch_cancel(&users);
+}
+
+#[test]
+fn test_batch_cancel_at_max_size_succeeds() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    for _ in 0..25 {
+        users.push_back(Address::generate(&env));
+    }
+
+    let results = client.batch_cancel(&users);
+    assert_eq!(results.len(), 25);
+    for result in results.iter() {
+        assert_eq!(result, CancelResult::NoSubscription);
+    }
 }
 
 #[test]
@@ -7593,6 +8418,12 @@ fn test_batch_cancel_handles_mixed_states_and_clears_referral() {
     assert!(client.get_subscription(&missing_user).is_none());
 
     assert_eq!(client.get_referrer(&user_a), None);
+    assert_eq!(client.get_active_count(), 0);
+    assert_eq!(client.get_merchant_sub_count(&merchant), 0);
+    assert_eq!(client.get_subscriber_count(), 3);
+    assert!(client.get_subscriber_at(&0).is_none());
+    assert!(client.get_subscriber_at(&1).is_none());
+    assert!(client.get_subscriber_at(&2).is_none());
 
     assert_eq!(count_user_events(&env, "cancelled", &user_a), 1);
     assert_eq!(count_user_events(&env, "cancelled", &user_b), 1);
@@ -7815,6 +8646,261 @@ fn test_daily_limit_day_start_boundary() {
 
     // Should only be 15, not 35
     assert_eq!(client.get_daily_spent(&user), 15_0000000);
+}
+
+// ─────────────────────────────────────────────
+// CONTRACT-821: simulate_pay_per_use dry-run helper
+// ─────────────────────────────────────────────
+
+/// The sibling dry-run of `pay_per_use` returns distinct outcomes for the
+/// inactive, paused, would-succeed, and daily-limit cases, while performing no
+/// state writes.
+#[test]
+fn test_simulate_pay_per_use_variants() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // 1. Inactive when no subscription
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::Inactive
+    );
+
+    // Subscribe
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // 2. WouldSucceed when active, no daily limit, allowance sufficient
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::WouldSucceed
+    );
+
+    // 3. DailyLimitExceeded when the limit would be exceeded
+    client.set_daily_limit(&user, &5_0000000);
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &6_0000000),
+        PayPerUseSimResult::DailyLimitExceeded
+    );
+
+    // 4. DailyLimitExceeded on cumulative spend: 3, then simulate another 3 (>5)
+    client.pay_per_use(&user, &3_0000000);
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &3_0000000),
+        PayPerUseSimResult::DailyLimitExceeded
+    );
+
+    // 5. SubscriptionPaused when paused
+    let before_spent = client.get_daily_spent(&user);
+    client.pause(&user);
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::SubscriptionPaused
+    );
+    client.resume(&user);
+
+    // 6. InsufficientAllowance when allowance revoked
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &0, &100);
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::InsufficientAllowance
+    );
+
+    // 7. ContractPaused
+    env.as_contract(&contract_id, || {
+        storage::set_contract_paused(&env, true);
+    });
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::ContractPaused
+    );
+
+    // No simulation wrote to daily spend tracking.
+    assert_eq!(client.get_daily_spent(&user), before_spent);
+}
+
+/// `simulate_pay_per_use` performs no state writes: daily spent, day start, and
+/// balance are unchanged regardless of the simulated outcome.
+#[test]
+fn test_simulate_pay_per_use_no_state_writes() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.set_daily_limit(&user, &5_0000000);
+
+    client.pay_per_use(&user, &2_0000000);
+
+    let spent_before = client.get_daily_spent(&user);
+    let day_start_before = client.get_day_start(&user);
+    let balance_before = TokenClient::new(&env, &token_addr)
+        .balance(&user);
+
+    // Would succeed
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &1_0000000),
+        PayPerUseSimResult::WouldSucceed
+    );
+    // Limit exceeded
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &5_0000000),
+        PayPerUseSimResult::DailyLimitExceeded
+    );
+
+    assert_eq!(client.get_daily_spent(&user), spent_before);
+    assert_eq!(client.get_day_start(&user), day_start_before);
+    assert_eq!(
+        TokenClient::new(&env, &token_addr).balance(&user),
+        balance_before
+    );
+}
+
+/// Simulating a spend at a day-window boundary reflects the fresh (reset) daily
+/// spent value after the window has elapsed, mirroring `pay_per_use`.
+#[test]
+fn test_simulate_pay_per_use_day_window_reset_boundary() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &100_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.set_daily_limit(&user, &50_0000000);
+
+    // Spend 10 today.
+    client.pay_per_use(&user, &10_0000000);
+    assert_eq!(client.get_daily_spent(&user), 10_0000000);
+
+    // Crossing the day boundary makes the reset daily spent visible to the
+    // dry-run: today a 45 spend would exceed (10 + 45 > 50)...
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &45_0000000),
+        PayPerUseSimResult::DailyLimitExceeded
+    );
+
+    // Manually extend the DailyLimit (and merchant-revenue) TTL so they survive
+    // the time skip below, while intentionally leaving DailySpent/DayStart to
+    // expire so the new window starts from a reset counter.
+    env.as_contract(&contract_id, || {
+        let key = DataKey::DailyLimit(user.clone());
+        env.storage().temporary().extend_ttl(&key, 35000, 35000);
+        env.storage().persistent().extend_ttl(
+            &DataKey::MerchantRevenue(merchant.clone()),
+            35000,
+            35000,
+        );
+        env.storage().persistent().extend_ttl(
+            &DataKey::MerchantRevenueHistory(merchant.clone()),
+            35000,
+            35000,
+        );
+    });
+
+    // Advance past the day window (LEDGERS_PER_DAY + 1).
+    env.ledger().with_mut(|l| {
+        l.sequence_number += 17281;
+        l.timestamp += 17281 * 5;
+    });
+
+    // Renew the token allowance that expired with the ledger jump.
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(
+        &user,
+        &contract_id,
+        &10_000_0000000,
+        &(env.ledger().sequence() + 200),
+    );
+
+    // The new day's simulated spend is evaluated against a reset counter,
+    // so the same 45 amount now succeeds.
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &45_0000000),
+        PayPerUseSimResult::WouldSucceed
+    );
+}
+
+/// `simulate_pay_per_use_to` accounts for recipient validation (invalid
+/// contract self-reference and merchant whitelist) in addition to the shared
+/// pay-per-use checks.
+#[test]
+fn test_simulate_pay_per_use_to_recipient_validation() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Contract's own address is an invalid recipient.
+    assert_eq!(
+        client.simulate_pay_per_use_to(&user, &1_0000000, &contract_id),
+        PayPerUseSimResult::InvalidRecipient
+    );
+
+    // With whitelist enabled, a non-whitelisted recipient is rejected.
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, true);
+    });
+    let random = Address::generate(&env);
+    assert_eq!(
+        client.simulate_pay_per_use_to(&user, &1_0000000, &random),
+        PayPerUseSimResult::MerchantNotWhitelisted
+    );
+
+    // A valid, whitelisted recipient would succeed.
+    env.as_contract(&contract_id, || {
+        whitelist::add_merchant(&env, &merchant);
+    });
+    assert_eq!(
+        client.simulate_pay_per_use_to(&user, &1_0000000, &merchant),
+        PayPerUseSimResult::WouldSucceed
+    );
+}
+
+/// `simulate_pay_per_use` rejects non-positive and over-cap amounts with the
+/// same outcomes the real call enforces.
+#[test]
+fn test_simulate_pay_per_use_amount_bounds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // No subscription yet, but amount bounds are checked before subscription.
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &0),
+        PayPerUseSimResult::AmountMustBePositive
+    );
+    assert_eq!(
+        client.simulate_pay_per_use(&user, &(MAX_AMOUNT + 1)),
+        PayPerUseSimResult::AmountExceedsMaximum
+    );
 }
 
 // ─────────────────────────────────────────────
@@ -8557,6 +9643,152 @@ fn test_extend_subscriber_index_ttl_non_admin_panics() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Issue #838: clear_subscriber_index_entry admin repair
+// ─────────────────────────────────────────────────────────────
+
+/// Simulate a stale index slot: the subscription is inactive but the
+/// append-only index was never tombstoned (the corruption this repair
+/// entrypoint is meant to fix).
+fn deactivate_subscription_leaving_index(env: &Env, contract_id: &Address, user: &Address) {
+    env.as_contract(contract_id, || {
+        let mut sub = storage::get_subscription(env, user).expect("subscription");
+        sub.active = false;
+        storage::set_subscription(env, user, &sub);
+    });
+}
+
+#[test]
+fn test_clear_subscriber_index_entry_authorized_repair_tombstones_stale_slot() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    assert_eq!(client.get_subscriber_at(&0u64), Some(user.clone()));
+
+    deactivate_subscription_leaving_index(&env, &contract_id, &user);
+    assert_eq!(
+        client.get_subscriber_at(&0u64),
+        Some(user.clone()),
+        "stale slot must still be visible before repair"
+    );
+
+    client.clear_subscriber_index_entry(&0u64);
+
+    assert_eq!(
+        client.get_subscriber_at(&0u64),
+        None,
+        "repaired slot must be tombstoned"
+    );
+    let page = client.get_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 0);
+    assert_eq!(
+        client.get_subscriber_count(),
+        1,
+        "repair must not shrink the append-only index"
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_clear_subscriber_index_entry_unauthorized_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    deactivate_subscription_leaving_index(&env, &contract_id, &user);
+
+    env.set_auths(&[]);
+    client.clear_subscriber_index_entry(&0u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #41)")]
+fn test_clear_subscriber_index_entry_refuses_active_subscriber() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    client.clear_subscriber_index_entry(&0u64);
+}
+
+#[test]
+fn test_clear_subscriber_index_entry_emits_audit_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    deactivate_subscription_leaving_index(&env, &contract_id, &user);
+
+    client.clear_subscriber_index_entry(&0u64);
+
+    let events = env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let index: u64 = data.try_into_val(&env).unwrap();
+
+    assert_eq!(
+        topic_symbol,
+        Symbol::new(&env, "subscriber_index_cleared")
+    );
+    assert_eq!(topic_user, user);
+    assert_eq!(index, 0);
+}
+
+// ─────────────────────────────────────────────────────────────
 // Issue #610: get_subscription_token tests
 // ─────────────────────────────────────────────────────────────
 
@@ -9055,10 +10287,10 @@ fn test_get_next_charge_batch_empty_and_bounds() {
     let (env, contract_id, _, _, _) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    let batch = client.get_next_charge_batch(&0, &10);
+    let batch = client.get_next_charge_batch(&0, &10, &None);
     assert_eq!(batch.len(), 0);
 
-    let batch_oob = client.get_next_charge_batch(&5, &10);
+    let batch_oob = client.get_next_charge_batch(&5, &10, &None);
     assert_eq!(batch_oob.len(), 0);
 }
 
@@ -9086,7 +10318,7 @@ fn test_get_next_charge_batch_filtering() {
 
     client.subscribe(&user_not_due, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
 
-    let batch = client.get_next_charge_batch(&0, &10);
+    let batch = client.get_next_charge_batch(&0, &10, &None);
     assert_eq!(batch.len(), 1);
     assert_eq!(batch.get(0).unwrap(), user_due);
 }
@@ -9109,12 +10341,12 @@ fn test_get_next_charge_batch_pagination() {
         l.timestamp += interval + 1;
     });
 
-    let batch1 = client.get_next_charge_batch(&0, &2);
+    let batch1 = client.get_next_charge_batch(&0, &2, &None);
     assert_eq!(batch1.len(), 2);
     assert_eq!(batch1.get(0).unwrap(), user1);
     assert_eq!(batch1.get(1).unwrap(), user2);
 
-    let batch2 = client.get_next_charge_batch(&2, &2);
+    let batch2 = client.get_next_charge_batch(&2, &2, &None);
     assert_eq!(batch2.len(), 1);
     assert_eq!(batch2.get(0).unwrap(), user3);
 }
@@ -9125,7 +10357,58 @@ fn test_get_next_charge_batch_exceeds_limit_panics() {
     let (env, contract_id, _, _, _) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.get_next_charge_batch(&0, &51);
+    client.get_next_charge_batch(&0, &51, &None);
+}
+
+#[test]
+fn test_get_next_charge_batch_exclude_lapsed() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+    let grace_period: u64 = 86400;
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    let interval: u64 = 86400;
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Advance ledger beyond interval, but WITHIN grace period
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + grace_period - 100;
+    });
+
+    // It should be returned because it's due and not lapsed
+    let batch = client.get_next_charge_batch(&0, &10, &Some(true));
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch.get(0).unwrap(), user);
+
+    // Advance ledger beyond interval + grace period
+    env.ledger().with_mut(|l| {
+        l.timestamp += 200; // past the grace period
+    });
+
+    // When exclude_lapsed is Some(true) or None, it should NOT be returned
+    let batch_exclude = client.get_next_charge_batch(&0, &10, &Some(true));
+    assert_eq!(batch_exclude.len(), 0);
+
+    let batch_default = client.get_next_charge_batch(&0, &10, &None);
+    assert_eq!(batch_default.len(), 0);
+
+    // When exclude_lapsed is Some(false), it should be returned
+    let batch_include = client.get_next_charge_batch(&0, &10, &Some(false));
+    assert_eq!(batch_include.len(), 1);
+    assert_eq!(batch_include.get(0).unwrap(), user);
 }
 
 #[test]
@@ -9445,6 +10728,24 @@ fn test_extend_trial_overflow_fails_with_typed_error() {
     let res = client.try_extend_trial(&user, &1);
 
     assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(36))));
+}
+
+/// Extending a paused subscription's trial must fail closed with the typed
+/// `SubscriptionPaused` (#17) error rather than advancing `last_charged` into
+/// a chargeable state.
+#[test]
+fn test_extend_trial_on_paused_subscription_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    let before = client.get_subscription(&user).unwrap().last_charged;
+
+    client.pause(&user);
+
+    let res = client.try_extend_trial(&user, &86400);
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(17))));
+    assert_eq!(client.get_subscription(&user).unwrap().last_charged, before);
 }
 
 /// `amount * bps` must not wrap for amounts beyond the economic caps.

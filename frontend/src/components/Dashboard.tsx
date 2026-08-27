@@ -1,5 +1,13 @@
 import React, { useState, useRef, useCallback, lazy, Suspense } from "react";
-import { buildPayPerUseTx } from "../stellar";
+import {
+  buildPayPerUseTx,
+  ChargeSimResult,
+  chargeSimBlocksPay,
+  payBlockedReason,
+  payWarningReason,
+  subscriptionHealthBlocksPay,
+  SubscriptionHealth,
+} from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionCardSkeleton from "./Skeleton";
@@ -49,6 +57,8 @@ export default function Dashboard({
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const ppuTx = useTransaction();
+  const [subHealth, setSubHealth] = useState<SubscriptionHealth | null>(null);
+  const [simResult, setSimResult] = useState<ChargeSimResult | null>(null);
   const [showDailyLimit, setShowDailyLimit] = useState(false);
   const [showIncreaseAllowance, setShowIncreaseAllowance] = useState(false);
   const [allowanceRefresh, setAllowanceRefresh] = useState(0);
@@ -138,6 +148,9 @@ export default function Dashboard({
             onSign={onSign}
             onRefresh={refresh}
             onCancelled={onCancelled}
+            showSimulateCharge={sub.active}
+            onHealthChange={setSubHealth}
+            onSimulateResult={setSimResult}
           />
 
           {sub.active && (
@@ -209,6 +222,9 @@ export default function Dashboard({
                 onPay={handlePayPerUse}
                 loading={ppuPending}
                 isPaused={isPaused}
+                disabled={subscriptionHealthBlocksPay(subHealth) || chargeSimBlocksPay(simResult)}
+                disabledReason={payBlockedReason(subHealth, simResult) ?? undefined}
+                warningReason={payWarningReason(subHealth, simResult) ?? undefined}
               />
               {ppuPending && (
                 <p className="status-text status-text--pending">Confirming payment…</p>
@@ -217,7 +233,9 @@ export default function Dashboard({
                 error={ppuTx.error}
                 onIncreaseAllowance={() => setShowIncreaseAllowance(true)}
                 onViewDailyLimit={() => setShowDailyLimit(true)}
-                dailyLimit={sub.amount} // We don't have exactly the daily limit fetched, but could be fetched or omitted.
+                dailyLimit={sub.amount}
+                health={subHealth}
+                simulateResult={simResult}
               />
               <ReferralPanel publicKey={userKey} />
             </>

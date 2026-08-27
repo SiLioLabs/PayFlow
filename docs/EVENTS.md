@@ -4,7 +4,7 @@ This document provides a complete reference for all events emitted by the FlowPa
 
 > **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
-> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-08-26. All 39 `publish_*` helpers are documented below.
+> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-08-27. All 40 `publish_*` helpers are documented below.
 
 ---
 
@@ -658,6 +658,18 @@ Events related to contract migration and infrastructure operations.
   {
     "topic": ["subscriber_index_ttl_extended"],
     "data": 150
+  }
+  ```
+
+### subscriber_index_cleared
+- **Trigger**: `clear_subscriber_index_entry()` (admin repair of a stale index slot)
+- **Topic keys**: `["subscriber_index_cleared", user_address]`
+- **Payload schema**: `index: u64`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["subscriber_index_cleared", "GABC...XYZ"],
+    "data": 42
   }
   ```
 

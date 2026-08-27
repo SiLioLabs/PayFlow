@@ -410,12 +410,141 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
   }
 }
 
+/** Mirrors contract `SubscriptionHealth` from `get_subscription_health`. */
 export interface SubscriptionHealth {
-  charged_up: boolean;
-  allowance_ok: boolean;
-  trial_active: boolean;
-  paused: boolean;
+  active: boolean;
   charge_due: boolean;
+  within_grace: boolean;
+  has_sufficient_allowance: boolean;
+  is_paused: boolean;
+  trial_active: boolean;
+  daily_limit_set: boolean;
+}
+
+export const CHARGE_SIM_RESULTS = [
+  "WouldSucceed",
+  "NotDue",
+  "Inactive",
+  "InsufficientAllowance",
+  "GracePeriodElapsed",
+  "ContractPaused",
+  "SubscriptionPaused",
+] as const;
+
+export type ChargeSimResult = (typeof CHARGE_SIM_RESULTS)[number];
+
+export const CHARGE_SIM_LABELS: Record<ChargeSimResult, string> = {
+  WouldSucceed: "Next charge would succeed",
+  NotDue: "Next charge is not due yet",
+  Inactive: "No active subscription to charge",
+  InsufficientAllowance: "Allowance is too low for the next charge",
+  GracePeriodElapsed: "Grace period has elapsed — recurring charge would fail",
+  ContractPaused: "Protocol is paused",
+  SubscriptionPaused: "Subscription is paused — charge would fail",
+};
+
+export function normalizeSubscriptionHealth(
+  raw: Partial<SubscriptionHealth> | null | undefined
+): SubscriptionHealth | null {
+  if (!raw) return null;
+  return {
+    active: !!raw.active,
+    charge_due: !!raw.charge_due,
+    within_grace: !!raw.within_grace,
+    has_sufficient_allowance: !!raw.has_sufficient_allowance,
+    is_paused: !!raw.is_paused,
+    trial_active: !!raw.trial_active,
+    daily_limit_set: !!raw.daily_limit_set,
+  };
+}
+
+export function isSubscriptionHealthy(health: SubscriptionHealth): boolean {
+  return health.active && health.has_sufficient_allowance && !health.is_paused;
+}
+
+export function subscriptionHasWarnings(health: SubscriptionHealth): boolean {
+  return !isSubscriptionHealthy(health) || health.within_grace || health.charge_due;
+}
+
+/** States that would make pay-per-use fail on-chain. */
+export function subscriptionHealthBlocksPay(health: SubscriptionHealth | null): boolean {
+  if (!health) return false;
+  return !health.active || health.is_paused;
+}
+
+export function chargeSimIsRisky(result: ChargeSimResult | null): boolean {
+  return (
+    result === "InsufficientAllowance" ||
+    result === "GracePeriodElapsed" ||
+    result === "ContractPaused" ||
+    result === "SubscriptionPaused" ||
+    result === "Inactive"
+  );
+}
+
+export function chargeSimBlocksPay(result: ChargeSimResult | null): boolean {
+  return result === "ContractPaused" || result === "SubscriptionPaused" || result === "Inactive";
+}
+
+export function payBlockedReason(
+  health: SubscriptionHealth | null,
+  sim: ChargeSimResult | null
+): string | null {
+  if (health?.is_paused || sim === "SubscriptionPaused") {
+    return "Pay-per-use is unavailable while the subscription is paused. Resume first.";
+  }
+  if ((health && !health.active) || sim === "Inactive") {
+    return "Pay-per-use requires an active subscription.";
+  }
+  if (sim === "ContractPaused") {
+    return "Pay-per-use is unavailable while the protocol is paused.";
+  }
+  return null;
+}
+
+export function payWarningReason(
+  health: SubscriptionHealth | null,
+  sim: ChargeSimResult | null
+): string | null {
+  if (payBlockedReason(health, sim)) return null;
+  if ((health && !health.has_sufficient_allowance) || sim === "InsufficientAllowance") {
+    return "Token allowance is insufficient. Increase allowance before paying or the charge may fail.";
+  }
+  if (health?.within_grace) {
+    return "Subscription is in its grace period. Recurring charge is overdue.";
+  }
+  if (sim === "GracePeriodElapsed") {
+    return "Grace period has elapsed. Recurring charge would fail until the subscription is repaired.";
+  }
+  if (health?.charge_due) {
+    return "A recurring charge is currently due.";
+  }
+  return null;
+}
+
+/** Decode a unit `ChargeSimResult` enum (symbol or vec-wrapped symbol). */
+export function decodeChargeSimResult(
+  retval: xdr.ScVal | null | undefined
+): ChargeSimResult | null {
+  if (!retval) return null;
+  try {
+    const type = retval.switch().name;
+    let name: string | null = null;
+    if (type === "scvSymbol") {
+      name = retval.sym().toString();
+    } else if (type === "scvVec") {
+      const vec = retval.vec() ?? [];
+      if (vec.length > 0 && vec[0].switch().name === "scvSymbol") {
+        name = vec[0].sym().toString();
+      }
+    }
+    if (name && (CHARGE_SIM_RESULTS as readonly string[]).includes(name)) {
+      return name as ChargeSimResult;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function getSubscriptionHealth(user: string): Promise<SubscriptionHealth | null> {
@@ -438,13 +567,43 @@ export function getSubscriptionHealth(user: string): Promise<SubscriptionHealth 
       const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
       if (!retval || retval.switch().name === "scvVoid") return null;
 
-      return ScValDecoder.decodeStruct(retval, {
-        charged_up: ScValDecoder.decodeBool,
-        allowance_ok: ScValDecoder.decodeBool,
-        trial_active: ScValDecoder.decodeBool,
-        paused: ScValDecoder.decodeBool,
-        charge_due: ScValDecoder.decodeBool,
-      });
+      return normalizeSubscriptionHealth(
+        ScValDecoder.decodeStruct(retval, {
+          active: ScValDecoder.decodeBool,
+          charge_due: ScValDecoder.decodeBool,
+          within_grace: ScValDecoder.decodeBool,
+          has_sufficient_allowance: ScValDecoder.decodeBool,
+          is_paused: ScValDecoder.decodeBool,
+          trial_active: ScValDecoder.decodeBool,
+          daily_limit_set: ScValDecoder.decodeBool,
+        })
+      );
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** Dry-run of on-chain `simulate_charge` — no storage writes or transfers. */
+export function simulateCharge(user: string): Promise<ChargeSimResult | null> {
+  return dedupedCall(`simulateCharge:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("simulate_charge", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) throw new Error((result as { error: string }).error);
+
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      return decodeChargeSimResult(retval);
     } catch {
       return null;
     }

@@ -8,6 +8,9 @@ interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;
   loading: boolean;
   isPaused?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+  warningReason?: string;
 }
 
 function validate(raw: string): { stroops: bigint | null; error: string | null } {
@@ -30,7 +33,7 @@ function validate(raw: string): { stroops: bigint | null; error: string | null }
 }
 
 const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
-  ({ onPay, loading, isPaused = false }, ref) => {
+  ({ onPay, loading, isPaused = false, disabled = false, disabledReason, warningReason }, ref) => {
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [lastValue, setLastValue] = useState(amount);
@@ -64,14 +67,22 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
     }, [amount]);
 
+    const payDisabled = loading || isPaused || disabled;
+
     async function handleSubmit() {
-      if (!validationResult.valid) return;
+      if (!validationResult.valid || payDisabled) return;
       const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
       await onPay(stroops);
       setAmount("");
       setError(null);
       setConvertedStroops(null);
     }
+
+    const payAriaLabel = disabled
+      ? "Pay now (unavailable — subscription is unhealthy)"
+      : isPaused
+        ? "Pay now (unavailable during maintenance)"
+        : undefined;
 
     return (
       <div className="card">
@@ -87,7 +98,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               onBlur={handleBlur}
-              disabled={loading || isPaused}
+              disabled={payDisabled}
               style={{ width: "100%" }}
             />
             {error && <span className="text-error">{error}</span>}
@@ -97,13 +108,23 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
           </div>
           <button
             onClick={handleSubmit}
-            disabled={!validationResult.valid || loading || isPaused}
+            disabled={!validationResult.valid || payDisabled}
             className="btn-primary ppu-card__pay-btn"
-            aria-label={isPaused ? "Pay now (unavailable during maintenance)" : undefined}
+            aria-label={payAriaLabel}
           >
             {loading ? <Spinner size="sm" /> : "Pay now"}
           </button>
         </div>
+        {disabled && disabledReason && (
+          <p className="text-error" data-testid="ppu-blocked-reason" role="status">
+            {disabledReason}
+          </p>
+        )}
+        {!disabled && warningReason && (
+          <p className="text-sm text-muted" data-testid="ppu-warning-reason" role="status">
+            {warningReason}
+          </p>
+        )}
         {validationResult.error && <span className="text-error">{validationResult.error}</span>}
       </div>
     );

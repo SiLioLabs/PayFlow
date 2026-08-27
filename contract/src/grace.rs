@@ -1,4 +1,4 @@
-use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
+use crate::{DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS};
 use soroban_sdk::Env;
 
 pub fn get_grace_period(env: &Env) -> u64 {
@@ -10,6 +10,20 @@ pub fn get_grace_period(env: &Env) -> u64 {
     } else {
         0
     }
+}
+
+/// Returns `true` when a subscription's grace window has definitively closed:
+/// grace_period > 0 AND now > last_charged + interval + grace_period.
+/// Uses the same math as charge/batch_charge paths.
+/// See docs/SUBSCRIBER-LIFECYCLE.md for the single recovery rule:
+/// cancel is always allowed; re-subscribe to restore chargeability.
+pub fn is_grace_lapsed(env: &Env, sub: &Subscription) -> bool {
+    let grace_period = get_grace_period(env);
+    if grace_period == 0 {
+        return false;
+    }
+    let now = env.ledger().timestamp();
+    now > sub.last_charged + sub.interval + grace_period
 }
 
 /// Proposes a new contract-wide grace period.

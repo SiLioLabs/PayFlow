@@ -1,9 +1,10 @@
-use soroban_sdk::{contracttype, token, Address, Env, Vec};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::charge_exec;
 use crate::events;
 use crate::events::BatchChargeSkipsEventData;
 use crate::grace;
+use crate::validation;
 use crate::{DataKey, Subscription};
 // sync trigger
 pub const MAX_BATCH_SIZE: u32 = 50;
@@ -129,10 +130,8 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         // pay-per-use, where no caller has established the
                         // invariant, and an auditor reading the helper alone
                         // should see it stated there. Here it is redundant.
-                        let token_client = token::Client::new(env, &sub.token);
-                        let allowance = token_client
-                            .allowance(&user, &env.current_contract_address());
-                        if allowance < sub.amount {
+                        if !validation::has_sufficient_allowance(env, &user, &sub.token, sub.amount)
+                        {
                             ChargeResult::AllowanceInsufficient
                         } else {
                             charge_exec::execute_charge(env, &user, &key, &mut sub, now);

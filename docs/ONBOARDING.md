@@ -15,6 +15,7 @@ This is a narrative walkthrough. For reference material once you're up and runni
 
 - [1. Environment Setup](#1-environment-setup)
 - [2. First Run](#2-first-run)
+  - [2.5 Backend / scripts path (keeper & indexer)](#25-backend--scripts-path-keeper--indexer)
 - [3. Choosing an Issue](#3-choosing-an-issue)
 - [4. Making a Change](#4-making-a-change)
 - [5. Submitting a PR](#5-submitting-a-pr)
@@ -173,6 +174,69 @@ You'll need a `VITE_CONTRACT_ID` in `.env.local` pointing at a deployed testnet 
 
 For a complete reference of all environment variables and how RPC, passphrase, and contract ID must align across frontend, scripts, and contract tests, see [`docs/development/network-matrix.md`](development/network-matrix.md).
 
+### 2.5 Backend / scripts path (keeper & indexer)
+
+If your first contribution targets **keeper**, **indexer**, or other TypeScript ops code under `scripts/`, you can skip the Soroban CLI until you touch contract tests. You still need **Node 20+** (matches CI and `scripts/README.md`).
+
+#### Setup
+
+```bash
+cd scripts
+npm install
+cp .env.example .env
+```
+
+Edit `.env` with **Testnet-only** placeholders:
+
+- `CONTRACT_ID` — deployed FlowPay contract (`C…`)
+- `RPC_URL` — default testnet RPC is fine for dry-run
+- `NETWORK_PASSPHRASE` — `Test SDF Network ; September 2015`
+
+**Never commit `.env`, secret keys, or Mainnet credentials.** Keep `KEEPER_SECRET` / `ADMIN_SECRET_KEY` out of git; use your shell environment or a local secrets manager. `.env.example` documents variable names only.
+
+#### Safe dry-run keeper (no transactions)
+
+Dry-run simulates charge cycles via RPC and writes JSON reports — it does **not** submit transactions or spend XLM:
+
+```bash
+cd scripts
+CONTRACT_ID=C... \
+KEEPER_PUBLIC_KEY=G... \
+DRY_RUN=true \
+tsx keeper.ts --once
+```
+
+Expected: log lines prefixed with `[DRY-RUN]`, exit 0, and an optional report under `scripts/data/benchmarks/keeper-dryrun-report-*.json`. You do **not** need `KEEPER_SECRET` in dry-run mode.
+
+Verify contract reachability without signing:
+
+```bash
+CONTRACT_ID=C... npm run pre-upgrade-check
+# or
+CONTRACT_ID=C... tsx health-check.ts
+```
+
+Full ops reference: [`scripts/README.md`](../scripts/README.md), [`docs/KEEPER.md`](KEEPER.md).
+
+#### Suggested first tasks (scripts/backend)
+
+| Task | Where to start |
+| --- | --- |
+| Improve keeper logging or dry-run report fields | `scripts/keeper.ts` |
+| Add indexer query or dedup coverage | `scripts/indexer.ts`, `scripts/query-events.ts` |
+| Harden RPC failover usage | `scripts/rpc-client.ts` (`MultiEndpointServer`) |
+| Document or test an ops script | `scripts/README.md` + the script under test |
+| Wire a new read-only health probe | `scripts/health-check.ts` |
+
+Before opening a PR, run:
+
+```bash
+cd scripts
+npm run typecheck
+```
+
+Run this before every scripts PR (local enforcement — see `CONTRIBUTING.md` for CI status).
+
 ---
 
 ## 3. Choosing an Issue
@@ -226,7 +290,18 @@ cargo test test_name  # run one test while iterating
 ```bash
 cd frontend
 # edit src/**/*.tsx
-npm run test          # run the Vitest suite
+npm run test          # run the Vitest suite (when package.json defines it)
+npm run lint
+npm run build
+```
+
+**Backend / scripts changes:**
+
+```bash
+cd scripts
+# edit *.ts
+npm run typecheck     # tsc --noEmit
+tsx keeper.ts --once  # optional smoke with DRY_RUN=true
 ```
 
 Keep this loop tight: make a small change, run the relevant tests, repeat. Don't write a large batch of changes before running tests for the first time — it makes failures much harder to isolate.

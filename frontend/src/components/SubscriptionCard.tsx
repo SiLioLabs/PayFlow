@@ -23,7 +23,15 @@ import ErrorRecovery from "./ErrorRecovery";
 import SubscriptionHealthWidget from "./SubscriptionHealthWidget";
 import { Subscription } from "../types";
 import { BILLING_INTERVALS } from "../constants";
-import { getAllowance, getTrialEnd, buildCancelTx } from "../stellar";
+import {
+  ChargeSimResult,
+  getAllowance,
+  getTrialEnd,
+  buildCancelTx,
+  isSubscriptionHealthy,
+  subscriptionHasWarnings,
+  SubscriptionHealth,
+} from "../stellar";
 import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
 import { usePauseResume } from "../hooks/usePauseResume";
 import { useRegisterShortcuts } from "../context/ShortcutRegistry";
@@ -41,6 +49,9 @@ interface SubscriptionCardProps {
   onSign: (xdr: string) => Promise<string>;
   onRefresh: () => void;
   onCancelled?: () => void;
+  showSimulateCharge?: boolean;
+  onHealthChange?: (health: SubscriptionHealth | null) => void;
+  onSimulateResult?: (result: ChargeSimResult | null) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -194,6 +205,9 @@ export default function SubscriptionCard({
   onSign,
   onRefresh,
   onCancelled,
+  showSimulateCharge = false,
+  onHealthChange,
+  onSimulateResult,
 }: SubscriptionCardProps) {
   const { merchant, amount, interval, last_charged, active, paused } = subscription;
   const { mutate } = useSubscriptionSync(userKey);
@@ -321,6 +335,16 @@ export default function SubscriptionCard({
 
   const isInTrial = trialEndTimestamp !== null && trialEndTimestamp > Math.floor(Date.now() / 1000);
 
+  const [subHealth, setSubHealth] = useState<SubscriptionHealth | null>(null);
+
+  const handleHealthChange = (next: SubscriptionHealth | null) => {
+    setSubHealth(next);
+    onHealthChange?.(next);
+  };
+
+  const healthUnhealthy = subHealth != null && subscriptionHasWarnings(subHealth);
+  const healthBlocksActions = subHealth != null && !isSubscriptionHealthy(subHealth);
+
   return (
     <div className={`card${isMobile ? " card--mobile" : ""}`}>
       <div className="subscription-card__header">
@@ -378,16 +402,34 @@ export default function SubscriptionCard({
         </div>
       </div>
 
+      {active && healthUnhealthy && (
+        <p
+          className="text-sm"
+          data-testid="health-action-warning"
+          role="status"
+          style={{ color: "var(--color-danger-text)", marginBottom: "var(--space-3)" }}
+        >
+          {healthBlocksActions
+            ? "Subscription is unhealthy. Pause and cancel remain available; pay and charge may fail."
+            : "Subscription needs attention before the next charge."}
+        </p>
+      )}
+
       <div className="subscription-card__actions">
         {active && !paused && (
           <>
-            <button onClick={() => setShowPauseConfirm(true)} className="btn-secondary pause-btn">
+            <button
+              onClick={() => setShowPauseConfirm(true)}
+              className="btn-secondary pause-btn"
+              title={healthUnhealthy ? "Subscription needs attention" : undefined}
+            >
               Pause
             </button>
             <button
               onClick={() => setShowCancelConfirm(true)}
               className="btn-danger cancel-btn"
               aria-label="Cancel subscription"
+              title={healthUnhealthy ? "Subscription needs attention" : undefined}
             >
               Cancel
             </button>
@@ -473,8 +515,15 @@ export default function SubscriptionCard({
         />
       )}
 
-      {/* Subscription Health Widget */}
-      <SubscriptionHealthWidget userKey={userKey} />
+      {/* Subscription Health Widget — only for active subscriptions */}
+      {active && (
+        <SubscriptionHealthWidget
+          userKey={userKey}
+          showSimulateCharge={showSimulateCharge}
+          onHealthChange={handleHealthChange}
+          onSimulateResult={onSimulateResult}
+        />
+      )}
 
       {(derivedPauseStatus || cancelStatus) && (
         <p
@@ -494,6 +543,12 @@ export default function SubscriptionCard({
         <ErrorRecovery
           error={
             derivedPauseStatus.startsWith("Error") ? pauseTx.error || resumeTx.error : cancelStatus
+          }
+          health={subHealth}
+          onIncreaseAllowance={
+            subHealth && !subHealth.has_sufficient_allowance
+              ? () => setShowAllowanceModal(true)
+              : undefined
           }
         />
       )}

@@ -49,6 +49,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| 41   | `CannotClearActiveSubscriber` | State      | Admin index repair of an active subscriber |
 
 > **Note:** Code `31` is intentionally unused. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -654,12 +655,29 @@ is not representable at all.
 
 ---
 
+### 41 — `CannotClearActiveSubscriber`
+
+| Field               | Detail                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `clear_subscriber_index_entry` is called on a slot whose occupant still has an active subscription |
+| **Immediate cause** | Admin repair refused: the index entry is not stale                                              |
+
+**Recovery steps**
+
+1. Confirm the occupant with `get_subscriber_at(index)` and `get_subscription(user)`.
+2. If the subscription should remain live, do **not** clear the slot — keepers still need it.
+3. If the subscriber should leave the index, cancel (or otherwise deactivate) first, then retry the repair only if the slot was left un-tombstoned.
+
+**Prevention:** Use this repair only for stale/corrupt slots, never as a substitute for `cancel()`.
+
+---
+
 ## Error Categories
 
 | Category       | Codes                                    | Typical owners                |
 | -------------- | ---------------------------------------- | ----------------------------- |
 | Auth / access  | 8, 10, 22                                | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36 | Deployer, user, admin, keeper |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41 | Deployer, user, admin, keeper |
 | Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35 | Client / admin tooling        |
 | Limit / timing | 6, 9, 15, 20, 25, 28                     | Keeper + user                 |
 

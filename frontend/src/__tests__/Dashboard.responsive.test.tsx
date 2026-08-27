@@ -13,6 +13,18 @@ vi.mock("../stellar", async (importOriginal) => {
     getSubscription: vi.fn(() => Promise.resolve(null)),
     getDailyLimit: vi.fn(() => Promise.resolve(null)),
     getDailySpent: vi.fn(() => Promise.resolve(0n)),
+    getSubscriptionHealth: vi.fn(() =>
+      Promise.resolve({
+        active: true,
+        charge_due: false,
+        within_grace: false,
+        has_sufficient_allowance: true,
+        is_paused: false,
+        trial_active: false,
+        daily_limit_set: false,
+      })
+    ),
+    simulateCharge: vi.fn(() => Promise.resolve("WouldSucceed")),
     buildCancelTx: vi.fn(),
     buildPayPerUseTx: vi.fn(),
     explorerTxUrl: vi.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
@@ -45,6 +57,7 @@ function setViewport(width: number) {
 }
 
 import * as stellar from "../stellar";
+import { useRpcHealth } from "../hooks/useRpcHealth";
 import Dashboard from "../components/Dashboard";
 
 const ACTIVE_SUB = {
@@ -61,12 +74,27 @@ function setupMocks(sub: typeof ACTIVE_SUB | null = ACTIVE_SUB) {
   vi.mocked(stellar.getAllowance).mockResolvedValue(0n);
   vi.mocked(stellar.getDailyLimit).mockResolvedValue(null);
   vi.mocked(stellar.getDailySpent).mockResolvedValue(0n);
+  vi.mocked(stellar.getSubscriptionHealth).mockResolvedValue({
+    active: true,
+    charge_due: false,
+    within_grace: false,
+    has_sufficient_allowance: true,
+    is_paused: false,
+    trial_active: false,
+    daily_limit_set: false,
+  });
+  vi.mocked(stellar.simulateCharge).mockResolvedValue("WouldSucceed");
   vi.mocked(stellar.server.getTransaction).mockResolvedValue({ status: "SUCCESS" } as any);
+  vi.mocked(useRpcHealth).mockReturnValue({
+    status: "healthy",
+    latencyMs: 50,
+    error: null,
+  } as ReturnType<typeof useRpcHealth>);
 }
 
 describe("Dashboard – responsive layout", () => {
   afterEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
   it("applies dashboard--mobile class on mobile viewport (375px)", async () => {

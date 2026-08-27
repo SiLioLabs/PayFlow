@@ -3,42 +3,37 @@ use soroban_sdk::{token, Address, Env};
 use crate::errors::ContractError;
 use crate::Subscription;
 
-/// Validates that `token_addr` refers to a contract (not a plain Stellar account
-/// address). Rejects non-contract addresses early, before any allowance or
-/// transfer check, so no partial subscription state is written on validation failure.
+/// Required SAC allowance for a subscribe or charge of `gross`.
 ///
-/// The check inspects the XDR encoding of the address: byte 7 of a
-/// `ScAddress::Account` is `0x00`, whereas a `ScAddress::Contract` has a
-/// non-zero discriminant byte. This is a low-cost, CPU-cheap probe that avoids
-/// a full cross-contract call.
+/// Always `gross`, whether protocol fees are off (`fee_bps == 0`, one
+/// `transfer_from` of the full amount) or on (`fee_bps > 0`, two legs that
+/// still sum to `gross`). Callers must never substitute the net amount.
 ///
-/// For a stronger SAC interface probe (that the contract responds to the token
-/// interface), we additionally attempt `token::Client::new(env, token_addr).decimals()`.
-/// This ensures the address is not just any contract but actually implements the
-/// SEP-41 token interface. The probe is inexpensive (read-only) and fails closed:
-/// if the address is not a conforming token contract the whole `subscribe` call
-/// panics with `InvalidTokenAddress` (#12).
-///
-/// Panics with `InvalidTokenAddress` when:
-///   - `token_addr` encodes as a Stellar account address, or
-///   - calling `decimals()` on the address fails (not an SAC/token contract)
-pub fn require_valid_token_address(env: &Env, token_addr: &Address) {
-    use soroban_sdk::xdr::ToXdr;
-    if token_addr.clone().to_xdr(env).get(7) == Some(0) {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
-    // SAC interface probe: if the address is a contract but doesn't implement
-    // the token interface (no `decimals` function), this panics at the SAC
-    // level. We rely on Soroban's host error to surface as a contract panic
-    // rather than wrapping it in a try/catch (unavailable in Soroban no_std).
-    // The overhead is a single read-only invocation — acceptable at subscribe time.
-    let _ = token::Client::new(env, token_addr).decimals();
+/// This helper does not perform transfers. `fee_bps` is part of the API so
+/// tests and call sites pass the configured fee explicitly; it does not
+/// reduce the requirement.
+pub fn required_allowance(gross: i128, _fee_bps: u32) -> i128 {
+    gross
+}
+
+/// Returns whether `allowance` is enough to cover a subscribe/charge of `gross`.
+/// Does not perform transfers. See [`required_allowance`] for fee handling.
+pub fn allowance_covers_gross(allowance: i128, gross: i128, fee_bps: u32) -> bool {
+    allowance >= required_allowance(gross, fee_bps)
+}
+
+/// Reads `user`'s SAC allowance for this contract and returns whether it
+/// covers `gross`. Does not perform transfers.
+pub fn has_sufficient_allowance(env: &Env, user: &Address, token: &Address, gross: i128) -> bool {
+    let client = token::Client::new(env, token);
+    let allowance = client.allowance(user, &env.current_contract_address());
+    // `fee_bps` does not change the required amount; pass 0 to avoid an
+    // extra instance-storage read on the hot path.
+    allowance_covers_gross(allowance, gross, 0)
 }
 
 pub fn check_allowance(env: &Env, user: &Address, token: &Address, min_amount: i128) {
-    let client = token::Client::new(env, token);
-    let allowance = client.allowance(user, &env.current_contract_address());
-    if allowance < min_amount {
+    if !has_sufficient_allowance(env, user, token, min_amount) {
         env.panic_with_error(ContractError::InsufficientAllowance);
     }
 }

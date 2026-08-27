@@ -33,11 +33,19 @@ vi.mock("../components/IncreaseAllowanceModal", () => ({
 // Mock the stellar module — getAllowance and getTrialEnd are used by SubscriptionCard
 const mockGetAllowance = vi.fn();
 const mockGetTrialEnd = vi.fn();
-vi.mock("../stellar", () => ({
-  getAllowance: (...args: unknown[]) => mockGetAllowance(...args),
-  getTrialEnd: (...args: unknown[]) => mockGetTrialEnd(...args),
-  buildCancelTx: vi.fn().mockResolvedValue("cancel-xdr"),
-}));
+const mockGetSubscriptionHealth = vi.fn();
+const mockSimulateCharge = vi.fn();
+vi.mock("../stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stellar")>();
+  return {
+    ...actual,
+    getAllowance: (...args: unknown[]) => mockGetAllowance(...args),
+    getTrialEnd: (...args: unknown[]) => mockGetTrialEnd(...args),
+    getSubscriptionHealth: (...args: unknown[]) => mockGetSubscriptionHealth(...args),
+    simulateCharge: (...args: unknown[]) => mockSimulateCharge(...args),
+    buildCancelTx: vi.fn().mockResolvedValue("cancel-xdr"),
+  };
+});
 
 // Mock hooks used by SubscriptionCard
 vi.mock("../hooks/useSubscriptionSync", () => ({
@@ -87,6 +95,16 @@ describe("SubscriptionCard", () => {
     mockGetAllowance.mockResolvedValue(300000000n);
     // Default: no trial active
     mockGetTrialEnd.mockResolvedValue(null);
+    mockGetSubscriptionHealth.mockResolvedValue({
+      active: true,
+      charge_due: false,
+      within_grace: false,
+      has_sufficient_allowance: true,
+      is_paused: false,
+      trial_active: false,
+      daily_limit_set: false,
+    });
+    mockSimulateCharge.mockResolvedValue("WouldSucceed");
   });
 
   // ── computeAllowanceHealth unit tests ──────────────────────────────────────
@@ -650,6 +668,113 @@ describe("SubscriptionCard", () => {
       );
       expect(screen.queryByRole("button", { name: /^pause$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Subscription health widget", () => {
+    it("shows Good health for an active healthy subscription", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId("subscription-health-status")).toHaveTextContent("Good");
+      });
+      expect(screen.queryByTestId("health-action-warning")).not.toBeInTheDocument();
+    });
+
+    it("shows loading skeleton while health is fetching", () => {
+      mockGetSubscriptionHealth.mockReturnValue(new Promise(() => {}));
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.getByTestId("subscription-health-loading")).toBeInTheDocument();
+    });
+
+    it("warns on pause/cancel when health is unhealthy but does not disable them", async () => {
+      mockGetSubscriptionHealth.mockResolvedValue({
+        active: true,
+        charge_due: false,
+        within_grace: false,
+        has_sufficient_allowance: false,
+        is_paused: false,
+        trial_active: false,
+        daily_limit_set: false,
+      });
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId("health-action-warning")).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: /^pause$/i })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: /cancel subscription/i })).not.toBeDisabled();
+    });
+
+    it("surfaces grace period in the health widget", async () => {
+      mockGetSubscriptionHealth.mockResolvedValue({
+        active: true,
+        charge_due: true,
+        within_grace: true,
+        has_sufficient_allowance: true,
+        is_paused: false,
+        trial_active: false,
+        daily_limit_set: false,
+      });
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText(/Subscription is in its grace period/)).toBeInTheDocument();
+      });
+    });
+
+    it("does not show health widget for cancelled subscriptions", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(mockGetSubscriptionHealth).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("subscription-health-widget")).not.toBeInTheDocument();
+    });
+
+    it("shows simulate_charge readout when enabled", async () => {
+      mockSimulateCharge.mockResolvedValue("SubscriptionPaused");
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+          showSimulateCharge
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId("simulate-charge-readout")).toHaveTextContent(/paused/i);
+      });
     });
   });
 

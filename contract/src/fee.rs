@@ -99,6 +99,12 @@ pub fn clear_fee(env: &Env) {
 /// `amount * bps` is the one multiplication in the fee path that can leave
 /// i128 range for amounts near the economic caps, so it is checked and fails
 /// closed with `ArithmeticOverflow` instead of wrapping or string-panicking.
+///
+/// ### Rounding Rule
+/// Integer division in Rust rounds toward zero (truncation). Since the product of `amount`
+/// and `bps` is positive, the calculated fee is rounded down (truncated). The remaining
+/// net amount is calculated as `net = amount - fee`, which ensures exact conservation:
+/// `fee + net == amount` for all possible inputs, with no dust lost.
 pub fn calculate_fee_amount(env: &Env, amount: i128, bps: u32) -> i128 {
     if bps == 0 || amount <= 0 {
         return 0;
@@ -228,4 +234,51 @@ pub fn transfer_pay_per_use(
     token_client.transfer_from(&env.current_contract_address(), user, recipient, &net);
 
     fee_amount
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fee_conservation_properties() {
+        let env = Env::default();
+        // Test combinations of amount and bps
+        let amounts = [
+            0, 1, 2, 9, 10, 99, 100, 101, 1000, 10000, 1234567, 10_000_000,
+        ];
+        let bps_values = [
+            0, 1, 5, 10, 50, 100, 500, 1000, 5000, 9999, 10000,
+        ];
+
+        for &amount in amounts.iter() {
+            for &bps in bps_values.iter() {
+                let fee = calculate_fee_amount(&env, amount, bps);
+                let net = amount - fee;
+
+                // 1. Assert conservation
+                assert_eq!(
+                    fee + net,
+                    amount,
+                    "Conservation failed for amount={} and bps={}",
+                    amount,
+                    bps
+                );
+
+                // 2. Assert non-negative parts
+                assert!(fee >= 0, "Fee is negative: {} for amount={}, bps={}", fee, amount, bps);
+                assert!(net >= 0, "Net is negative: {} for amount={}, bps={}", net, amount, bps);
+
+                // 3. Assert fee limits
+                if bps == 0 {
+                    assert_eq!(fee, 0);
+                } else if bps == 10000 {
+                    assert_eq!(fee, amount);
+                    assert_eq!(net, 0);
+                } else {
+                    assert!(fee <= amount);
+                }
+            }
+        }
+    }
 }
