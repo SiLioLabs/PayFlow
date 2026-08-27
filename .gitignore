@@ -197,3 +197,4 @@ scripts/.testnet-manifest.*.json
 issue.mdkiro-cli.deb
 kiro-cli.deb.1
 .antigravitycli/
+test_snapshots/

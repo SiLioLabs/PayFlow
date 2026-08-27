@@ -17,6 +17,9 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -564,6 +567,7 @@ fn test_get_whitelist_enabled_defaults_to_true() {
 #[test]
 fn test_get_whitelist_enabled_toggles() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register_contract(None, FlowPay);
     let client = FlowPayClient::new(&env, &contract_id);
 
@@ -4215,6 +4219,10 @@ fn test_min_interval_event_emitted_on_set() {
 fn test_top_merchants_by_subs() {
     let (env, contract_id, token_addr, _user, _m) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
 
     let m1 = Address::generate(&env);
     let m2 = Address::generate(&env);
@@ -4257,6 +4265,10 @@ fn test_top_merchants_by_subs() {
 fn test_top_merchants_tie_breaking_and_limit() {
     let (env, contract_id, token_addr, _user, _m) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
 
     let m1 = Address::generate(&env);
     let m2 = Address::generate(&env);
@@ -5303,6 +5315,9 @@ fn test_subscribe_zero_allowance_panics() {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -5365,6 +5380,9 @@ fn test_subscribe_exact_allowance_succeeds() {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+    env.as_contract(&contract_id, || {
+        whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
