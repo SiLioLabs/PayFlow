@@ -3,7 +3,9 @@
     "address": 1,
     "nonce": 0
   },
-  "auth": [[]],
+  "auth": [
+    []
+  ],
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
@@ -170,6 +172,13 @@
                 {
                   "key": {
                     "symbol": "pending_merchant_rev_count"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "pending_merchant_revenue_count"
                   },
                   "val": {

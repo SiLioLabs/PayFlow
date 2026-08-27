@@ -149,8 +149,8 @@ docs/
 ├── DEPLOYMENT.md     # Build, deploy, keeper setup
 ├── TESTING.md        # How to run and write tests
 ├── API.md            # Full contract function reference
-├── REFERRALS.md      # Referral architecture, payouts, and integration
-├── REFERRAL.md       # Short referral usage guide
+├── REFERRALS.md      # Canonical referral architecture, payouts, and integration
+├── REFERRAL.md       # Compatibility stub → REFERRALS.md
 ├── STRUCTURE.md      # This file
 └── SECURITY.md       # Security model and disclosure policy
 ├── ARCHITECTURE.md        # System design, data model, storage strategy

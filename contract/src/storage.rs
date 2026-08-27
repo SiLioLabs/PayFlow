@@ -16,13 +16,25 @@ pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
 }
 
 #[allow(dead_code)]
-/// Extends the TTL of a subscription entry. Safe to call even if the entry
-/// has already expired (the operation is a no-op in that case).
+/// Extends the TTL of a subscription entry and, when present, its
+/// associated `PauseExpiry` key. Keeping both entries alive is
+/// critical: if PauseExpiry archives while the subscription survives,
+/// bounded-pause auto-resume silently breaks.
+///
+/// Safe to call even if the entry has already expired (no-op).
 pub fn extend_subscription_ttl(env: &Env, user: &Address) {
     let key = DataKey::Subscription(user.clone());
     if env.storage().persistent().has(&key) {
         env.storage().persistent().extend_ttl(
             &key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+    let expiry_key = DataKey::PauseExpiry(user.clone());
+    if env.storage().persistent().has(&expiry_key) {
+        env.storage().persistent().extend_ttl(
+            &expiry_key,
             SUBSCRIPTION_TTL_LEDGERS / 2,
             SUBSCRIPTION_TTL_LEDGERS,
         );

@@ -171,12 +171,23 @@ env.ledger().with_mut(|l| {
 
 ## Frontend Tests
 
-Frontend tests run with Vitest:
+Frontend tests run with Vitest (configured in `frontend/vitest.config.ts` with jsdom environment):
 
 ```bash
 cd frontend
-npm run test
+npx vitest run
 ```
+
+To run in watch mode during development:
+
+```bash
+cd frontend
+npx vitest
+```
+
+> **Note:** The frontend `package.json` does not define a `test` script. Run Vitest directly via `npx vitest`. Vitest is listed as a devDependency and configured in `frontend/vitest.config.ts`.
+
+Test files live under `frontend/src/__tests__/` and use the `*.test.ts` / `*.test.tsx` naming convention. Vitest globals (`describe`, `it`, `expect`, `vi`) are enabled — no imports needed.
 
 ### Admin subscription repair panel
 
@@ -357,6 +368,64 @@ Use a distinct `--seed` per scenario you want to keep independent (e.g., `--seed
 
 ---
 
+## Scripts Testing
+
+The `scripts/` directory contains TypeScript tooling for keepers, monitoring, analytics, and deployment. Scripts have their own `package.json` and TypeScript configuration.
+
+### Scripts typecheck
+
+```bash
+cd scripts
+npm install
+npm run typecheck
+```
+
+This runs `tsc --noEmit` against the scripts `tsconfig.json` to catch type errors without emitting files.
+
+### Scripts build
+
+```bash
+cd scripts
+npm run build
+```
+
+This runs `tsc -p tsconfig.build.json` to produce compiled JavaScript output.
+
+### Fixture workflow
+
+ [`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) creates deterministic test accounts from a `--seed` value, funds them via Friendbot, and writes a manifest file for use in integration/E2E testing.
+
+```bash
+cd scripts
+npm install
+npx tsx testnet-setup.ts --seed 1 --users 3 --merchants 1
+```
+
+The manifest (`scripts/.testnet-manifest.<seed>.json`) contains public/secret keypairs for each identity. Re-running the same command reuses existing accounts and reports `already funded` status. Use distinct `--seed` values per scenario to avoid state interference.
+
+### Running individual scripts
+
+Scripts are run via `tsx` directly:
+
+```bash
+cd scripts
+npm install
+
+# Allowance monitoring
+npx tsx check-allowances.ts
+
+# Grace period monitoring
+npx tsx grace-period-monitor.ts
+
+# Health check
+npx tsx health-check.ts
+
+# Event watcher
+npx tsx watch-events.ts
+```
+
+---
+
 ## CI
 
 ### What runs in CI today
@@ -364,7 +433,7 @@ Use a distinct `--seed` per scenario you want to keep independent (e.g., `--seed
 | Workflow                                          | Steps                                                                | Covers                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`Backend (Rust)`](../.github/workflows/rust.yml) | `cargo clippy -- -D warnings`, `cargo build`, `cargo test --verbose` | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md#ci-integration) for adding a dedicated `--nocapture` reporting step) |
-| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npm run test` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                          |
+| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                          |
 
 ### What requires manual testing
 
@@ -377,9 +446,9 @@ Nothing in CI touches a real network — there is no testnet RPC access from Git
 ### Adding a new CI test
 
 - **A new contract unit or benchmark test**: add it to `contract/src/test.rs` (or `bench.rs`) — it's picked up automatically by the existing `cargo test --verbose` step, no workflow change needed.
-- **A new frontend unit test**: add it under `frontend/src/**/__tests__/` — picked up automatically by Vitest's default discovery, but remember the `Frontend` workflow doesn't currently invoke `npm run test` at all (see table above); if you want frontend unit tests enforced in CI, add a step to [`.github/workflows/frontend.yml`](../.github/workflows/frontend.yml):
+- **A new frontend unit test**: add it under `frontend/src/__tests__/` — picked up automatically by Vitest's default discovery, but remember the `Frontend` workflow doesn't currently invoke Vitest at all (see table above); if you want frontend unit tests enforced in CI, add a step to [`.github/workflows/frontend.yml`](../.github/workflows/frontend.yml):
   ```yaml
   - name: Test
-    run: npm run test
+    run: npx vitest run
   ```
 - **A new integration/E2E/keeper check**: these require live testnet access and a funded account, which GitHub Actions doesn't have configured today. Automating any of them means provisioning a CI secret for a funded testnet keypair and accepting real network flakiness in CI — treat this as a deliberate infrastructure decision, not a drop-in workflow step, and discuss it in an issue before implementing it.

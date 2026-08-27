@@ -186,3 +186,6 @@ config/local.json
 # Backup files
 *.bak
 *.backup
+contract/target/
+
+contract/target/

@@ -12,6 +12,7 @@ If you only need the mechanics of approving an allowance and subscribing with a 
 - [Architecture: Per-Subscription Tokens](#architecture-per-subscription-tokens)
 - [Deployment Models](#deployment-models)
 - [Fee Implications](#fee-implications)
+- [Volume Accounting and Fee Semantics for Accountants](#volume-accounting-and-fee-semantics-for-accountants)
 - [Switching Tokens](#switching-tokens)
 - [Pay-Per-Use and Tokens](#pay-per-use-and-tokens)
 - [Known Limitations](#known-limitations)
@@ -213,6 +214,150 @@ This override is per-merchant, not per-token — if a merchant accepts subscript
 
 ---
 
+## Volume Accounting and Fee Semantics for Accountants
+
+This section explains how multi-token volume accounting and per-token fee transfers behave in practice. It is intended for accountants, auditors, and indexer developers who need to understand the on-chain data model precisely.
+
+### How volume is tracked
+
+The contract maintains a rolling hourly volume cap via `check_and_update_global_volume`:
+
+```rust
+pub(crate) fn check_and_update_global_volume(env: &Env, amount: i128) {
+    // ...
+    let new_volume = window.accumulated_volume.checked_add(amount).unwrap_or_else(|| /* panic */);
+    if new_volume > GLOBAL_MAX_VOLUME_PER_HOUR {
+        env.panic_with_error(ContractError::GlobalVolumeExceeded);
+    }
+    // ...
+}
+```
+
+**Key fact:** `amount` is the raw `i128` value from the subscription (or pay-per-use call), denominated in the subscription's own token's stroops. All amounts from all tokens are summed into a **single `i128` accumulator** (`GlobalVolumeWindow.accumulated_volume`). There is no per-token dimension.
+
+This means a charge of 50,000,000 stroops of USDC and a charge of 50,000,000 stroops of XLM both add `50_000_000` to the same counter, even though 50M USDC stroops ≈ $50 while 50M XLM stroops ≈ $5 (approximate, real prices vary).
+
+### How fees are calculated and transferred
+
+Fee calculation is token-agnostic — it operates on raw `i128` values:
+
+```rust
+pub fn calculate_fee_amount(amount: i128, bps: u32) -> i128 {
+    if bps == 0 || amount <= 0 { return 0; }
+    amount * (bps as i128) / 10_000
+}
+```
+
+Fee transfers are per-token. Each charge transfers the fee in the subscription's own token to the fee recipient:
+
+```rust
+let token_client = token::Client::new(env, &sub.token);
+token_client.transfer_from(&env.current_contract_address(), user, &collector, &fee);
+```
+
+The fee recipient priority is:
+1. `MerchantFeeRecipient(merchant)` — per-merchant override, if set
+2. `FeeCollector` — global fallback
+
+**Key fact:** Fee transfers are always in the subscription's own token. There is no conversion, no swap, and no netting across tokens.
+
+### Worked examples
+
+#### Example 1: Single-token scenario (XLM only)
+
+Assume `fee_bps = 250` (2.5%), `fee_collector = F`, and all subscriptions use XLM.
+
+| Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
+|------------|-------|-------------------|---------------------|---------------------------|
+| Alice | XLM | 50,000,000 | 1,250,000 | 48,750,000 |
+| Bob | XLM | 100,000,000 | 2,500,000 | 97,500,000 |
+
+**Global volume window** after both charges: `150,000,000` stroops.
+**`TotalProtocolFees`** after both charges: `3,750,000` stroops.
+**Merchant revenue** (`MerchantRevenue`): `146,250,000` stroops.
+
+All counters are in XLM stroops. This is internally consistent — every value uses the same token.
+
+#### Example 2: Single-token scenario (USDC only)
+
+Same `fee_bps = 250` (2.5%), all subscriptions use USDC (7 decimal places).
+
+| Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
+|------------|-------|-------------------|---------------------|---------------------------|
+| Alice | USDC | 100,000,000 | 2,500,000 | 97,500,000 |
+| Bob | USDC | 50,000,000 | 1,250,000 | 48,750,000 |
+
+**Global volume window**: `150,000,000` stroops.
+**`TotalProtocolFees`**: `3,750,000` stroops.
+**Merchant revenue**: `146,250,000` stroops.
+
+Again internally consistent — all values are USDC stroops.
+
+#### Example 3: Mixed-token scenario (XLM + USDC)
+
+Same `fee_bps = 250` (2.5%). Alice pays in XLM, Bob pays in USDC.
+
+| Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
+|------------|-------|-------------------|---------------------|---------------------------|
+| Alice | XLM | 50,000,000 | 1,250,000 | 48,750,000 |
+| Bob | USDC | 100,000,000 | 2,500,000 | 97,500,000 |
+
+**Fee transfers:**
+- Alice's fee: 1,250,000 XLM stroops transferred to F via XLM SAC contract
+- Bob's fee: 2,500,000 USDC stroops transferred to F via USDC SAC contract
+- F receives two separate token balances — these are **not** summed on-chain
+
+**On-chain counters (all in raw `i128`, no token dimension):**
+
+| Counter | Value | Meaning |
+|---------|-------|---------|
+| `GlobalVolumeWindow.accumulated_volume` | `150,000,000` | Sum of 50M XLM stroops + 100M USDC stroops — **semantically meaningless as a combined figure** |
+| `TotalProtocolFees` | `3,750,000` | Sum of 1.25M XLM stroops + 2.5M USDC stroops — **semantically meaningless as a combined figure** |
+| `MerchantRevenue(merchant)` | `146,250,000` | Sum of 48.75M XLM stroops + 97.5M USDC stroops — **semantically meaningless as a combined figure** |
+
+### Limitations of global stroop-denominated volume
+
+The global volume cap (`GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000` stroops) compares heterogeneous token amounts in a single integer. This has specific implications:
+
+1. **The cap is economically meaningless across different tokens.** 50 trillion stroops of USDC ≈ $50M. 50 trillion stroops of an illiquid meme token ≈ effectively nothing. The contract treats them as equivalent.
+
+2. **Per-token volume tracking must be done off-chain.** The `charged` and `pay_per_use` events include the token address (via the subscription's `token` field at charge time), so indexers can reconstruct per-token totals by filtering events.
+
+3. **The cap override (`set_global_volume_cap`) is stored but not enforced.** The `check_and_update_global_volume` function hardcodes `GLOBAL_MAX_VOLUME_PER_HOUR` rather than reading the override. This is a known gap — the override value is stored under `DataKey::GlobalVolumeCapOverride` but has no effect on enforcement.
+
+### Per-token fee transfer semantics
+
+For accountants reconciling fee income:
+
+- **Each fee transfer is a separate `transfer_from` call** against the subscription's token contract. There is no batched or netted transfer.
+- **The fee collector receives separate balances per token.** If a merchant accepts USDC and XLM subscriptions, the fee collector's USDC balance increases by USDC fees and their XLM balance increases by XLM fees — these are independent on-chain operations.
+- **`TotalProtocolFees` is a cross-token integer sum** stored in instance storage. It is only meaningful if all subscriptions use the same token. For multi-token deployments, reconstruct per-token fee totals from events.
+- **Merchant revenue counters (`MerchantRevenue`, `MerchantRevenueDay`) are also cross-token integer sums.** Same limitation — only meaningful for single-token deployments.
+
+### Implications for auditors and accountants
+
+| What you need | Where to get it | What to watch out for |
+|---------------|-----------------|----------------------|
+| Per-token fee income | Filter `charged` events by token address; sum `fee` field per token | `TotalProtocolFees` on-chain counter mixes tokens — do not use for multi-token deployments |
+| Per-token merchant revenue | Filter `charged` events by (merchant, token); sum `net` field | `MerchantRevenue` on-chain counter mixes tokens — do not use for multi-token deployments |
+| Global volume (per-token) | Filter `charged`/`pay_per_use` events by token; sum `amount`/`gross` per token per hour | `GlobalVolumeWindow` on-chain counter mixes tokens — do not use for cross-token comparisons |
+| Daily spend per user per token | Filter `pay_per_use` events by (user, token) per day | `DailySpent` on-chain counter mixes tokens — do not use for multi-token daily limits |
+
+### Volume and fee API references
+
+| Function | Location | Purpose |
+|----------|----------|---------|
+| `check_and_update_global_volume` | `lib.rs` | Enforce hourly volume cap (cross-token) |
+| `get_global_volume_window` | `lib.rs` | Read current window start and accumulated volume |
+| `calculate_fee_amount` | `fee.rs` | Compute fee from amount and basis points |
+| `transfer_subscription_charge` | `fee.rs` | Fee-aware transfer for recurring charges |
+| `transfer_pay_per_use` | `fee.rs` | Fee-aware transfer for one-time charges |
+| `accumulate_protocol_fees` | `fee.rs` | Add fee to cumulative total (cross-token sum) |
+| `get_total_protocol_fees` | `fee.rs` | Read cumulative fee total |
+| `increment_revenue_with_daily` | `merchant_stats.rs` | Update merchant revenue (cross-token sum) |
+
+---
+
 ## Switching Tokens
 
 There is no dedicated "change my subscription's token" entry point. A subscriber switches tokens by calling `subscribe()` (or `subscribe_with_metadata()`) again with a different `token` argument. `subscribe_inner` treats this as a full overwrite of the stored `Subscription` record:
@@ -266,7 +411,8 @@ There is no way to make a one-off `pay_per_use` payment in a token different fro
 PayFlow's multi-token support is **per-subscription token selection**, not a multi-token AMM or payment router. Concretely, it does **not**:
 
 - **Convert or swap between tokens.** There is no price oracle, no liquidity pool, and no exchange-rate logic anywhere in the contract. A merchant configured with `amount = 100` receives exactly 100 units of whatever token each subscriber picked — 100 USDC from one subscriber and 100 of an illiquid reward token from another are treated identically by the contract, with wildly different real value.
-- **Aggregate revenue across tokens.** `merchant_stats.rs` (`MerchantRevenue`, `MerchantRevenueDay`, `MerchantRevenueHistory`) stores plain `i128` sums with no token dimension. If a merchant accepts both USDC and XLM, their on-chain revenue counters silently mix unit-incompatible integers. Treat these counters as valid only when every subscription to a given merchant uses the same token, or reconstruct per-token totals off-chain from events.
+- **Aggregate revenue across tokens.** `merchant_stats.rs` (`MerchantRevenue`, `MerchantRevenueDay`, `MerchantRevenueHistory`) stores plain `i128` sums with no token dimension. If a merchant accepts both USDC and XLM, their on-chain revenue counters silently mix unit-incompatible integers. See [Volume Accounting and Fee Semantics for Accountants](#volume-accounting-and-fee-semantics-for-accountants) for worked examples and the recommended approach for per-token reconciliation.
+- **Aggregate global volume in a meaningful cross-token way.** `GlobalVolumeWindow` sums stroop amounts from all tokens into a single `i128`. The 50 trillion stroop cap compares economically heterogeneous values. Per-token volume must be reconstructed from events off-chain.
 - **Enforce that `token` is a real SAC.** As noted in [Token address validation](#token-address-validation), the only on-chain check is an address-shape check, not an interface check.
 - **Let one payment satisfy multiple tokens' worth of fee.** The fee bps is applied once, in the charge's own token, full stop.
 - **Support per-token fee rates or per-token fee collectors** within a single instance — see [Fee Implications](#fee-implications).

@@ -167,26 +167,111 @@ This design allows wallet persistence across page reloads while ensuring the cac
 The exact tree evolves as features are added, but the overall structure is:
 
 ```
-App
-│
-├── Layout
-│
-├── Wallet Components
-│   ├── Connect Wallet
-│   └── Wallet Status
-│
-├── Dashboard
-│
-├── Subscription Views
-│
-├── Merchant Dashboard
-│
-├── History
-│
-└── Shared Components
+React.StrictMode
+└── RpcHealthProvider                    (context/RpcHealthContext.tsx)
+    └── ShortcutRegistryProvider         (context/ShortcutRegistry.tsx)
+        └── ErrorBoundary                (components/ErrorBoundary.tsx)
+            └── App                      (App.tsx)
+                ├── [ARIA live region]    (role="status", aria-live="polite")
+                ├── Header               (<h1>FlowPay</h1>)
+                ├── Wallet connect prompt (inline; shown when !publicKey)
+                │   └── Connect Wallet button → connect(AVAILABLE_WALLETS[0])
+                ├── Connected bar         (inline; truncated public key)
+                ├── Tab buttons           (inline; "Dashboard" | "Subscribe")
+                │
+                ├── [Tab: "dashboard"]
+                │   └── Dashboard         (components/Dashboard.tsx)
+                │       ├── SubscriptionCard
+                │       ├── SubscriptionCardSkeleton (loading)
+                │       ├── ErrorBoundary
+                │       ├── ErrorRecovery
+                │       ├── AllowanceDisplay
+                │       ├── IncreaseAllowanceModal
+                │       ├── DailyLimitCard
+                │       ├── DailyLimitModal
+                │       ├── PayPerUseForm
+                │       ├── ReferralPanel
+                │       ├── SubscriptionHistory (lazy-loaded)
+                │       ├── EventFeed
+                │       ├── SubscriptionExport
+                │       └── ToastContainer
+                │
+                └── [Tab: "subscribe"]
+                    └── SubscribeForm     (components/SubscribeForm.tsx)
+                        ├── IntervalSelector
+                        ├── BalanceDisplay
+                        ├── AllowanceDisplay
+                        ├── AddressBook
+                        └── ToastContainer
 ```
 
 Heavy views are lazy loaded where appropriate to reduce initial bundle size.
+
+## Provider Hierarchy
+
+The provider tree in `main.tsx` wraps the entire application:
+
+| Provider | Source | Purpose |
+| --- | --- | --- |
+| `React.StrictMode` | React built-in | Development warnings and double-render checks |
+| `RpcHealthProvider` | `context/RpcHealthContext.tsx` | Polls RPC with backoff / circuit breaker |
+| `ShortcutRegistryProvider` | `context/ShortcutRegistry.tsx` | Keyboard shortcut registration and dispatch |
+| `ErrorBoundary` | `components/ErrorBoundary.tsx` | Catches render errors in subtree with fallback UI |
+
+## Tab Routing
+
+There is no router library. `App.tsx` uses a `useState<"subscribe" | "dashboard">` with inline tab buttons. To add a new tab:
+
+1. Add the tab value to the `useState` union type.
+2. Add a new tab button in the tab button group.
+3. Add a conditional render block for the new tab content.
+4. Import and render the component (or page) for that tab.
+
+## Orphaned / Ready-to-Wire Components
+
+The following components exist in `frontend/src/components/` but are **not** currently mounted in the application tree. They are built and ready for use but need to be wired into `App.tsx` or a parent component:
+
+| Component | Purpose | How to wire |
+| --- | --- | --- |
+| `MerchantDashboard.tsx` | Merchant revenue & subscribers view | Add a "merchant" tab in App.tsx and render `<MerchantDashboard merchantKey={pk} onSign={sign} refreshTrigger={t} />` |
+| `MerchantSubscriberTable.tsx` | Sortable/filterable subscriber table | Used inside `MerchantDashboard` — auto-wired when MerchantDashboard is added |
+| `ConnectWallet.tsx` | Freighter connect CTA with install link | Replace the inline connect button in App.tsx |
+| `WalletBar.tsx` | Connected wallet strip with balance, network, disconnect | Replace the inline connected bar in App.tsx |
+| `WalletSelectModal.tsx` | Multi-wallet selection modal | Wire into `WalletBar` or as a standalone wallet picker |
+| `TabBar.tsx` | Main nav tabs (dashboard/subscribe/merchant/admin) | Replace the inline tab buttons in App.tsx |
+| `ThemeToggle.tsx` | Dark/light mode toggle | Add to the header or connected bar |
+| `NetworkBadge.tsx` | Testnet/Mainnet badge | Add to the header or `WalletBar` |
+| `ContractPauseBanner.tsx` | Maintenance banner when contract paused | Add near the top of `App.tsx` |
+| `OfflineBanner.tsx` | Full-width offline warning | Add near the top of `App.tsx` |
+| `SystemHealthCard.tsx` | Contract health status card | Add to a merchant or admin dashboard tab |
+| `SubscriptionHealthWidget.tsx` | Health indicator widget | Add to `Dashboard` or `SubscriptionCard` |
+| `TxQueuePanel.tsx` | Transaction queue panel | Add to `WalletBar` or as a sidebar widget |
+| `NotificationCenter.tsx` | Bell icon + notification dropdown | Add to `WalletBar` or header |
+| `StroopInput.tsx` | XLM amount input debounced to stroops | Use in forms that need XLM input (alternative to PayPerUseForm) |
+| `AmountUnitToggle.tsx` | Toggle XLM/STROOP display | Add to forms displaying amounts |
+| `ShortcutHelpOverlay.tsx` | Keyboard shortcuts overlay | Already available via ShortcutRegistry context — trigger with `?` key |
+
+### Admin components (in `components/admin/`)
+
+These are wired into `pages/AdminDashboard.tsx` which is not currently mounted:
+
+| Component | Purpose |
+| --- | --- |
+| `SubscriptionRepairPanel.tsx` | Admin subscription validation and repair |
+| `BatchPausePanel.tsx` | Batch pause subscriptions |
+| `BatchWhitelistPanel.tsx` | Batch whitelist add/remove |
+
+To wire admin features, add an "admin" tab in `App.tsx` and render `<AdminDashboard />` (from `pages/AdminDashboard.tsx`).
+
+## How to Add a New Tab
+
+1. **Choose the component** from the orphaned list above (or create a new one).
+2. **Update `App.tsx`:**
+   - Extend the tab state type: `useState<"dashboard" | "subscribe" | "merchant">("dashboard")`
+   - Add a tab button in the tab group.
+   - Add a conditional render: `{activeTab === "merchant" && <MerchantDashboard ... />}`.
+3. **Pass required props** (typically `userKey`, `onSign`, `refreshTrigger`).
+4. **Test** that the component renders and interacts correctly.
 
 ---
 

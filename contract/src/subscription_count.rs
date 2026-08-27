@@ -81,6 +81,24 @@ pub fn remove_subscriber_index(env: &Env, user: &Address) {
     }
 }
 
+/// Moves an active subscriber's index membership to `new_user`.
+///
+/// Transfers preserve the active and merchant counts, but the append-only
+/// index must still stop pointing at the old owner.
+pub fn transfer_subscriber_index(env: &Env, user: &Address, new_user: &Address) {
+    remove_subscriber_index(env, user);
+
+    let new_slot_key = DataKey::SubscriberIndexSlot(new_user.clone());
+    if let Some(slot) = env.storage().persistent().get::<DataKey, u64>(&new_slot_key) {
+        if !is_subscriber_index_removed(env, slot) {
+            return;
+        }
+        env.storage().persistent().remove(&new_slot_key);
+    }
+
+    append_subscriber_index(env, new_user);
+}
+
 /// Returns whether the subscriber index slot at `index` has been pruned.
 pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
     env.storage()

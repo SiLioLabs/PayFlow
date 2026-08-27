@@ -1,38 +1,5 @@
 #!/usr/bin/env tsx
 /**
- * keeper.ts — Autonomous keeper bot for FlowPay recurring billing
- *
- * Continuously invokes `batch_charge()` on the deployed FlowPay contract,
- * paging through all active subscriptions on a configurable interval.
- *
- * Architecture
- * ────────────
- * Each charge cycle iterates subscriber pages (offset 0, PAGE_SIZE, 2×PAGE_SIZE …)
- * until a page returns fewer results than PAGE_SIZE, signalling the end of the
- * subscriber index. Failed pages are retried up to MAX_RETRIES times with
- * exponential back-off before being skipped and logged.
- *
- * Usage
- * ─────
- *   CONTRACT_ID=C... KEEPER_SECRET=S... tsx keeper.ts
- *
- * Environment variables
- * ─────────────────────
- *   CONTRACT_ID          Required. Deployed FlowPay contract ID.
- *   KEEPER_SECRET        Required. Stellar secret key (S...) funding keeper txns.
- *   RPC_URL              Soroban RPC endpoint (default: testnet).
- *   NETWORK_PASSPHRASE   Stellar network passphrase (default: testnet).
- *   CHARGE_INTERVAL_MS   Milliseconds between full charge cycles (default: 3600000 = 1 h).
- *   PAGE_SIZE            Subscriptions per batch_charge call (default: 100, max: 100).
- *   MAX_RETRIES          Per-page retry attempts before skipping (default: 3).
- *   LOG_LEVEL            debug | info | warn | error (default: info).
- *
- * Exit codes
- * ──────────
- *   0 — graceful shutdown (SIGINT / SIGTERM)
- *   1 — fatal configuration error
- */
-
  * keeper.ts — PayFlow Keeper Bot
  *
  * Processes recurring payments by calling batch_charge() on a regular interval.
@@ -54,6 +21,8 @@
  *   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
  *   BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
  *   INTERVAL_SECONDS      Optional. Loop interval (default: 3600).
+ *   REPORT_DIR            Optional. Directory for dry-run reports and live-cycle pointer
+ *                         (default: <script_dir>/data/benchmarks).
  *
  * Flags:
  *   --once      Run a single cycle and exit.
@@ -68,164 +37,18 @@
  *     state, interval, and grace period.
  */
 
-import { Server } from "@stellar/stellar-sdk/rpc";
+import fs from "fs";
+import path from "path";
+import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import { buildOptimizedBatches } from "./batch-optimizer";
 import {
+  Address,
   Contract,
   Keypair,
   Networks,
   TransactionBuilder,
   BASE_FEE,
   nativeToScVal,
-  xdr,
-} from "@stellar/stellar-sdk";
-import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
-
-// ── Configuration ─────────────────────────────────────────────────────────────
-
-const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
-const KEEPER_SECRET = process.env.KEEPER_SECRET ?? "";
-const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
-  Networks.TESTNET) as string;
-const CHARGE_INTERVAL_MS = parseInt(
-  process.env.CHARGE_INTERVAL_MS ?? "3600000",
-  10,
-);
-const PAGE_SIZE = Math.min(parseInt(process.env.PAGE_SIZE ?? "100", 10), 100);
-const MAX_RETRIES = parseInt(process.env.MAX_RETRIES ?? "3", 10);
-const LOG_LEVEL = (process.env.LOG_LEVEL ?? "info") as
-  "debug" | "info" | "warn" | "error";
-
-// ── Startup validation ────────────────────────────────────────────────────────
-
-if (!CONTRACT_ID) {
-  console.error("FATAL: CONTRACT_ID environment variable is required.");
-  process.exit(1);
-}
-if (!KEEPER_SECRET) {
-  console.error("FATAL: KEEPER_SECRET environment variable is required.");
-  process.exit(1);
-}
-
-let keeperKeypair: Keypair;
-try {
-  keeperKeypair = Keypair.fromSecret(KEEPER_SECRET);
-} catch {
-  console.error("FATAL: KEEPER_SECRET is not a valid Stellar secret key.");
-  process.exit(1);
-}
-
-// ── Logging ───────────────────────────────────────────────────────────────────
-
-const LEVEL_ORDER: Record<string, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
-const activeLevel = LEVEL_ORDER[LOG_LEVEL] ?? 1;
-
-function log(
-  level: "debug" | "info" | "warn" | "error",
-  msg: string,
-  meta?: Record<string, unknown>,
-): void {
-  if ((LEVEL_ORDER[level] ?? 0) < activeLevel) return;
-  const entry = {
-    ts: new Date().toISOString(),
-    level,
-    msg,
-    ...(meta ?? {}),
-  };
-  const line = JSON.stringify(entry);
-  if (level === "error" || level === "warn") {
-    process.stderr.write(line + "\n");
-  } else {
-    process.stdout.write(line + "\n");
-  }
-}
-
-// ── RPC client ────────────────────────────────────────────────────────────────
-
-const server = new Server(RPC_URL);
-const contract = new Contract(CONTRACT_ID);
-
-// ── Charge result types ───────────────────────────────────────────────────────
-
-interface PageSummary {
-  page: number;
-  offset: number;
-  charged: number;
-  skipped: number;
-  error: string | null;
-}
-
-interface CycleSummary {
-  cycle: number;
-  started_at: string;
-  finished_at: string;
-  duration_ms: number;
-  total_charged: number;
-  total_skipped: number;
-  pages_processed: number;
-  pages_failed: number;
-}
-
-// ── Batch charge execution ────────────────────────────────────────────────────
-
-/**
- * Parse the `Vec<ChargeResult>` returned by `batch_charge`.
- * ChargeResult is an enum: Charged | Skipped(reason) | NoSubscription.
- * We only need the counts here.
- */
-function parseChargeResults(retval: xdr.ScVal): {
-  charged: number;
-  skipped: number;
-} {
-  let charged = 0;
-  let skipped = 0;
-
-  const vec = retval.vec();
-  if (!vec) return { charged, skipped };
-
-  for (const item of vec) {
-    try {
-      const name = item.switch().name;
-      // scvVec wraps enum variants; check the inner sym name
-      if (name === "scvVec") {
-        const inner = item.vec();
-        const variant = inner?.[0]?.sym()?.toString() ?? "";
-        if (variant === "Charged") charged++;
-        else skipped++;
-      } else if (name === "scvMap") {
-        // Some SDK versions wrap enum as a map
-        const key = item.map()?.[0]?.key()?.sym()?.toString() ?? "";
-        if (key === "Charged") charged++;
-        else skipped++;
-      } else {
-        // Unrecognised shape — count as skipped
-        skipped++;
-      }
-    } catch {
-      skipped++;
-    }
-  }
-
-  return { charged, skipped };
-}
-
-/**
- * Submit one `batch_charge(offset, limit)` transaction and return the result.
- * Throws on RPC / submission error so the caller can retry.
- */
-async function batchChargePage(
-  offset: number,
-  limit: number,
-): Promise<{ charged: number; skipped: number }> {
-  const account = await server.getAccount(keeperKeypair.publicKey());
-
-  Address,
   xdr,
 } from "@stellar/stellar-sdk";
 
@@ -239,6 +62,7 @@ const KEEPER_PUBLIC_KEY = process.env.KEEPER_PUBLIC_KEY || "";
 const KEEPER_SECRET = process.env.KEEPER_SECRET || "";
 const BATCH_SIZE = Math.min(Math.max(Number(process.env.BATCH_SIZE) || 50, 1), 50);
 const INTERVAL_SECONDS = Math.max(Number(process.env.INTERVAL_SECONDS) || 3600, 1);
+const REPORT_DIR = process.env.REPORT_DIR ?? path.join(__dirname, "data", "benchmarks");
 
 const server = new Server(RPC_URL);
 
@@ -280,6 +104,8 @@ Environment Variables:
   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
   BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
   INTERVAL_SECONDS      Optional. Seconds between cycles (default: 3600).
+  REPORT_DIR            Optional. Directory where dry-run reports and the live-cycle
+                        pointer file are written (default: <script_dir>/data/benchmarks).
 
 Caveats:
   Dry-run results may differ from actual charges — allowance changes, contract
@@ -324,6 +150,79 @@ function decodeEnumVec(retval: xdr.ScVal): string[] {
     }
     return String(item);
   });
+}
+
+// ── File I/O Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Write JSON to filePath, creating parent directories as needed.
+ * Wraps all I/O in try/catch — a write failure logs a warning but never crashes
+ * the keeper.
+ */
+function writeJsonFile(filePath: string, data: unknown): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    log(DRY_RUN, `WARNING: failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Read and JSON-parse a file. Returns null on any error (missing, invalid JSON, etc.). */
+function readJsonFile<T = unknown>(filePath: string): T | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+// ── Report types ─────────────────────────────────────────────────────────────
+
+/** One subscriber's outcome within a cycle, included in both dry-run and live reports. */
+interface CandidateRecord {
+  user: string;
+  result: string;
+  /** Subscription amount in stroops. "0" when the result is not Charged. */
+  amountStroops: string;
+}
+
+/**
+ * Small pointer file overwritten after every successful live cycle.
+ * Path: REPORT_DIR/keeper-latest-live.json
+ */
+interface LatestLiveRecord {
+  timestamp: string;
+  contractId: string;
+  totalChecked: number;
+  totalCharged: number;
+  totalVolume: string;
+  totalSkips: number;
+}
+
+/** Shape written to REPORT_DIR/keeper-dryrun-report-<timestamp>.json */
+interface DryRunReport {
+  timestamp: string;
+  mode: "dry-run";
+  contractId: string;
+  rpcUrl: string;
+  estimatedOutcomes: {
+    totalChecked: number;
+    totalCharged: number;
+    totalVolumeStroops: string;
+    skipCounts: Record<string, number>;
+  };
+  candidates: CandidateRecord[];
+  lastLiveCycle: LatestLiveRecord | null;
+  comparison: {
+    checkedDelta: number;
+    chargedDelta: number;
+    volumeDelta: string;
+    lastLiveAgeMs: number;
+    lastLiveAgeHuman: string;
+  } | null;
+  errors: string[];
 }
 
 // ── Contract Reads ───────────────────────────────────────────────────────────
@@ -452,6 +351,7 @@ interface DryRunPageResult {
   wouldCharge: number;
   totalVolume: bigint;
   skipCounts: Record<string, number>;
+  candidates: CandidateRecord[];
   errors: string[];
 }
 
@@ -483,7 +383,8 @@ async function simulateBatchCharge(users: string[]): Promise<{
 
   const variants = decodeEnumVec(retval);
 
-  // Fetch amounts for users that would be charged (for volume estimation)
+  // Fetch amounts for users that would be charged (for volume estimation).
+  // The variants array is index-aligned with the users array.
   const amounts: bigint[] = [];
   for (let i = 0; i < Math.min(variants.length, users.length); i++) {
     if (variants[i] === "Charged") {
@@ -501,6 +402,7 @@ interface LivePageResult {
   charged: number;
   totalVolume: bigint;
   skipCounts: Record<string, number>;
+  candidates: CandidateRecord[];
   txHash?: string;
   errors: string[];
 }
@@ -508,6 +410,8 @@ interface LivePageResult {
 /**
  * Build, sign, and submit a real batch_charge transaction.
  * Returns the preview results from simulation (before submission).
+ * The variants array returned by decodeEnumVec is index-aligned with the users
+ * array passed to batch_charge — the contract guarantees one result per input.
  */
 async function submitBatchCharge(users: string[]): Promise<{
   results: string[];
@@ -522,220 +426,6 @@ async function submitBatchCharge(users: string[]): Promise<{
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(
-      contract.call(
-        "batch_charge",
-        nativeToScVal(offset, { type: "u32" }),
-        nativeToScVal(limit, { type: "u32" }),
-      ),
-    )
-    .setTimeout(60)
-    .build();
-
-  // Simulate to populate the Soroban footprint.
-  const simResult = await server.simulateTransaction(tx);
-  if ("error" in simResult) {
-    throw new Error(`Simulation failed: ${simResult.error}`);
-  }
-
-  // Assemble and sign.
-  const assembled = assembleTransaction(tx, simResult).build();
-  assembled.sign(keeperKeypair);
-
-  // Submit and wait for confirmation.
-  const sendResult = await server.sendTransaction(assembled);
-  if (sendResult.status === "ERROR") {
-    throw new Error(`Transaction rejected: ${JSON.stringify(sendResult)}`);
-  }
-
-  // Poll for final status.
-  const hash = sendResult.hash;
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    await sleep(2000);
-    const status = await server.getTransaction(hash);
-    if (status.status === "SUCCESS") {
-      const retval = (status as { returnValue?: xdr.ScVal }).returnValue;
-      if (!retval) return { charged: 0, skipped: 0 };
-      return parseChargeResults(retval);
-    }
-    if (status.status === "FAILED") {
-      throw new Error(`Transaction failed on-chain: ${hash}`);
-    }
-    // status === "NOT_FOUND" means still pending — keep polling
-  }
-
-  throw new Error(`Transaction ${hash} not confirmed within 30 s`);
-}
-
-// ── Retry with exponential back-off ──────────────────────────────────────────
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Attempt `batchChargePage` up to `MAX_RETRIES` times with exponential back-off.
- * Returns a PageSummary. On exhausted retries, `error` field is set.
- */
-async function chargePageWithRetry(
-  page: number,
-  offset: number,
-): Promise<PageSummary> {
-  let lastError: string = "";
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const { charged, skipped } = await batchChargePage(offset, PAGE_SIZE);
-      return { page, offset, charged, skipped, error: null };
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      const backoff = Math.min(1000 * 2 ** (attempt - 1), 30_000);
-      log("warn", `Page ${page} attempt ${attempt}/${MAX_RETRIES} failed`, {
-        offset,
-        error: lastError,
-        retry_in_ms: backoff,
-      });
-      if (attempt < MAX_RETRIES) await sleep(backoff);
-    }
-  }
-
-  return { page, offset, charged: 0, skipped: 0, error: lastError };
-}
-
-// ── Full charge cycle ─────────────────────────────────────────────────────────
-
-let cycleCount = 0;
-
-async function runChargeCycle(): Promise<CycleSummary> {
-  cycleCount++;
-  const cycleStart = Date.now();
-  const startedAt = new Date(cycleStart).toISOString();
-
-  log("info", "Charge cycle starting", { cycle: cycleCount });
-
-  let totalCharged = 0;
-  let totalSkipped = 0;
-  let pagesProcessed = 0;
-  let pagesFailed = 0;
-
-  let offset = 0;
-  let page = 0;
-
-  while (true) {
-    const summary = await chargePageWithRetry(page, offset);
-    pagesProcessed++;
-
-    if (summary.error) {
-      pagesFailed++;
-      log("error", "Page failed after all retries — skipping", {
-        cycle: cycleCount,
-        page,
-        offset,
-        error: summary.error,
-      });
-    } else {
-      totalCharged += summary.charged;
-      totalSkipped += summary.skipped;
-      log("debug", "Page processed", {
-        cycle: cycleCount,
-        page,
-        offset,
-        charged: summary.charged,
-        skipped: summary.skipped,
-      });
-    }
-
-    // End-of-list detection: if the page returned fewer results than PAGE_SIZE
-    // (including 0) we have consumed all subscribers.
-    const pageTotal = summary.charged + summary.skipped;
-    if (pageTotal < PAGE_SIZE) {
-      log("debug", "Last page reached", {
-        cycle: cycleCount,
-        page,
-        page_total: pageTotal,
-      });
-      break;
-    }
-
-    offset += PAGE_SIZE;
-    page++;
-  }
-
-  const finishedAt = new Date().toISOString();
-  const durationMs = Date.now() - cycleStart;
-
-  const cycleSummary: CycleSummary = {
-    cycle: cycleCount,
-    started_at: startedAt,
-    finished_at: finishedAt,
-    duration_ms: durationMs,
-    total_charged: totalCharged,
-    total_skipped: totalSkipped,
-    pages_processed: pagesProcessed,
-    pages_failed: pagesFailed,
-  };
-
-  log(
-    "info",
-    "Charge cycle complete",
-    cycleSummary as unknown as Record<string, unknown>,
-  );
-  return cycleSummary;
-}
-
-// ── Main loop ─────────────────────────────────────────────────────────────────
-
-async function main(): Promise<void> {
-  log("info", "FlowPay Keeper starting", {
-    contract: CONTRACT_ID,
-    keeper: keeperKeypair.publicKey(),
-    rpc: RPC_URL,
-    charge_interval_ms: CHARGE_INTERVAL_MS,
-    page_size: PAGE_SIZE,
-    max_retries: MAX_RETRIES,
-  });
-
-  let shutdown = false;
-  const onSignal = (): void => {
-    log(
-      "info",
-      "Shutdown signal received — finishing current cycle then exiting.",
-    );
-    shutdown = true;
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-
-  while (!shutdown) {
-    try {
-      await runChargeCycle();
-    } catch (err) {
-      // Unexpected error in the cycle loop itself — log and continue.
-      log("error", "Unexpected error in charge cycle", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    if (!shutdown) {
-      log("info", `Sleeping ${CHARGE_INTERVAL_MS} ms until next cycle.`);
-      await sleep(CHARGE_INTERVAL_MS);
-    }
-  }
-
-  log("info", "Keeper stopped gracefully.");
-  process.exit(0);
-}
-
-main().catch((err: unknown) => {
-  console.error(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      level: "error",
-      msg: "Fatal unhandled error",
-      error: err instanceof Error ? err.message : String(err),
-    }),
-  );
     .addOperation(contract.call("batch_charge", usersVec))
     .setTimeout(30)
     .build();
@@ -747,7 +437,8 @@ main().catch((err: unknown) => {
   const retval = (simResult as { result?: { retval?: xdr.ScVal } }).result?.retval;
   const previewResults = retval ? decodeEnumVec(retval) : users.map(() => "Unknown");
 
-  // Pre-fetch amounts for charging users (preview)
+  // Pre-fetch amounts for charging users (preview).
+  // previewResults is index-aligned with users.
   const amounts: bigint[] = [];
   for (let i = 0; i < Math.min(previewResults.length, users.length); i++) {
     if (previewResults[i] === "Charged") {
@@ -757,7 +448,6 @@ main().catch((err: unknown) => {
   }
 
   // Assemble transaction with simulation results
-  const { assembleTransaction } = await import("@stellar/stellar-sdk/rpc");
   const prepared = assembleTransaction(tx, simResult) as any;
 
   // Sign with keeper secret
@@ -799,6 +489,7 @@ async function processPageDryRun(users: string[], pageOffset: number): Promise<D
     wouldCharge: 0,
     totalVolume: 0n,
     skipCounts: {},
+    candidates: [],
     errors: [],
   };
 
@@ -806,16 +497,21 @@ async function processPageDryRun(users: string[], pageOffset: number): Promise<D
 
   const { results, amounts } = await simulateBatchCharge(users);
 
+  // results is index-aligned with users (same order, one entry per input).
   let amountIdx = 0;
   for (let i = 0; i < results.length; i++) {
     const variant = results[i];
+    const user = i < users.length ? users[i] : "unknown";
+
     if (variant === "Charged") {
-      result.wouldCharge++;
       const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
+      result.wouldCharge++;
       result.totalVolume += amt;
+      result.candidates.push({ user, result: variant, amountStroops: amt.toString() });
       amountIdx++;
     } else {
       result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
+      result.candidates.push({ user, result: variant, amountStroops: "0" });
     }
   }
 
@@ -827,6 +523,7 @@ async function processPageLive(users: string[], pageOffset: number): Promise<Liv
     charged: 0,
     totalVolume: 0n,
     skipCounts: {},
+    candidates: [],
     errors: [],
   };
 
@@ -836,16 +533,21 @@ async function processPageLive(users: string[], pageOffset: number): Promise<Liv
     const { results, amounts, txHash } = await submitBatchCharge(users);
     result.txHash = txHash;
 
+    // results is index-aligned with users.
     let amountIdx = 0;
     for (let i = 0; i < results.length; i++) {
       const variant = results[i];
+      const user = i < users.length ? users[i] : "unknown";
+
       if (variant === "Charged") {
-        result.charged++;
         const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
+        result.charged++;
         result.totalVolume += amt;
+        result.candidates.push({ user, result: variant, amountStroops: amt.toString() });
         amountIdx++;
       } else {
         result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
+        result.candidates.push({ user, result: variant, amountStroops: "0" });
       }
     }
   } catch (err) {
@@ -862,6 +564,7 @@ interface CycleReport {
   totalCharged: number;
   totalVolume: bigint;
   totalSkips: Record<string, number>;
+  candidates: CandidateRecord[];
   errors: string[];
   txHashes: string[];
 }
@@ -873,6 +576,7 @@ async function runCycle(): Promise<CycleReport> {
     totalCharged: 0,
     totalVolume: 0n,
     totalSkips: {},
+    candidates: [],
     errors: [],
     txHashes: [],
   };
@@ -896,6 +600,10 @@ async function runCycle(): Promise<CycleReport> {
       isDryRun,
       `No ready subscribers (ready=${optimized.ready_count} deferred=${optimized.deferred_count})`
     );
+    // Still write the live pointer so the "latest live" file is fresh.
+    if (!isDryRun) {
+      writeLatestLive(report);
+    }
     return report;
   }
 
@@ -912,6 +620,7 @@ async function runCycle(): Promise<CycleReport> {
       const pageResult = await processPageDryRun(users, offset);
       report.totalCharged += pageResult.wouldCharge;
       report.totalVolume += pageResult.totalVolume;
+      report.candidates.push(...pageResult.candidates);
       report.errors.push(...pageResult.errors);
 
       const skipDetails = Object.entries(pageResult.skipCounts)
@@ -927,6 +636,7 @@ async function runCycle(): Promise<CycleReport> {
       const pageResult = await processPageLive(users, offset);
       report.totalCharged += pageResult.charged;
       report.totalVolume += pageResult.totalVolume;
+      report.candidates.push(...pageResult.candidates);
 
       for (const [k, v] of Object.entries(pageResult.skipCounts)) {
         report.totalSkips[k] = (report.totalSkips[k] || 0) + v;
@@ -960,7 +670,97 @@ async function runCycle(): Promise<CycleReport> {
     for (const err of report.errors) log(isDryRun, `Error: ${err}`);
   }
 
+  // ── Post-cycle reporting ───────────────────────────────────────────────────
+
+  if (!isDryRun) {
+    writeLatestLive(report);
+  } else {
+    writeDryRunReport(report);
+  }
+
   return report;
+}
+
+// ── Report Writers ────────────────────────────────────────────────────────────
+
+/**
+ * Overwrite REPORT_DIR/keeper-latest-live.json with a compact summary of the
+ * just-completed live cycle. This is the "pointer" used by dry-run comparison.
+ */
+function writeLatestLive(report: CycleReport): void {
+  const totalSkips = Object.values(report.totalSkips).reduce((a, b) => a + b, 0);
+  const record: LatestLiveRecord = {
+    timestamp: new Date().toISOString(),
+    contractId: CONTRACT_ID,
+    totalChecked: report.totalChecked,
+    totalCharged: report.totalCharged,
+    totalVolume: report.totalVolume.toString(),
+    totalSkips,
+  };
+  const dest = path.join(REPORT_DIR, "keeper-latest-live.json");
+  writeJsonFile(dest, record);
+  log(false, `Live cycle pointer written to ${dest}`);
+}
+
+/**
+ * Build and write a timestamped dry-run report to REPORT_DIR.
+ * Reads keeper-latest-live.json if available and computes a comparison delta.
+ */
+function writeDryRunReport(report: CycleReport): void {
+  const timestamp = new Date().toISOString();
+  const safeTs = timestamp.replace(/:/g, "-");
+
+  // Tally skip counts broken down by ChargeResult variant name.
+  const skipCounts: Record<string, number> = {};
+  for (const c of report.candidates) {
+    if (c.result !== "Charged") {
+      skipCounts[c.result] = (skipCounts[c.result] || 0) + 1;
+    }
+  }
+
+  // Try to load the last live cycle pointer.
+  const pointerPath = path.join(REPORT_DIR, "keeper-latest-live.json");
+  const lastLive = readJsonFile<LatestLiveRecord>(pointerPath);
+
+  let comparison: DryRunReport["comparison"] = null;
+  if (lastLive !== null) {
+    const ageMs = Date.now() - new Date(lastLive.timestamp).getTime();
+    const ageHours = ageMs / (1000 * 60 * 60);
+    const ageHuman =
+      ageHours < 24
+        ? `${ageHours.toFixed(1)} hours`
+        : `${(ageHours / 24).toFixed(1)} days`;
+
+    comparison = {
+      checkedDelta: report.totalChecked - lastLive.totalChecked,
+      chargedDelta: report.totalCharged - lastLive.totalCharged,
+      volumeDelta: (report.totalVolume - BigInt(lastLive.totalVolume)).toString(),
+      lastLiveAgeMs: ageMs,
+      lastLiveAgeHuman: ageHuman,
+    };
+  }
+
+  const dryRunReport: DryRunReport = {
+    timestamp,
+    mode: "dry-run",
+    contractId: CONTRACT_ID,
+    rpcUrl: RPC_URL,
+    estimatedOutcomes: {
+      totalChecked: report.totalChecked,
+      totalCharged: report.totalCharged,
+      totalVolumeStroops: report.totalVolume.toString(),
+      skipCounts,
+    },
+    candidates: report.candidates,
+    lastLiveCycle: lastLive ?? null,
+    comparison,
+    errors: report.errors,
+  };
+
+  const filename = `keeper-dryrun-report-${safeTs}.json`;
+  const dest = path.join(REPORT_DIR, filename);
+  writeJsonFile(dest, dryRunReport);
+  log(true, `Dry-run report written to ${dest}`);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────

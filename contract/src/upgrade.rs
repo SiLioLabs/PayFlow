@@ -2,6 +2,8 @@ use soroban_sdk::{BytesN, Env};
 
 use crate::{admin, errors::ContractError, events, DataKey};
 
+pub const PENDING_UPGRADE_TTL_LEDGERS: u32 = 17280;
+
 pub fn propose_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
     admin::require_admin(env);
     env.storage()
@@ -9,8 +11,18 @@ pub fn propose_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
         .set(&DataKey::PendingUpgrade, &new_wasm_hash);
     env.storage()
         .temporary()
-        .extend_ttl(&DataKey::PendingUpgrade, 17280, 17280);
+        .extend_ttl(
+            &DataKey::PendingUpgrade,
+            PENDING_UPGRADE_TTL_LEDGERS,
+            PENDING_UPGRADE_TTL_LEDGERS,
+        );
     events::publish_upgrade_proposed(env, &new_wasm_hash);
+}
+
+pub fn cancel_pending_upgrade(env: &Env) {
+    admin::require_admin(env);
+    env.storage().temporary().remove(&DataKey::PendingUpgrade);
+    events::publish_upgrade_cancelled(env);
 }
 
 pub fn commit_upgrade(env: &Env) {

@@ -1,7 +1,58 @@
+use crate::errors::ContractError;
 use crate::events;
 use crate::merchant_stats;
 use crate::DataKey;
+use crate::{MAX_BATCH_SIZE_CEILING, MAX_WHITELIST_BATCH_SIZE};
 use soroban_sdk::{Address, Env, Vec};
+
+// ─────────────────────────────────────────────────────────────
+// Whitelist batch limit
+// ─────────────────────────────────────────────────────────────
+//
+// Design note (CONTRACT-16 follow-up):
+//
+// Whitelist batches get their *own* configurable cap rather than reusing
+// `DataKey::MaxBatchSize` (which bounds `batch_charge` / `batch_extend_*`).
+// The two batch families have very different per-entry costs — a whitelist
+// entry is a handful of persistent writes plus one event, while a charge
+// entry performs token `transfer_from` calls — so a single shared knob would
+// force operators to tune the cheap path down whenever they tune the
+// expensive one down (and vice versa). Keeping them separate lets admins size
+// each batch against its real instruction cost.
+//
+// Both knobs share `MAX_BATCH_SIZE_CEILING` so no configuration can produce an
+// unbounded batch, and the default here stays at the historical
+// `MAX_WHITELIST_BATCH_SIZE` (50) so behaviour is unchanged until an admin
+// deliberately opts into a different value.
+
+/// Returns the effective whitelist batch cap, defaulting to
+/// `MAX_WHITELIST_BATCH_SIZE` (50) when no override has been configured.
+pub fn get_max_whitelist_batch_size(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxWhitelistBatchSize)
+        .unwrap_or(MAX_WHITELIST_BATCH_SIZE)
+}
+
+/// Sets the whitelist batch cap. Callers must gate this on admin auth.
+///
+/// Panics with `InvalidBatchSize` when `size` is zero (which would brick the
+/// admin batch entrypoints) or above `MAX_BATCH_SIZE_CEILING`.
+pub fn set_max_whitelist_batch_size(env: &Env, size: u32) {
+    if size == 0 || size > MAX_BATCH_SIZE_CEILING {
+        env.panic_with_error(ContractError::InvalidBatchSize);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxWhitelistBatchSize, &size);
+}
+
+/// Panics with `BatchTooLarge` when `len` exceeds the configured whitelist cap.
+pub fn require_batch_within_limit(env: &Env, len: u32) {
+    if len > get_max_whitelist_batch_size(env) {
+        env.panic_with_error(ContractError::BatchTooLarge);
+    }
+}
 
 /// Checks if a merchant is whitelisted.
 pub fn is_whitelisted(env: &Env, merchant: &Address) -> bool {

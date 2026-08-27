@@ -1,13 +1,34 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, token, Address, Env, Vec};
 
 use crate::{errors::ContractError, grace, token, DataKey, Subscription};
 use crate::events;
 use crate::merchant_stats;
 use crate::charge_exec;
+use crate::events;
+use crate::events::BatchChargeSkipsEventData;
 use crate::grace;
 use crate::{DataKey, Subscription};
 // sync trigger
 pub const MAX_BATCH_SIZE: u32 = 50;
+
+// ─────────────────────────────────────────────────────────────
+// Decode-compatibility note
+// ─────────────────────────────────────────────────────────────
+// `ChargeResult` is decoded off-chain by keepers, alert scripts
+// (alert-failed-charges.ts), and indexers.  Its discriminant
+// layout is:
+//
+//   Charged            = 0
+//   Skipped            = 1
+//   NoSubscription     = 2
+//   Inactive           = 3
+//   Paused             = 4
+//   GracePeriodElapsed = 5
+//
+// When adding new variants ALWAYS append at the end so existing
+// off-chain parsers continue to recognise the original codes.
+// Renaming or reordering is a breaking change for all consumers.
+// The golden tests in test.rs lock this layout.
 /// The outcome for a single user in a batch_cancel call.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +45,9 @@ pub enum CancelResult {
 pub const MAX_BATCH_SIZE: u32 = 100;
 
 /// The outcome for a single user in a batch_charge call.
+///
+/// Variants are returned in-order, one per input address. A non-`Charged`
+/// result for one user never aborts processing of subsequent users.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChargeResult {
@@ -45,6 +69,11 @@ pub enum ChargeResult {
     VolumeCapExceeded,
     /// Contract is paused.
     ContractPaused,
+    /// The subscriber's token allowance granted to this contract is less than
+    /// the gross subscription amount (`sub.amount`). No funds were transferred.
+    /// The keeper should prompt the subscriber to increase their allowance and
+    /// retry on the next cycle; the subscription remains active.
+    AllowanceInsufficient,
 }
 
 pub(crate) fn get_max_batch_size(env: &Env) -> u32 {
@@ -58,6 +87,13 @@ pub(crate) fn get_max_batch_size(env: &Env) -> u32 {
 ///
 /// Individual failures do **not** abort the batch — every address is
 /// processed and its outcome is recorded in the returned `Vec`.
+///
+/// When the batch contains at least one *interesting* non-success outcome
+/// (`NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`,
+/// `AllowanceInsufficient`), a single `batch_charge_skips` summary event is
+/// emitted so event-driven consumers can see it without reading the return
+/// value. Not-due skips alone do not trigger it. See the design note in
+/// `events.rs`.
 pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
     if users.len() > MAX_BATCH_SIZE {
         env.panic_with_error(ContractError::BatchTooLarge);
@@ -81,6 +117,14 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
         .storage()
         .instance()
         .get::<_, i128>(&DataKey::GlobalVolumeCap);
+
+    let mut charged = 0u32;
+    let mut not_due = 0u32;
+    let mut no_subscription = 0u32;
+    let mut inactive = 0u32;
+    let mut paused = 0u32;
+    let mut grace_elapsed = 0u32;
+    let mut allowance_insufficient = 0u32;
 
     for user in users.iter() {
         if contract_paused {
@@ -133,14 +177,64 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                 match charge_exec::precheck_charge(&sub, now, grace_period) {
                     Err(skip) => skip,
                     Ok(()) => {
-                        charge_exec::execute_charge(env, &user, &key, &mut sub, now);
-                        ChargeResult::Charged
+                        // Pre-check allowance against the gross subscription
+                        // amount BEFORE calling execute_charge. The SAC's
+                        // transfer_from panics when allowance is insufficient,
+                        // which would abort the whole transaction. By checking
+                        // here we convert that condition into a per-user result
+                        // so the rest of the batch continues unaffected.
+                        //
+                        // `fee::transfer_subscription_charge` asserts the same
+                        // `allowance >= gross` invariant again before its two
+                        // transfer legs. That re-read is deliberate: the helper
+                        // is also reached from single `charge()` and from
+                        // pay-per-use, where no caller has established the
+                        // invariant, and an auditor reading the helper alone
+                        // should see it stated there. Here it is redundant.
+                        let token_client = token::Client::new(env, &sub.token);
+                        let allowance = token_client
+                            .allowance(&user, &env.current_contract_address());
+                        if allowance < sub.amount {
+                            ChargeResult::AllowanceInsufficient
+                        } else {
+                            charge_exec::execute_charge(env, &user, &key, &mut sub, now);
+                            ChargeResult::Charged
+                        }
                     }
                 }
             }
         };
 
+        match result {
+            ChargeResult::Charged => charged += 1,
+            ChargeResult::Skipped => not_due += 1,
+            ChargeResult::NoSubscription => no_subscription += 1,
+            ChargeResult::Inactive => inactive += 1,
+            ChargeResult::Paused => paused += 1,
+            ChargeResult::GracePeriodElapsed => grace_elapsed += 1,
+            ChargeResult::AllowanceInsufficient => allowance_insufficient += 1,
+        }
+
         results.push_back(result);
+    }
+
+    // Only interesting failures are worth an event; a batch that merely wasn't
+    // due yet stays silent.
+    if no_subscription + inactive + paused + grace_elapsed + allowance_insufficient > 0 {
+        events::publish_batch_charge_skips(
+            env,
+            BatchChargeSkipsEventData {
+                total: users.len(),
+                charged,
+                not_due,
+                no_subscription,
+                inactive,
+                paused,
+                grace_elapsed,
+                allowance_insufficient,
+                ledger_sequence: env.ledger().sequence(),
+            },
+        );
     }
 
     results

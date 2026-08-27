@@ -23,38 +23,58 @@ For general contribution guidelines (branching, commit style, frontend), see [`C
 ```
 contract/src/
 ├── lib.rs                    # Contract entry point: DataKey enum, Subscription struct,
-│                             # FlowPay impl block with all public functions
-├── errors.rs                 # ContractError enum (#[contracterror])
-├── events.rs                 # All publish_* helpers
-├── batch.rs                  # batch_charge logic and ChargeResult enum
-├── charge_exec.rs            # Shared charge execution (precheck + execute)
-├── admin.rs                  # Admin / ownership helpers
-├── fee.rs                    # Protocol fee calculation and transfer
-├── grace.rs                  # Grace period get/set
-├── limits.rs                 # Contract-wide amount limits
-├── merchant_stats.rs         # Per-merchant revenue tracking
-├── migration.rs              # Schema versioning and state migration
-├── min_interval.rs           # Minimum subscription interval floor
-├── referral.rs               # Referral tracking
-├── spending_limit.rs         # Per-user daily spending limits (temporary storage)
-├── storage.rs                # Low-level storage helpers and TTL extension
-├── subscription_count.rs     # Active subscription counter
-├── subscription_history.rs   # Per-user charge history
-├── subscription_metadata.rs  # User-assigned subscription labels
-├── token.rs                  # SAC token client helpers
-├── trial.rs                  # Trial period support
-├── upgrade.rs                # Contract upgrade (wasm hash)
-├── validation.rs             # Input validation helpers
-├── whitelist.rs              # Merchant whitelist
-├── bench.rs                  # Benchmark tests (cfg(test) only)
-└── test.rs                   # Unit tests (cfg(test) only)
+│                             # FlowPay impl block with all public functions,
+│                             # subscribe_inner, pay_per_use_inner,
+│                             # check_and_update_global_volume, bump_instance_ttl
+├── errors.rs                 # ContractError enum (#[contracterror], 34 variants)
+├── events.rs                 # All publish_* helpers (~30+ event types)
+├── batch.rs                  # batch_charge, batch_cancel, batch_extend_subscription_ttl;
+│                             # ChargeResult/CancelResult enums; MAX_BATCH_SIZE = 50
+├── charge_exec.rs            # Charge prechecks, auto-resume logic, simulation,
+│                             # fee-aware transfer execution; ChargeSimResult enum
+├── admin.rs                  # require_admin, initialize_admin, two-step admin transfer
+├── fee.rs                    # Protocol fee calculation (calculate_fee_amount),
+│                             # two-step propose/commit, fee-aware transfers
+│                             # (transfer_subscription_charge, transfer_pay_per_use),
+│                             # cumulative fee tracking, merchant fee recipient routing
+├── grace.rs                  # Two-step grace period proposal/commit
+├── limits.rs                 # Placeholder — currently empty (single comment line)
+├── merchant_stats.rs         # Per-merchant revenue tracking (cumulative, daily buckets,
+│                             # history Vec), subscriber counts, merchant index,
+│                             # top merchants ranking, revenue summaries
+├── migration.rs              # Schema version tracking (current v3),
+│                             # v1→v2 (add paused field), v2→v3 (populate referrer)
+├── min_interval.rs           # Minimum subscription interval floor (default 3600s)
+├── referral.rs               # Referrer storage/lookup/removal with self-referral check
+├── spending_limit.rs         # Per-user daily spending limits (temporary storage, ~1 day TTL),
+│                             # day window anchoring via DayStart key
+├── storage.rs                # Low-level storage helpers: subscription get/set, TTL extension,
+│                             # admin get/set, token get, contract pause get/set,
+│                             # pause expiry get/set/clear
+├── subscription_count.rs     # Active subscription counter, append-only subscriber index
+│                             # with tombstoning, per-merchant subscriber count
+├── subscription_history.rs   # Per-user charge history (max 12 entries, circular buffer),
+│                             # paginated reads with ascending/descending
+├── subscription_metadata.rs  # Short subscription labels (max 64 bytes)
+├── token.rs                  # UNRELATED — contains AcademyVestingContract (not used by FlowPay)
+├── trial.rs                  # Trial period end computation and trial extension
+├── upgrade.rs                # Two-step WASM upgrade (propose/commit),
+│                             # test-only direct upgrade
+├── validation.rs             # Input validation: amounts, intervals, allowance checks
+├── whitelist.rs              # Merchant whitelist with indexed pagination,
+│                             # freeze/unfreeze with reasons, whitelist enabled toggle
+├── bench.rs                  # Benchmark tests (gated by #[cfg(feature = "bench")] in lib.rs)
+└── test.rs                   # Unit tests (gated by #[cfg(test)])
 ```
 
 **Rules:**
 
 - Business logic belongs in a focused module, not in `lib.rs`.
 - `lib.rs` only wires public contract functions to module helpers — no logic inline.
-- `bench.rs` and `test.rs` are gated with `#[cfg(test)]`.
+- `bench.rs` is gated with `#[cfg(feature = "bench")]` in `lib.rs` — it is **not** compiled by `cargo test` unless you pass `--features bench`.
+- `test.rs` is gated with `#[cfg(test)]`.
+- `token.rs` contains an unrelated vesting contract and is not used by FlowPay. Do not add FlowPay logic to it.
+- `limits.rs` is an empty placeholder. Do not add logic there without first checking whether the behavior belongs in an existing module.
 
 ---
 
@@ -223,11 +243,29 @@ cargo test daily_limit           # tests matching the prefix
 cargo test -- --nocapture        # show println! output (useful for bench)
 ```
 
+### Test snapshots
+
+The `contract/test_snapshots/` directory contains JSON ledger snapshots produced by tests. These are plain JSON files (not managed by `insta` or similar snapshot crates). When a test's expected ledger state changes:
+
+1. Run `cargo test` — tests will fail if snapshots diverge.
+2. Inspect the diff in the failing test output to confirm the change is intentional.
+3. Update the corresponding `.json` file in `test_snapshots/` to match the new expected state.
+4. Re-run `cargo test` to confirm the snapshot matches.
+
+Snapshot files are organized by test name under `test_snapshots/test/`. Do not rename or move snapshot files independently of their corresponding test functions.
+
 ---
 
 ## Benchmarks
 
 Benchmark tests live in `contract/src/bench.rs` and measure CPU instruction counts to detect performance regressions.
+
+The benchmark module is gated with `#[cfg(feature = "bench")]` in `lib.rs`. Standard `cargo test` does **not** compile benchmarks. To run them:
+
+```bash
+cd contract
+cargo test bench --features bench -- --nocapture
+```
 
 ### Baselines
 
@@ -310,6 +348,22 @@ The full error reference is in [`docs/ERROR-CODES.md`](../docs/ERROR-CODES.md).
 
 ---
 
+## Adding a New Public Function — Entrypoint Checklist
+
+Every new contract entrypoint must address these concerns before merging:
+
+| Concern | Requirement | Where to enforce |
+|---------|-------------|-----------------|
+| **Authorization** | Call `require_auth()` on every address that owns state or funds, before any mutation | `lib.rs` entry point |
+| **Validation** | Reject invalid amounts, intervals, addresses, and out-of-range values before any mutation | `validation.rs` or inline in the module |
+| **Errors** | Use a dedicated `ContractError` variant (sequential discriminant, doc comment) — never panic with a raw string | `errors.rs` |
+| **Events** | Emit a `publish_*` event from `events.rs` after all state writes succeed | `events.rs` + `lib.rs` |
+| **Tests** | Happy path, auth enforcement, precondition failure, state-after, and event assertion | `test.rs` |
+
+This checklist is a summary of the detailed guidance in the sections above. Use it as a quick reminder during code review.
+
+---
+
 ## PR Checklist
 
 Before opening a pull request against `main`:
@@ -329,7 +383,7 @@ Before opening a pull request against `main`:
 
 **Benchmarks**
 
-- [ ] If your change touches `subscribe`, `charge`, `pay_per_use`, or `batch_charge`, run `cargo test bench -- --nocapture` and confirm instruction counts are within the documented baselines
+- [ ] If your change touches `subscribe`, `charge`, `pay_per_use`, or `batch_charge`, run `cargo test bench --features bench -- --nocapture` and confirm instruction counts are within the documented baselines
 - [ ] Update `bench.rs` constants and the baselines table if a deliberate change shifts a baseline
 
 **Documentation**

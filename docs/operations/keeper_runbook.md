@@ -691,3 +691,12 @@ soroban contract invoke --id "$KEEPER_CONTRACT_ID" --network "$NETWORK" -- healt
 redis-cli LLEN keeper:dlq
 # Expected: trending to 0 after replay
 ```
+
+---
+
+## Related Documentation
+
+- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](troubleshooting.md)
+- Error codes reference: [`docs/ERROR-CODES.md`](../ERROR-CODES.md)
+- Testing guide: [`docs/TESTING.md`](../TESTING.md)
+- Keeper guide: [`docs/KEEPER.md`](../KEEPER.md)

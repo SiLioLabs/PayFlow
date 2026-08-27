@@ -29,14 +29,17 @@ The contract also enforces a configurable grace period. If a charge is attempted
 
 `batch_charge(users)` accepts a list of user addresses and processes each one independently — a failure on one address does not abort the rest. Each entry in the returned `Vec<ChargeResult>` is one of:
 
-| Result               | Meaning                                    |
-| -------------------- | ------------------------------------------ |
-| `Charged`            | Funds transferred successfully             |
-| `Skipped`            | Interval has not elapsed yet               |
-| `NoSubscription`     | No subscription found for this address     |
-| `Inactive`           | Subscription is cancelled                  |
-| `Paused`             | Subscription is paused by the user         |
-| `GracePeriodElapsed` | Charge window expired; subscription lapsed |
+| Result                    | Meaning                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Charged`                 | Funds transferred successfully                                                                          |
+| `Skipped`                 | Interval has not elapsed yet                                                                            |
+| `NoSubscription`          | No subscription found for this address                                                                  |
+| `Inactive`                | Subscription is cancelled                                                                               |
+| `Paused`                  | Subscription is paused by the user                                                                      |
+| `GracePeriodElapsed`      | Charge window expired; subscription lapsed                                                              |
+| `AllowanceInsufficient`   | Subscriber's token allowance to the contract is below the gross subscription amount (`sub.amount`). No funds were transferred. The subscription remains active. The keeper should log the address and wait for the subscriber to increase their allowance before the next cycle. |
+
+> **`AllowanceInsufficient` does not abort the batch.** Healthy subscribers before and after an under-allowanced subscriber are still charged normally.
 
 The keeper must page through the full subscriber index using `get_subscriber_index_size()` and `get_subscriber_at(offset)`, then pass slices of addresses to `batch_charge()`.
 
@@ -270,9 +273,12 @@ This allows external uptime monitors (e.g. UptimeRobot, Pingdom) to verify the k
 ```
 [2026-06-26T10:00:01Z] INFO  GCXXX...=Skipped
 [2026-06-26T10:00:01Z] WARN  GDYYY...=GracePeriodElapsed
+[2026-06-26T10:00:01Z] WARN  GEZZZ...=AllowanceInsufficient
 ```
 
 `GracePeriodElapsed` results are worth alerting on — they indicate a subscription lapsed because the keeper was late. Investigate the cause (keeper downtime, network congestion).
+
+`AllowanceInsufficient` means the subscriber's token allowance to the contract is below their gross subscription amount. No funds were moved and the subscription stays active. The keeper should log the address; no retry is useful until the subscriber increases their allowance. Consider surfacing these to a merchant dashboard or alert channel so subscribers can be notified.
 
 ### Full cycle failures
 
