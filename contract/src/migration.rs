@@ -21,6 +21,13 @@ pub struct SubscriptionV1 {
 #[allow(dead_code)]
 pub const CURRENT_VERSION: u32 = 3;
 
+/// Rejects current-schema reads and writes until the deployment migration is complete.
+pub fn require_current_version(env: &Env) {
+    if get_schema_version(env) < CURRENT_VERSION {
+        env.panic_with_error(crate::errors::ContractError::SchemaMigrationRequired);
+    }
+}
+
 /// Returns the stored schema version, defaulting to 0 (unmigrated).
 pub fn get_schema_version(env: &Env) -> u32 {
     env.storage()

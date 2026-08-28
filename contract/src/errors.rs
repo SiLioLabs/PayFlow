@@ -60,11 +60,19 @@ pub enum ContractError {
     InvalidFeeCollector = 26,
     /// Returned when pause_until expiry_timestamp is not strictly in the future
     InvalidPauseExpiry = 27,
+    /// Returned when the configured global volume cap is exceeded.
     GlobalVolumeExceeded = 28,
-    /// Returned when a configured batch limit is invalid
+    /// Returned when a configured batch limit is invalid.
     InvalidBatchSize = 29,
+    /// Deprecated alias retained for clients that published code 30.
+    /// New contract pause checks use `ContractPaused` (code 18).
+    #[deprecated(note = "use ContractPaused; code 30 is retained for wire compatibility")]
     ContractPausedError = 30,
-    /// Returned when a provided recipient address is invalid (e.g., contract address)
+    /// Reserved for the historical error-code gap. It is intentionally not
+    /// emitted by the current contract; retaining it documents the stable wire map.
+    #[deprecated(note = "code 31 is reserved and must not be emitted")]
+    Reserved31 = 31,
+    /// Returned when a provided recipient address is invalid (e.g., contract address).
     InvalidRecipient = 32,
     /// Returned when a configured global volume cap is not positive
     InvalidVolumeCap = 33,
@@ -72,8 +80,7 @@ pub enum ContractError {
     InvalidFeeBounds = 34,
     /// Returned when resume is called on a subscription whose grace period has elapsed.
     /// Cancel is still allowed; re-subscribe outside this flow to reactivate.
-    ResumeGraceLapsed = 100,
-    /// Returned when a pending fee proposal violates the current fee bounds at commit time
+    /// Returned when a pending fee proposal violates the current fee bounds at commit time.
     FeeOutOfBoundsAtCommit = 35,
     /// Returned when a checked arithmetic operation overflows (trial extension,
     /// fee calculation, protocol-fee accrual, or global volume accumulation)
@@ -87,4 +94,9 @@ pub enum ContractError {
     /// Returned when admin repair would tombstone an index slot whose
     /// subscriber still has an active subscription
     CannotClearActiveSubscriber = 41,
+    /// Returned when a state-mutating operation is attempted before all
+    /// storage entries required by the current WASM schema are migrated.
+    SchemaMigrationRequired = 42,
+    /// Returned when resume is attempted after the subscription grace period elapsed.
+    ResumeGraceLapsed = 43,
 }
