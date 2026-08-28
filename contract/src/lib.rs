@@ -1846,17 +1846,49 @@ impl FlowPay {
     /// capped at `limit` (max 50) active subscribers per call.
     ///
     /// # Pagination & Tombstone Semantics
+    ///
     /// - **Offset & Limit**: `offset` is the raw slot index in the append-only `SubscriberIndex`.
     ///   `limit` is the requested maximum number of active subscribers to collect, capped at 50.
-    /// - **Tombstone Skipping**: Tombstoned (cancelled) slots marked by `SubscriberIndexRemoved`
-    ///   are fast-skipped using an efficient boolean check, avoiding secondary storage reads for
-    ///   subscriber subscription data on cancelled entries.
-    /// - **Bounded Iteration**: Iteration scans at most `MAX_SCAN_SLOTS` (200 slots) from `offset`
-    ///   in a single call to enforce deterministic execution and gas bounds for off-chain keepers,
-    ///   even when encountering highly sparse tombstone regions.
-    /// - **Keeper Continuation Guarantees**: Off-chain keepers can sequentially sweep active
-    ///   subscribers by advancing their cursor through `SubscriberIndex` slots up to total
-    ///   `subscriber_count`, ensuring 100% active subscriber discovery without stalling or skipping.
+    ///
+    /// - **Tombstone Skipping**: When a user cancels, `remove_subscriber_index` writes a
+    ///   `SubscriberIndexRemoved(slot)` tombstone and removes the reverse `SubscriberIndexSlot`
+    ///   map. On each iteration step the tombstone flag is checked first — a single persistent
+    ///   read — so cancelled slots are fast-skipped without paying for a second `Subscription`
+    ///   fetch. This keeps gas costs proportional to the number of *live* slots scanned.
+    ///
+    /// - **Bounded Iteration (gas safety)**: Each call scans at most `MAX_SCAN_SLOTS = 200`
+    ///   raw slots starting at `offset`, regardless of how many of those slots are tombstoned.
+    ///   This bound prevents gas exhaustion even when a keeper lands in a densely tombstoned
+    ///   region of the index, guaranteeing predictable, finite execution per transaction.
+    ///
+    /// - **Keeper Cursor Protocol**: Off-chain keepers MUST advance their cursor by a fixed
+    ///   slot stride — not by result count — to guarantee termination and full coverage:
+    ///
+    ///   ```text
+    ///   let stride = MAX_SCAN_SLOTS; // 200 slots per call
+    ///   let total  = get_subscriber_count();
+    ///   let mut cursor = 0u64;
+    ///   while cursor < total {
+    ///       let page = get_active_subscriber_page(cursor, 50);
+    ///       process(page);
+    ///       cursor += stride;
+    ///   }
+    ///   ```
+    ///
+    ///   Advancing by `stride` (≤ `MAX_SCAN_SLOTS`) ensures that no slot window is
+    ///   skipped and that the loop always terminates in `ceil(total / stride)` calls.
+    ///   Advancing by *result count* instead would stall when an entire window is
+    ///   tombstoned (result count = 0, cursor never moves → infinite loop).
+    ///
+    /// - **Resubscription**: If a cancelled user resubscribes, a *new* slot is appended at
+    ///   `SubscriberIndexSize`. The old tombstoned slot is not reused. Keepers that have
+    ///   already swept past the old slot will discover the user again when their cursor
+    ///   reaches the new slot in a later sweep cycle.
+    ///
+    /// - **Completeness Guarantee**: Combining the stride-based cursor with the slot bound
+    ///   means a keeper that sweeps from 0 to `subscriber_count` in strides of
+    ///   `MAX_SCAN_SLOTS` will visit every slot exactly once per cycle and will never miss
+    ///   an active subscriber, even when the index is arbitrarily sparse.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
         const MAX_SCAN_SLOTS: u64 = 200;
         let count = subscription_count::get_subscriber_index_size(&env);

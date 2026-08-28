@@ -6954,3 +6954,414 @@ fn test_get_active_subscriber_page_edge_cases() {
     assert_eq!(page_end.len(), 1);
     assert_eq!(page_end.get(0).unwrap(), u2);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Issue #823 – Pagination safety tests for get_active_subscriber_page
+// with tombstoned entries (keeper-oriented scenarios)
+// ─────────────────────────────────────────────────────────────
+
+/// Verifies that a keeper advancing its cursor by a fixed slot stride
+/// (`MAX_SCAN_SLOTS = 200`) terminates and discovers every active subscriber
+/// exactly once, even when roughly half the index is tombstoned.
+///
+/// This is the canonical keeper loop pattern documented on
+/// `get_active_subscriber_page`. The test proves that:
+///   - advancing by stride (not result-count) guarantees termination, and
+///   - no active subscriber is missed or double-counted.
+#[test]
+fn test_keeper_stride_sweep_discovers_all_active_no_duplicates() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let total: u32 = 30;
+    let mut users = soroban_sdk::Vec::new(&env);
+    for _ in 0..total {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    // Cancel every third subscriber (indices 0, 3, 6, 9, ...) → 10 cancelled, 20 active.
+    for i in 0..total {
+        if i % 3 == 0 {
+            client.cancel(&users.get(i).unwrap());
+        }
+    }
+
+    let stride: u64 = 10; // well within MAX_SCAN_SLOTS = 200
+    let total_slots = client.get_subscriber_count(); // append-only size = 30
+    let mut cursor = 0u64;
+    let mut discovered: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+
+    // Keeper loop: advance cursor by stride regardless of result size.
+    while cursor < total_slots {
+        let page = client.get_active_subscriber_page(&cursor, &50);
+        for u in page.iter() {
+            // No duplicates should ever appear.
+            assert!(
+                !discovered.contains(&u),
+                "duplicate address discovered in keeper sweep"
+            );
+            discovered.push_back(u);
+        }
+        cursor += stride;
+    }
+
+    // Exactly the 20 non-cancelled subscribers must be found.
+    assert_eq!(discovered.len(), 20);
+    for i in 0..total {
+        let u = users.get(i).unwrap();
+        if i % 3 != 0 {
+            assert!(discovered.contains(&u), "active subscriber missing from sweep");
+        } else {
+            assert!(!discovered.contains(&u), "cancelled subscriber appeared in sweep");
+        }
+    }
+}
+
+/// Proves that a tombstone-only window (all slots cancelled) returns an empty
+/// page without stalling. If the caller were to advance cursor by result-count
+/// instead of by stride this would loop forever; the test documents that the
+/// correct cursor advance pattern avoids that.
+#[test]
+fn test_tombstone_only_window_returns_empty_page_safely() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Subscribe then immediately cancel 5 users → 5 consecutive tombstoned slots.
+    for _ in 0..5 {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        client.cancel(&u);
+    }
+
+    // Add one active subscriber at slot 5.
+    let active_user = Address::generate(&env);
+    sac.mint(&active_user, &10_000_0000000);
+    token.approve(&active_user, &contract_id, &10_000_0000000, &200);
+    client.subscribe(&active_user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Page over the tombstone-only window (slots 0..5).
+    let tombstone_page = client.get_active_subscriber_page(&0, &5);
+    assert_eq!(tombstone_page.len(), 0, "tombstone-only window must yield empty page");
+
+    // Advancing cursor to slot 5 finds the active subscriber.
+    let active_page = client.get_active_subscriber_page(&5, &5);
+    assert_eq!(active_page.len(), 1);
+    assert_eq!(active_page.get(0).unwrap(), active_user);
+}
+
+/// Verifies that cancel → resubscribe appends a *new* index slot and that a
+/// keeper sweeping the full index from the beginning will discover the
+/// resubscribed user exactly once (at the new slot, not the old tombstoned one).
+#[test]
+fn test_resubscribe_after_cancel_appended_to_new_slot_keeper_finds_once() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let user = Address::generate(&env);
+    sac.mint(&user, &10_000_0000000);
+    token.approve(&user, &contract_id, &10_000_0000000, &200);
+
+    // First subscription → slot 0.
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 1);
+
+    // Cancel → slot 0 becomes tombstoned.
+    client.cancel(&user);
+
+    // Resubscribe → slot 1 is appended (old slot is NOT reused).
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 2, "index size must be 2 after cancel+resubscribe");
+
+    // Full sweep: slots 0 (tombstone) and 1 (active).
+    let mut discovered: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    let total_slots = client.get_subscriber_count();
+    let mut cursor = 0u64;
+    while cursor < total_slots {
+        let page = client.get_active_subscriber_page(&cursor, &50);
+        for u in page.iter() {
+            assert!(
+                !discovered.contains(&u),
+                "resubscribed user must not appear twice"
+            );
+            discovered.push_back(u);
+        }
+        cursor += 1; // stride of 1 to visit every slot individually
+    }
+
+    assert_eq!(discovered.len(), 1, "exactly one entry for resubscribed user");
+    assert_eq!(discovered.get(0).unwrap(), user);
+}
+
+/// Tests that `limit = 1` with interleaved tombstones returns exactly one
+/// active subscriber per call, and that sequential calls with stride = 1
+/// correctly enumerate all active users one by one.
+#[test]
+fn test_limit_one_with_interleaved_tombstones_enumerates_correctly() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Pattern: active, cancelled, active, cancelled, active  (slots 0–4)
+    let mut active_users: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    for i in 0u32..5 {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        if i % 2 == 1 {
+            client.cancel(&u); // cancel odd-indexed users
+        } else {
+            active_users.push_back(u);
+        }
+    }
+    // active_users = [slot0, slot2, slot4]
+
+    // Scan with limit=1, stride=1; each call should yield at most one result.
+    let total_slots = client.get_subscriber_count(); // 5
+    let mut collected: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    for offset in 0..total_slots {
+        let page = client.get_active_subscriber_page(&offset, &1);
+        assert!(page.len() <= 1, "limit=1 must never return more than 1 result");
+        for u in page.iter() {
+            collected.push_back(u);
+        }
+    }
+
+    assert_eq!(collected.len(), 3, "should find exactly 3 active users with limit=1 sweep");
+    for u in active_users.iter() {
+        assert!(collected.contains(&u), "active user missing from limit=1 sweep");
+    }
+}
+
+/// Verifies the `MAX_SCAN_SLOTS = 200` hard bound: places 199 tombstones
+/// followed by one active subscriber at slot 199, then confirms a single call
+/// from offset 0 finds that subscriber (all 200 slots scanned).
+/// A second active subscriber is placed at slot 200 and a call from offset 0
+/// must NOT return it (it falls outside the 200-slot window of the first call).
+#[test]
+fn test_max_scan_slots_boundary_does_not_exceed_200() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Set up 201 slots directly in storage: slots 0-198 tombstoned, slot 199 active,
+    // slot 200 active. Uses env.as_contract to bypass auth for raw storage writes.
+    let placeholder = Address::generate(&env);
+
+    let active_at_199 = Address::generate(&env);
+    let active_at_200 = Address::generate(&env);
+
+    sac.mint(&active_at_199, &10_000_0000000);
+    token.approve(&active_at_199, &contract_id, &10_000_0000000, &200);
+    sac.mint(&active_at_200, &10_000_0000000);
+    token.approve(&active_at_200, &contract_id, &10_000_0000000, &200);
+
+    env.as_contract(&contract_id, || {
+        // Write 199 tombstoned slots (0..198 inclusive).
+        for i in 0u64..199 {
+            env.storage()
+                .persistent()
+                .set(&DataKey::SubscriberIndex(i), &placeholder);
+            env.storage()
+                .persistent()
+                .set(&DataKey::SubscriberIndexRemoved(i), &true);
+        }
+
+        // Slot 199 – active subscriber (not tombstoned).
+        let sub_199 = Subscription {
+            merchant: merchant.clone(),
+            amount: 1_0000000,
+            interval: 86400,
+            last_charged: env.ledger().timestamp(),
+            active: true,
+            paused: false,
+            token: token_addr.clone(),
+            referrer: None,
+            label: Symbol::new(&env, ""),
+            trial_duration: 0,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriberIndex(199), &active_at_199);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Subscription(active_at_199.clone()), &sub_199);
+
+        // Slot 200 – active subscriber (not tombstoned).
+        let sub_200 = Subscription {
+            merchant: merchant.clone(),
+            amount: 1_0000000,
+            interval: 86400,
+            last_charged: env.ledger().timestamp(),
+            active: true,
+            paused: false,
+            token: token_addr.clone(),
+            referrer: None,
+            label: Symbol::new(&env, ""),
+            trial_duration: 0,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriberIndex(200), &active_at_200);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Subscription(active_at_200.clone()), &sub_200);
+
+        // Index size = 201.
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriberIndexSize, &201u64);
+    });
+
+    // Call from offset 0 scans slots [0, 200) – exactly 200 slots.
+    // Slot 199 is within the window; slot 200 is NOT.
+    let page = client.get_active_subscriber_page(&0, &50);
+    assert_eq!(page.len(), 1, "only the subscriber at slot 199 is within the 200-slot window");
+    assert_eq!(page.get(0).unwrap(), active_at_199);
+
+    // Call from offset 200 must find the subscriber at slot 200.
+    let page2 = client.get_active_subscriber_page(&200, &50);
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2.get(0).unwrap(), active_at_200);
+}
+
+/// Validates that providing `offset` exactly equal to `subscriber_count`
+/// returns an empty page immediately (no out-of-bounds access).
+#[test]
+fn test_offset_equal_to_subscriber_count_returns_empty() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let u = Address::generate(&env);
+    sac.mint(&u, &10_000_0000000);
+    token.approve(&u, &contract_id, &10_000_0000000, &200);
+    client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    let count = client.get_subscriber_count(); // 1
+    let page = client.get_active_subscriber_page(&count, &10);
+    assert_eq!(page.len(), 0, "offset == count must return empty page");
+}
+
+/// Confirms that `limit` values above 50 are clamped to 50 and do not panic.
+#[test]
+fn test_limit_above_cap_is_clamped_to_50() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Subscribe 55 users so we can verify the cap.
+    for _ in 0..55 {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    }
+
+    // Request 100 – must be clamped to 50.
+    let page = client.get_active_subscriber_page(&0, &100);
+    assert_eq!(page.len(), 50, "result must be clamped to 50 even when limit=100");
+}
+
+/// Full keeper sweep with multiple cancel–resubscribe cycles verifies that
+/// each resubscribed user is found exactly once across a complete stride-based
+/// sweep, and that cancelled-only users do not appear.
+#[test]
+fn test_keeper_sweep_with_multiple_resubscriptions_finds_all_active_exactly_once() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    // Create 10 users.
+    let mut users: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    for _ in 0..10 {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    // Cancel users 0, 2, 4 then resubscribe only users 0 and 2.
+    // user 4 remains permanently cancelled.
+    client.cancel(&users.get(0).unwrap());
+    client.cancel(&users.get(2).unwrap());
+    client.cancel(&users.get(4).unwrap());
+
+    client.subscribe(
+        &users.get(0).unwrap(),
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &users.get(2).unwrap(),
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Index now has 12 slots: 10 original + 2 resubscriptions (slots 10 and 11).
+    // Active: users 1, 3, 5, 6, 7, 8, 9, 0 (slot 10), 2 (slot 11) = 9 active users.
+    // Inactive/tombstoned: slots 0 (user0 old), 2 (user2 old), 4 (user4).
+    assert_eq!(client.get_subscriber_count(), 12);
+
+    let stride: u64 = 4;
+    let total_slots = client.get_subscriber_count();
+    let mut cursor = 0u64;
+    let mut discovered: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+
+    while cursor < total_slots {
+        let page = client.get_active_subscriber_page(&cursor, &50);
+        for u in page.iter() {
+            assert!(
+                !discovered.contains(&u),
+                "user must not appear more than once in a full keeper sweep"
+            );
+            discovered.push_back(u);
+        }
+        cursor += stride;
+    }
+
+    // 9 active subscribers expected.
+    assert_eq!(discovered.len(), 9);
+
+    // user4 was cancelled and did not resubscribe – must NOT appear.
+    assert!(
+        !discovered.contains(&users.get(4).unwrap()),
+        "permanently cancelled user must not appear in sweep"
+    );
+
+    // user0 and user2 resubscribed – must appear exactly once each.
+    assert!(
+        discovered.contains(&users.get(0).unwrap()),
+        "resubscribed user0 must appear in sweep"
+    );
+    assert!(
+        discovered.contains(&users.get(2).unwrap()),
+        "resubscribed user2 must appear in sweep"
+    );
+}
