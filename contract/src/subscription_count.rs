@@ -85,8 +85,11 @@ pub fn remove_subscriber_index(env: &Env, user: &Address) {
 ///
 /// When a user cancels their subscription, `remove_subscriber_index` writes a
 /// `SubscriberIndexRemoved(index)` tombstone. Functions scanning active subscribers
-/// (`get_active_subscriber_page`) check this flag to skip tombstoned slots efficiently
-/// without performing secondary reads for subscriber account data.
+/// (`get_active_subscriber_page`) check this flag first to fast-skip tombstoned slots
+/// efficiently without performing secondary reads for subscriber account data.
+///
+/// This tombstone design ensures deterministic pagination semantics and gas bounds when
+/// off-chain keepers sequentially sweep the subscriber population.
 pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
     env.storage()
         .persistent()

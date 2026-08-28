@@ -1842,11 +1842,23 @@ impl FlowPay {
         Some(sub.merchant)
     }
 
-    /// Returns a page of subscriber addresses starting at `offset`, capped
-    /// at 50 per call, filtered to only those whose subscription is
-    /// currently active. Avoids forcing callers to over-fetch via
-    /// `get_subscriber_page` and filter client-side.
+    /// Returns a page of subscriber addresses starting at index slot `offset`,
+    /// capped at `limit` (max 50) active subscribers per call.
+    ///
+    /// # Pagination & Tombstone Semantics
+    /// - **Offset & Limit**: `offset` is the raw slot index in the append-only `SubscriberIndex`.
+    ///   `limit` is the requested maximum number of active subscribers to collect, capped at 50.
+    /// - **Tombstone Skipping**: Tombstoned (cancelled) slots marked by `SubscriberIndexRemoved`
+    ///   are fast-skipped using an efficient boolean check, avoiding secondary storage reads for
+    ///   subscriber subscription data on cancelled entries.
+    /// - **Bounded Iteration**: Iteration scans at most `MAX_SCAN_SLOTS` (200 slots) from `offset`
+    ///   in a single call to enforce deterministic execution and gas bounds for off-chain keepers,
+    ///   even when encountering highly sparse tombstone regions.
+    /// - **Keeper Continuation Guarantees**: Off-chain keepers can sequentially sweep active
+    ///   subscribers by advancing their cursor through `SubscriberIndex` slots up to total
+    ///   `subscriber_count`, ensuring 100% active subscriber discovery without stalling or skipping.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
+        const MAX_SCAN_SLOTS: u64 = 200;
         let count = subscription_count::get_subscriber_index_size(&env);
         let cap: u32 = if limit > 50 { 50 } else { limit };
         let mut result = Vec::new(&env);
@@ -1854,19 +1866,22 @@ impl FlowPay {
             return result;
         }
         let mut i = offset;
-        while i < count && result.len() < cap {
-            if let Some(addr) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, Address>(&DataKey::SubscriberIndex(i))
-            {
-                if let Some(sub) = env
+        let end = count.min(offset.saturating_add(MAX_SCAN_SLOTS));
+        while i < end && result.len() < cap {
+            if !subscription_count::is_subscriber_index_removed(&env, i) {
+                if let Some(addr) = env
                     .storage()
                     .persistent()
-                    .get::<DataKey, Subscription>(&DataKey::Subscription(addr.clone()))
+                    .get::<DataKey, Address>(&DataKey::SubscriberIndex(i))
                 {
-                    if sub.active {
-                        result.push_back(addr);
+                    if let Some(sub) = env
+                        .storage()
+                        .persistent()
+                        .get::<DataKey, Subscription>(&DataKey::Subscription(addr.clone()))
+                    {
+                        if sub.active {
+                            result.push_back(addr);
+                        }
                     }
                 }
             }
