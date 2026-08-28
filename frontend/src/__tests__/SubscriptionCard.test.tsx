@@ -30,6 +30,15 @@ vi.mock("../components/IncreaseAllowanceModal", () => ({
   ),
 }));
 
+// Mock TransferSubscriptionModal so we can assert it opens, in isolation from its own logic
+vi.mock("../components/TransferSubscriptionModal", () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="transfer-subscription-modal">
+      <button onClick={onClose}>Close Modal</button>
+    </div>
+  ),
+}));
+
 // Mock the stellar module — getAllowance and getTrialEnd are used by SubscriptionCard
 const mockGetAllowance = vi.fn();
 const mockGetTrialEnd = vi.fn();
@@ -801,6 +810,59 @@ describe("SubscriptionCard", () => {
         />
       );
       expect(screen.queryAllByRole("button", { name: /cancel subscription/i })).toHaveLength(0);
+    });
+  });
+
+  describe("Transfer subscription", () => {
+    it("renders the transfer trigger button for an active subscription", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.getByTestId("transfer-subscription-button")).toBeInTheDocument();
+    });
+
+    it("renders the transfer trigger button when the subscription is paused", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.getByTestId("transfer-subscription-button")).toBeInTheDocument();
+    });
+
+    it("does not render the transfer trigger button when subscription is inactive", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.queryByTestId("transfer-subscription-button")).not.toBeInTheDocument();
+    });
+
+    it("opens TransferSubscriptionModal when the transfer button is clicked", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      expect(screen.queryByTestId("transfer-subscription-modal")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByTestId("transfer-subscription-button"));
+      expect(screen.getByTestId("transfer-subscription-modal")).toBeInTheDocument();
     });
   });
 });

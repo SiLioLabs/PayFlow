@@ -11,6 +11,7 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [Subscription](#subscription)
   - [ChargeResult](#chargeresult)
   - [ChargeSimResult](#chargesimresult)
+  - [PayPerUseSimResult](#payperusesimresult)
   - [ProtocolStats](#protocolstats)
   - [HealthReport](#healthreport)
   - [DataKey](#datakey)
@@ -21,6 +22,7 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [subscribe\_with\_metadata](#subscribe_with_metadata)
   - [charge](#charge)
   - [simulate\_charge](#simulate_charge)
+  - [simulate\_pay\_per\_use](#simulate_pay_per_use)
   - [extend\_subscription\_ttl](#extend_subscription_ttl)
   - [pay\_per\_use](#pay_per_use)
   - [cancel](#cancel)
@@ -210,6 +212,40 @@ pub enum ChargeSimResult {
 | `SubscriptionPaused` | User pause, including unexpired `pause_until` |
 
 `simulate_charge` never panics with a `ContractError` for these outcomes; they are return values.
+
+### `PayPerUseSimResult`
+
+Returned only by `simulate_pay_per_use` / `simulate_pay_per_use_to`. Defined in `contract/src/charge_exec.rs`.
+
+```rust
+pub enum PayPerUseSimResult {
+  WouldSucceed,
+  Inactive,
+  InsufficientAllowance,
+  ContractPaused,
+  SubscriptionPaused,
+  AmountMustBePositive,
+  AmountExceedsMaximum,
+  DailyLimitExceeded,
+  InvalidRecipient,
+  MerchantNotWhitelisted,
+}
+```
+
+| Variant | Meaning |
+| --- | --- |
+| `WouldSucceed` | Eligible: active, unpaused, within daily limit, allowance sufficient |
+| `Inactive` | Missing subscription **or** inactive (no separate `NoSubscription`) |
+| `InsufficientAllowance` | `allowance(user, contract) < amount` |
+| `ContractPaused` | Protocol paused (`storage::is_contract_paused`) |
+| `SubscriptionPaused` | Subscription is paused |
+| `AmountMustBePositive` | `amount <= 0` |
+| `AmountExceedsMaximum` | `amount > MAX_AMOUNT` (per-call cap) |
+| `DailyLimitExceeded` | `daily_spent + amount > daily_limit` |
+| `InvalidRecipient` | `pay_per_use_to` recipient is the contract's own address |
+| `MerchantNotWhitelisted` | Whitelist enabled and `pay_per_use_to` recipient not whitelisted |
+
+`simulate_pay_per_use` never panics with a `ContractError` for these outcomes; they are return values.
 
 ### `ProtocolStats`
 
@@ -436,6 +472,49 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- simulate_charge --user <USER_ADDRESS>
+```
+
+### `simulate_pay_per_use`
+
+Dry-run of a single `pay_per_use()` for `user` and `amount`. **No storage writes** and **no token transfer**. Outcomes are [`PayPerUseSimResult`](#payperusesimresult) variants, not panics.
+
+```
+simulate_pay_per_use(env: Env, user: Address, amount: i128) -> PayPerUseSimResult
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | Subscriber to simulate. |
+| `amount` | `i128` | One-time amount to simulate. |
+
+**Auth:** none.
+
+**Returns:** `PayPerUseSimResult`.
+
+**Success behavior:** evaluates contract pause, `amount` bounds, subscription presence, paused/inactive state, the daily spending limit (`get_daily_limit` / `get_daily_spent`), then SAC `allowance(user, contract)` vs `amount`. Returns `WouldSucceed` if all pass. Never writes spend tracking or other storage.
+
+### `simulate_pay_per_use_to`
+
+Dry-run of a single `pay_per_use_to()` for `user`, `amount`, and an explicit `recipient`. Same checks as `simulate_pay_per_use`, plus recipient validation (`InvalidRecipient` if `recipient` is the contract's own address; `MerchantNotWhitelisted` if the whitelist is enabled and `recipient` is not whitelisted). **No storage writes.**
+
+```
+simulate_pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) -> PayPerUseSimResult
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | Subscriber to simulate. |
+| `amount` | `i128` | One-time amount to simulate. |
+| `recipient` | `Address` | Recipient that would receive the net payment. |
+
+**Auth:** none.
+
+**Returns:** `PayPerUseSimResult`.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- simulate_pay_per_use --user <USER_ADDRESS> --amount 1000000
 ```
 
 ### `extend_subscription_ttl`

@@ -5,9 +5,17 @@ interface Props {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmTestId?: string;
+  cancelTestId?: string;
 }
 
-export default function ConfirmModal({ message, onConfirm, onCancel }: Props) {
+export default function ConfirmModal({
+  message,
+  onConfirm,
+  onCancel,
+  confirmTestId,
+  cancelTestId,
+}: Props) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(modalRef, true, onCancel);
@@ -24,10 +32,10 @@ export default function ConfirmModal({ message, onConfirm, onCancel }: Props) {
       >
         <p id="confirm-modal-message">{message}</p>
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel}>
+          <button className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
             Cancel
           </button>
-          <button className="btn-danger" onClick={onConfirm}>
+          <button className="btn-danger" onClick={onConfirm} data-testid={confirmTestId}>
             Confirm
           </button>
         </div>

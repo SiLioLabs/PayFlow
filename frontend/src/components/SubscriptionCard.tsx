@@ -19,6 +19,7 @@ import React, { useEffect, useState } from "react";
 import CopyButton from "./CopyButton";
 import NextChargeCountdown from "./NextChargeCountdown";
 import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
+import TransferSubscriptionModal from "./TransferSubscriptionModal";
 import ErrorRecovery from "./ErrorRecovery";
 import SubscriptionHealthWidget from "./SubscriptionHealthWidget";
 import { Subscription } from "../types";
@@ -231,6 +232,9 @@ export default function SubscriptionCard({
   const [allowanceLoading, setAllowanceLoading] = useState(true);
   const [showAllowanceModal, setShowAllowanceModal] = useState(false);
 
+  // ── Transfer subscription state ────────────────────────────────────────────
+  const [showTransferModal, setShowTransferModal] = useState(false);
+
   const amountBigInt = BigInt(amount);
   const health = computeAllowanceHealth(allowance, amountBigInt);
 
@@ -433,6 +437,14 @@ export default function SubscriptionCard({
             >
               Cancel
             </button>
+            <button
+              onClick={() => setShowTransferModal(true)}
+              className="btn-secondary transfer-btn"
+              aria-label="Transfer subscription ownership"
+              data-testid="transfer-subscription-button"
+            >
+              Transfer
+            </button>
           </>
         )}
         {active && paused && (
@@ -450,6 +462,14 @@ export default function SubscriptionCard({
               aria-label="Cancel subscription"
             >
               Cancel
+            </button>
+            <button
+              onClick={() => setShowTransferModal(true)}
+              className="btn-secondary transfer-btn"
+              aria-label="Transfer subscription ownership"
+              data-testid="transfer-subscription-button"
+            >
+              Transfer
             </button>
           </>
         )}
@@ -512,6 +532,20 @@ export default function SubscriptionCard({
               .finally(() => setAllowanceLoading(false));
           }}
           announce={() => {}}
+        />
+      )}
+
+      {/* Transfer subscription modal — guided ownership transfer */}
+      {showTransferModal && (
+        <TransferSubscriptionModal
+          userKey={userKey}
+          onSign={onSign}
+          onClose={() => setShowTransferModal(false)}
+          onSuccess={() => {
+            setShowTransferModal(false);
+            addToast("Subscription transferred successfully.", "success");
+            onRefresh();
+          }}
         />
       )}
 

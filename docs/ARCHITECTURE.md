@@ -247,3 +247,30 @@ cargo test bench --features bench -- --nocapture
 ```
 
 The benchmark file prints CPU and memory costs at runtime and compares them against budget thresholds. If a change increases cost intentionally, update both the printed baseline comment and the threshold constant together.
+
+
+#### `batch_charge` failure semantics
+
+`batch_charge(users)` processes each address independently and returns a `Vec<ChargeResult>`.  
+**However**, if the underlying token transfer (`transfer_from`) fails due to an **insufficient allowance** or **insufficient balance**, or if the **token address is invalid**, the contract **panics and aborts the entire batch** – **no** `ChargeResult` is produced for any user.
+
+This means the contract **does not** currently tolerate per‑user allowance failures (see issue #XXX). The only safe way to avoid a batch‑wide panic is to **pre‑check** each user’s allowance and balance before submitting the batch.
+
+| Scenario | Behaviour | Outcome |
+|----------|-----------|---------|
+| User not due (`interval` not elapsed) | Returns | `ChargeResult::Skipped` |
+| Subscription paused | Returns | `ChargeResult::Paused` |
+| Grace period elapsed | Returns | `ChargeResult::GracePeriodElapsed` |
+| No subscription | Returns | `ChargeResult::NoSubscription` |
+| Inactive subscription | Returns | `ChargeResult::Inactive` |
+| Insufficient allowance (gross amount) | **Panics** | Whole batch aborts |
+| Insufficient balance | **Panics** | Whole batch aborts |
+| Token address is not a valid SAC contract | **Panics** | Whole batch aborts |
+
+> ** Important**  
+> Until the allowance‑tolerance issue is fixed (see #001), integrators **must** run `simulate_charge` or `get_batch_charge_estimate` on each candidate user and verify allowance/balance before calling `batch_charge`. The keeper script uses `check-allowances.ts` and `simulate` to guard against these panics.
+
+See [`docs/KEEPER.md`](./KEEPER.md) for operational precheck steps.
+
+
+For a complete breakdown of every `DataKey` variant, storage tier, TTL policy, and which functions read/write each key, see [Storage and TTL Management](architecture/storage_and_ttl.md).
