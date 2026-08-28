@@ -11,12 +11,11 @@
     "query-events": "tsx query-events.ts",
     "keeper": "tsx keeper.ts",
     "build": "tsc -p tsconfig.build.json",
-    "query-events": "tsx query-events.ts",
     "batch-optimizer": "tsx batch-optimizer.ts",
-    "keeper": "tsx keeper.ts",
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

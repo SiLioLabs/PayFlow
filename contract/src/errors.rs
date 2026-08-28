@@ -87,4 +87,9 @@ pub enum ContractError {
     /// Returned when admin repair would tombstone an index slot whose
     /// subscriber still has an active subscription
     CannotClearActiveSubscriber = 41,
+    /// Returned when `set_initial_admin` is called after an admin has already
+    /// been stored. Distinct from `AlreadyInitialized` (code 1), which guards
+    /// `initialize` (token + admin together); this variant covers the narrow
+    /// bootstrap path where only the admin slot is being set.
+    AdminAlreadySet = 42,
 }

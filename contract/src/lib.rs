@@ -1914,10 +1914,26 @@ impl FlowPay {
     // Admin setup
     // ─────────────────────────────────────────────────────────────
 
-    /// Sets the contract admin. Can only be called once; subsequent calls panic.
+    /// Bootstrap-only entrypoint that writes the contract admin when no admin
+    /// is configured. This is a narrower alternative to [`Self::initialize`]:
+    ///
+    /// - **`initialize(token, admin)`** atomically sets the default token *and*
+    ///   the admin together. Use this for standard deployments via
+    ///   `scripts/deploy-pipeline.ts` — it is the canonical full-init path.
+    /// - **`set_initial_admin(admin)`** sets only the admin slot. It is
+    ///   intended for partial-recovery or segmented-deploy scenarios where the
+    ///   token is written separately (or not at all), and admin-only governance
+    ///   is needed before full initialization.
+    ///
+    /// In both cases the proposed admin must sign the call via
+    /// `require_auth()`, and a second call on an already-configured contract
+    /// fails with a typed `ContractError::AdminAlreadySet` (code 42) so
+    /// deploy scripts can detect the condition without string-parsing panics.
     pub fn set_initial_admin(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             env.panic_with_error(ContractError::AlreadyInitialized);
+            env.panic_with_error(ContractError::AdminAlreadySet);
         }
         storage::set_admin(&env, &admin);
     }
