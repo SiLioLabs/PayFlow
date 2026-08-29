@@ -13,7 +13,6 @@ describe("NextChargeCountdown", () => {
   });
 
   it("shows days/hours/minutes until next charge", () => {
-
     const base = new Date(Date.UTC(2026, 4, 29, 0, 0, 0));
     vi.setSystemTime(base);
 
@@ -26,7 +25,6 @@ describe("NextChargeCountdown", () => {
   });
 
   it("shows overdue when timestamp is in the past and updates on interval", () => {
-
     const base = new Date(Date.UTC(2026, 4, 29, 0, 0, 0));
     vi.setSystemTime(base);
 

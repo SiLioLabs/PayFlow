@@ -20,5 +20,31 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "watch-events": "tsx watch-events.ts",
+    "check-allowances": "tsx check-allowances.ts",
+    "alert-expiring-allowances": "tsx alert-expiring-allowances.ts",
+    "indexer": "tsx indexer.ts",
+    "query-events": "tsx query-events.ts",
+    "keeper": "tsx keeper.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "batch-optimizer": "tsx batch-optimizer.ts",
+    "pre-upgrade-check": "tsx pre-upgrade-check.ts",
+    "subscriber-health": "tsx subscriber-health-dashboard.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0",
+    "zod": "3.23.8",
+    "prom-client": "^15.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.0.0"
   }
 }

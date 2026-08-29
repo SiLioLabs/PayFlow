@@ -1,0 +1,49 @@
+services:
+  keeper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: payflow-keeper:latest
+    container_name: payflow-keeper
+
+    # Load all keeper configuration from a local .env file.
+    # Copy scripts/.env.example to scripts/.env and fill in the values.
+    # The .env file is never baked into the image.
+    env_file:
+      - .env
+
+    # Restart the container automatically unless it was explicitly stopped.
+    restart: unless-stopped
+
+    # Resource limits — keeper is lightweight; cap to avoid runaway memory on
+    # unexpected SDK bugs.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+    # Write structured JSON logs to a rotating file alongside stdout so they
+    # survive container restarts without a dedicated log shipper.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # Named volume for the SQLite event DB written by indexer.ts (optional).
+    # Remove this section if you are not running the indexer in the same stack.
+    volumes:
+      - keeper-data:/app/data
+
+    # Graceful shutdown: give the keeper up to 60 s to finish its current
+    # charge page before Docker sends SIGKILL.
+    stop_grace_period: 60s
+
+volumes:
+  keeper-data:
+    driver: local

@@ -42,3 +42,51 @@ export default function SubscriptionCardSkeleton() {
     </div>
   );
 }
+
+export function MerchantSubscriberSkeleton() {
+  return (
+    <div
+      className="subscription-row merchant-subscriber-row"
+      aria-busy="true"
+      aria-label="Loading subscriber"
+    >
+      <div className="merchant-row" style={{ width: "40%" }}>
+        <SkeletonBlock width="100%" height="var(--space-4)" />
+      </div>
+      <div className="merchant-subscriber-value" style={{ width: "30%" }}>
+        <SkeletonBlock width="80%" height="var(--space-5)" style={{ marginLeft: "auto" }} />
+        <SkeletonBlock
+          width="60%"
+          height="var(--space-4)"
+          style={{ marginLeft: "auto", marginTop: "var(--space-1)" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function ChargeHistorySkeleton() {
+  return (
+    <div
+      className="charge-history-item"
+      role="listitem"
+      aria-busy="true"
+      aria-label="Loading item"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+        padding: "var(--space-3) 0",
+        borderBottom: "1px solid var(--color-border)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <SkeletonBlock width="25%" height="var(--space-4)" />
+        <SkeletonBlock width="20%" height="var(--space-5)" />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <SkeletonBlock width="35%" height="var(--space-4)" />
+      </div>
+    </div>
+  );
+}

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { buildSetDailyLimitTx, getDailyLimit } from "../stellar";
 import { formatXlm } from "../utils/format";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   userKey: string;
@@ -12,18 +13,15 @@ interface Props {
   announce: (message: string) => void;
 }
 
-export default function DailyLimitModal({
-  userKey,
-  onSign,
-  onClose,
-  onSuccess,
-  announce,
-}: Props) {
+export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, announce }: Props) {
   const [currentLimit, setCurrentLimit] = useState<bigint | null>(null);
   const [amount, setAmount] = useState("0.0000000");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, true, onClose);
 
   useEffect(() => {
     async function loadLimit() {
@@ -76,11 +74,18 @@ export default function DailyLimitModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-        <h3>Daily Spending Limit</h3>
+      <div
+        ref={modalRef}
+        className="modal-card card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="daily-limit-title"
+      >
+        <h3 id="daily-limit-title">Daily Spending Limit</h3>
         <p>
-          Set a daily cap for pay-per-use charges. This limit helps you control
-          how much you can spend in a single day.
+          Set a daily cap for pay-per-use charges. This limit helps you control how much you can
+          spend in a single day.
         </p>
         {currentLimit !== null && (
           <p>

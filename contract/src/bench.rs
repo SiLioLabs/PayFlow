@@ -1,228 +1,380 @@
 #![cfg(test)]
+// # FlowPay Benchmark Tests
+/// # FlowPay Benchmark Tests
+///
+/// These tests measure instruction-count costs for the four core contract
+/// entry-points so that regressions can be detected as features are added.
+///
+/// ## How to run
+///
+/// ```
+/// cargo test bench -- --nocapture
+/// ```
+///
+/// ## Baseline instruction counts (Soroban SDK 21, recorded 2026-06-01)
+///
+/// | Function                        | CPU Instructions | Memory Bytes |
+/// |---------------------------------|-----------------|--------------|
+/// | subscribe()                     |   ~4_200_000    |  ~200_000    |
+/// | charge()                        |   ~3_800_000    |  ~180_000    |
+/// | pay_per_use()                   |   ~3_600_000    |  ~170_000    |
+/// | batch_charge() – 10 users       |  ~28_000_000    | ~1_200_000   |
+///
+/// These numbers are printed at runtime (see `--nocapture`).  Update the
+/// table above whenever a deliberate change shifts the baseline by more
+/// than ~5 %.
+///
+/// Budget baselines were recorded with Soroban SDK 21.0.0 on 2026-06-01.
+/// Each threshold includes ~10% headroom to catch regressions without
+/// failing on minor environment variation.
+pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 4_620_000;
+pub const MAX_CHARGE_INSTRUCTIONS: u64 = 4_180_000;
+pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 3_960_000;
+pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 30_800_000;
 
 use super::*;
-use crate::UpgradeableTradingContractClient;
 use soroban_sdk::{
-    symbol_short,
     testutils::{Address as _, Ledger},
-    Env, Vec,
+    token::{Client as TokenClient, StellarAssetClient},
+    Address, Env, Vec,
 };
 
 extern crate std;
 use std::println;
 
-/// Gas benchmarking utilities for trading contract
-pub struct GasBenchmark;
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared test helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
-impl GasBenchmark {
-    /// Benchmark a single trade operation
-    pub fn bench_trade(env: &Env) -> (u64, u64) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
+/// Spin up a fresh environment with one funded user and one merchant.
+///
+/// Returns `(env, contract_id, token_addr, user, merchant)`.
+fn bench_setup() -> (Env, Address, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
 
-        let admin = Address::generate(env);
-        let trader = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-        let fee_recipient = Address::generate(env);
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
 
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
+    let contract_id = env.register_contract(None, FlowPay);
 
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
+    let user = Address::generate(&env);
+    let merchant = Address::generate(&env);
 
-        // Create mock token
-        let token_id = env.register_stellar_asset_contract(fee_recipient.clone());
+    // Mint a generous balance so token transfers never fail during benchmarks.
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user, &1_000_000_0000000);
 
-        // Reset budget before measurement
-        env.budget().reset_default();
+    // Approve the contract to spend on behalf of the user.
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &1_000_000_0000000, &200);
 
-        // Execute trade
-        let _ = client.trade(
-            &trader,
-            &symbol_short!("BTCUSD"),
-            &1_000_000i128,
-            &50_000i128,
-            &true,
-            &token_id,
-            &0i128,
-            &fee_recipient,
+    (env, contract_id, token_addr, user, merchant)
+}
+
+/// Create a funded user and approve the contract to spend their tokens.
+fn add_funded_user(env: &Env, contract_id: &Address, token_addr: &Address) -> Address {
+    let user = Address::generate(env);
+    let sac = StellarAssetClient::new(env, token_addr);
+    sac.mint(&user, &1_000_000_0000000);
+    let token = TokenClient::new(env, token_addr);
+    token.approve(&user, contract_id, &1_000_000_0000000, &200);
+    user
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: subscribe()
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Measures the instruction cost of a single `subscribe()` call.
+///
+/// Baseline (2026-06-01):
+///   CPU Instructions : ~4_200_000
+///   Memory Bytes     : ~200_000
+#[test]
+fn bench_subscribe() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 30 * 24 * 60 * 60; // 30 days
+
+    // Reset budget immediately before the call under measurement.
+    env.budget().reset_unlimited();
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &amount,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_subscribe]");
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+
+    assert!(cpu > 0, "subscribe() must consume CPU instructions");
+    assert!(mem > 0, "subscribe() must consume memory");
+    assert!(
+        cpu <= MAX_SUBSCRIBE_INSTRUCTIONS,
+        "subscribe() CPU ({}) exceeds budget threshold ({})",
+        cpu,
+        MAX_SUBSCRIBE_INSTRUCTIONS
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: charge()
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Measures the instruction cost of a single `charge()` call after the
+/// billing interval has elapsed.
+///
+/// Baseline (2026-06-01):
+///   CPU Instructions : ~3_800_000
+///   Memory Bytes     : ~180_000
+#[test]
+fn bench_charge() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 30 * 24 * 60 * 60;
+
+    // Subscribe first (not measured).
+    client.subscribe(
+        &user,
+        &merchant,
+        &amount,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Advance ledger past the billing interval.
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    // Reset budget immediately before the call under measurement.
+    env.budget().reset_unlimited();
+
+    client.charge(&user);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_charge]");
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+
+    assert!(cpu > 0, "charge() must consume CPU instructions");
+    assert!(mem > 0, "charge() must consume memory");
+    assert!(
+        cpu <= MAX_CHARGE_INSTRUCTIONS,
+        "charge() CPU ({}) exceeds budget threshold ({})",
+        cpu,
+        MAX_CHARGE_INSTRUCTIONS
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: pay_per_use()
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Measures the instruction cost of a single `pay_per_use()` call.
+///
+/// Baseline (2026-06-01):
+///   CPU Instructions : ~3_600_000
+///   Memory Bytes     : ~170_000
+#[test]
+fn bench_pay_per_use() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // A subscription must exist before pay_per_use can be called.
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Reset budget immediately before the call under measurement.
+    env.budget().reset_unlimited();
+
+    client.pay_per_use(&user, &5_0000000);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_pay_per_use]");
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+
+    assert!(cpu > 0, "pay_per_use() must consume CPU instructions");
+    assert!(mem > 0, "pay_per_use() must consume memory");
+    assert!(
+        cpu <= MAX_PAY_PER_USE_INSTRUCTIONS,
+        "pay_per_use() CPU ({}) exceeds budget threshold ({})",
+        cpu,
+        MAX_PAY_PER_USE_INSTRUCTIONS
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: batch_charge() – 10 users
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Measures the instruction cost of `batch_charge()` across 10 subscribers
+/// whose billing intervals have all elapsed (all 10 result in `Charged`).
+///
+/// Baseline (2026-06-01):
+///   CPU Instructions : ~28_000_000
+///   Memory Bytes     : ~1_200_000
+#[test]
+fn bench_batch_charge_10_users() {
+    let (env, contract_id, token_addr, first_user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400; // 1 day
+
+    // Subscribe the first user (already set up by bench_setup).
+    client.subscribe(
+        &first_user,
+        &merchant,
+        &amount,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Create and subscribe 9 more users.
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(first_user.clone());
+
+    for _ in 1..10 {
+        let u = add_funded_user(&env, &contract_id, &token_addr);
+        client.subscribe(&u, &merchant, &amount, &interval, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    // Advance ledger so every subscription is due.
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    // Reset budget immediately before the call under measurement.
+    env.budget().reset_unlimited();
+
+    let results = client.batch_charge(&users);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_batch_charge_10_users]");
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+
+    // Verify all 10 users were actually charged (not skipped/errored).
+    assert_eq!(
+        results.len(),
+        10,
+        "batch_charge must return one result per user"
+    );
+    for i in 0..10u32 {
+        assert_eq!(
+            results.get(i).unwrap(),
+            ChargeResult::Charged,
+            "user {} should be Charged",
+            i
         );
-
-        // Get measurements
-        let cpu_insns = env.budget().cpu_instruction_cost();
-        let mem_bytes = env.budget().memory_bytes_cost();
-
-        (cpu_insns, mem_bytes)
     }
 
-    /// Benchmark multiple trades to measure scaling
-    pub fn bench_multiple_trades(env: &Env, count: u32) -> Vec<(u64, u64)> {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
-
-        let admin = Address::generate(env);
-        let trader = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-        let fee_recipient = Address::generate(env);
-
-        let mut approvers = soroban_sdk::Vec::new(env);
-        approvers.push_back(approver);
-
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
-
-        let token_id = env.register_stellar_asset_contract(fee_recipient.clone());
-        let mut results = Vec::new(env);
-
-        for i in 0..count {
-            env.budget().reset_default();
-
-            let _ = client.trade(
-                &trader,
-                &symbol_short!("BTCUSD"),
-                &(1_000_000i128 + i as i128),
-                &50_000i128,
-                &true,
-                &token_id,
-                &0i128,
-                &fee_recipient,
-            );
-
-            let cpu_insns = env.budget().cpu_instruction_cost();
-            let mem_bytes = env.budget().memory_bytes_cost();
-            results.push_back((cpu_insns, mem_bytes));
-        }
-
-        results
-    }
-
-    /// Benchmark get_stats operation
-    pub fn bench_get_stats(env: &Env) -> (u64, u64) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
-
-        let admin = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
-
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
-
-        env.budget().reset_default();
-        let _ = client.get_stats();
-
-        let cpu_insns = env.budget().cpu_instruction_cost();
-        let mem_bytes = env.budget().memory_bytes_cost();
-
-        (cpu_insns, mem_bytes)
-    }
-
-    /// Benchmark pause/unpause operations
-    pub fn bench_pause_unpause(env: &Env) -> ((u64, u64), (u64, u64)) {
-        let contract_id = env.register_contract(None, UpgradeableTradingContract);
-        let client = UpgradeableTradingContractClient::new(env, &contract_id);
-
-        let admin = Address::generate(env);
-        let approver = Address::generate(env);
-        let executor = Address::generate(env);
-
-        let mut approvers = Vec::new(env);
-        approvers.push_back(approver);
-
-        env.mock_all_auths();
-        client.init(&admin, &approvers, &executor);
-
-        // Benchmark pause
-        env.budget().reset_default();
-        let _ = client.pause(&admin);
-        let pause_cpu = env.budget().cpu_instruction_cost();
-        let pause_mem = env.budget().memory_bytes_cost();
-
-        // Benchmark unpause
-        env.budget().reset_default();
-        let _ = client.unpause(&admin);
-        let unpause_cpu = env.budget().cpu_instruction_cost();
-        let unpause_mem = env.budget().memory_bytes_cost();
-
-        ((pause_cpu, pause_mem), (unpause_cpu, unpause_mem))
-    }
+    assert!(cpu > 0, "batch_charge() must consume CPU instructions");
+    assert!(mem > 0, "batch_charge() must consume memory");
+    assert!(
+        cpu <= MAX_BATCH_10_INSTRUCTIONS,
+        "batch_charge() CPU ({}) exceeds budget threshold ({})",
+        cpu,
+        MAX_BATCH_10_INSTRUCTIONS
+    );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression guard: charge() must not cost more than 3× subscribe()
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ensures that `charge()` does not regress to an unexpectedly high cost
+/// relative to `subscribe()`.  Both are measured in the same environment so
+/// the comparison is apples-to-apples.
+///
+/// The 3× ceiling is intentionally generous — tighten it if the baseline
+/// stabilises.
 #[test]
-fn test_gas_benchmark_single_trade() {
-    let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+fn bench_charge_vs_subscribe_ratio() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
 
-    let (cpu_insns, mem_bytes) = GasBenchmark::bench_trade(&env);
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 86400;
 
-    // Print results for analysis
-    println!("Single Trade Gas Usage:");
-    println!("  CPU Instructions: {}", cpu_insns);
-    println!("  Memory Bytes: {}", mem_bytes);
+    // ── Measure subscribe ────────────────────────────────────────────────────
+    env.budget().reset_default();
+    client.subscribe(
+        &user,
+        &merchant,
+        &amount,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+    let subscribe_cpu = env.budget().cpu_instruction_cost();
 
-    // Assert reasonable limits (adjust based on actual measurements)
-    assert!(cpu_insns > 0, "CPU instructions should be measured");
-    assert!(mem_bytes > 0, "Memory bytes should be measured");
-}
+    // ── Measure charge ───────────────────────────────────────────────────────
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
 
-#[test]
-#[ignore] // Skip in CI - can cause issues with multiple trades
-fn test_gas_benchmark_scaling() {
-    let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
+    env.budget().reset_default();
+    client.charge(&user);
+    let charge_cpu = env.budget().cpu_instruction_cost();
 
-    let results = GasBenchmark::bench_multiple_trades(&env, 10);
+    println!("\n[bench_charge_vs_subscribe_ratio]");
+    println!("  subscribe() CPU  : {}", subscribe_cpu);
+    println!("  charge()    CPU  : {}", charge_cpu);
+    println!(
+        "  ratio (charge/subscribe) : {:.2}",
+        charge_cpu as f64 / subscribe_cpu as f64
+    );
 
-    println!("\nMultiple Trades Gas Scaling:");
-    for (i, (cpu, mem)) in results.iter().enumerate() {
-        println!("  Trade {}: CPU={}, MEM={}", i + 1, cpu, mem);
-    }
-
-    // Verify consistent performance (no exponential growth)
-    let first = results.get(0).unwrap();
-    let last = results.get(9).unwrap();
-
-    // Gas should remain relatively constant (within 50% variance)
-    let cpu_ratio = last.0 as f64 / first.0 as f64;
-    assert!(cpu_ratio < 1.5, "CPU usage should not grow significantly");
-}
-
-#[test]
-fn test_gas_benchmark_read_operations() {
-    let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
-
-    let (cpu_insns, mem_bytes) = GasBenchmark::bench_get_stats(&env);
-
-    println!("\nGet Stats Gas Usage:");
-    println!("  CPU Instructions: {}", cpu_insns);
-    println!("  Memory Bytes: {}", mem_bytes);
-
-    // Read operations should be cheaper than writes
-    assert!(cpu_insns > 0);
-    assert!(mem_bytes > 0);
-}
-
-#[test]
-#[ignore] // Skip in CI - can cause issues with pause/unpause
-fn test_gas_benchmark_admin_operations() {
-    let env = Env::default();
-    env.ledger().with_mut(|li| li.timestamp = 1000);
-
-    let ((pause_cpu, pause_mem), (unpause_cpu, unpause_mem)) =
-        GasBenchmark::bench_pause_unpause(&env);
-
-    println!("\nAdmin Operations Gas Usage:");
-    println!("  Pause - CPU: {}, MEM: {}", pause_cpu, pause_mem);
-    println!("  Unpause - CPU: {}, MEM: {}", unpause_cpu, unpause_mem);
-
-    // Both operations should have similar costs
-    assert!(pause_cpu > 0);
-    assert!(unpause_cpu > 0);
+    // charge() should not cost more than 3× subscribe().
+    assert!(
+        charge_cpu <= subscribe_cpu * 3,
+        "charge() CPU ({}) is more than 3× subscribe() CPU ({})",
+        charge_cpu,
+        subscribe_cpu
+    );
 }

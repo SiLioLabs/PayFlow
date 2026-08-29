@@ -1,12 +1,36 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getMerchantSubscribers, type MerchantSubscriber } from "../stellar";
-import { formatAddress, formatXlm } from "../utils/format";
+import {
+  getMerchantSubscribers,
+  type MerchantSubscriber,
+  buildBatchChargeTx,
+  buildWithdrawMerchantRevenueTx,
+  simulateBatchCharge,
+  type BatchChargeOutcome,
+  getMerchantRevenue,
+  getMerchantRevenueHistory,
+} from "../stellar";
+import { formatAddress } from "../utils/format";
+import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { usePolling } from "../hooks/usePolling";
+import { useTransaction } from "../hooks/useTransaction";
+import { useVirtualList } from "../hooks/useVirtualList";
+import { useResponsive } from "../hooks/useResponsive";
 import CopyButton from "./CopyButton";
+import RevenueSparkline from "./RevenueSparkline";
+import EventFeed from "./EventFeed";
+import SubscriptionExport from "./SubscriptionExport";
+import { MerchantSubscriberSkeleton } from "./Skeleton";
+import ErrorRecovery from "./ErrorRecovery";
+import ConfirmModal from "./ConfirmModal";
+
+const SUBSCRIBER_ROW_HEIGHT = 72;
+const SUBSCRIBER_LIST_HEIGHT = 400;
 
 interface Props {
   merchantKey: string;
+  onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
+  isPaused?: boolean;
 }
 
 function formatNextCharge(nextChargeAt: number): string {
@@ -16,23 +40,46 @@ function formatNextCharge(nextChargeAt: number): string {
 
 export default function MerchantDashboard({
   merchantKey,
+  onSign,
   refreshTrigger,
+  isPaused = false,
 }: Props) {
   const [subscribers, setSubscribers] = useState<MerchantSubscriber[]>([]);
+  const [revenue, setRevenue] = useState<bigint>(0n);
+  const [revenueHistory, setRevenueHistory] = useState<bigint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const tx = useTransaction();
+  const withdrawTx = useTransaction();
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const { isMobile } = useResponsive();
+  const { displayCurrentAmount } = useAmountDisplay();
+  const [outcomes, setOutcomes] = useState<Record<string, BatchChargeOutcome>>({});
+
+  const dueSubscribers = subscribers.filter((s) => s.nextChargeAt <= Math.floor(Date.now() / 1000));
+  const virtualSubscribers = useVirtualList(
+    subscribers,
+    SUBSCRIBER_ROW_HEIGHT,
+    SUBSCRIBER_LIST_HEIGHT
+  );
 
   const refresh = useCallback(async () => {
     setSubscribers((prev) => {
       if (prev.length === 0) setLoading(true);
       return prev;
     });
-    setSubscribers((prev) => { if (prev.length === 0) setLoading(true); return prev; });
     setError(null);
 
     try {
-      const data = await getMerchantSubscribers(merchantKey);
-      setSubscribers(data);
+      const [subData, revData, histData] = await Promise.all([
+        getMerchantSubscribers(merchantKey),
+        getMerchantRevenue(merchantKey),
+        getMerchantRevenueHistory(merchantKey),
+      ]);
+      setSubscribers(subData);
+      setRevenue(revData);
+      setRevenueHistory(histData);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -46,32 +93,122 @@ export default function MerchantDashboard({
 
   usePolling({ callback: refresh, interval: 30000, enabled: true });
 
+  const handleBatchCharge = async () => {
+    if (dueSubscribers.length === 0) return;
+
+    const users = dueSubscribers.map((s) => s.subscriber);
+    setOutcomes({});
+
+    try {
+      // 1. Pre-flight simulation to predict outcomes
+      const simulationOutcomes = await simulateBatchCharge(merchantKey, users);
+      const outcomeMap: Record<string, BatchChargeOutcome> = {};
+      users.forEach((u, i) => {
+        outcomeMap[u] = simulationOutcomes[i] || "Failed";
+      });
+      setOutcomes(outcomeMap);
+
+      // 2. Submit transaction
+      await tx.submit(async () => {
+        return await onSign(await buildBatchChargeTx(merchantKey, users));
+      });
+
+      // 3. Success — refresh list to show updated next charge times
+      window.setTimeout(refresh, 2000);
+    } catch (e) {
+      console.error("Batch charge failed:", e);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    setShowWithdrawConfirm(false);
+
+    try {
+      await withdrawTx.submit(async () => {
+        return await onSign(await buildWithdrawMerchantRevenueTx(merchantKey));
+      });
+
+      // Success — refresh so revenue reflects the new (zero) balance
+      await refresh();
+    } catch (e) {
+      console.error("Withdraw failed:", e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="dashboard">
-        <p className="text-muted">Loading merchant subscribers…</p>
+        <div className="flex-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold">Merchant Dashboard</h2>
+            <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
+          </div>
+        </div>
+        <div className="card merchant-subscriber-card">
+          <div className="subscription-rows merchant-subscriber-list">
+            <MerchantSubscriberSkeleton />
+            <MerchantSubscriberSkeleton />
+            <MerchantSubscriberSkeleton />
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard${isMobile ? " dashboard--mobile" : ""}`}>
       <div className="flex-between mb-4">
         <div>
-          <h2 className="text-xl font-bold">Merchant Subscribers</h2>
-          <p className="text-sm text-muted">
-            Active subscribers paying your merchant wallet.
-          </p>
+          <h2 className="text-xl font-bold">Merchant Dashboard</h2>
+          <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
         </div>
-        <button className="btn-secondary" onClick={refresh}>
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={refresh}>
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {error && (
-        <p className="action-status" style={{ color: "var(--color-danger)" }}>
-          Error: {error}
-        </p>
+      <div
+        className={`merchant-stats-grid grid gap-4 mb-6${isMobile ? " grid-cols-1" : " grid-cols-2"}`}
+      >
+        <div className="card">
+          <span className="text-sm text-muted block mb-1">Total Revenue</span>
+          <span className="text-2xl font-bold">{displayCurrentAmount(revenue)}</span>
+          <button
+            className="btn-primary w-full mt-2"
+            data-testid="withdraw-revenue-button"
+            onClick={() => setShowWithdrawConfirm(true)}
+            disabled={revenue <= 0n || withdrawTx.status === "pending"}
+          >
+            {withdrawTx.status === "pending" ? "Withdrawing..." : "Withdraw Revenue"}
+          </button>
+          {withdrawTx.status === "success" && (
+            <p className="text-sm text-center mt-2" style={{ color: "var(--color-success)" }}>
+              Revenue withdrawn successfully!
+            </p>
+          )}
+        </div>
+        <div className="card">
+          <span className="text-sm text-muted block mb-2">Last 7 Days Revenue</span>
+          <RevenueSparkline history={revenueHistory} />
+        </div>
+      </div>
+
+      {error && <ErrorRecovery error={error} />}
+
+      {tx.error && <ErrorRecovery error={tx.error} />}
+
+      {withdrawTx.error && <ErrorRecovery error={withdrawTx.error} />}
+
+      {showWithdrawConfirm && (
+        <ConfirmModal
+          message={`Withdraw ${displayCurrentAmount(revenue)} to your wallet? This transfers your full accrued revenue balance and cannot be undone.`}
+          onConfirm={handleWithdraw}
+          onCancel={() => setShowWithdrawConfirm(false)}
+          confirmTestId="withdraw-confirm-button"
+          cancelTestId="withdraw-cancel-button"
+        />
       )}
 
       {subscribers.length === 0 ? (
@@ -83,31 +220,123 @@ export default function MerchantDashboard({
       ) : (
         <div className="card merchant-subscriber-card">
           <div className="merchant-subscriber-meta mb-4">
-            <span className="text-sm text-muted">
-              {subscribers.length} active subscriber{subscribers.length !== 1 ? "s" : ""}
-            </span>
+            <h3 className="text-lg font-bold">Active Subscribers</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted">{subscribers.length} total</span>
+              {dueSubscribers.length > 0 && (
+                <span className="badge badge-warning">{dueSubscribers.length} due</span>
+              )}
+            </div>
           </div>
 
-          <div className="subscription-rows merchant-subscriber-list">
-            {subscribers.map((entry) => (
-              <div className="subscription-row merchant-subscriber-row" key={entry.subscriber}>
-                <div className="merchant-row">
-                  <span className="merchant-row__address">
-                    {formatAddress(entry.subscriber)}
-                  </span>
-                  <CopyButton text={entry.subscriber} />
-                </div>
-                <div className="merchant-subscriber-value">
-                  <span className="subscription-row__value">
-                    {formatXlm(entry.amount)}
-                  </span>
-                  <span className="subscription-row__label">
-                    Next charge {formatNextCharge(entry.nextChargeAt)}
-                  </span>
-                </div>
+          {dueSubscribers.length > 0 && (
+            <div className="mb-6">
+              <button
+                className="btn-primary w-full"
+                onClick={handleBatchCharge}
+                disabled={tx.status === "pending" || isPaused}
+                aria-label={
+                  isPaused ? "Charge subscribers (unavailable during maintenance)" : undefined
+                }
+              >
+                {tx.status === "pending"
+                  ? "Processing Batch Charge..."
+                  : `Charge ${dueSubscribers.length} due subscriber${
+                      dueSubscribers.length !== 1 ? "s" : ""
+                    }`}
+              </button>
+              {tx.status === "success" && (
+                <p className="text-sm text-center mt-2" style={{ color: "var(--color-success)" }}>
+                  Batch charge submitted successfully!
+                </p>
+              )}
+            </div>
+          )}
+
+          <div
+            className="subscription-rows merchant-subscriber-list"
+            onScroll={virtualSubscribers.onScroll}
+            style={{ height: SUBSCRIBER_LIST_HEIGHT }}
+          >
+            <div
+              className="merchant-subscriber-list__spacer"
+              style={{ height: virtualSubscribers.totalHeight }}
+            >
+              <div
+                className="merchant-subscriber-list__window"
+                style={{ transform: `translateY(${virtualSubscribers.offsetY}px)` }}
+              >
+                {virtualSubscribers.visibleItems.map(({ item: entry, index }) => (
+                  <div
+                    className={`subscription-row merchant-subscriber-row${
+                      index === subscribers.length - 1 ? " merchant-subscriber-row--last" : ""
+                    }`}
+                    key={entry.subscriber}
+                  >
+                    <div className="merchant-row">
+                      <span className="merchant-row__address">
+                        {formatAddress(entry.subscriber)}
+                      </span>
+                      <CopyButton
+                        text={entry.subscriber}
+                        ariaLabel={`Copy subscriber address ${entry.subscriber}`}
+                      />
+                    </div>
+                    <div className="merchant-subscriber-value">
+                      <span className="subscription-row__value">
+                        {displayCurrentAmount(entry.amount)}
+                      </span>
+                      <div className="merchant-subscriber-meta-right">
+                        <span className="subscription-row__label">
+                          Next charge {formatNextCharge(entry.nextChargeAt)}
+                        </span>
+                        {outcomes[entry.subscriber] && (
+                          <span
+                            className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}
+                          >
+                            {outcomes[entry.subscriber]}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Real-time event feed for merchant activity (Issue #46) */}
+      <EventFeed
+        address={merchantKey}
+        eventName="charged"
+        title="Live Charge Events"
+        maxEvents={25}
+      />
+
+      {/* Subscriber data export (Issue #48) */}
+      {subscribers.length > 0 && (
+        <div className="card">
+          <div className="flex-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Export Subscriber Data</h3>
+              <p className="text-sm text-muted">
+                Download subscriber list for accounting or external reporting.
+              </p>
+            </div>
+          </div>
+          <SubscriptionExport
+            data={subscribers.map((s) => ({
+              subscriber: s.subscriber,
+              amount_stroops: s.amount,
+              interval_seconds: s.interval,
+              last_charged: s.lastCharged,
+              next_charge_at: s.nextChargeAt,
+            }))}
+            filename={`subscribers-${merchantKey.slice(0, 8)}`}
+            label="Export Subscribers"
+          />
         </div>
       )}
     </div>

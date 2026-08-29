@@ -1,0 +1,32 @@
+name: Backend (Rust)
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: contract
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+        working-directory: contract
+      - name: Build
+        run: cargo build --verbose
+        working-directory: contract
+      - name: Run tests
+        run: cargo test --verbose
+        working-directory: contract

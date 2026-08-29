@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { getDailyLimit, getDailySpent } from "../stellar";
-import { formatXlm } from "../utils/format";
+import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import Spinner from "./Spinner";
 
 interface Props {
@@ -14,15 +14,13 @@ export default function DailyLimitCard({ userKey, refreshTrigger, onOpen }: Prop
   const [dailySpent, setDailySpent] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { displayCurrentAmount } = useAmountDisplay();
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [limit, spent] = await Promise.all([
-        getDailyLimit(userKey),
-        getDailySpent(userKey),
-      ]);
+      const [limit, spent] = await Promise.all([getDailyLimit(userKey), getDailySpent(userKey)]);
       setDailyLimit(limit);
       setDailySpent(spent);
     } catch (e: unknown) {
@@ -38,10 +36,7 @@ export default function DailyLimitCard({ userKey, refreshTrigger, onOpen }: Prop
     loadData();
   }, [loadData, refreshTrigger]);
 
-  const remaining =
-    dailyLimit !== null && dailySpent !== null
-      ? dailyLimit - dailySpent
-      : null;
+  const remaining = dailyLimit !== null && dailySpent !== null ? dailyLimit - dailySpent : null;
 
   if (loading) {
     return (
@@ -59,7 +54,9 @@ export default function DailyLimitCard({ userKey, refreshTrigger, onOpen }: Prop
       <div className="subscription-card__header">
         <div>
           <h3 className="subscription-card__title">Daily Spending</h3>
-          <p className="subscription-card__label">Control your pay-per-use spending cap and view today’s usage.</p>
+          <p className="subscription-card__label">
+            Control your pay-per-use spending cap and view today’s usage.
+          </p>
         </div>
         <button className="btn-secondary" onClick={onOpen}>
           Set limit
@@ -75,18 +72,18 @@ export default function DailyLimitCard({ userKey, refreshTrigger, onOpen }: Prop
         <div className="subscription-rows">
           <Row
             label="Daily limit"
-            value={dailyLimit !== null ? formatXlm(dailyLimit) : "Not set"}
+            value={dailyLimit !== null ? displayCurrentAmount(dailyLimit) : "Not set"}
           />
           <Row
             label="Today's spend"
-            value={dailySpent !== null ? formatXlm(dailySpent) : "—"}
+            value={dailySpent !== null ? displayCurrentAmount(dailySpent) : "—"}
           />
           <Row
             label="Remaining"
             value={
               remaining !== null
                 ? remaining >= 0n
-                  ? formatXlm(remaining)
+                  ? displayCurrentAmount(remaining)
                   : "Exceeded"
                 : "—"
             }

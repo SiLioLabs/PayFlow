@@ -24,8 +24,20 @@ export default function AddressInput({ label, value, onChange }: Props) {
     }
   }, [debouncedValue]);
 
-  const isValid = value && !error && StrKey.isValidEd25519PublicKey(value);
+  const isValid = !!debouncedValue && !error;
   const stateClass = !value ? "" : isValid ? "input--valid" : error ? "input--error" : "";
+
+  function validateNow(val: string) {
+    if (!val) {
+      setError(null);
+      return;
+    }
+    if (!StrKey.isValidEd25519PublicKey(val)) {
+      setError("Invalid Stellar address");
+    } else {
+      setError(null);
+    }
+  }
 
   return (
     <label className="form-group">
@@ -36,6 +48,7 @@ export default function AddressInput({ label, value, onChange }: Props) {
         placeholder="G…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={() => validateNow(value)}
       />
       {error && <span className="text-error">{error}</span>}
     </label>

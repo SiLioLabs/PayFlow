@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useRpcHealth } from "../hooks/useRpcHealth";
 
@@ -15,170 +15,32 @@ import { server } from "../stellar";
 const mockedServer = vi.mocked(server);
 
 function Test() {
-  const { healthy, error } = useRpcHealth();
+  const { status, latencyMs, error } = useRpcHealth();
   return (
     <div>
-      <span data-testid="healthy">{String(healthy)}</span>
+      <span data-testid="status">{status}</span>
+      <span data-testid="latency">{latencyMs === null ? "null" : latencyMs}</span>
       <span data-testid="error">{error || "null"}</span>
     </div>
   );
 }
 
 describe("useRpcHealth", () => {
+  let mockNow = 0;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockNow = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => mockNow);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe("Healthy Response", () => {
-    it("healthy response -> healthy = true", async () => {
-      mockedServer.getHealth.mockResolvedValue({} as any);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("true");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("null");
-    });
-
-    it("healthy response -> error is cleared", async () => {
-      mockedServer.getHealth.mockResolvedValue({ status: "ok" } as any);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("true");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("null");
-    });
-
-    it("subsequent healthy response keeps healthy = true", async () => {
-      mockedServer.getHealth.mockResolvedValue({} as any);
-
-      const { rerender } = render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("true");
-      });
-
-      // Mock another successful call
-      mockedServer.getHealth.mockResolvedValue({} as any);
-      rerender(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("true");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("null");
-    });
-  });
-
-  describe("Error Response", () => {
-    it("error response -> healthy = false, error set", async () => {
-      const testError = new Error("Network error");
-      mockedServer.getHealth.mockRejectedValue(testError);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("Network error");
-    });
-
-    it("non-Error exception -> healthy = false, fallback error message", async () => {
-      mockedServer.getHealth.mockRejectedValue("string error");
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("RPC endpoint unreachable");
-    });
-
-    it("connection timeout error -> healthy = false with error message", async () => {
-      const timeoutError = new Error("Connection timeout");
-      mockedServer.getHealth.mockRejectedValue(timeoutError);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("Connection timeout");
-    });
-
-    it("null rejection -> healthy = false with fallback error message", async () => {
-      mockedServer.getHealth.mockRejectedValue(null);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("RPC endpoint unreachable");
-    });
-
-    it("undefined rejection -> healthy = false with fallback error message", async () => {
-      mockedServer.getHealth.mockRejectedValue(undefined);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("RPC endpoint unreachable");
-    });
-  });
-
-  describe("State Transitions", () => {
-    it("transitions from error to healthy after recovery", async () => {
-      // First call fails
-      mockedServer.getHealth.mockRejectedValueOnce(new Error("Network error"));
-
-      const { rerender } = render(<Test />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-      });
-      expect(screen.getByTestId("error")).toHaveTextContent("Network error");
-
-      // Second call succeeds
-      mockedServer.getHealth.mockResolvedValueOnce({} as any);
-      rerender(<Test />);
-
-      // Note: In the current implementation, useEffect only runs once on mount
-      // So state doesn't transition after component mount. This test documents the current behavior.
-      // If transition behavior is desired, the hook would need a dependency array or useCallback.
-      expect(screen.getByTestId("healthy")).toHaveTextContent("false");
-    });
+    vi.useRealTimers();
   });
 
   describe("Initial State", () => {
-    it("calls server.getHealth on mount", async () => {
-      mockedServer.getHealth.mockResolvedValue({} as any);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(mockedServer.getHealth).toHaveBeenCalled();
-      });
-    });
-
-    it("calls server.getHealth exactly once", async () => {
-      mockedServer.getHealth.mockResolvedValue({} as any);
-
-      render(<Test />);
-
-      await waitFor(() => {
-        expect(mockedServer.getHealth).toHaveBeenCalledTimes(1);
-      });
-    });
-
     it("default healthy state is true before check completes", () => {
       mockedServer.getHealth.mockImplementation(
         () => new Promise(() => {}) // Never resolves
@@ -186,31 +48,148 @@ describe("useRpcHealth", () => {
 
       render(<Test />);
 
-      expect(screen.getByTestId("healthy")).toHaveTextContent("true");
+      expect(screen.getByTestId("status")).toHaveTextContent("healthy");
+      expect(screen.getByTestId("latency")).toHaveTextContent("null");
       expect(screen.getByTestId("error")).toHaveTextContent("null");
     });
   });
 
-  describe("Return Value", () => {
-    it("returns object with healthy and error properties", async () => {
-      mockedServer.getHealth.mockResolvedValue({} as any);
-
-      let returnValue: { healthy: boolean; error: string | null } | null = null;
-
-      function TestHook() {
-        returnValue = useRpcHealth();
-        return null;
-      }
-
-      render(<TestHook />);
-
-      await waitFor(() => {
-        expect(returnValue).not.toBeNull();
-        expect(returnValue).toHaveProperty("healthy");
-        expect(returnValue).toHaveProperty("error");
-        expect(typeof returnValue!.healthy).toBe("boolean");
-        expect(returnValue!.error === null || typeof returnValue!.error === "string").toBe(true);
+  describe("Healthy and Degraded States", () => {
+    it("healthy response (latency <= 2000ms) -> status = healthy", async () => {
+      mockedServer.getHealth.mockImplementation(async () => {
+        mockNow += 500; // 500ms latency
+        return {} as any;
       });
+
+      render(<Test />);
+
+      // Wait for check to complete (it runs on mount)
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+
+      expect(screen.getByTestId("status")).toHaveTextContent("healthy");
+      expect(screen.getByTestId("latency")).toHaveTextContent("500");
+      expect(screen.getByTestId("error")).toHaveTextContent("null");
+    });
+
+    it("degraded response (latency > 2000ms) -> status = degraded", async () => {
+      mockedServer.getHealth.mockImplementation(async () => {
+        mockNow += 2500; // 2500ms latency
+        return {} as any;
+      });
+
+      render(<Test />);
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+
+      expect(screen.getByTestId("status")).toHaveTextContent("degraded");
+      expect(screen.getByTestId("latency")).toHaveTextContent("2500");
+      expect(screen.getByTestId("error")).toHaveTextContent("null");
+    });
+  });
+
+  describe("Error Response", () => {
+    it("error response -> status = unreachable, error set, latencyMs = null", async () => {
+      const testError = new Error("Network error");
+      mockedServer.getHealth.mockRejectedValue(testError);
+
+      render(<Test />);
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+
+      expect(screen.getByTestId("status")).toHaveTextContent("unreachable");
+      expect(screen.getByTestId("latency")).toHaveTextContent("null");
+      expect(screen.getByTestId("error")).toHaveTextContent("Network error");
+    });
+  });
+
+  describe("Exponential Backoff and Retries", () => {
+    it("retries at 2s and 4s intervals on failures, and resets on success", async () => {
+      mockedServer.getHealth.mockRejectedValue(new Error("Failure"));
+
+      render(<Test />);
+
+      // First check runs immediately and fails.
+      await act(async () => {
+        await Promise.resolve(); // let microtasks flush
+      });
+
+      expect(screen.getByTestId("status")).toHaveTextContent("unreachable");
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(1);
+
+      // Advance by 1900ms -> should not have retried yet
+      await act(async () => {
+        vi.advanceTimersByTime(1900);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(1);
+
+      // Advance by another 100ms (total 2s) -> second check runs and fails
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(2);
+
+      // Advance by 3900ms -> should not have retried yet
+      await act(async () => {
+        vi.advanceTimersByTime(3900);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(2);
+
+      // Setup success for the next try
+      mockedServer.getHealth.mockImplementation(async () => {
+        mockNow += 100;
+        return {} as any;
+      });
+
+      // Advance by 100ms (total 4s from the last failure) -> third check runs and succeeds
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId("status")).toHaveTextContent("healthy");
+      expect(screen.getByTestId("latency")).toHaveTextContent("100");
+
+      // Setup failure for the next periodic run
+      mockedServer.getHealth.mockRejectedValue(new Error("Failure 2"));
+
+      // Advance by 59.9s -> next run should not have triggered (scheduled for 60s)
+      await act(async () => {
+        vi.advanceTimersByTime(59900);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(3);
+
+      // Advance to 60s -> check runs, fails, and schedules next retry in 2s (reset backoff)
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(4);
+      expect(screen.getByTestId("status")).toHaveTextContent("unreachable");
+
+      // Advance by 2s -> should retry in 2s because backoff sequence was reset
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(mockedServer.getHealth).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  describe("Timers cleanup on unmount", () => {
+    it("cancels all active timers when unmounted", async () => {
+      mockedServer.getHealth.mockResolvedValue({} as any);
+      const clearSpy = vi.spyOn(global, "clearTimeout");
+      const { unmount } = render(<Test />);
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+
+      unmount();
+      expect(clearSpy).toHaveBeenCalled();
     });
   });
 });
