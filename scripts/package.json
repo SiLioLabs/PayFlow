@@ -15,6 +15,7 @@
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
     "typecheck": "tsc --noEmit",
+    "validate-config": "tsx validate-config.ts",
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {
