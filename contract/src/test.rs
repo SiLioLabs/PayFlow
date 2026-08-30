@@ -11667,4 +11667,275 @@ fn test_set_global_volume_cap_no_admin_panics() {
     assert!(result.is_err());
 }
 
+// ─────────────────────────────────────────────────────────────
+// Issue #823: get_active_subscriber_page pagination safety
+// ─────────────────────────────────────────────────────────────
+
+/// Basic: returns only active subscribers, skips cancelled ones.
+#[test]
+fn test_active_subscriber_page_skips_cancelled() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_c = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Cancel user_b (slot 1)
+    client.cancel(&user_b);
+
+    let page = client.get_active_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap(), user_a);
+    assert_eq!(page.get(1).unwrap(), user_c);
+}
+
+/// Pagination with tombstones: advancing offset by limit skips tombstoned
+/// slots without duplication or gaps.
+#[test]
+fn test_active_subscriber_page_pagination_no_duplication_with_tombstones() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Create 5 subscribers: slots [0]=A, [1]=B, [2]=C, [3]=D, [4]=E
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_c = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_d = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_e = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_d, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_e, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Cancel user_c (slot 2) to create a tombstone in the middle
+    client.cancel(&user_c);
+
+    // Page 1: offset=0, limit=3 → scans slots 0,1,2 → returns [A,B]
+    let page1 = client.get_active_subscriber_page(&0u64, &3u32);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap(), user_a);
+    assert_eq!(page1.get(1).unwrap(), user_b);
+
+    // Page 2: offset=3, limit=3 → scans slots 3,4 → returns [D,E]
+    let page2 = client.get_active_subscriber_page(&3u64, &3u32);
+    assert_eq!(page2.len(), 2);
+    assert_eq!(page2.get(0).unwrap(), user_d);
+    assert_eq!(page2.get(1).unwrap(), user_e);
+
+    // No duplicates across pages
+    let mut all: Vec<Address> = Vec::new(&env);
+    for a in page1.iter() {
+        all.push_back(a);
+    }
+    for a in page2.iter() {
+        all.push_back(a);
+    }
+    assert_eq!(all.len(), 4);
+    // Verify uniqueness
+    for i in 0..all.len() {
+        for j in (i + 1)..all.len() {
+            assert!(all.get(i).unwrap() != all.get(j).unwrap());
+        }
+    }
+}
+
+/// Keepers can scan all active users across multiple pages even with
+/// interleaved cancellations.
+#[test]
+fn test_active_subscriber_page_full_scan_with_interleaved_tombstones() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Create 6 subscribers: [0]=A, [1]=B, [2]=C, [3]=D, [4]=E, [5]=F
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_c = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_d = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_e = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_f = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_d, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_e, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_f, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Cancel B (slot 1) and E (slot 4) to create scattered tombstones
+    client.cancel(&user_b);
+    client.cancel(&user_e);
+
+    // Scan all with limit=2, advancing offset by 2 each time
+    let mut collected: Vec<Address> = Vec::new(&env);
+    let mut offset = 0u64;
+    let limit = 2u32;
+    loop {
+        let page = client.get_active_subscriber_page(&offset, &limit);
+        if page.is_empty() {
+            break;
+        }
+        for addr in page.iter() {
+            collected.push_back(addr);
+        }
+        offset += limit as u64;
+        // Safety: prevent infinite loop in test
+        if offset > 20 {
+            break;
+        }
+    }
+
+    // Should collect exactly 4 active users: A, C, D, F
+    assert_eq!(collected.len(), 4);
+    assert!(collected.contains(user_a));
+    assert!(!collected.contains(user_b)); // cancelled
+    assert!(collected.contains(user_c));
+    assert!(collected.contains(user_d));
+    assert!(!collected.contains(user_e)); // cancelled
+    assert!(collected.contains(user_f));
+}
+
+/// Empty index returns empty page.
+#[test]
+fn test_active_subscriber_page_empty_index() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let page = client.get_active_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 0);
+}
+
+/// Offset beyond index size returns empty page.
+#[test]
+fn test_active_subscriber_page_offset_beyond_count() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_subscriber_count(), 1);
+
+    let page = client.get_active_subscriber_page(&5u64, &10u32);
+    assert_eq!(page.len(), 0);
+}
+
+/// Limit of zero returns empty page.
+#[test]
+fn test_active_subscriber_page_zero_limit() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    let page = client.get_active_subscriber_page(&0u64, &0u32);
+    assert_eq!(page.len(), 0);
+}
+
+/// Limit is capped at 50.
+#[test]
+#[cfg(feature = "bench")]
+fn test_active_subscriber_page_limit_capped_at_50() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let token = TokenClient::new(&env, &token_addr);
+
+    for _ in 0..54 {
+        let sub_user = Address::generate(&env);
+        sac.mint(&sub_user, &10_000_0000000);
+        token.approve(&sub_user, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&sub_user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    }
+
+    assert_eq!(client.get_subscriber_count(), 55);
+
+    let page = client.get_active_subscriber_page(&0u64, &100u32);
+    assert_eq!(page.len(), 50);
+}
+
+/// All subscribers cancelled returns empty page.
+#[test]
+fn test_active_subscriber_page_all_cancelled() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    client.cancel(&user_a);
+    client.cancel(&user_b);
+
+    let page = client.get_active_subscriber_page(&0u64, &10u32);
+    assert_eq!(page.len(), 0);
+}
+
+/// Pagination across all-cancelled-then-empty tail returns empty at the end.
+#[test]
+fn test_active_subscriber_page_terminates_after_all_active_seen() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Page 1: get both
+    let page1 = client.get_active_subscriber_page(&0u64, &50u32);
+    assert_eq!(page1.len(), 2);
+
+    // Page 2: offset past end → empty
+    let page2 = client.get_active_subscriber_page(&50u64, &50u32);
+    assert_eq!(page2.len(), 0);
+}
+
+/// Scan is bounded: with limit=3, at most 3 index slots are read regardless
+/// of how many are tombstoned.
+#[test]
+fn test_active_subscriber_page_bounded_scan_with_tombstones() {
+    let (env, contract_id, token_addr, user_a, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_c = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_d = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_e = setup_funded_user(&env, &contract_id, &token_addr);
+    let user_f = setup_funded_user(&env, &contract_id, &token_addr);
+
+    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_d, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_e, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(&user_f, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Cancel B (slot 1) and D (slot 3)
+    client.cancel(&user_b);
+    client.cancel(&user_d);
+
+    // With limit=3, page 1 scans slots 0,1,2 → should return at most 3
+    // (A at 0, B skipped at 1, C at 2) = 2 results
+    let page1 = client.get_active_subscriber_page(&0u64, &3u32);
+    assert!(page1.len() <= 3, "bounded scan must not exceed limit");
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap(), user_a);
+    assert_eq!(page1.get(1).unwrap(), user_c);
+
+    // Page 2 scans slots 3,4,5 → D skipped, E at 4, F at 5 = 2 results
+    let page2 = client.get_active_subscriber_page(&3u64, &3u32);
+    assert!(page2.len() <= 3);
+    assert_eq!(page2.len(), 2);
+    assert_eq!(page2.get(0).unwrap(), user_e);
+    assert_eq!(page2.get(1).unwrap(), user_f);
+
+    // Page 3: offset=6 >= count=6 → empty
+    let page3 = client.get_active_subscriber_page(&6u64, &3u32);
+    assert_eq!(page3.len(), 0);
+}
+
 

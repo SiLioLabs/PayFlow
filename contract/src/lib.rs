@@ -2175,6 +2175,22 @@ impl FlowPay {
     /// at 50 per call, filtered to only those whose subscription is
     /// currently active. Avoids forcing callers to over-fetch via
     /// `get_subscriber_page` and filter client-side.
+    ///
+    /// # Pagination semantics
+    ///
+    /// The function scans exactly `min(limit, 50)` index slots starting at
+    /// `offset`. Slots that are tombstoned (cancelled) or whose subscription
+    /// is inactive are silently skipped. The caller must advance `offset` by
+    /// the original `limit` (not by `result.len()`) on each subsequent call,
+    /// regardless of how many results were returned. This guarantees that
+    /// every active subscriber is eventually seen without duplication or
+    /// unbounded scans, even when the index is sparse from cancellations.
+    ///
+    /// # Bounded scan guarantee
+    ///
+    /// Each call reads at most `min(limit, 50)` index slots and the same
+    /// number of subscription entries. The scan is O(limit) regardless of
+    /// tombstone density.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
         let count = subscription_count::get_subscriber_index_size(&env);
         let cap: u32 = if limit > 50 { 50 } else { limit };
@@ -2183,19 +2199,22 @@ impl FlowPay {
             return result;
         }
         let mut i = offset;
-        while i < count && result.len() < cap {
-            if let Some(addr) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, Address>(&DataKey::SubscriberIndex(i))
-            {
-                if let Some(sub) = env
+        let end = (offset + cap as u64).min(count);
+        while i < end {
+            if !subscription_count::is_subscriber_index_removed(&env, i) {
+                if let Some(addr) = env
                     .storage()
                     .persistent()
-                    .get::<DataKey, Subscription>(&DataKey::Subscription(addr.clone()))
+                    .get::<DataKey, Address>(&DataKey::SubscriberIndex(i))
                 {
-                    if sub.active {
-                        result.push_back(addr);
+                    if let Some(sub) = env
+                        .storage()
+                        .persistent()
+                        .get::<DataKey, Subscription>(&DataKey::Subscription(addr.clone()))
+                    {
+                        if sub.active {
+                            result.push_back(addr);
+                        }
                     }
                 }
             }
