@@ -1,4 +1,4 @@
-#![cfg(test)]
+![cfg(test)]
 #![allow(
     clippy::bool_assert_comparison,
     unused_variables,
@@ -25,6 +25,11 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     let contract_id = env.register_contract(None, FlowPay);
     env.as_contract(&contract_id, || {
         whitelist::set_whitelist_enabled(&env, false);
+        // Tests run on a fully-migrated contract; set schema_version to CURRENT_VERSION
+        // so that subscribe_inner's migration invariant guard is satisfied.
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &migration::CURRENT_VERSION);
     });
 
     let user = Address::generate(&env);
@@ -7510,6 +7515,11 @@ fn test_subscribe_zero_allowance_panics() {
     let contract_id = env.register_contract(None, FlowPay);
     env.as_contract(&contract_id, || {
         whitelist::set_whitelist_enabled(&env, false);
+        // Tests run on a fully-migrated contract; set schema_version to CURRENT_VERSION
+        // so that subscribe_inner's migration invariant guard is satisfied.
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &migration::CURRENT_VERSION);
     });
 
     let user = Address::generate(&env);
@@ -7553,6 +7563,11 @@ fn test_subscribe_zero_allowance_does_not_write_storage() {
     let contract_id = env.register_contract(None, FlowPay);
     env.as_contract(&contract_id, || {
         whitelist::set_whitelist_enabled(&env, false);
+        // Tests run on a fully-migrated contract; set schema_version to CURRENT_VERSION
+        // so that subscribe_inner's migration invariant guard is satisfied.
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &migration::CURRENT_VERSION);
     });
 
     let user = Address::generate(&env);
