@@ -1,4 +1,4 @@
-﻿#![no_std]
+#![no_std]
 #![allow(clippy::too_many_arguments, clippy::inconsistent_digit_grouping)]
 
 #[cfg(test)]
