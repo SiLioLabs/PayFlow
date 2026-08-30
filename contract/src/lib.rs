@@ -1,4 +1,4 @@
-#![no_std]
+﻿#![no_std]
 #![allow(clippy::too_many_arguments, clippy::inconsistent_digit_grouping)]
 
 #[cfg(test)]
@@ -23,6 +23,7 @@ mod subscription_count;
 mod subscription_history;
 mod subscription_metadata;
 mod test;
+mod test_migration;
 mod trial;
 mod upgrade;
 mod validation;
@@ -36,6 +37,7 @@ use soroban_sdk::{
 pub use batch::ChargeResult;
 pub use batch::CancelResult;
 pub use charge_exec::ChargeSimResult;
+pub use charge_exec::PayPerUseSimResult;
 
 // ─────────────────────────────────────────────────────────────
 // Storage keys
@@ -566,6 +568,26 @@ impl FlowPay {
         charge_exec::simulate_charge(&env, user)
     }
 
+    /// Dry-run simulation of a `pay_per_use` call. Returns a PayPerUseSimResult
+    /// variant indicating whether the pay-per-use would succeed or the reason it
+    /// would fail (contract paused, invalid/inactive/paused subscription, daily
+    /// limit exceeded, or insufficient allowance). Performs no state writes.
+    pub fn simulate_pay_per_use(env: Env, user: Address, amount: i128) -> PayPerUseSimResult {
+        charge_exec::simulate_pay_per_use(&env, user, amount, None)
+    }
+
+    /// Dry-run simulation of a `pay_per_use_to` call. Mirrors
+    /// `simulate_pay_per_use` but also validates the `recipient` (contract-address
+    /// self-reference and merchant whitelist). Performs no state writes.
+    pub fn simulate_pay_per_use_to(
+        env: Env,
+        user: Address,
+        amount: i128,
+        recipient: Address,
+    ) -> PayPerUseSimResult {
+        charge_exec::simulate_pay_per_use(&env, user, amount, Some(recipient))
+    }
+
     /// Executes an immediate pay-per-use charge for an active subscription.
     ///
     /// # Parameters
@@ -662,6 +684,7 @@ impl FlowPay {
     /// # Panics
     /// - If `additional_seconds` is 0 (`IntervalMustBePositive`).
     /// - If the subscription is cancelled/inactive (`SubscriptionInactive`).
+    /// - If the subscription is paused (`SubscriptionPaused`).
     /// - If the subscription doesn't exist (`NoSubscriptionFound`).
     /// - If `last_charged + additional_seconds` overflows `u64` (`ArithmeticOverflow`).
     pub fn extend_trial(env: Env, user: Address, additional_seconds: u64) {
@@ -1876,10 +1899,25 @@ impl FlowPay {
     // Admin setup
     // ─────────────────────────────────────────────────────────────
 
-    /// Sets the contract admin. Can only be called once; subsequent calls panic.
+    /// Bootstrap-only entrypoint that writes the contract admin when no admin
+    /// is configured. This is a narrower alternative to [`Self::initialize`]:
+    ///
+    /// - **`initialize(token, admin)`** atomically sets the default token *and*
+    ///   the admin together. Use this for standard deployments via
+    ///   `scripts/deploy-pipeline.ts` — it is the canonical full-init path.
+    /// - **`set_initial_admin(admin)`** sets only the admin slot. It is
+    ///   intended for partial-recovery or segmented-deploy scenarios where the
+    ///   token is written separately (or not at all), and admin-only governance
+    ///   is needed before full initialization.
+    ///
+    /// In both cases the proposed admin must sign the call via
+    /// `require_auth()`, and a second call on an already-configured contract
+    /// fails with a typed `ContractError::AdminAlreadySet` (code 42) so
+    /// deploy scripts can detect the condition without string-parsing panics.
     pub fn set_initial_admin(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("admin already set");
+            env.panic_with_error(ContractError::AdminAlreadySet);
         }
         storage::set_admin(&env, &admin);
     }
@@ -2264,6 +2302,11 @@ fn subscribe_inner(
     referrer: Option<Address>,
 ) {
     bump_instance_ttl(env);
+    // Invariant: refuse new subscription writes when the storage schema has not
+    // been fully migrated to the current version. After a WASM upgrade, the
+    // operator must call `migrate` (paged) for all existing subscribers before
+    // new blobs can be written, preventing mixed v1/v2/v3 storage states.
+    migration::require_current_version(env);
     user.require_auth();
 
     if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
@@ -2390,3 +2433,4 @@ fn ensure_contract_not_paused(env: &Env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
+
