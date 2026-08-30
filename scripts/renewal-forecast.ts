@@ -1,482 +1,453 @@
+#!/usr/bin/env tsx
 /**
- * renewal-forecast.ts
+ * renewal-forecast.ts — Subscription renewal date forecaster for FlowPay
  *
- * Reads all active subscribers from the FlowPay contract and projects
- * upcoming charge volume over the next FORECAST_DAYS days.
+ * Forecasts when each active subscription will next renew based on its charge
+ * history (ring buffer of up to 12 timestamps), configured interval, and pause
+ * state.  Produces per-subscription confidence bands and explicit
+ * insufficient-data outcomes so callers never see NaN or overconfident
+ * predictions for sparse-history or paused subscribers.
  *
- * Usage:
- *   tsx scripts/renewal-forecast.ts [--format json|csv] [--days N] [--out path/to/output]
+ * ## CLI Usage
  *
- * Flags:
- *   --format <json|csv>   Output format (default: json)
- *   --days <N>            Forecast window in days (default: FORECAST_DAYS env or 30)
- *   --out <path>          Write output to file instead of stdout
- *   --help, -h            Show help
+ *   npx tsx scripts/renewal-forecast.ts [--db <path>] [--json] [--out <file>]
  *
- * Environment Variables:
- *   CONTRACT_ID           Required. Deployed FlowPay contract ID.
- *   RPC_URL               Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
- *   NETWORK_PASSPHRASE    Network passphrase (default: Test SDF Network ; September 2015)
- *   FORECAST_DAYS         Number of days to forecast (default: 30)
+ * Modes:
+ *   --db   <path>   Read subscriptions from the indexer SQLite DB (requires
+ *                    the `subscriptions` table written by subscription-snapshot.ts).
+ *   --stdin         Read a JSON array of SubscriptionSnapshot from stdin.
+ *                    Useful for piping from subscription-snapshot.ts or fixtures.
+ *
+ * Options:
+ *   --json          Output machine-readable JSON (default when --out is set).
+ *   --out  <file>   Write output to a file instead of stdout.
+ *
+ * Environment variables:
+ *   DATA_DIR   Directory containing the SQLite DB (default: data).
+ *   DB_FILE    Full path override for the SQLite DB.
+ *
+ * Exit codes:
+ *   0 — forecast completed successfully (even with insufficient-data entries)
+ *   1 — fatal input error (bad JSON, missing DB, etc.)
  */
 
-import {
-  Contract,
-  Networks,
-  TransactionBuilder,
-  Account,
-  BASE_FEE,
-  Address,
-  xdr,
-} from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
-import { writeFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { resolve, basename } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// ── Configuration ────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
-const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
-const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET;
-
-// Dummy source account for simulation-only (read) calls. No real funds needed.
-const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-
-const FORECAST_DAYS = parseInt(process.env.FORECAST_DAYS ?? "30", 10);
-const PAGE_SIZE = 50; // Contract cap for get_subscriber_page
-const STROOPS_PER_XLM = 10_000_000n;
-
-const server = new Server(RPC_URL);
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Convert an scvU64 ScVal to bigint */
-function decodeU64(val: xdr.ScVal): bigint {
-  return BigInt(val.u64().toString());
-}
-
-/** Convert an scvI128 ScVal to bigint */
-function decodeI128(val: xdr.ScVal): bigint {
-  const i128 = val.i128();
-  return (BigInt(i128.hi().toString()) << 64n) + BigInt(i128.lo().toString());
-}
-
-/** Convert an scvBool ScVal to boolean */
-function decodeBool(val: xdr.ScVal): boolean {
-  return val.b();
-}
-
-/** Convert an scvAddress ScVal to string */
-function decodeAddress(val: xdr.ScVal): string {
-  return Address.fromScVal(val).toString();
-}
-
-/** Convert stroops to XLM with 7 decimal places */
-function stroopsToXlm(stroops: bigint): string {
-  const whole = stroops / STROOPS_PER_XLM;
-  const frac = stroops % STROOPS_PER_XLM;
-  return `${whole}.${frac.toString().padStart(7, "0")}`;
-}
-
-// ── Simulation ───────────────────────────────────────────────────────────────
+/** Minimum historical charge intervals needed for a "high" confidence forecast. */
+const MIN_HISTORY_HIGH_CONFIDENCE = 3;
+/** Minimum historical charge intervals for a "medium" confidence forecast. */
+const MIN_HISTORY_MEDIUM_CONFIDENCE = 2;
 
 /**
- * Simulate a read-only contract call using a dummy source account.
- * Returns the decoded return value or null on error.
+ * A single subscription snapshot as produced by subscription-snapshot.ts or
+ * read from the indexer DB.  All timestamps are Unix seconds.
  */
-async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal | null> {
-  try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
-      fee: BASE_FEE,
-      networkPassphrase: NETWORK_PASSPHRASE,
-    })
-      .addOperation(contract.call(method, ...args))
-      .setTimeout(30)
-      .build();
-
-    const result = await server.simulateTransaction(tx);
-    if ("error" in result) throw new Error(`${method}: ${result.error}`);
-    return result.result?.retval ?? null;
-  } catch (err) {
-    console.error(`[warn] simulate ${method} failed:`, err instanceof Error ? err.message : err);
-    return null;
-  }
-}
-
-/** Wrap an address string into an ScVal Address */
-function addressVal(addr: string): xdr.ScVal {
-  return Address.fromString(addr).toScVal();
-}
-
-// ── Contract Reads ───────────────────────────────────────────────────────────
-
-interface SubInfo {
-  address: string;
-  amount: bigint;
-  interval: bigint; // seconds
-  lastCharged: bigint; // Unix timestamp
+export interface SubscriptionSnapshot {
+  user: string;
+  amount: number;
+  interval: number;
+  last_charged: number;
   active: boolean;
   paused: boolean;
-  merchant: string;
-  token: string;
+  /** Ordered ascending array of Unix-second charge timestamps (max 12). */
+  charge_history: number[];
 }
 
-/**
- * Fetch a single subscription's data via get_subscription.
- * Returns null if no subscription exists.
- */
-async function getSubscription(user: string): Promise<SubInfo | null> {
-  const retval = await simulate("get_subscription", addressVal(user));
-  if (!retval || retval.switch().name === "scvVoid") return null;
+/** Confidence level for the forecast based on history depth. */
+export type ConfidenceLevel = "high" | "medium" | "low" | "insufficient_data";
 
-  const entries: Map<string, xdr.ScVal> = new Map();
-  for (const e of retval.map() ?? []) {
-    entries.set(e.key().sym().toString(), e.val());
+/** The forecast result for a single subscription. */
+export interface ForecastEntry {
+  user: string;
+  next_renewal: number | null;
+  confidence: ConfidenceLevel;
+  confidence_band: { low: number; high: number } | null;
+  reason: string | undefined;
+}
+
+/** Full forecast report. */
+export interface ForecastReport {
+  generated_at: string;
+  total: number;
+  forecastable: number;
+  insufficient_data: number;
+  paused: number;
+  inactive: number;
+  forecasts: ForecastEntry[];
+}
+
+// ── Core forecast logic (exported for testing) ───────────────────────────────
+
+/**
+ * Validate a single subscription snapshot.  Returns an error string on
+ * invalid input, or null when the snapshot is valid.
+ */
+export function validateSnapshot(s: SubscriptionSnapshot): string | null {
+  if (!s || typeof s !== "object") {
+    return "snapshot is not an object";
   }
-
-  const get = (k: string) => entries.get(k);
-
-  return {
-    address: user,
-    amount: decodeI128(get("amount")!),
-    interval: decodeU64(get("interval")!),
-    lastCharged: decodeU64(get("last_charged")!),
-    active: decodeBool(get("active")!),
-    paused: decodeBool(get("paused")!),
-    merchant: decodeAddress(get("merchant")!),
-    token: decodeAddress(get("token")!),
-  };
-}
-
-/**
- * Fetch the total subscriber index size (append-only count).
- */
-async function getSubscriberCount(): Promise<bigint> {
-  const retval = await simulate("get_subscriber_count");
-  if (!retval) return 0n;
-  return decodeU64(retval);
-}
-
-/**
- * Fetch a page of subscriber addresses from the index.
- * Pruned (cancelled) slots are skipped by the contract.
- */
-async function getSubscriberPage(offset: bigint, limit: number): Promise<string[]> {
-  const retval = await simulate(
-    "get_subscriber_page",
-    xdr.ScVal.scvU64(new xdr.Uint64(offset)),
-    xdr.ScVal.scvU32(limit)
-  );
-  if (!retval || retval.switch().name === "scvVoid") return [];
-
-  const vec = retval.vec();
-  if (!vec) return [];
-  return vec.map((v: xdr.ScVal) => decodeAddress(v));
-}
-
-// ── Forecast Logic ──────────────────────────────────────────────────────────
-
-interface DailyBucket {
-  date: string; // YYYY-MM-DD
-  count: number;
-  totalVolumeStroops: bigint;
-}
-
-interface ForecastResult {
-  generatedAt: string;
-  contractId: string;
-  network: string;
-  forecastDays: number;
-  forecastStart: string;
-  forecastEnd: string;
-  totalActiveSubscribers: number;
-  totalProjectedCharges: number;
-  totalVolumeXlm: string;
-  daily: Array<{
-    date: string;
-    count: number;
-    totalVolumeXlm: string;
-  }>;
-}
-
-/**
- * Compute the next charge timestamp for a subscription.
- *
- * When a trial is active (last_charged is in the future), the trial end
- * is `last_charged` — the first real charge happens at that timestamp.
- * Otherwise the next charge is `last_charged + interval`.
- */
-function computeNextChargeAt(sub: SubInfo, now: bigint): bigint | null {
-  if (!sub.active || sub.paused) return null;
-
-  // Trial active: last_charged is the trial end time, first charge at trial end
-  if (sub.lastCharged > now) {
-    return sub.lastCharged;
+  if (!s.user || typeof s.user !== "string") {
+    return "missing or invalid user address";
   }
-
-  // Normal case: next charge = last_charged + interval
-  return sub.lastCharged + sub.interval;
-}
-
-/** Convert a Unix timestamp (seconds) to YYYY-MM-DD in UTC */
-function unixToDateStr(ts: bigint): string {
-  const date = new Date(Number(ts) * 1000);
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/** Convert a YYYY-MM-DD string to a Unix timestamp at midnight UTC */
-function dateStrToUnix(dateStr: string): bigint {
-  return BigInt(Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 1000));
-}
-
-/**
- * Generate a list of date strings from start to end (inclusive).
- */
-function dateRange(start: string, end: string): string[] {
-  const dates: string[] = [];
-  const startMs = new Date(start + "T00:00:00Z").getTime();
-  const endMs = new Date(end + "T00:00:00Z").getTime();
-  for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
-    dates.push(unixToDateStr(BigInt(Math.floor(ms / 1000))));
+  if (typeof s.interval !== "number" || !Number.isFinite(s.interval) || s.interval <= 0) {
+    return `invalid interval: ${s.interval}`;
   }
-  return dates;
-}
-
-// ── Output ────────────────────────────────────────────────────────────────────
-
-/** Build a ForecastResult from raw daily buckets */
-function buildResult(buckets: Map<string, DailyBucket>, startDate: string, endDate: string, activeCount: number): ForecastResult {
-  const allDates = dateRange(startDate, endDate);
-  const daily = allDates.map((date) => {
-    const bucket = buckets.get(date);
-    return {
-      date,
-      count: bucket?.count ?? 0,
-      totalVolumeXlm: bucket ? stroopsToXlm(bucket.totalVolumeStroops) : "0.0000000",
-    };
-  });
-
-  const totalCharges = daily.reduce((sum, d) => sum + d.count, 0);
-  const totalVolume = daily.reduce(
-    (sum, d) => sum + (buckets.get(d.date)?.totalVolumeStroops ?? 0n),
-    0n
-  );
-
-  return {
-    generatedAt: new Date().toISOString(),
-    contractId: CONTRACT_ID,
-    network: NETWORK_PASSPHRASE,
-    forecastDays: FORECAST_DAYS,
-    forecastStart: startDate,
-    forecastEnd: endDate,
-    totalActiveSubscribers: activeCount,
-    totalProjectedCharges: totalCharges,
-    totalVolumeXlm: stroopsToXlm(totalVolume),
-    daily,
-  };
-}
-
-function formatJson(result: ForecastResult): string {
-  return JSON.stringify(result, null, 2);
-}
-
-function formatCsv(result: ForecastResult): string {
-  const lines = ["date,count,total_volume_xlm"];
-  for (const day of result.daily) {
-    lines.push(`${day.date},${day.count},${day.totalVolumeXlm}`);
+  if (typeof s.amount !== "number" || !Number.isFinite(s.amount) || s.amount <= 0) {
+    return `invalid amount: ${s.amount}`;
   }
-  return lines.join("\n");
-}
-
-function printSummary(result: ForecastResult): void {
-  console.error(
-    `\nSummary: ${result.totalActiveSubscribers} active subscribers, ` +
-      `${result.totalProjectedCharges} projected charges, ` +
-      `${result.totalVolumeXlm} XLM over ${result.forecastDays} days ` +
-      `(${result.forecastStart} → ${result.forecastEnd})`
-  );
-}
-
-// ── CLI ───────────────────────────────────────────────────────────────────────
-
-function showHelp(): void {
-  console.log(`
-Usage: tsx scripts/renewal-forecast.ts [options]
-
-Options:
-  --format <json|csv>   Output format (default: json)
-  --days <N>            Forecast window in days (default: ${FORECAST_DAYS})
-  --out <path>          Write output to file instead of stdout
-  --help, -h            Show this help message
-
-Environment:
-  CONTRACT_ID           Required. Deployed FlowPay contract ID.
-  RPC_URL               Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
-  NETWORK_PASSPHRASE    Network passphrase (default: Test SDF Network ; September 2015)
-  FORECAST_DAYS         Number of days to forecast (default: 30)
-
-Examples:
-  tsx scripts/renewal-forecast.ts
-  tsx scripts/renewal-forecast.ts --format csv --days 7
-  tsx scripts/renewal-forecast.ts --format json --out forecast.json
-  CONTRACT_ID=CD123... tsx scripts/renewal-forecast.ts --days 90
-`);
-  process.exit(0);
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-
-async function main(): Promise<void> {
-  // Parse CLI args
-  const argv = process.argv.slice(2);
-  let format: "json" | "csv" = "json";
-  let days = FORECAST_DAYS;
-  let outPath: string | undefined;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--help" || arg === "-h") {
-      showHelp();
-    } else if (arg === "--format") {
-      const val = argv[++i];
-      if (val !== "json" && val !== "csv") {
-        console.error(`Invalid format: ${val}. Must be json or csv.`);
-        process.exit(1);
-      }
-      format = val;
-    } else if (arg === "--days") {
-      const val = parseInt(argv[++i], 10);
-      if (isNaN(val) || val <= 0 || val > 365) {
-        console.error(`Invalid days: ${argv[i]}. Must be 1-365.`);
-        process.exit(1);
-      }
-      days = val;
-    } else if (arg === "--out") {
-      outPath = argv[++i];
-      if (!outPath) {
-        console.error("Missing value for --out");
-        process.exit(1);
-      }
-    } else {
-      console.error(`Unknown argument: ${arg}`);
-      process.exit(1);
+  if (typeof s.last_charged !== "number" || !Number.isFinite(s.last_charged) || s.last_charged <= 0) {
+    return `invalid last_charged: ${s.last_charged}`;
+  }
+  if (!Array.isArray(s.charge_history)) {
+    return "charge_history is not an array";
+  }
+  for (let i = 0; i < s.charge_history.length; i++) {
+    const ts = s.charge_history[i];
+    if (typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0) {
+      return `invalid charge_history[${i}]: ${ts}`;
     }
   }
+  return null;
+}
 
-  // Validate required env
-  if (!CONTRACT_ID) {
-    console.error("Error: CONTRACT_ID environment variable is required.");
-    console.error("Usage: CONTRACT_ID=your_contract_id tsx scripts/renewal-forecast.ts");
+/**
+ * Compute the mean of a numeric array.  Returns 0 for empty arrays.
+ * Never returns NaN or Infinity — callers can safely compare.
+ */
+export function safeMean(values: number[]): number {
+  const finite = values.filter((v) => Number.isFinite(v));
+  if (finite.length === 0) return 0;
+  let sum = 0;
+  for (const v of finite) {
+    sum += v;
+  }
+  return sum / finite.length;
+}
+
+/**
+ * Compute the sample standard deviation of a numeric array.
+ * Returns 0 for fewer than 2 finite values (prevents division by zero).
+ */
+export function safeStdDev(values: number[]): number {
+  const finite = values.filter((v) => Number.isFinite(v));
+  if (finite.length < 2) return 0;
+  const mean = safeMean(finite);
+  let sumSq = 0;
+  for (const v of finite) {
+    const diff = v - mean;
+    sumSq += diff * diff;
+  }
+  return Math.sqrt(sumSq / (finite.length - 1));
+}
+
+/**
+ * Compute inter-interval gaps from a sorted ascending array of timestamps.
+ * Returns the differences in seconds between consecutive entries.
+ * Filters out zero or negative gaps (which would indicate duplicate/bad data).
+ */
+export function computeIntervals(timestamps: number[]): number[] {
+  if (timestamps.length < 2) return [];
+  const gaps: number[] = [];
+  for (let i = 1; i < timestamps.length; i++) {
+    const gap = timestamps[i] - timestamps[i - 1];
+    if (Number.isFinite(gap) && gap > 0) {
+      gaps.push(gap);
+    }
+  }
+  return gaps;
+}
+
+/**
+ * Determine the confidence level based on the number of historical intervals.
+ */
+export function confidenceLevel(intervalCount: number): ConfidenceLevel {
+  if (intervalCount >= MIN_HISTORY_HIGH_CONFIDENCE) return "high";
+  if (intervalCount >= MIN_HISTORY_MEDIUM_CONFIDENCE) return "medium";
+  if (intervalCount >= 1) return "low";
+  return "insufficient_data";
+}
+
+/**
+ * Forecast the next renewal for a single subscription.
+ *
+ * Handles:
+ * - Inactive subscriptions → null forecast with reason
+ * - Paused subscriptions → null forecast with reason
+ * - No charge history → null forecast, insufficient_data
+ * - Single charge → uses configured interval, low confidence
+ * - Multiple charges → uses mean of actual inter-charge intervals,
+ *   with ±1 std-dev confidence band
+ * - All outputs are NaN/Inf-free by construction
+ */
+export function forecastSubscription(sub: SubscriptionSnapshot): ForecastEntry {
+  const base: Omit<ForecastEntry, "next_renewal" | "confidence_band"> = {
+    user: sub.user,
+    confidence: "insufficient_data",
+    reason: undefined,
+  };
+
+  // Inactive → no forecast
+  if (!sub.active) {
+    return { ...base, next_renewal: null, confidence_band: null, reason: "subscription_inactive" };
+  }
+
+  // Paused → no forecast
+  if (sub.paused) {
+    return { ...base, next_renewal: null, confidence_band: null, reason: "subscription_paused" };
+  }
+
+  // Sort history ascending and compute inter-charge intervals
+  const sorted = [...sub.charge_history]
+    .filter((ts) => Number.isFinite(ts) && ts > 0)
+    .sort((a, b) => a - b);
+
+  const intervals = computeIntervals(sorted);
+  const level = confidenceLevel(intervals.length);
+
+  if (level === "insufficient_data") {
+    // No history at all — we cannot forecast, but we can use the
+    // configured interval as a fallback prediction.
+    if (sub.interval > 0 && Number.isFinite(sub.last_charged)) {
+      const predicted = sub.last_charged + sub.interval;
+      return {
+        ...base,
+        next_renewal: predicted,
+        confidence: "insufficient_data",
+        confidence_band: null,
+        reason: "no_charge_history_fallback_interval",
+      };
+    }
+    return { ...base, next_renewal: null, confidence_band: null, reason: "no_charge_history" };
+  }
+
+  // Compute forecast from actual intervals
+  const meanInterval = safeMean(intervals);
+  const stdDev = safeStdDev(intervals);
+
+  // Use the last known charge timestamp as anchor
+  const anchor = sorted.length > 0 ? sorted[sorted.length - 1] : sub.last_charged;
+  if (!Number.isFinite(anchor) || anchor <= 0) {
+    return { ...base, next_renewal: null, confidence_band: null, reason: "invalid_anchor_timestamp" };
+  }
+
+  const predicted = anchor + meanInterval;
+
+  // Confidence band: ±1 std-dev; clamp to at least ±10% of the interval
+  // to avoid degenerate zero-width bands when history is very regular.
+  const bandMargin = Math.max(stdDev, meanInterval * 0.1);
+  const bandLow = predicted - bandMargin;
+  const bandHigh = predicted + bandMargin;
+
+  return {
+    user: sub.user,
+    next_renewal: Math.round(predicted), // integer seconds
+    confidence: level,
+    confidence_band: {
+      low: Math.round(bandLow),
+      high: Math.round(bandHigh),
+    },
+    reason: undefined,
+  };
+}
+
+/**
+ * Generate a full forecast report from a list of subscription snapshots.
+ * Performs input validation and returns structured results with no NaN/Inf.
+ */
+export function forecastRenewals(subs: SubscriptionSnapshot[]): ForecastReport {
+  const forecasts: ForecastEntry[] = [];
+  let forecastable = 0;
+  let insufficientData = 0;
+  let paused = 0;
+  let inactive = 0;
+
+  for (const sub of subs) {
+    const validationError = validateSnapshot(sub);
+    if (validationError) {
+      forecasts.push({
+        user: sub?.user ?? "unknown",
+        next_renewal: null,
+        confidence: "insufficient_data",
+        confidence_band: null,
+        reason: `validation_error: ${validationError}`,
+      });
+      insufficientData++;
+      continue;
+    }
+
+    const entry = forecastSubscription(sub);
+
+    if (!entry.next_renewal) {
+      if (entry.reason === "subscription_inactive") inactive++;
+      else if (entry.reason === "subscription_paused") paused++;
+      else insufficientData++;
+    } else {
+      forecastable++;
+    }
+
+    forecasts.push(entry);
+  }
+
+  return {
+    generated_at: new Date().toISOString(),
+    total: subs.length,
+    forecastable,
+    insufficient_data: insufficientData,
+    paused,
+    inactive,
+    forecasts,
+  };
+}
+
+// ── CLI helpers ──────────────────────────────────────────────────────────────
+
+function getArg(flag: string): string | undefined {
+  const idx = process.argv.indexOf(flag);
+  return idx !== -1 ? process.argv[idx + 1] : undefined;
+}
+
+function hasFlag(flag: string): boolean {
+  return process.argv.includes(flag);
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+function main(): void {
+  const stdinMode = hasFlag("--stdin");
+  const dbPath = getArg("--db");
+  const jsonMode = hasFlag("--json");
+  const outFile = getArg("--out");
+
+  if (!stdinMode && !dbPath) {
+    // Default: try reading from DB, fall back to stdin
+    const dataDir = process.env.DATA_DIR ?? "data";
+    const defaultDb = process.env.DB_FILE ?? resolve(dataDir, "events.db");
+    if (existsSync(defaultDb)) {
+      console.error(`Reading from default DB: ${defaultDb}`);
+      console.error("Use --db <path> or --stdin to specify input.");
+      process.exit(1);
+    }
+    console.error("Error: No input specified. Use --db <path> or --stdin.");
+    console.error("Usage: npx tsx scripts/renewal-forecast.ts [--db <path>] [--stdin] [--json] [--out <file>]");
     process.exit(1);
   }
 
-  console.error(`Forecasting ${days} days of renewals for contract ${CONTRACT_ID}...`);
+  let snapshots: SubscriptionSnapshot[];
 
-  // ── Step 1: Compute forecast window ──────────────────────────────────────
-
-  const now = BigInt(Math.floor(Date.now() / 1000));
-  const todayDate = unixToDateStr(now);
-  const forecastEndUnix = now + BigInt(days * 86_400);
-  const forecastEndDate = unixToDateStr(forecastEndUnix);
-
-  // ── Step 2: Page through subscriber index ─────────────────────────────────
-
-  const totalSubscribers = await getSubscriberCount();
-  console.error(`Total subscriber index size: ${totalSubscribers}`);
-
-  const activeSubs: SubInfo[] = [];
-  let offset = 0n;
-
-  while (offset < totalSubscribers) {
-    const page = await getSubscriberPage(offset, PAGE_SIZE);
-    if (page.length === 0) break;
-
-    // Fetch subscription details in parallel for each address in the page
-    const results = await Promise.all(
-      page.map((addr) => getSubscription(addr))
-    );
-
-    for (const sub of results) {
-      if (sub && sub.active && !sub.paused) {
-        activeSubs.push(sub);
-      }
+  if (stdinMode) {
+    const raw = readFileSync(0, "utf-8");
+    try {
+      snapshots = JSON.parse(raw) as SubscriptionSnapshot[];
+    } catch (err) {
+      console.error(`Error: Failed to parse JSON from stdin: ${err}`);
+      process.exit(1);
     }
-
-    // Advance by page size, not returned count — contract skips pruned slots
-    // in the scan window but the window always covers `limit` index positions.
-    offset += BigInt(PAGE_SIZE);
-    console.error(
-      `  Scanned through ${offset < totalSubscribers ? offset : totalSubscribers}/${totalSubscribers} slots (${activeSubs.length} active so far)...`
-    );
+  } else {
+    console.error(`DB mode not yet implemented. Use --stdin with JSON input.`);
+    console.error("Pipe from subscription-snapshot.ts or provide fixture JSON.");
+    process.exit(1);
   }
 
-  console.error(`Found ${activeSubs.length} active (non-paused) subscribers.`);
-
-  if (activeSubs.length === 0) {
-    const emptyResult = buildResult(new Map(), todayDate, forecastEndDate, 0);
-    const output = format === "json" ? formatJson(emptyResult) : formatCsv(emptyResult);
-    if (outPath) {
-      writeFileSync(outPath, output);
-      console.error(`Wrote forecast to ${outPath}`);
-    } else {
-      process.stdout.write(output + "\n");
-    }
-    return;
+  if (!Array.isArray(snapshots)) {
+    console.error("Error: Input must be a JSON array of subscription snapshots.");
+    process.exit(1);
   }
 
-  // ── Step 3: Project charges into daily buckets ───────────────────────────
+  const report = forecastRenewals(snapshots);
 
-  const buckets = new Map<string, DailyBucket>();
+  const output = jsonMode || outFile
+    ? JSON.stringify(report, null, 2)
+    : formatHumanReadable(report);
 
-  for (const sub of activeSubs) {
-    const nextCharge = computeNextChargeAt(sub, now);
-    if (nextCharge === null) continue; // Shouldn't happen for active subs
-
-    // Walk forward through each projected charge within the forecast window.
-    // For long intervals (monthly/yearly), this may only produce 0-1 charges.
-    let chargeTime = nextCharge;
-
-    // If the computed next charge is already before `now`, it's overdue.
-    // In that case the charge is due immediately (today).
-    if (chargeTime < now) {
-      chargeTime = now;
-    }
-
-    while (chargeTime <= forecastEndUnix) {
-      const dateStr = unixToDateStr(chargeTime);
-      const existing = buckets.get(dateStr);
-      if (existing) {
-        existing.count += 1;
-        existing.totalVolumeStroops += sub.amount;
-      } else {
-        buckets.set(dateStr, {
-          date: dateStr,
-          count: 1,
-          totalVolumeStroops: sub.amount,
-        });
-      }
-      chargeTime += sub.interval;
-    }
-  }
-
-  // ── Step 4: Build and output ─────────────────────────────────────────────
-
-  const result = buildResult(buckets, todayDate, forecastEndDate, activeSubs.length);
-  const output = format === "json" ? formatJson(result) : formatCsv(result);
-
-  if (outPath) {
-    writeFileSync(outPath, output);
-    console.error(`Wrote forecast to ${outPath}`);
+  if (outFile) {
+    writeFileSync(outFile, output);
+    console.error(`Wrote forecast to ${outFile}`);
   } else {
     process.stdout.write(output + "\n");
   }
-  printSummary(result);
 }
 
-main().catch((err) => {
-  console.error(`Fatal error: ${err instanceof Error ? err.message : err}`);
-  process.exit(1);
-});
+/**
+ * Format a forecast report as a human-readable summary.
+ */
+function formatHumanReadable(report: ForecastReport): string {
+  const lines: string[] = [];
+  lines.push("═══════════════════════════════════════════════════════════════");
+  lines.push("  FlowPay Renewal Forecast");
+  lines.push(`  Generated: ${report.generated_at}`);
+  lines.push("═══════════════════════════════════════════════════════════════");
+  lines.push("");
+  lines.push(`  Total subscriptions:  ${report.total}`);
+  lines.push(`  Forecastable:         ${report.forecastable}`);
+  lines.push(`  Insufficient data:    ${report.insufficient_data}`);
+  lines.push(`  Paused:               ${report.paused}`);
+  lines.push(`  Inactive:             ${report.inactive}`);
+  lines.push("");
+
+  const grouped: Record<string, ForecastEntry[]> = {
+    forecastable: [],
+    insufficient_data: [],
+    paused: [],
+    inactive: [],
+  };
+
+  for (const f of report.forecasts) {
+    if (!f.next_renewal) {
+      if (f.reason === "subscription_inactive") grouped.inactive.push(f);
+      else if (f.reason === "subscription_paused") grouped.paused.push(f);
+      else grouped.insufficient_data.push(f);
+    } else {
+      grouped.forecastable.push(f);
+    }
+  }
+
+  if (grouped.forecastable.length > 0) {
+    lines.push("── Forecastable ────────────────────────────────────────────────");
+    for (const f of grouped.forecastable) {
+      const date = new Date(f.next_renewal * 1000).toISOString();
+      const band = f.confidence_band
+        ? `[${new Date(f.confidence_band.low * 1000).toISOString()} — ${new Date(f.confidence_band.high * 1000).toISOString()}]`
+        : "";
+      lines.push(`  ${f.user}  →  ${date}  (${f.confidence})  ${band}`);
+    }
+    lines.push("");
+  }
+
+  if (grouped.insufficient_data.length > 0) {
+    lines.push("── Insufficient Data ────────────────────────────────────────────");
+    for (const f of grouped.insufficient_data) {
+      lines.push(`  ${f.user}  →  ${f.reason ?? "unknown"}`);
+    }
+    lines.push("");
+  }
+
+  if (grouped.paused.length > 0) {
+    lines.push("── Paused ──────────────────────────────────────────────────────");
+    for (const f of grouped.paused) {
+      lines.push(`  ${f.user}`);
+    }
+    lines.push("");
+  }
+
+  if (grouped.inactive.length > 0) {
+    lines.push("── Inactive ────────────────────────────────────────────────────");
+    for (const f of grouped.inactive) {
+      lines.push(`  ${f.user}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+// Only run main() when THIS file is the entry point (not when imported for testing)
+const _thisFile = basename(fileURLToPath(import.meta.url));
+const _entryFile = basename(process.argv[1] ?? "");
+
+if (_entryFile === _thisFile) {
+  main();
+}
