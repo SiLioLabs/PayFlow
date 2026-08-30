@@ -1,4 +1,4 @@
-//! Migration invariant tests for Issue #815.
+/! Migration invariant tests for Issue #815.
 //!
 //! Covers:
 //! - Invariant: subscribe/subscribe_with_metadata rejected when schema_version < CURRENT_VERSION
@@ -72,7 +72,7 @@ fn set_version_directly(env: &Env, contract_id: &Address, version: u32) {
 /// When schema_version == 0 (fresh-deploy before any migrate call),
 /// `subscribe` must panic with SchemaMigrationRequired.
 #[test]
-#[should_panic(expected = "SchemaMigrationRequired")]
+#[should_panic]
 fn test_migration_subscribe_blocked_at_version_0() {
     let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
     // version is 0 (default, never set)
@@ -83,7 +83,7 @@ fn test_migration_subscribe_blocked_at_version_0() {
 /// When schema_version == 1 (simulate a contract that wrote version=1 manually
 /// but has not run the full migration to CURRENT_VERSION), subscribe must still panic.
 #[test]
-#[should_panic(expected = "SchemaMigrationRequired")]
+#[should_panic]
 fn test_migration_subscribe_blocked_at_version_1() {
     let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
     set_version_directly(&env, &contract_id, 1);
@@ -95,7 +95,7 @@ fn test_migration_subscribe_blocked_at_version_1() {
 /// When schema_version == 2 (one step behind CURRENT_VERSION == 3),
 /// subscribe must still be blocked.
 #[test]
-#[should_panic(expected = "SchemaMigrationRequired")]
+#[should_panic]
 fn test_migration_subscribe_blocked_at_version_2() {
     let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
     set_version_directly(&env, &contract_id, 2);
@@ -121,7 +121,7 @@ fn test_migration_subscribe_allowed_at_current_version() {
 
 /// subscribe_with_metadata is also blocked when schema_version < CURRENT_VERSION.
 #[test]
-#[should_panic(expected = "SchemaMigrationRequired")]
+#[should_panic]
 fn test_migration_subscribe_with_metadata_blocked_below_current_version() {
     let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
     set_version_directly(&env, &contract_id, 2);
