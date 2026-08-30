@@ -5,10 +5,12 @@ use crate::events;
 use crate::fee;
 use crate::grace;
 use crate::merchant_stats;
+use crate::spending_limit;
 use crate::storage;
 use crate::subscription_history;
 use crate::validation;
-use crate::{extend_subscription_ttl, DataKey, Subscription};
+use crate::whitelist;
+use crate::{extend_subscription_ttl, DataKey, MAX_AMOUNT, Subscription};
 
 /// Outcome of dry-running/simulating a charge() call.
 #[contracttype]
@@ -76,6 +78,87 @@ pub fn simulate_charge(env: &Env, user: Address) -> ChargeSimResult {
     }
 
     ChargeSimResult::WouldSucceed
+}
+
+/// Outcome of dry-running/simulating a `pay_per_use` / `pay_per_use_to` call.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PayPerUseSimResult {
+    WouldSucceed,
+    Inactive,
+    InsufficientAllowance,
+    ContractPaused,
+    SubscriptionPaused,
+    /// `amount` is not positive (`AmountMustBePositive`).
+    AmountMustBePositive,
+    /// `amount` exceeds the per-call cap (`MAX_AMOUNT`, `AmountExceedsMaximum`).
+    AmountExceedsMaximum,
+    /// The daily spending limit would be exceeded (`DailyLimitExceeded`).
+    DailyLimitExceeded,
+    /// `pay_per_use_to` recipient is the contract's own address (`InvalidRecipient`).
+    InvalidRecipient,
+    /// The whitelist is enabled and `pay_per_use_to` recipient is not whitelisted.
+    MerchantNotWhitelisted,
+}
+
+/// Simulates a `pay_per_use` / `pay_per_use_to` call without making any state
+/// modifications. `recipient == None` mirrors `pay_per_use` (payment routed to
+/// the subscription merchant, no re-validation of the merchant whitelist);
+/// `Some(recipient)` mirrors `pay_per_use_to`.
+pub fn simulate_pay_per_use(
+    env: &Env,
+    user: Address,
+    amount: i128,
+    recipient: Option<Address>,
+) -> PayPerUseSimResult {
+    if storage::is_contract_paused(env) {
+        return PayPerUseSimResult::ContractPaused;
+    }
+    if amount <= 0 {
+        return PayPerUseSimResult::AmountMustBePositive;
+    }
+    if amount > MAX_AMOUNT {
+        return PayPerUseSimResult::AmountExceedsMaximum;
+    }
+
+    let key = DataKey::Subscription(user.clone());
+    let sub: Option<Subscription> = env.storage().persistent().get(&key);
+    let sub = match sub {
+        None => return PayPerUseSimResult::Inactive,
+        Some(s) => s,
+    };
+
+    if sub.paused {
+        return PayPerUseSimResult::SubscriptionPaused;
+    }
+    if !sub.active {
+        return PayPerUseSimResult::Inactive;
+    }
+
+    let is_pay_per_use_to = recipient.is_some();
+    let recipient = recipient.unwrap_or_else(|| sub.merchant.clone());
+
+    if is_pay_per_use_to {
+        if recipient == env.current_contract_address() {
+            return PayPerUseSimResult::InvalidRecipient;
+        }
+        if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &recipient) {
+            return PayPerUseSimResult::MerchantNotWhitelisted;
+        }
+    }
+
+    if let Some(limit) = spending_limit::get_daily_limit(env, &user) {
+        let spent = spending_limit::get_daily_spent(env, &user);
+        if spent + amount > limit {
+            return PayPerUseSimResult::DailyLimitExceeded;
+        }
+    }
+
+    if !validation::has_sufficient_allowance(env, &user, &sub.token, amount) {
+        return PayPerUseSimResult::InsufficientAllowance;
+    }
+
+    PayPerUseSimResult::WouldSucceed
 }
 
 /// Returns the next charge timestamp for a subscription, or `None` if not chargeable.

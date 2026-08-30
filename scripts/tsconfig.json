@@ -8,6 +8,7 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "strict": true,
+    "noUnusedLocals": true,
     "skipLibCheck": true,
     "types": ["node"],
     "typeRoots": ["./node_modules/@types"]

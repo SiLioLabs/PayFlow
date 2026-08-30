@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,6 +46,38 @@ const SAMPLE_SUBSCRIBER = {
   lastCharged: NOW - 2592000,
   nextChargeAt: NOW + 2592000, // future → active
 };
+
+interface MockTxState {
+  status: "idle" | "pending" | "success" | "failed";
+  submit: (fn: () => Promise<string>) => Promise<string>;
+  error: string | null;
+  hash: string | null;
+}
+
+const idleTx = (): MockTxState => ({
+  status: "idle",
+  submit: vi.fn(async (fn) => fn()),
+  error: null,
+  hash: null,
+});
+
+// MerchantDashboard calls useTransaction() twice: first for the batch-charge
+// flow, then for the withdraw flow. Hooks are called in the same order on
+// every render, so alternating by call count lets tests control each
+// instance independently.
+function mockUseTransaction(overrides: {
+  batch?: Partial<MockTxState>;
+  withdraw?: Partial<MockTxState>;
+}) {
+  const batchState: MockTxState = { ...idleTx(), ...overrides.batch };
+  const withdrawState: MockTxState = { ...idleTx(), ...overrides.withdraw };
+  let call = 0;
+  vi.mocked(useTransaction).mockImplementation(() => {
+    call += 1;
+    return call % 2 === 1 ? batchState : withdrawState;
+  });
+  return { batchState, withdrawState };
+}
 
 describe("MerchantDashboard", () => {
   beforeEach(() => {
@@ -154,5 +186,111 @@ describe("MerchantDashboard", () => {
     expect(screen.getByText("Charged")).toBeTruthy();
     expect(stellar.simulateBatchCharge).toHaveBeenCalled();
     expect(stellar.buildBatchChargeTx).toHaveBeenCalled();
+  });
+
+  // ── Withdraw revenue ────────────────────────────────────────────────────
+
+  it("disables the withdraw button when revenue is zero", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
+    mockUseTransaction({});
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    const button = await screen.findByTestId("withdraw-revenue-button");
+    expect(button).toBeDisabled();
+  });
+
+  it("enables the withdraw button when revenue is positive", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n);
+    mockUseTransaction({});
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    const button = await screen.findByTestId("withdraw-revenue-button");
+    await waitFor(() => expect(button).not.toBeDisabled());
+  });
+
+  it("opens a confirmation showing the amount, and cancel closes it without building a tx", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n);
+    mockUseTransaction({});
+    const user = userEvent.setup();
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    const withdrawButton = await screen.findByTestId("withdraw-revenue-button");
+    await waitFor(() => expect(withdrawButton).not.toBeDisabled());
+    await user.click(withdrawButton);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByText(/5\.0000000 XLM/)).toBeTruthy();
+
+    await user.click(screen.getByTestId("withdraw-cancel-button"));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(stellar.buildWithdrawMerchantRevenueTx).not.toHaveBeenCalled();
+  });
+
+  it("confirming withdraws, signs, shows success, and refreshes revenue", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n);
+    vi.mocked(stellar.buildWithdrawMerchantRevenueTx).mockResolvedValue("withdraw-xdr");
+    const onSign = vi.fn().mockResolvedValue("tx-hash");
+    const mockSubmit = vi.fn(async (fn) => {
+      await fn();
+      return "tx-hash";
+    });
+    mockUseTransaction({ withdraw: { status: "success", submit: mockSubmit } });
+    const user = userEvent.setup();
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
+
+    const withdrawButton = await screen.findByTestId("withdraw-revenue-button");
+    await waitFor(() => expect(withdrawButton).not.toBeDisabled());
+    await user.click(withdrawButton);
+    await user.click(screen.getByTestId("withdraw-confirm-button"));
+
+    await waitFor(() => expect(screen.getByText(/Revenue withdrawn successfully!/i)).toBeTruthy());
+
+    expect(stellar.buildWithdrawMerchantRevenueTx).toHaveBeenCalledWith("GMERCHANT");
+    expect(onSign).toHaveBeenCalledWith("withdraw-xdr");
+    expect(mockSubmit).toHaveBeenCalled();
+    // Initial mount fetches revenue once; a successful withdraw triggers a refresh.
+    await waitFor(() =>
+      expect(vi.mocked(stellar.getMerchantRevenue).mock.calls.length).toBeGreaterThanOrEqual(2)
+    );
+  });
+
+  it("surfaces a friendly message and does not silently succeed on ZeroBalanceAvailable", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n);
+    vi.mocked(stellar.buildWithdrawMerchantRevenueTx).mockResolvedValue("withdraw-xdr");
+    const onSign = vi.fn().mockResolvedValue("tx-hash");
+    const failingSubmit = vi
+      .fn()
+      .mockRejectedValue(new Error("ContractError(#21): ZeroBalanceAvailable"));
+    mockUseTransaction({
+      withdraw: {
+        status: "failed",
+        submit: failingSubmit,
+        error: "ContractError(#21): ZeroBalanceAvailable",
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
+
+    const withdrawButton = await screen.findByTestId("withdraw-revenue-button");
+    await waitFor(() => expect(withdrawButton).not.toBeDisabled());
+    await user.click(withdrawButton);
+    await user.click(screen.getByTestId("withdraw-confirm-button"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/You have no withdrawable revenue yet\./i)).toBeTruthy()
+    );
+    expect(screen.queryByText(/Revenue withdrawn successfully!/i)).toBeNull();
   });
 });

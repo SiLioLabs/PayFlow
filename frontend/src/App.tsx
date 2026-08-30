@@ -3,12 +3,15 @@ import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useAdmin } from "./hooks/useAdmin";
+import { useContractPaused } from "./hooks/useContractPaused";
+import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import MerchantDashboard from "./components/MerchantDashboard";
 import WalletSelectModal from "./components/WalletSelectModal";
 import WalletBar from "./components/WalletBar";
 import TabBar from "./components/TabBar";
+import ContractPauseBanner from "./components/ContractPauseBanner";
 import AdminDashboard from "./pages/AdminDashboard";
 import type { WalletAdapter } from "./services/wallets/WalletAdapter";
 
@@ -20,6 +23,13 @@ export default function App() {
   const { announcement, announce } = useAccessibility();
   const { networkMatch, walletNetwork } = useNetworkCheck();
   const { isAdmin } = useAdmin(publicKey);
+  const { isPaused } = useContractPaused();
+  // Dashboard/SubscribeForm/MerchantDashboard/admin panels each keep their own
+  // useToast() instance (and their own tests mock them independently), so
+  // centralizing every toast call site into one shared instance is out of
+  // scope here. This App-level instance exists solely to drive the header's
+  // NotificationCenter (issue #864).
+  const { notifications, unreadCount, markAllRead, clearNotifications } = useToast();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [refresh, setRefresh] = useState(0);
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -36,6 +46,10 @@ export default function App() {
 
   return (
     <div style={{ maxWidth: 480, margin: "60px auto", padding: "0 16px" }}>
+      {/* Contract pause banner — rendered first so it takes precedence over
+          everything else, including toasts (see index.css stacking rules). */}
+      <ContractPauseBanner paused={isPaused} />
+
       {/* ARIA live region for screen reader announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
@@ -88,6 +102,10 @@ export default function App() {
             publicKey={publicKey}
             activeAdapter={activeAdapter}
             onDisconnect={disconnect}
+            notifications={notifications}
+            unreadCount={unreadCount}
+            onMarkAllRead={markAllRead}
+            onClearNotifications={clearNotifications}
           />
 
           {/* Tab navigation — admin tab only visible to contract admin */}
@@ -111,6 +129,7 @@ export default function App() {
                 onSign={signAndSubmit}
                 refreshTrigger={refresh}
                 announce={announce}
+                isPaused={isPaused}
               />
             )}
             {tab === "merchant" && (
@@ -118,6 +137,7 @@ export default function App() {
                 merchantKey={publicKey}
                 onSign={signAndSubmit}
                 refreshTrigger={refresh}
+                isPaused={isPaused}
               />
             )}
             {tab === "admin" && isAdmin && (

@@ -3,6 +3,7 @@ import {
   getMerchantSubscribers,
   type MerchantSubscriber,
   buildBatchChargeTx,
+  buildWithdrawMerchantRevenueTx,
   simulateBatchCharge,
   type BatchChargeOutcome,
   getMerchantRevenue,
@@ -20,6 +21,7 @@ import EventFeed from "./EventFeed";
 import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
+import ConfirmModal from "./ConfirmModal";
 
 const SUBSCRIBER_ROW_HEIGHT = 72;
 const SUBSCRIBER_LIST_HEIGHT = 400;
@@ -49,6 +51,8 @@ export default function MerchantDashboard({
   const [error, setError] = useState<string | null>(null);
 
   const tx = useTransaction();
+  const withdrawTx = useTransaction();
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const { isMobile } = useResponsive();
   const { displayCurrentAmount } = useAmountDisplay();
   const [outcomes, setOutcomes] = useState<Record<string, BatchChargeOutcome>>({});
@@ -116,6 +120,21 @@ export default function MerchantDashboard({
     }
   };
 
+  const handleWithdraw = async () => {
+    setShowWithdrawConfirm(false);
+
+    try {
+      await withdrawTx.submit(async () => {
+        return await onSign(await buildWithdrawMerchantRevenueTx(merchantKey));
+      });
+
+      // Success — refresh so revenue reflects the new (zero) balance
+      await refresh();
+    } catch (e) {
+      console.error("Withdraw failed:", e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="dashboard">
@@ -156,6 +175,19 @@ export default function MerchantDashboard({
         <div className="card">
           <span className="text-sm text-muted block mb-1">Total Revenue</span>
           <span className="text-2xl font-bold">{displayCurrentAmount(revenue)}</span>
+          <button
+            className="btn-primary w-full mt-2"
+            data-testid="withdraw-revenue-button"
+            onClick={() => setShowWithdrawConfirm(true)}
+            disabled={revenue <= 0n || withdrawTx.status === "pending"}
+          >
+            {withdrawTx.status === "pending" ? "Withdrawing..." : "Withdraw Revenue"}
+          </button>
+          {withdrawTx.status === "success" && (
+            <p className="text-sm text-center mt-2" style={{ color: "var(--color-success)" }}>
+              Revenue withdrawn successfully!
+            </p>
+          )}
         </div>
         <div className="card">
           <span className="text-sm text-muted block mb-2">Last 7 Days Revenue</span>
@@ -166,6 +198,18 @@ export default function MerchantDashboard({
       {error && <ErrorRecovery error={error} />}
 
       {tx.error && <ErrorRecovery error={tx.error} />}
+
+      {withdrawTx.error && <ErrorRecovery error={withdrawTx.error} />}
+
+      {showWithdrawConfirm && (
+        <ConfirmModal
+          message={`Withdraw ${displayCurrentAmount(revenue)} to your wallet? This transfers your full accrued revenue balance and cannot be undone.`}
+          onConfirm={handleWithdraw}
+          onCancel={() => setShowWithdrawConfirm(false)}
+          confirmTestId="withdraw-confirm-button"
+          cancelTestId="withdraw-cancel-button"
+        />
+      )}
 
       {subscribers.length === 0 ? (
         <div className="card">

@@ -45,6 +45,11 @@ The keeper must page through the full subscriber index using `get_subscriber_ind
 
 ---
 
+
+>  **Panic warning**  
+> While `batch_charge` returns a `ChargeResult` for normal skips, it **panics** (aborts the entire batch) if any user’s token allowance or balance is insufficient to cover the **gross** subscription amount (including protocol fees). The same happens if the token address is invalid.  
+> Therefore, before calling `batch_charge`, always run `simulate_charge` (or `get_batch_charge_estimate`) on the candidate list, and use `check-allowances.ts` to verify that each user has enough allowance. See [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md#batch_charge-failure-semantics) for the full failure‑modes table.
+
 ## Running the Reference Keeper
 
 ### Prerequisites

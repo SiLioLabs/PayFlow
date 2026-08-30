@@ -25,6 +25,9 @@ pub fn extend_trial(env: &Env, user: &Address, additional_seconds: u64) {
     if !sub.active {
         env.panic_with_error(crate::errors::ContractError::SubscriptionInactive);
     }
+    if sub.paused {
+        env.panic_with_error(crate::errors::ContractError::SubscriptionPaused);
+    }
 
     // Fail closed with a typed error rather than a string panic when the trial
     // end would run past u64::MAX.
