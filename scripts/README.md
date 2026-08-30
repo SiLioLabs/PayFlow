@@ -590,7 +590,8 @@ across all scripts:
 | `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                        |
 | `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                               |
 | `START_LEDGER`         | indexer                                         | First-run start ledger                                                               |
-| `LOG_LEVEL`            | keeper, indexer                                 | Log verbosity                                                                        |
+| `LOG_LEVEL`            | keeper, indexer, health-check, alert-failed-charges | Log verbosity (`debug` \| `info` \| `warn` \| `error`, default `info`)          |
+| `LOG_FORMAT`           | keeper, indexer, health-check, alert-failed-charges | Set to `json` for JSON-lines output (recommended in Docker)                     |
 ## Related
 
 - Mainnet gates: [`docs/MAINNET-DEPLOYMENT.md`](../docs/MAINNET-DEPLOYMENT.md)
