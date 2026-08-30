@@ -63,17 +63,16 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      console.error(
-        `Webhook responded with HTTP ${response.status}: ${response.statusText}`,
-      logger.error(
-        `Webhook responded with HTTP ${response.status}: ${response.statusText}`
-      );
+      logger.error("Webhook responded with non-OK status", {
+        status: response.status,
+        status_text: response.statusText,
+      });
     } else {
-      logger.error(`Webhook delivered successfully (HTTP ${response.status})`);
+      logger.info("Webhook delivered successfully", { status: response.status });
     }
   } catch (err) {
     // Log failure but do not crash — callers rely on non-zero exit only for fatal errors
-    logger.error(`Webhook delivery failed: ${err}`);
+    logger.error("Webhook delivery failed", { error: String(err) });
   }
 }
 
@@ -82,7 +81,8 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
 async function main(): Promise<void> {
   const webhookUrl = process.env.WEBHOOK_URL;
   if (!webhookUrl) {
-    logger.error("Error: WEBHOOK_URL environment variable is required.");
+    // console.error is intentional here — this is a fatal pre-init config error.
+    console.error("Error: WEBHOOK_URL environment variable is required.");
     process.exit(1);
   }
 
@@ -90,11 +90,14 @@ async function main(): Promise<void> {
   const sinceArg = getArg("--since");
   const sinceTs = sinceArg ? parseInt(sinceArg, 10) : 0;
 
+  // Child logger with required context fields.
+  const log = logger.child({ script: "alert-failed-charges", db: dbPath });
+
   let db: InstanceType<typeof DatabaseSync>;
   try {
     db = new DatabaseSync(dbPath, { open: true });
   } catch (err) {
-    logger.error(`Failed to open database at ${dbPath}: ${err}`);
+    log.error("Failed to open database", { db: dbPath, error: String(err) });
     process.exit(1);
   }
 
@@ -123,16 +126,18 @@ async function main(): Promise<void> {
   };
 
   if (failedCharges.length === 0) {
-    logger.error("No failed charges found. No webhook sent.");
-    logger.info(JSON.stringify(payload, null, 2));
+    log.info("No failed charges found. No webhook sent.", { since_ts: sinceTs });
     return;
   }
 
-  logger.info(JSON.stringify(payload, null, 2));
+  log.info("Sending failed-charge alert", {
+    total_failed: payload.total_failed,
+    since_ts: sinceTs,
+  });
   await sendWebhook(webhookUrl, payload);
 }
 
 main().catch((err) => {
-  logger.error(`Fatal error: ${err}`);
+  logger.error("Fatal error", { error: String(err) });
   process.exit(1);
 });

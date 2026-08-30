@@ -36,14 +36,13 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { logger as rootLogger } from "./logger";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "10000", 10);
-const LOG_LEVEL = (process.env.LOG_LEVEL ?? "info") as
-  "debug" | "info" | "error";
 
 const DATA_DIR = process.env.DATA_DIR ?? "data";
 const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
@@ -52,27 +51,24 @@ const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
 const SCHEMA_VERSION = 1;
 
 if (!CONTRACT_ID) {
+  // console.error is intentional here — logger child cannot be constructed
+  // before CONTRACT_ID is resolved; this is a fatal pre-init error.
   console.error("Error: CONTRACT_ID environment variable is required.");
   console.error("Usage: CONTRACT_ID=<id> tsx indexer.ts");
   process.exit(1);
 }
 
-// ── Logging ───────────────────────────────────────────────────────────────────
+// ── Logger ────────────────────────────────────────────────────────────────────
 
-const LEVELS = { debug: 0, info: 1, error: 2 } as const;
-const currentLevel = LEVELS[LOG_LEVEL] ?? LEVELS.info;
-
-function log(level: "debug" | "info" | "error", msg: string): void {
-  if (LEVELS[level] >= currentLevel) {
-    const ts = new Date().toISOString();
-    const out = `${ts} [${level.toUpperCase()}] ${msg}`;
-    if (level === "error") {
-      console.error(out);
-    } else {
-      console.log(out);
-    }
-  }
-}
+/**
+ * Child logger with required context fields bound. Respects LOG_LEVEL env var
+ * (debug|info|warn|error) via the shared logger implementation.
+ */
+const logger = rootLogger.child({
+  script: "indexer",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -147,11 +143,11 @@ function initSchema(db: DatabaseSync): void {
   const existingVersion = getMeta(db, "schema_version");
   if (existingVersion === null) {
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    log("info", `Database schema initialised at version ${SCHEMA_VERSION}.`);
+    logger.info("Database schema initialised", { schema_version: SCHEMA_VERSION });
   } else if (parseInt(existingVersion, 10) < SCHEMA_VERSION) {
     // Future migrations would go here, guarded by the version number.
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    log("info", `Database schema migrated to version ${SCHEMA_VERSION}.`);
+    logger.info("Database schema migrated", { schema_version: SCHEMA_VERSION });
   }
 }
 
@@ -297,7 +293,7 @@ const server = new Server(RPC_URL);
  * into the DB, and return the new cursor ledger to resume from next time.
  */
 async function pollOnce(db: DatabaseSync, fromLedger: number): Promise<number> {
-  log("debug", `Polling from ledger ${fromLedger}...`);
+  logger.debug("Polling for events", { from_ledger: fromLedger });
 
   let response: Awaited<ReturnType<typeof server.getEvents>>;
   try {
@@ -307,10 +303,10 @@ async function pollOnce(db: DatabaseSync, fromLedger: number): Promise<number> {
       limit: 200,
     });
   } catch (err) {
-    log(
-      "error",
-      `RPC getEvents failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error("RPC getEvents failed", {
+      from_ledger: fromLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Return the same ledger so we retry next tick rather than skipping ahead.
     return fromLedger;
   }
@@ -325,7 +321,7 @@ async function pollOnce(db: DatabaseSync, fromLedger: number): Promise<number> {
 
   if (parsed.length > 0) {
     const written = upsertEvents(db, parsed);
-    log("info", `Ledger ${fromLedger}: upserted ${written} event(s).`);
+    logger.info("Events upserted", { ledger: fromLedger, count: written });
   }
 
   // Advance cursor to latestLedger + 1 so the next poll only sees new ledgers.
@@ -350,11 +346,10 @@ async function resolveStartLedger(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  log("info", "FlowPay Event Indexer starting.");
-  log("info", `RPC:      ${RPC_URL}`);
-  log("info", `Contract: ${CONTRACT_ID}`);
-  log("info", `DB:       ${DB_FILE}`);
-  log("info", `Interval: ${POLL_INTERVAL_MS}ms`);
+  logger.info("FlowPay Event Indexer starting", {
+    db: DB_FILE,
+    poll_interval_ms: POLL_INTERVAL_MS,
+  });
 
   const db = openDatabase(DB_FILE);
   initSchema(db);
@@ -364,26 +359,23 @@ async function main(): Promise<void> {
   let currentLedger: number;
   if (savedLedger !== null) {
     currentLedger = parseInt(savedLedger, 10);
-    log("info", `Resuming from ledger ${currentLedger} (stored in DB).`);
+    logger.info("Resuming from stored ledger", { last_ledger: currentLedger });
   } else {
     currentLedger = await resolveStartLedger();
-    log("info", `First run — starting from ledger ${currentLedger}.`);
+    logger.info("First run — starting from ledger", { start_ledger: currentLedger });
     setMeta(db, "last_ledger", String(currentLedger));
   }
 
   // Graceful shutdown on SIGINT (Ctrl-C) and SIGTERM.
   let shutdown = false;
   const handleSignal = (): void => {
-    log(
-      "info",
-      "Shutdown signal received. Finishing current poll then exiting.",
-    );
+    logger.info("Shutdown signal received. Finishing current poll then exiting.");
     shutdown = true;
   };
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
-  log("info", "Indexer running. Press Ctrl-C to stop.");
+  logger.info("Indexer running. Press Ctrl-C to stop.");
 
   while (!shutdown) {
     const nextLedger = await pollOnce(db, currentLedger);
@@ -401,7 +393,7 @@ async function main(): Promise<void> {
   }
 
   db.close();
-  log("info", `Indexer stopped. Last indexed ledger: ${currentLedger}.`);
+  logger.info("Indexer stopped", { last_ledger: currentLedger });
   process.exit(0);
 }
 

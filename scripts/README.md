@@ -142,11 +142,11 @@ Or `npm run keeper` after exporting the same variables. Docker: see
 
 ### Expected health / behavior
 
-- Local process: logs `[LIVE] Keeper started in LIVE mode` or
-  `[DRY-RUN] Keeper started in DRY-RUN mode — no transactions will be submitted`.
-  There is **no** SIGINT/SIGTERM handler; loop mode sleeps `INTERVAL_SECONDS`
-  between cycles. `--once` exits 0 unless the cycle had errors and
-  `totalCharged === 0` (then exit 1).
+- Local process: logs `Keeper started in LIVE mode` or
+  `Keeper started in DRY-RUN mode — no transactions will be submitted` at INFO
+  level, with `mode` field in context. There is **no** SIGINT/SIGTERM handler;
+  loop mode sleeps `INTERVAL_SECONDS` between cycles. `--once` exits 0 unless
+  the cycle had errors and `totalCharged === 0` (then exit 1).
 - Docker image `HEALTHCHECK`: `wget` POST `getHealth` to
   `${RPC_URL:-https://soroban-testnet.stellar.org}` and grep
   `"status":"healthy"` (60 s interval). This probes **RPC**, not the keeper
@@ -156,13 +156,20 @@ Or `npm run keeper` after exporting the same variables. Docker: see
 Smoke after Compose:
 
 ```bash
-docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
+docker compose logs keeper | grep '"message":"Keeper started'
 ```
 
 ### Logs and metrics
 
-- Prefix logger: `[DRY-RUN]` or `[LIVE]` on stdout. `keeper.ts` does **not**
-  read `LOG_LEVEL`.
+- Structured logger: keeper uses the shared `logger.ts` with child context
+  `{script, contract, rpc}` bound on every line. `LOG_LEVEL` (default `info`)
+  is respected; set `LOG_FORMAT=json` for JSON lines (required in Docker).
+- A representative JSON log line emitted at startup:
+
+  ```json
+  {"timestamp":"2026-08-30T17:45:00.123Z","level":"INFO","message":"Keeper started in LIVE mode","script":"keeper","contract":"CAAAA...","rpc":"https://soroban-testnet.stellar.org","mode":"live"}
+  ```
+
 - Prometheus metrics are implemented in `metrics-server.ts`. **`keeper.ts` does
   not import that module**, so running the keeper alone does not expose
   `/metrics`. Run the metrics server separately if you need scrape targets.
@@ -176,6 +183,8 @@ docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
 | `BATCH_SIZE`         | `50` (clamped 1–50)              | Subscribers per `batch_charge` call                 |
 | `INTERVAL_SECONDS`   | `3600` (min 1)                   | Seconds between full charge cycles                  |
 | `DRY_RUN`            | unset → live (`=== "true"` only) | Simulate with `get_batch_charge_estimate`           |
+| `LOG_LEVEL`          | `info`                           | Minimum log level: `debug` \| `info` \| `warn` \| `error` |
+| `LOG_FORMAT`         | unset → human text               | Set to `json` for JSON-lines output (recommended in Docker) |
 | `REPORT_DIR`         | `<script_dir>/data/benchmarks`   | Dry-run reports and live-cycle pointer              |
 
 The `keeper.ts` file header still says `get_batch_charge_estimate` does not
@@ -458,7 +467,7 @@ keeper Dockerfile. Defaults are from source or `.env.example`.
 | `CHARGE_INTERVAL_MS` | `3600000` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
 | `PAGE_SIZE` | `100` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
 | `MAX_RETRIES` | `3` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
-| `LOG_LEVEL` | `info` | indexer | Log verbosity | Indexer: `debug` \| `info` \| `error`. Keeper does not read it. `.env.example` still lists it. |
+| `LOG_LEVEL` | `info` | keeper, indexer | Log verbosity | All four core scripts (keeper, indexer, health-check, alert-failed-charges) now use the shared logger and respect `LOG_LEVEL`. Set `LOG_FORMAT=json` for JSON-lines output. |
 | `DATA_DIR` | `data` | indexer | SQLite directory | Compose volume is `/app/data` if indexer is run there. Not in `.env.example`. |
 | `DB_FILE` | `DATA_DIR/events.db` | indexer | SQLite path override | Not in `.env.example`. |
 | `POLL_INTERVAL_MS` | `10000` | indexer | Event poll interval | Not in `.env.example`. |

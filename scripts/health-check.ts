@@ -29,9 +29,8 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
-import { Contract, Networks, TransactionBuilder, BASE_FEE, Address } from "@stellar/stellar-sdk";
 import { MultiEndpointServer } from "./rpc-client.js";
-import { logger } from "./logger";
+import { logger as rootLogger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -50,20 +49,13 @@ const NETWORK_PASSPHRASE =
 const SIMULATION_SOURCE =
   "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Logger ────────────────────────────────────────────────────────────────────
 
-function timestamp(): string {
-  return new Date().toISOString();
-}
-
-function log(status: "healthy" | "unhealthy", detail?: string): void {
-  const line = `${timestamp()} contract=${CONTRACT_ID || "NOT_SET"} status=${status}`;
-  if (detail) {
-    logger.info(`${line} detail=${detail}`);
-  } else {
-    logger.info(line);
-  }
-}
+const logger = rootLogger.child({
+  script: "health-check",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
 
 /**
  * Simulate a read-only contract call and return the raw result xdr.
@@ -102,7 +94,7 @@ async function simulateCall(server: MultiEndpointServer, fnName: string): Promis
 async function main(): Promise<void> {
   // Validate configuration
   if (!CONTRACT_ID) {
-    log("unhealthy", "CONTRACT_ID environment variable is not set");
+    logger.error("CONTRACT_ID environment variable is not set", { status: "unhealthy" });
     process.exit(1);
   }
 
@@ -112,23 +104,23 @@ async function main(): Promise<void> {
     // Call get_schema_version
     const schemaResult = await simulateCall(server, "get_schema_version");
     if (schemaResult === undefined || schemaResult === null) {
-      log("unhealthy", "get_schema_version returned no data");
+      logger.error("get_schema_version returned no data", { status: "unhealthy", check: "get_schema_version" });
       process.exit(1);
     }
 
     // Call get_active_count (active subscription count)
     const countResult = await simulateCall(server, "get_active_count");
     if (countResult === undefined || countResult === null) {
-      log("unhealthy", "get_active_count returned no data");
+      logger.error("get_active_count returned no data", { status: "unhealthy", check: "get_active_count" });
       process.exit(1);
     }
 
     // Both calls succeeded with valid responses
-    log("healthy");
+    logger.info("Contract health check passed", { status: "healthy" });
     process.exit(0);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    log("unhealthy", message);
+    logger.error("Contract health check failed", { status: "unhealthy", error: message });
     process.exit(1);
   }
 }

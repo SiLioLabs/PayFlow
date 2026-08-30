@@ -51,6 +51,7 @@ import {
   nativeToScVal,
   xdr,
 } from "@stellar/stellar-sdk";
+import { logger as rootLogger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -66,6 +67,19 @@ const REPORT_DIR = process.env.REPORT_DIR ?? path.join(__dirname, "data", "bench
 
 const server = new Server(RPC_URL);
 
+// ── Logger ────────────────────────────────────────────────────────────────────
+
+/**
+ * Child logger with required context fields bound. CONTRACT_ID and RPC_URL are
+ * intentionally included; KEEPER_SECRET is never logged.
+ * The `mode` field is set after DRY_RUN is known.
+ */
+const logger = rootLogger.child({
+  script: "keeper",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 function validateEnv(): void {
@@ -75,6 +89,8 @@ function validateEnv(): void {
   if (!DRY_RUN && !KEEPER_SECRET) errors.push("KEEPER_SECRET is required in live mode (or set DRY_RUN=true)");
 
   if (errors.length > 0) {
+    // console.error is intentional here — logger may not be initialised yet at
+    // bootstrap, and this is a fatal configuration error.
     console.error("Error: Missing required environment variables:");
     for (const err of errors) console.error(`  - ${err}`);
     console.error("\nUsage: CONTRACT_ID=... KEEPER_PUBLIC_KEY=... tsx keeper.ts [--once]");
@@ -104,6 +120,7 @@ Environment Variables:
   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
   BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
   INTERVAL_SECONDS      Optional. Seconds between cycles (default: 3600).
+  LOG_LEVEL             Optional. Minimum log level: debug|info|warn|error (default: info).
   REPORT_DIR            Optional. Directory where dry-run reports and the live-cycle
                         pointer file are written (default: <script_dir>/data/benchmarks).
 
@@ -125,11 +142,6 @@ function addressVal(addr: string): xdr.ScVal {
 function stroopsToXlm(stroops: bigint | string): string {
   const value = typeof stroops === "bigint" ? Number(stroops) : Number(stroops);
   return (value / 10_000_000).toFixed(7);
-}
-
-function log(dryRun: boolean, message: string): void {
-  const prefix = dryRun ? "[DRY-RUN]" : "[LIVE]";
-  console.log(`${prefix} ${message}`);
 }
 
 /**
@@ -164,7 +176,10 @@ function writeJsonFile(filePath: string, data: unknown): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
   } catch (err) {
-    log(DRY_RUN, `WARNING: failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(`Failed to write ${filePath}`, {
+      path: filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -583,7 +598,7 @@ async function runCycle(): Promise<CycleReport> {
 
   const paused = await isContractPaused();
   if (paused) {
-    log(isDryRun, "Contract is PAUSED — skipping charge cycle");
+    logger.warn("Contract is PAUSED — skipping charge cycle", { mode: isDryRun ? "dry-run" : "live" });
     return report;
   }
 
@@ -596,10 +611,11 @@ async function runCycle(): Promise<CycleReport> {
   report.totalChecked = optimized.ready_count + optimized.deferred_count;
 
   if (optimized.batches.length === 0) {
-    log(
-      isDryRun,
-      `No ready subscribers (ready=${optimized.ready_count} deferred=${optimized.deferred_count})`
-    );
+    logger.info("No ready subscribers", {
+      mode: isDryRun ? "dry-run" : "live",
+      ready: optimized.ready_count,
+      deferred: optimized.deferred_count,
+    });
     // Still write the live pointer so the "latest live" file is fresh.
     if (!isDryRun) {
       writeLatestLive(report);
@@ -607,10 +623,12 @@ async function runCycle(): Promise<CycleReport> {
     return report;
   }
 
-  log(
-    isDryRun,
-    `Optimizer selected ${optimized.ready_count} ready user(s) in ${optimized.batches.length} batch(es); deferred=${optimized.deferred_count}`
-  );
+  logger.info("Optimizer selected batches", {
+    mode: isDryRun ? "dry-run" : "live",
+    ready: optimized.ready_count,
+    batches: optimized.batches.length,
+    deferred: optimized.deferred_count,
+  });
 
   for (const batch of optimized.batches) {
     const users = batch.users;
@@ -623,15 +641,14 @@ async function runCycle(): Promise<CycleReport> {
       report.candidates.push(...pageResult.candidates);
       report.errors.push(...pageResult.errors);
 
-      const skipDetails = Object.entries(pageResult.skipCounts)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(" | ");
-
-      log(
-        true,
-        `Batch ${offset}: checked=${pageResult.checked} wouldCharge=${pageResult.wouldCharge} volume=${stroopsToXlm(pageResult.totalVolume)} XLM`
-      );
-      if (skipDetails) log(true, `  ${skipDetails}`);
+      logger.info("Batch simulated", {
+        mode: "dry-run",
+        batch: offset,
+        checked: pageResult.checked,
+        would_charge: pageResult.wouldCharge,
+        volume_xlm: stroopsToXlm(pageResult.totalVolume),
+        skips: pageResult.skipCounts,
+      });
     } else {
       const pageResult = await processPageLive(users, offset);
       report.totalCharged += pageResult.charged;
@@ -644,30 +661,37 @@ async function runCycle(): Promise<CycleReport> {
       report.errors.push(...pageResult.errors);
       if (pageResult.txHash) report.txHashes.push(pageResult.txHash);
 
-      const skipDetails = Object.entries(pageResult.skipCounts)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(" | ");
-
-      log(
-        false,
-        `Batch ${offset}: charged=${pageResult.charged} volume=${stroopsToXlm(pageResult.totalVolume)} XLM${pageResult.txHash ? ` tx=${pageResult.txHash}` : ""}`
-      );
-      if (skipDetails) log(false, `  ${skipDetails}`);
+      logger.info("Batch charged", {
+        mode: "live",
+        batch: offset,
+        charged: pageResult.charged,
+        volume_xlm: stroopsToXlm(pageResult.totalVolume),
+        tx_hash: pageResult.txHash,
+        skips: pageResult.skipCounts,
+      });
     }
   }
 
-  const skipDetails = Object.entries(report.totalSkips)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(" | ");
-
-  const summary = isDryRun
-    ? `Cycle complete: checked=${report.totalChecked} wouldCharge=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM`
-    : `Cycle complete: charged=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM${skipDetails ? ` | ${skipDetails}` : ""}`;
-
-  log(isDryRun, summary);
+  if (isDryRun) {
+    logger.info("Cycle complete", {
+      mode: "dry-run",
+      checked: report.totalChecked,
+      would_charge: report.totalCharged,
+      total_volume_xlm: stroopsToXlm(report.totalVolume),
+    });
+  } else {
+    logger.info("Cycle complete", {
+      mode: "live",
+      charged: report.totalCharged,
+      total_volume_xlm: stroopsToXlm(report.totalVolume),
+      skips: report.totalSkips,
+    });
+  }
 
   if (report.errors.length > 0) {
-    for (const err of report.errors) log(isDryRun, `Error: ${err}`);
+    for (const err of report.errors) {
+      logger.error("Cycle error", { mode: isDryRun ? "dry-run" : "live", error: err });
+    }
   }
 
   // ── Post-cycle reporting ───────────────────────────────────────────────────
@@ -699,7 +723,7 @@ function writeLatestLive(report: CycleReport): void {
   };
   const dest = path.join(REPORT_DIR, "keeper-latest-live.json");
   writeJsonFile(dest, record);
-  log(false, `Live cycle pointer written to ${dest}`);
+  logger.info("Live cycle pointer written", { path: dest });
 }
 
 /**
@@ -760,7 +784,7 @@ function writeDryRunReport(report: CycleReport): void {
   const filename = `keeper-dryrun-report-${safeTs}.json`;
   const dest = path.join(REPORT_DIR, filename);
   writeJsonFile(dest, dryRunReport);
-  log(true, `Dry-run report written to ${dest}`);
+  logger.info("Dry-run report written", { path: dest });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -777,9 +801,9 @@ async function main(): Promise<void> {
   validateEnv();
 
   if (DRY_RUN) {
-    log(true, "Keeper started in DRY-RUN mode — no transactions will be submitted");
+    logger.info("Keeper started in DRY-RUN mode — no transactions will be submitted", { mode: "dry-run" });
   } else {
-    log(false, "Keeper started in LIVE mode");
+    logger.info("Keeper started in LIVE mode", { mode: "live" });
   }
 
   if (once) {
@@ -791,10 +815,14 @@ async function main(): Promise<void> {
   while (true) {
     const report = await runCycle();
     const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
-    log(DRY_RUN, `Next cycle at ${nextRun.toISOString()} (in ${INTERVAL_SECONDS}s)`);
+    logger.info("Next cycle scheduled", {
+      mode: DRY_RUN ? "dry-run" : "live",
+      next_run: nextRun.toISOString(),
+      interval_seconds: INTERVAL_SECONDS,
+    });
 
     if (report.errors.length > 0 && report.totalCharged === 0) {
-      log(DRY_RUN, "All pages errored — will retry next cycle");
+      logger.warn("All pages errored — will retry next cycle", { mode: DRY_RUN ? "dry-run" : "live" });
     }
 
     await new Promise((r) => setTimeout(r, INTERVAL_SECONDS * 1000));
