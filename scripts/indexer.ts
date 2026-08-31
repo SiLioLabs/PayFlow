@@ -64,7 +64,7 @@ const DATA_DIR = process.env.DATA_DIR ?? "data";
 const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
 
 /** Schema version — increment when adding columns or new tables. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * Number of unique events processed between periodic dedup-stats log lines
@@ -111,6 +111,10 @@ interface IndexedEvent {
   tx_hash: string;
   /** Full JSON-serialised raw event value for ad-hoc queries. */
   raw_data: string;
+  merchant: string | null;
+  fee_amount: string | null;
+  token: string | null;
+  result_code: string | null;
 }
 
 // ── Database Setup ────────────────────────────────────────────────────────────
@@ -151,7 +155,11 @@ export function initSchema(db: DatabaseSync): void {
       ledger     INTEGER NOT NULL,
       timestamp  INTEGER NOT NULL,
       tx_hash    TEXT    NOT NULL,
-      raw_data   TEXT    NOT NULL
+      raw_data   TEXT    NOT NULL,
+      merchant     TEXT,
+      fee_amount   TEXT,
+      token        TEXT,
+      result_code  TEXT
     )
   `);
 
@@ -169,6 +177,14 @@ export function initSchema(db: DatabaseSync): void {
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
     log("info", `Database schema initialised at version ${SCHEMA_VERSION}.`);
   } else if (parseInt(existingVersion, 10) < SCHEMA_VERSION) {
+    if (parseInt(existingVersion, 10) === 1) {
+      db.exec(`
+        ALTER TABLE events ADD COLUMN merchant TEXT;
+        ALTER TABLE events ADD COLUMN fee_amount TEXT;
+        ALTER TABLE events ADD COLUMN token TEXT;
+        ALTER TABLE events ADD COLUMN result_code TEXT;
+      `);
+    }
     // Future migrations would go here, guarded by the version number.
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
     log("info", `Database schema migrated to version ${SCHEMA_VERSION}.`);
@@ -192,14 +208,13 @@ export function setMeta(db: DatabaseSync, key: string, value: string): void {
 // ── Event Parsing ─────────────────────────────────────────────────────────────
 
 /**
- * Extract a numeric string from a raw event value object, trying common field
+ * Extract a string field from a raw event value object, trying common field
  * names used by the FlowPay contract events.
  */
-function extractAmount(value: unknown): string | null {
+function extractField(value: unknown, fields: string[]): string | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
-  // Direct fields
-  for (const field of ["amount", "gross", "net", "fee"]) {
+  for (const field of fields) {
     const candidate =
       v[field] ?? (v["_value"] as Record<string, unknown> | undefined)?.[field];
     if (candidate !== undefined && candidate !== null) {
@@ -207,6 +222,14 @@ function extractAmount(value: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Extract a numeric string from a raw event value object, trying common field
+ * names used by the FlowPay contract events.
+ */
+function extractAmount(value: unknown): string | null {
+  return extractField(value, ["amount", "gross", "net", "fee"]);
 }
 
 /**
@@ -243,6 +266,11 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
   const timestamp = parseTimestamp(raw);
   const amount = extractAmount(raw["value"]);
 
+  const merchant = extractField(raw["value"], ["merchant", "merchant_id"]);
+  const fee_amount = extractField(raw["value"], ["fee_amount", "fee"]);
+  const token = extractField(raw["value"], ["token", "asset"]);
+  const result_code = extractField(raw["value"], ["result_code", "error", "error_code", "status"]);
+
   // Stable dedup key: same tx + same event name = same row.
   const id = `${tx_hash}:${event_name}`;
 
@@ -262,21 +290,29 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
     timestamp,
     tx_hash,
     raw_data,
+    merchant,
+    fee_amount,
+    token,
+    result_code,
   };
 }
 
 // ── Database Writes ───────────────────────────────────────────────────────────
 
 const INSERT_SQL = `
-  INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data)
-  VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
+  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     address   = excluded.address,
     amount    = excluded.amount,
     ledger    = excluded.ledger,
     timestamp = excluded.timestamp,
     tx_hash   = excluded.tx_hash,
-    raw_data  = excluded.raw_data
+    raw_data  = excluded.raw_data,
+    merchant  = excluded.merchant,
+    fee_amount = excluded.fee_amount,
+    token     = excluded.token,
+    result_code = excluded.result_code
 `;
 
 /**
@@ -298,6 +334,10 @@ export function upsertEvents(db: DatabaseSync, events: IndexedEvent[]): number {
         e.timestamp,
         e.tx_hash,
         e.raw_data,
+        e.merchant,
+        e.fee_amount,
+        e.token,
+        e.result_code,
       );
     }
     db.exec("COMMIT");

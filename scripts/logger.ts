@@ -38,7 +38,12 @@ const RESET = "\x1b[0m";
 
 function parseLevel(raw: string | undefined): LogLevel {
   const value = (raw ?? "info").trim().toLowerCase();
-  if (value === "debug" || value === "info" || value === "warn" || value === "error") {
+  if (
+    value === "debug" ||
+    value === "info" ||
+    value === "warn" ||
+    value === "error"
+  ) {
     return value;
   }
   return "info";
@@ -68,13 +73,13 @@ export function safeStringify(value: unknown, space?: number): string {
       }
       return current;
     },
-    space
+    space,
   );
 }
 
 function normalizeContext(
   message: string,
-  context?: LogContext | unknown
+  context?: LogContext | unknown,
 ): { message: string; context: LogContext } {
   if (context === undefined) {
     return { message, context: {} };
@@ -110,9 +115,14 @@ function shouldEmit(min: LogLevel, level: LogLevel): boolean {
   return LEVEL_ORDER[level] >= LEVEL_ORDER[min];
 }
 
-function writeLine(level: LogLevel, message: string, context: LogContext): void {
+function writeLine(
+  level: LogLevel,
+  message: string,
+  context: LogContext,
+): void {
   const timestamp = new Date().toISOString();
-  const stream = level === "error" || level === "warn" ? process.stderr : process.stdout;
+  const stream =
+    level === "error" || level === "warn" ? process.stderr : process.stdout;
 
   if (isJsonFormat()) {
     const entry: Record<string, unknown> = {
@@ -128,17 +138,20 @@ function writeLine(level: LogLevel, message: string, context: LogContext): void 
   const color = LEVEL_ANSI[level];
   const label = level.toUpperCase().padEnd(5);
   const ctxKeys = Object.keys(context);
-  const ctxSuffix =
-    ctxKeys.length === 0
-      ? ""
-      : ` ${safeStringify(context)}`;
-  stream.write(`${color}${timestamp} ${label}${RESET} ${message}${ctxSuffix}\n`);
+  const ctxSuffix = ctxKeys.length === 0 ? "" : ` ${safeStringify(context)}`;
+  stream.write(
+    `${color}${timestamp} ${label}${RESET} ${message}${ctxSuffix}\n`,
+  );
 }
 
 function createLogger(bound: LogContext = {}): Logger {
   const minLevel = parseLevel(process.env.LOG_LEVEL);
 
-  const emit = (level: LogLevel, message: string, context?: LogContext | unknown): void => {
+  const emit = (
+    level: LogLevel,
+    message: string,
+    context?: LogContext | unknown,
+  ): void => {
     if (!shouldEmit(minLevel, level)) return;
     const normalized = normalizeContext(message, context);
     writeLine(level, normalized.message, { ...bound, ...normalized.context });

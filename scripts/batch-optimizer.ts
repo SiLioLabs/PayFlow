@@ -37,11 +37,16 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const CONTRACT_ID = process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const RPC_URL =
-  process.env.RPC_URL ?? process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
+  process.env.RPC_URL ??
+  process.env.VITE_RPC_URL ??
+  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
-  process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
+  process.env.NETWORK_PASSPHRASE ??
+  process.env.VITE_NETWORK_PASSPHRASE ??
+  Networks.TESTNET;
 const ENV_MAX_BATCH = process.env.MAX_BATCH_SIZE
   ? Number.parseInt(process.env.MAX_BATCH_SIZE, 10)
   : undefined;
@@ -50,7 +55,7 @@ const MAX_CYCLE_USERS = process.env.MAX_CYCLE_USERS
   : Number.POSITIVE_INFINITY;
 const PAGE_SIZE = Math.min(
   50,
-  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50)
+  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50),
 );
 
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
@@ -120,7 +125,10 @@ function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
 }
 
-async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal | null> {
+async function simulate(
+  method: string,
+  ...args: xdr.ScVal[]
+): Promise<xdr.ScVal | null> {
   const contract = new Contract(CONTRACT_ID);
   const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
     fee: BASE_FEE,
@@ -132,7 +140,9 @@ async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal
 
   const result = await server.simulateTransaction(tx);
   if ("error" in result) {
-    throw new Error(`${method}: ${String((result as { error?: unknown }).error ?? "simulation failed")}`);
+    throw new Error(
+      `${method}: ${String((result as { error?: unknown }).error ?? "simulation failed")}`,
+    );
   }
   const success = result as { result?: { retval?: xdr.ScVal } };
   return success.result?.retval ?? null;
@@ -150,11 +160,14 @@ async function getU64(method: string): Promise<number> {
   return Number(scValToNative(val));
 }
 
-async function getSubscriberPage(offset: number, limit: number): Promise<string[]> {
+async function getSubscriberPage(
+  offset: number,
+  limit: number,
+): Promise<string[]> {
   const retval = await simulate(
     "get_subscriber_page",
     nativeToScVal(offset, { type: "u64" }),
-    nativeToScVal(limit, { type: "u32" })
+    nativeToScVal(limit, { type: "u32" }),
   );
   if (!retval) return [];
   const native = scValToNative(retval) as unknown;
@@ -168,7 +181,9 @@ async function isChargeDue(user: string): Promise<boolean> {
   return Boolean(scValToNative(retval));
 }
 
-async function getSubscription(user: string): Promise<SubscriptionFields | null> {
+async function getSubscription(
+  user: string,
+): Promise<SubscriptionFields | null> {
   const retval = await simulate("get_subscription", addressVal(user));
   if (!retval || retval.switch().name === "scvVoid") return null;
   const native = scValToNative(retval) as Record<string, unknown> | null;
@@ -203,7 +218,7 @@ export async function getNextChargeBatchSimulation(
         due = await isChargeDue(address);
       } catch (err) {
         console.warn(
-          `Skipping ${address}: is_charge_due failed (${err instanceof Error ? err.message : err})`
+          `Skipping ${address}: is_charge_due failed (${err instanceof Error ? err.message : err})`,
         );
         continue;
       }
@@ -265,7 +280,7 @@ export function prioritizeReady(ready: ReadySubscriber[]): ReadySubscriber[] {
 export function chunkBatches(
   ordered: ReadySubscriber[],
   maxBatchSize: number,
-  maxCycleUsers: number
+  maxCycleUsers: number,
 ): { batches: OptimizedBatch[]; deferred: ReadySubscriber[] } {
   const size = Math.max(1, maxBatchSize);
   const scheduled = ordered.slice(0, maxCycleUsers);
@@ -293,7 +308,8 @@ export async function buildOptimizedBatches(options?: {
     throw new Error("CONTRACT_ID environment variable is required");
   }
 
-  let maxBatchSize = ENV_MAX_BATCH && ENV_MAX_BATCH > 0 ? ENV_MAX_BATCH : DEFAULT_MAX_BATCH;
+  let maxBatchSize =
+    ENV_MAX_BATCH && ENV_MAX_BATCH > 0 ? ENV_MAX_BATCH : DEFAULT_MAX_BATCH;
   try {
     const onChain = await getU32("get_max_batch_size");
     if (!ENV_MAX_BATCH && onChain > 0) maxBatchSize = onChain;
@@ -322,12 +338,14 @@ export async function buildOptimizedBatches(options?: {
 
   if (deferred.length > 0) {
     console.warn(
-      `Deferred ${deferred.length} ready subscriber(s) to the next cycle (cycle cap ${maxCycle}).`
+      `Deferred ${deferred.length} ready subscriber(s) to the next cycle (cycle cap ${maxCycle}).`,
     );
   }
 
   if (batches.length === 0) {
-    console.log("No ready-to-charge subscribers found; returning empty batch list.");
+    console.log(
+      "No ready-to-charge subscribers found; returning empty batch list.",
+    );
   }
 
   return {
@@ -354,8 +372,13 @@ async function main(): Promise<void> {
   }
 
   const maxBatchesArg = getArg("--max-batches");
-  const maxBatches = maxBatchesArg ? Number.parseInt(maxBatchesArg, 10) : undefined;
-  if (maxBatchesArg && (!maxBatches || maxBatches < 0 || Number.isNaN(maxBatches))) {
+  const maxBatches = maxBatchesArg
+    ? Number.parseInt(maxBatchesArg, 10)
+    : undefined;
+  if (
+    maxBatchesArg &&
+    (!maxBatches || maxBatches < 0 || Number.isNaN(maxBatches))
+  ) {
     console.error("--max-batches must be a non-negative integer");
     process.exit(1);
   }

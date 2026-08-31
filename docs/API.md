@@ -170,6 +170,14 @@ pub enum ChargeResult {
 }
 ```
 
+| Variant              | Meaning on `batch_charge` | Meaning on `get_batch_charge_estimate`                          |
+| -------------------- | ------------------------- | --------------------------------------------------------------- |
+| `Charged`            | Transfer succeeded        | Precheck passed (or auto-resume short-circuit; **no transfer**) |
+| `Skipped`            | Interval not elapsed      | Same (via `precheck_charge`)                                    |
+| `NoSubscription`     | No record                 | Same                                                            |
+| `Inactive`           | Cancelled / inactive      | Same                                                            |
+| `Paused`             | Still paused              | Same                                                            |
+| `GracePeriodElapsed` | Past grace window         | Same                                                            |
 New variants must be **appended** so off-chain parsers keep decoding 0–5. Do not confuse `AllowanceInsufficient` with [`ChargeSimResult::InsufficientAllowance`](#chargesimresult) or `ContractError::InsufficientAllowance` (8) — those are different symbols.
 
 | Variant | Meaning on `batch_charge` | Meaning on `get_batch_charge_estimate` |
@@ -201,15 +209,15 @@ pub enum ChargeSimResult {
 }
 ```
 
-| Variant | Meaning |
-| --- | --- |
-| `WouldSucceed` | Prechecks including SAC allowance would pass |
-| `NotDue` | Ledger time is before next charge |
-| `Inactive` | Missing subscription **or** inactive (no separate `NoSubscription`) |
-| `InsufficientAllowance` | `allowance(user, contract) < amount` |
-| `GracePeriodElapsed` | Past grace window |
-| `ContractPaused` | Protocol paused (`storage::is_contract_paused`) |
-| `SubscriptionPaused` | User pause, including unexpired `pause_until` |
+| Variant                 | Meaning                                                             |
+| ----------------------- | ------------------------------------------------------------------- |
+| `WouldSucceed`          | Prechecks including SAC allowance would pass                        |
+| `NotDue`                | Ledger time is before next charge                                   |
+| `Inactive`              | Missing subscription **or** inactive (no separate `NoSubscription`) |
+| `InsufficientAllowance` | `allowance(user, contract) < amount`                                |
+| `GracePeriodElapsed`    | Past grace window                                                   |
+| `ContractPaused`        | Protocol paused (`storage::is_contract_paused`)                     |
+| `SubscriptionPaused`    | User pause, including unexpired `pause_until`                       |
 
 `simulate_charge` never panics with a `ContractError` for these outcomes; they are return values.
 
@@ -280,18 +288,18 @@ pub struct HealthReport {
 }
 ```
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `is_healthy` | `bool` | `!contract_paused && token_configured && admin_configured && instance_ttl_ledgers > 17_280` |
-| `contract_paused` | `bool` | Protocol pause flag |
-| `token_configured` | `bool` | Instance token is set |
-| `admin_configured` | `bool` | Admin is set |
-| `instance_ttl_ledgers` | `u32` | **On-chain:** hardcoded `100_000` (Soroban does not expose `get_ttl()` outside tests). **Test/testutils:** real instance TTL. Do not treat the on-chain value as precise remaining TTL. |
-| `active_subscription_count` | `u64` | Active subscription counter |
-| `schema_version` | `u32` | Migration schema version |
-| `fee_collector_set` | `bool` | Protocol fee collector is set |
-| `global_volume_utilization_pct` | `u32` | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`. |
-| `pending_merchant_rev_count` | `u32` | Merchants in `MerchantIndex` with unwithdrawn revenue `> 0` |
+| Field                           | Type   | Meaning                                                                                                                                                                                 |
+| ------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `is_healthy`                    | `bool` | `!contract_paused && token_configured && admin_configured && instance_ttl_ledgers > 17_280`                                                                                             |
+| `contract_paused`               | `bool` | Protocol pause flag                                                                                                                                                                     |
+| `token_configured`              | `bool` | Instance token is set                                                                                                                                                                   |
+| `admin_configured`              | `bool` | Admin is set                                                                                                                                                                            |
+| `instance_ttl_ledgers`          | `u32`  | **On-chain:** hardcoded `100_000` (Soroban does not expose `get_ttl()` outside tests). **Test/testutils:** real instance TTL. Do not treat the on-chain value as precise remaining TTL. |
+| `active_subscription_count`     | `u64`  | Active subscription counter                                                                                                                                                             |
+| `schema_version`                | `u32`  | Migration schema version                                                                                                                                                                |
+| `fee_collector_set`             | `bool` | Protocol fee collector is set                                                                                                                                                           |
+| `global_volume_utilization_pct` | `u32`  | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`.                                                       |
+| `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with unwithdrawn revenue `> 0`                                                                                                                             |
 
 **How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, admin, or TTL flags are understood. `fee_collector_set` and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses the stored cap override when present; charge-time enforcement still uses the compile-time constant (see [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap)).
 
@@ -340,10 +348,10 @@ pub enum DataKey {
 initialize(env: Env, token: Address, admin: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name    | Type      | Description                               |
+| ------- | --------- | ----------------------------------------- |
 | `token` | `Address` | SAC token used for subscription payments. |
-| `admin` | `Address` | Initial contract admin. |
+| `admin` | `Address` | Initial contract admin.                   |
 
 Auth: none.
 
@@ -363,15 +371,15 @@ soroban contract invoke --id <CONTRACT_ID> --source deployer --network testnet -
 subscribe(env: Env, user: Address, merchant: Address, amount: i128, interval: u64, token: Address, trial_period: Option<u64>, referrer: Option<Address>)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber and transaction signer. |
-| `merchant` | `Address` | Merchant receiving funds. |
-| `amount` | `i128` | Recurring amount in stroops. |
-| `interval` | `u64` | Billing interval in seconds. |
-| `token` | `Address` | Token contract used for this subscription. |
-| `trial_period` | `Option<u64>` | Optional delay before the first charge. |
-| `referrer` | `Option<Address>` | Optional referrer address. |
+| Name           | Type              | Description                                |
+| -------------- | ----------------- | ------------------------------------------ |
+| `user`         | `Address`         | Subscriber and transaction signer.         |
+| `merchant`     | `Address`         | Merchant receiving funds.                  |
+| `amount`       | `i128`            | Recurring amount in stroops.               |
+| `interval`     | `u64`             | Billing interval in seconds.               |
+| `token`        | `Address`         | Token contract used for this subscription. |
+| `trial_period` | `Option<u64>`     | Optional delay before the first charge.    |
+| `referrer`     | `Option<Address>` | Optional referrer address.                 |
 
 Auth: `user.require_auth()`.
 
@@ -391,16 +399,16 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 subscribe_with_metadata(env: Env, user: Address, merchant: Address, amount: i128, interval: u64, token: Address, trial_period: Option<u64>, referrer: Option<Address>, label: String)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber and transaction signer. |
-| `merchant` | `Address` | Merchant receiving funds. |
-| `amount` | `i128` | Recurring amount in stroops. |
-| `interval` | `u64` | Billing interval in seconds. |
-| `token` | `Address` | Token contract used for this subscription. |
-| `trial_period` | `Option<u64>` | Optional delay before the first charge. |
-| `referrer` | `Option<Address>` | Optional referrer address. |
-| `label` | `String` | Subscription label, max 64 bytes. |
+| Name           | Type              | Description                                |
+| -------------- | ----------------- | ------------------------------------------ |
+| `user`         | `Address`         | Subscriber and transaction signer.         |
+| `merchant`     | `Address`         | Merchant receiving funds.                  |
+| `amount`       | `i128`            | Recurring amount in stroops.               |
+| `interval`     | `u64`             | Billing interval in seconds.               |
+| `token`        | `Address`         | Token contract used for this subscription. |
+| `trial_period` | `Option<u64>`     | Optional delay before the first charge.    |
+| `referrer`     | `Option<Address>` | Optional referrer address.                 |
+| `label`        | `String`          | Subscription label, max 64 bytes.          |
 
 Auth: `user.require_auth()`.
 
@@ -420,8 +428,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 charge(env: Env, user: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description           |
+| ------ | --------- | --------------------- |
 | `user` | `Address` | Subscriber to charge. |
 
 Auth: none. This is permissionless for keeper use.
@@ -444,8 +452,8 @@ Dry-run of a single `charge()` for `user`. **No storage writes** and **no token 
 simulate_charge(env: Env, user: Address) -> ChargeSimResult
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description             |
+| ------ | --------- | ----------------------- |
 | `user` | `Address` | Subscriber to simulate. |
 
 **Auth:** none.
@@ -458,10 +466,13 @@ simulate_charge(env: Env, user: Address) -> ChargeSimResult
 
 **Distinguish from live charge and batch estimate:**
 
-| | `charge` / `batch_charge` | `simulate_charge` | `get_batch_charge_estimate` |
-| --- | --- | --- | --- |
-| Transfers | Yes | No | No |
+|                | `charge` / `batch_charge`    | `simulate_charge`               | `get_batch_charge_estimate`        |
+| -------------- | ---------------------------- | ------------------------------- | ---------------------------------- |
+| Transfers      | Yes                          | No                              | No                                 |
 | Storage writes | Yes on success / auto-resume | No (auto-resume is memory-only) | **Yes** if `try_auto_resume` fires |
+| Contract pause | Enforced (panic / skip)      | `ContractPaused`                | **Ignored**                        |
+| Allowance      | Required for success         | Checked                         | **Not checked**                    |
+| Return         | void / `ChargeResult`        | `ChargeSimResult`               | `Vec<ChargeResult>`                |
 | Contract pause | `charge` and `batch_charge` panic `ContractPaused` (18) | `ContractPaused` | **Ignored** |
 | Allowance | `charge` panics `InsufficientAllowance` (8); `batch_charge` returns `AllowanceInsufficient` | `InsufficientAllowance` | `ChargeResult::AllowanceInsufficient` |
 | Return | void / `Vec<ChargeResult>` | `ChargeSimResult` | `Vec<ChargeResult>` |
@@ -523,8 +534,8 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- simulate_pay_per
 extend_subscription_ttl(env: Env, user: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                               |
+| ------ | --------- | ----------------------------------------- |
 | `user` | `Address` | Subscriber whose TTL should be refreshed. |
 
 Auth: none.
@@ -545,10 +556,10 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- extend_subscript
 pay_per_use(env: Env, user: Address, amount: i128)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber and signer. |
-| `amount` | `i128` | One-time payment amount in stroops. |
+| Name     | Type      | Description                         |
+| -------- | --------- | ----------------------------------- |
+| `user`   | `Address` | Subscriber and signer.              |
+| `amount` | `i128`    | One-time payment amount in stroops. |
 
 Auth: `user.require_auth()`.
 
@@ -568,8 +579,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 cancel(env: Env, user: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
 | `user` | `Address` | Subscriber and signer. |
 
 Auth: `user.require_auth()`.
@@ -590,8 +601,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 pause(env: Env, user: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
 | `user` | `Address` | Subscriber and signer. |
 
 Auth: `user.require_auth()`.
@@ -614,10 +625,10 @@ Bounded user pause. The subscription auto-resumes on a later `charge` or `batch_
 pause_until(env: Env, user: Address, expiry: u64)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | Subscriber and signer. |
-| `expiry` | `u64` | Unix ledger timestamp; must be **strictly greater than** current ledger time. |
+| Name     | Type      | Description                                                                   |
+| -------- | --------- | ----------------------------------------------------------------------------- |
+| `user`   | `Address` | Subscriber and signer.                                                        |
+| `expiry` | `u64`     | Unix ledger timestamp; must be **strictly greater than** current ledger time. |
 
 **Auth:** `user.require_auth()`.
 
@@ -627,11 +638,11 @@ pause_until(env: Env, user: Address, expiry: u64)
 
 **Errors:**
 
-| Condition | Code | Symbol |
-| --- | --- | --- |
-| `expiry <= now` | 27 | `InvalidPauseExpiry` |
-| No subscription | 4 | `NoSubscriptionFound` |
-| `!sub.active` | 16 | `SubscriptionNotActive` |
+| Condition       | Code | Symbol                  |
+| --------------- | ---- | ----------------------- |
+| `expiry <= now` | 27   | `InvalidPauseExpiry`    |
+| No subscription | 4    | `NoSubscriptionFound`   |
+| `!sub.active`   | 16   | `SubscriptionNotActive` |
 
 **Pause-expiry read API:** there is **no** public `get_pause_expiry`, `get_pause`, or `paused_until` contract method. Expiry is stored via internal `storage::set_pause_expiry` / `storage::get_pause_expiry` only.
 
@@ -647,8 +658,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 resume(env: Env, user: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
 | `user` | `Address` | Subscriber and signer. |
 
 Auth: `user.require_auth()`.
@@ -669,8 +680,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 transfer_admin(env: Env, new_admin: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name        | Type      | Description             |
+| ----------- | --------- | ----------------------- |
 | `new_admin` | `Address` | Proposed admin address. |
 
 Auth: current admin only.
@@ -757,8 +768,8 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_token
 upgrade(env: Env, new_wasm_hash: BytesN<32>)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name            | Type         | Description             |
+| --------------- | ------------ | ----------------------- |
 | `new_wasm_hash` | `BytesN<32>` | New contract WASM hash. |
 
 Auth: none in the current implementation.
@@ -813,8 +824,8 @@ Returns the pending upgrade hash, or `None` when no proposal exists. Auth: none.
 get_subscription(env: Env, user: Address) -> Option<Subscription>
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                    |
+| ------ | --------- | ------------------------------ |
 | `user` | `Address` | Subscriber address to look up. |
 
 Auth: none.
@@ -837,13 +848,14 @@ next_charge_at(env: Env, user: Address) -> Option<u64>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
 
 **Returns:** `Option<u64>` — `Some(last_charged + interval)` if the subscription is active and not paused. Returns `None` when:
+
 - No subscription exists for `user`
 - The subscription is inactive (cancelled, `active == false`)
 - The subscription is paused (`paused == true`)
@@ -876,13 +888,14 @@ is_charge_due(env: Env, user: Address) -> bool
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                     |
+| ------ | --------- | ------------------------------- |
 | `user` | `Address` | The subscriber address to test. |
 
 **Auth:** None.
 
 **Returns:** `bool` — `true` when all of the following conditions hold simultaneously:
+
 - A subscription exists for `user`
 - The subscription is active (`active == true`) and not paused (`paused == false`)
 - `now >= next_charge_at` — the billing interval has elapsed
@@ -918,8 +931,8 @@ get_trial_end(env: Env, user: Address) -> Option<u64>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -952,8 +965,8 @@ soroban contract invoke \
 propose_grace_period(env: Env, seconds: u64)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name      | Type  | Description                       |
+| --------- | ----- | --------------------------------- |
 | `seconds` | `u64` | Proposed grace period in seconds. |
 
 Auth: admin only.
@@ -1114,7 +1127,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- add_merchant --merchant <MERCHANT_ADDRESS>
 ```
 
-*See also: [Merchant Integration Cookbook — Getting Started](./MERCHANT-INTEGRATION.md#1-getting-started) for whitelist request flow.*
+_See also: [Merchant Integration Cookbook — Getting Started](./MERCHANT-INTEGRATION.md#1-getting-started) for whitelist request flow._
 
 ### `remove_merchant`
 
@@ -1370,10 +1383,10 @@ Admin-only guardrails for **future** fee commits. Stored on instance as `DataKey
 set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name      | Type  | Description                                        |
+| --------- | ----- | -------------------------------------------------- |
 | `min_bps` | `u32` | Inclusive minimum bps for a pending fee at commit. |
-| `max_bps` | `u32` | Inclusive maximum bps; must be `<= 10_000`. |
+| `max_bps` | `u32` | Inclusive maximum bps; must be `<= 10_000`.        |
 
 **Auth:** admin (`admin::require_admin`).
 
@@ -1441,8 +1454,8 @@ Batch **estimate** (not a transfer). Returns `Vec<ChargeResult>` — the live ba
 get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name    | Type           | Description            |
+| ------- | -------------- | ---------------------- |
 | `users` | `Vec<Address>` | Addresses to estimate. |
 
 **Auth:** none.
@@ -1540,10 +1553,10 @@ View of **active** subscriber addresses from the append-only `SubscriberIndex`. 
 get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address>
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name     | Type  | Description                                                                |
+| -------- | ----- | -------------------------------------------------------------------------- |
 | `offset` | `u64` | **Index-slot** cursor into `SubscriberIndex`, not “Nth active subscriber”. |
-| `limit` | `u32` | Requested page size. Silently clamped to **50**. `0` returns empty. |
+| `limit`  | `u32` | Requested page size. Silently clamped to **50**. `0` returns empty.        |
 
 **Auth:** none.
 
@@ -1669,7 +1682,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_sub_count --merchant <MERCHANT_ADDRESS>
 ```
 
-*See also: [Merchant Integration Cookbook — Monitoring Subscribers](./MERCHANT-INTEGRATION.md#3-monitoring-subscribers).*
+_See also: [Merchant Integration Cookbook — Monitoring Subscribers](./MERCHANT-INTEGRATION.md#3-monitoring-subscribers)._
 
 ### `reset_merchant_revenue`
 
@@ -1693,8 +1706,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 withdraw_merchant_revenue(env: Env, merchant: Address)
 ```
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name       | Type      | Description                           |
+| ---------- | --------- | ------------------------------------- |
 | `merchant` | `Address` | Merchant withdrawing accrued revenue. |
 
 Auth: `merchant.require_auth()`.
@@ -1709,7 +1722,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- withdraw_merchant_revenue --merchant <MERCHANT_ADDRESS>
 ```
 
-*See also: [Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md) for the full merchant onboarding → revenue → withdraw path.*
+_See also: [Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md) for the full merchant onboarding → revenue → withdraw path._
 
 ### `set_daily_limit`
 
@@ -1724,7 +1737,7 @@ Returns: `()`.
 Errors: `ContractError::AmountMustBePositive`.
 
 CLI example:
-*See also: [Daily Spending Limits Guide](./DAILY-LIMITS.md) for a conceptual overview of the `pay_per_use` spending cap.*
+_See also: [Daily Spending Limits Guide](./DAILY-LIMITS.md) for a conceptual overview of the `pay_per_use` spending cap._
 For a complete list of all error codes returned by the contract, see [ERROR-CODES.md](./ERROR-CODES.md).
 
 ```bash
@@ -1762,7 +1775,7 @@ Auth: none.
 Returns: `bool` — `true` if `DataKey::DayStart(user)` exists (current ~24h spend window is active), `false` otherwise. This is a presence marker, not a wall-clock timestamp.
 
 CLI example:
-*See also: [Daily Spending Limits Deep-Dive](./DAILY-LIMITS.md).*
+_See also: [Daily Spending Limits Deep-Dive](./DAILY-LIMITS.md)._
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_day_start --user <USER_ADDRESS>
@@ -2047,7 +2060,7 @@ return ordered_history[offset..end]
 
 ##### Worked examples
 
-*Example 1 — fetch everything (`offset=0, limit=12`):*
+_Example 1 — fetch everything (`offset=0, limit=12`):_
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- \
@@ -2056,7 +2069,7 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- \
 
 With a history of `[c4..c14]` (11 entries), this returns all 11 entries, oldest to newest. If the subscriber has fewer than 12 charges total, one call is always enough — you never need a second page.
 
-*Example 2 — most recent 5 records (no `ascending` param, so compute the offset):*
+_Example 2 — most recent 5 records (no `ascending` param, so compute the offset):_
 
 ```typescript
 const all = await getChargeHistoryPage(user, 0, 12); // at most 12 entries ever exist
@@ -2065,7 +2078,7 @@ const mostRecent5 = all.slice(-5); // last 5 = newest 5, since storage is oldest
 
 Equivalently, on-chain: `offset = max(0, total - 5)`, `limit = 5`. If `total = 11`, call `get_charge_history_page(user, 6, 5)` to get entries `[6..11)`.
 
-*Example 3 — offset beyond the record count (returns empty, not an error):*
+_Example 3 — offset beyond the record count (returns empty, not an error):_
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- \
@@ -2076,21 +2089,28 @@ For a subscriber with only 1 recorded charge, `offset=5 >= len(1)` so this retur
 
 **Offset / limit reference table** (history has 11 entries, `c4`..`c14`, oldest → newest):
 
-| `offset` | `limit` | Result | Notes |
-| --- | --- | --- | --- |
-| `0` | `12` | `[c4..c14]` (11 items) | `limit` capped at 12, but history only has 11 |
-| `0` | `5` | `[c4, c5, c6, c7, c8]` | oldest 5 |
-| `6` | `5` | `[c10, c11, c12, c13, c14]` | newest 5 (see Example 2) |
-| `11` | `5` | `[]` | `offset == len`, empty result |
-| `20` | `5` | `[]` | `offset > len`, empty result, no error |
-| `9` | `100` | `[c13, c14]` | `limit` capped then clamped to remaining length |
+| `offset` | `limit` | Result                      | Notes                                           |
+| -------- | ------- | --------------------------- | ----------------------------------------------- |
+| `0`      | `12`    | `[c4..c14]` (11 items)      | `limit` capped at 12, but history only has 11   |
+| `0`      | `5`     | `[c4, c5, c6, c7, c8]`      | oldest 5                                        |
+| `6`      | `5`     | `[c10, c11, c12, c13, c14]` | newest 5 (see Example 2)                        |
+| `11`     | `5`     | `[]`                        | `offset == len`, empty result                   |
+| `20`     | `5`     | `[]`                        | `offset > len`, empty result, no error          |
+| `9`      | `100`   | `[c13, c14]`                | `limit` capped then clamped to remaining length |
 
 ##### "Load all history" with a pagination loop (TypeScript)
 
 Because storage never holds more than 12 entries, a single call with `limit: 12` already returns everything. The loop below is still useful as the general-purpose pattern for infinite-scroll style UIs, and keeps working unmodified if the on-chain cap is ever raised. It calls the contract the same way [`getSubscription`](../frontend/src/stellar.ts) does — build, simulate, decode:
 
 ```typescript
-import { Contract, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
+import {
+  Contract,
+  TransactionBuilder,
+  BASE_FEE,
+  nativeToScVal,
+  Address,
+  xdr,
+} from "@stellar/stellar-sdk";
 import { server, CONTRACT_ID, NETWORK_PASSPHRASE } from "./stellar";
 import { ScValDecoder } from "./services/scval";
 
@@ -2102,7 +2122,7 @@ function addressVal(addr: string): xdr.ScVal {
 async function getChargeHistoryPage(
   user: string,
   offset: number,
-  limit: number
+  limit: number,
 ): Promise<number[]> {
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(user);
@@ -2116,8 +2136,8 @@ async function getChargeHistoryPage(
         "get_charge_history_page",
         addressVal(user),
         nativeToScVal(offset, { type: "u32" }),
-        nativeToScVal(limit, { type: "u32" })
-      )
+        nativeToScVal(limit, { type: "u32" }),
+      ),
     )
     .setTimeout(30)
     .build();
@@ -2185,19 +2205,18 @@ See [EVENTS.md](./EVENTS.md) for the complete event schema reference. For buildi
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | The payer. Must match the transaction signer. |
-| `amount` | `i128` | Stroops to transfer. Must be > 0. |
+| Name     | Type      | Description                                   |
+| -------- | --------- | --------------------------------------------- |
+| `user`   | `Address` | The payer. Must match the transaction signer. |
+| `amount` | `i128`    | Stroops to transfer. Must be > 0.             |
 
 **Auth:** `user.require_auth()`.
 
 **What it does:**
+
 1. Loads the subscription for `user`
 2. Asserts `active == true`
 3. Calls `transfer_from(contract, user, merchant, amount)` on the token contract
-
-
 
 **Events emitted**
 
@@ -2208,13 +2227,13 @@ data:   (merchant, amount)
 
 **Errors**
 
-| Condition | Panic message |
-| --- | --- |
-| `amount <= 0` | `"amount must be positive"` |
-| No subscription exists | `"no subscription found"` |
+| Condition                 | Panic message                  |
+| ------------------------- | ------------------------------ |
+| `amount <= 0`             | `"amount must be positive"`    |
+| No subscription exists    | `"no subscription found"`      |
 | Subscription is cancelled | `"subscription is not active"` |
-| Subscription is paused | `"subscription is paused"` |
-| Insufficient allowance | Host error from token contract |
+| Subscription is paused    | `"subscription is paused"`     |
+| Insufficient allowance    | Host error from token contract |
 
 **CLI example**
 
@@ -2240,8 +2259,8 @@ pause(env: Env, user: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                                        |
+| ------ | --------- | -------------------------------------------------- |
 | `user` | `Address` | The subscriber. Must match the transaction signer. |
 
 **Auth:** `user.require_auth()`.
@@ -2255,10 +2274,10 @@ data:   ()
 
 **Errors**
 
-| Condition | Panic message |
-| --- | --- |
-| No subscription exists | `"no subscription found"` |
-| Subscription is cancelled | `"subscription is not active"` |
+| Condition                   | Panic message                      |
+| --------------------------- | ---------------------------------- |
+| No subscription exists      | `"no subscription found"`          |
+| Subscription is cancelled   | `"subscription is not active"`     |
 | Subscription already paused | `"subscription is already paused"` |
 
 **CLI example**
@@ -2284,8 +2303,8 @@ resume(env: Env, user: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                                        |
+| ------ | --------- | -------------------------------------------------- |
 | `user` | `Address` | The subscriber. Must match the transaction signer. |
 
 **Auth:** `user.require_auth()`.
@@ -2299,10 +2318,10 @@ data:   ()
 
 **Errors**
 
-| Condition | Panic message |
-| --- | --- |
-| No subscription exists | `"no subscription found"` |
-| Subscription is cancelled | `"subscription is not active"` |
+| Condition                  | Panic message                  |
+| -------------------------- | ------------------------------ |
+| No subscription exists     | `"no subscription found"`      |
+| Subscription is cancelled  | `"subscription is not active"` |
 | Subscription is not paused | `"subscription is not paused"` |
 
 **CLI example**
@@ -2328,8 +2347,8 @@ cancel(env: Env, user: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                                        |
+| ------ | --------- | -------------------------------------------------- |
 | `user` | `Address` | The subscriber. Must match the transaction signer. |
 
 **Auth:** `user.require_auth()`.
@@ -2343,8 +2362,8 @@ data:   ()
 
 **Errors**
 
-| Condition | Panic message |
-| --- | --- |
+| Condition              | Panic message             |
+| ---------------------- | ------------------------- |
 | No subscription exists | `"no subscription found"` |
 
 **CLI example**
@@ -2370,8 +2389,8 @@ get_subscription(env: Env, user: Address) -> Option<Subscription>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                        |
+| ------ | --------- | ---------------------------------- |
 | `user` | `Address` | The subscriber address to look up. |
 
 **Auth:** None.
@@ -2406,8 +2425,8 @@ batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name    | Type           | Description                                       |
+| ------- | -------------- | ------------------------------------------------- |
 | `users` | `Vec<Address>` | List of subscriber addresses to attempt charging. |
 
 **Auth:** None. Same permissionless model as `charge()`.
@@ -2477,8 +2496,8 @@ get_merchant_revenue(env: Env, merchant: Address) -> i128
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name       | Type      | Description                    |
+| ---------- | --------- | ------------------------------ |
 | `merchant` | `Address` | The merchant address to query. |
 
 **Auth:** None.
@@ -2503,7 +2522,7 @@ soroban contract invoke \
 
 Sets a daily spending cap for `pay_per_use()` for the calling user. The limit is stored in temporary storage and resets automatically after approximately one day (~17,280 ledgers at 5 s/ledger).
 
-*For a detailed conceptual guide on how limits and TTL expirations work, see [Daily Spending Limits](./DAILY-LIMITS.md).*
+_For a detailed conceptual guide on how limits and TTL expirations work, see [Daily Spending Limits](./DAILY-LIMITS.md)._
 
 ```
 set_daily_limit(env: Env, user: Address, limit: i128)
@@ -2511,10 +2530,10 @@ set_daily_limit(env: Env, user: Address, limit: i128)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-| `limit` | `i128` | Maximum stroops spendable via `pay_per_use()` per day. Must be > 0. |
+| Name    | Type      | Description                                                         |
+| ------- | --------- | ------------------------------------------------------------------- |
+| `user`  | `Address` | The subscriber. Must match the transaction signer.                  |
+| `limit` | `i128`    | Maximum stroops spendable via `pay_per_use()` per day. Must be > 0. |
 
 **Auth:** `user.require_auth()`.
 
@@ -2524,9 +2543,9 @@ set_daily_limit(env: Env, user: Address, limit: i128)
 
 **Errors**
 
-| Condition | Panic message |
-| --- | --- |
-| `limit <= 0` | `"limit must be positive"` |
+| Condition                | Panic message                     |
+| ------------------------ | --------------------------------- |
+| `limit <= 0`             | `"limit must be positive"`        |
 | Spend would exceed limit | `"daily spending limit exceeded"` |
 
 **CLI example**
@@ -2553,8 +2572,8 @@ get_daily_limit(env: Env, user: Address) -> Option<i128>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -2587,8 +2606,8 @@ get_daily_spent(env: Env, user: Address) -> i128
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -2623,8 +2642,8 @@ extend_subscription_ttl(env: Env, user: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                               |
+| ------ | --------- | ----------------------------------------- |
 | `user` | `Address` | The subscriber address to extend TTL for. |
 
 **Auth:** None.
@@ -2657,8 +2676,8 @@ add_merchant(env: Env, merchant: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name       | Type      | Description                        |
+| ---------- | --------- | ---------------------------------- |
 | `merchant` | `Address` | The merchant address to whitelist. |
 
 **Auth:** Admin only.
@@ -2688,8 +2707,8 @@ remove_merchant(env: Env, merchant: Address)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name       | Type      | Description                                        |
+| ---------- | --------- | -------------------------------------------------- |
 | `merchant` | `Address` | The merchant address to remove from the whitelist. |
 
 **Auth:** Admin only.
@@ -2719,8 +2738,8 @@ set_whitelist_enabled(env: Env, enabled: bool)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name      | Type   | Description                                     |
+| --------- | ------ | ----------------------------------------------- |
 | `enabled` | `bool` | True to enable the whitelist, false to disable. |
 
 **Auth:** Admin only.
@@ -2750,10 +2769,10 @@ get_merchant_revenue_history(env: Env, merchant: Address, days: u32) -> Vec<i128
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `merchant` | `Address` | The merchant address to query. |
-| `days` | `u32` | The number of days of history to retrieve. |
+| Name       | Type      | Description                                |
+| ---------- | --------- | ------------------------------------------ |
+| `merchant` | `Address` | The merchant address to query.             |
+| `days`     | `u32`     | The number of days of history to retrieve. |
 
 **Auth:** None.
 
@@ -2784,8 +2803,8 @@ get_referrer(env: Env, user: Address) -> Option<Address>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -2843,10 +2862,10 @@ get_schema_version(env: Env) -> u32
 
 **What schema versions mean:**
 
-| Version | Description |
-| --- | --- |
-| `1` | Initial schema. `Subscription` struct does not include the `paused` field. |
-| `2` | Current schema. `Subscription` includes `paused: bool`. Set by `migrate()`. |
+| Version | Description                                                                 |
+| ------- | --------------------------------------------------------------------------- |
+| `1`     | Initial schema. `Subscription` struct does not include the `paused` field.  |
+| `2`     | Current schema. `Subscription` includes `paused: bool`. Set by `migrate()`. |
 
 **When to call this:** Use `get_schema_version` to verify a deployment is on the current schema before running `migrate()`, and to confirm a migration completed successfully. A keeper or admin script can check this before submitting `migrate(users)` to avoid redundant transactions — `migrate()` is a no-op when already at version 2, but reading the version first avoids the gas cost entirely.
 
@@ -2877,10 +2896,10 @@ set_metadata(env: Env, user: Address, label: String)
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-| `label` | `String` | Short display label (e.g. `"pro"`, `"basic"`). |
+| Name    | Type      | Description                                        |
+| ------- | --------- | -------------------------------------------------- |
+| `user`  | `Address` | The subscriber. Must match the transaction signer. |
+| `label` | `String`  | Short display label (e.g. `"pro"`, `"basic"`).     |
 
 **Auth:** `user.require_auth()`.
 
@@ -2910,8 +2929,8 @@ get_metadata(env: Env, user: Address) -> Option<String>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -2940,8 +2959,8 @@ get_charge_history(env: Env, user: Address) -> Vec<u64>
 
 **Parameters**
 
-| Name | Type | Description |
-| --- | --- | --- |
+| Name   | Type      | Description                      |
+| ------ | --------- | -------------------------------- |
 | `user` | `Address` | The subscriber address to query. |
 
 **Auth:** None.
@@ -2976,13 +2995,13 @@ validate_subscription(env: Env, user: Address) -> SubscriptionValidationReport
 
 **Returns `SubscriptionValidationReport`**
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `is_valid` | `bool` | `true` when no inconsistencies are detected |
-| `violations` | `Vec<String>` | General integrity violations |
-| `missing_records` | `Vec<String>` | Missing auxiliary records (history, metadata, etc.) |
-| `invalid_state_transitions` | `Vec<String>` | Illegal active/paused/cancelled state combinations |
-| `corrupted_references` | `Vec<String>` | Broken merchant/token/referrer references |
+| Field                       | Type          | Description                                         |
+| --------------------------- | ------------- | --------------------------------------------------- |
+| `is_valid`                  | `bool`        | `true` when no inconsistencies are detected         |
+| `violations`                | `Vec<String>` | General integrity violations                        |
+| `missing_records`           | `Vec<String>` | Missing auxiliary records (history, metadata, etc.) |
+| `invalid_state_transitions` | `Vec<String>` | Illegal active/paused/cancelled state combinations  |
+| `corrupted_references`      | `Vec<String>` | Broken merchant/token/referrer references           |
 
 **Auth:** None (read-only simulation).
 
@@ -3004,8 +3023,8 @@ repair_subscription(env: Env, user: Address) -> u32
 
 **Event emitted**
 
-| Event name | Topic | Data |
-| --- | --- | --- |
+| Event name              | Topic                                     | Data                         |
+| ----------------------- | ----------------------------------------- | ---------------------------- |
 | `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
 
 **Frontend authorization:** The repair button is enabled only when the connected Freighter wallet matches the on-chain admin returned by `get_admin`.
@@ -3016,19 +3035,19 @@ repair_subscription(env: Env, user: Address) -> u32
 
 All amounts are in **stroops** — the smallest unit of a Stellar token.
 
-| Amount | Stroops |
-| --- | --- |
-| 1 XLM | 10,000,000 |
-| 0.5 XLM | 5,000,000 |
-| 0.0000001 XLM | 1 |
+| Amount        | Stroops    |
+| ------------- | ---------- |
+| 1 XLM         | 10,000,000 |
+| 0.5 XLM       | 5,000,000  |
+| 0.0000001 XLM | 1          |
 
 All intervals are in **seconds**.
 
-| Interval | Seconds |
-| --- | --- |
-| 1 day | 86,400 |
-| 1 week | 604,800 |
-| 30 days | 2,592,000 |
+| Interval | Seconds   |
+| -------- | --------- |
+| 1 day    | 86,400    |
+| 1 week   | 604,800   |
+| 30 days  | 2,592,000 |
 
 ---
 
@@ -3038,16 +3057,17 @@ All events can be indexed by listening to the Stellar RPC event stream for the F
 
 For a complete reference of all events with detailed schemas and examples, see [EVENTS.md](./EVENTS.md). For consumption patterns (polling, deduplication, reaction, reliability), see [EVENT-DRIVEN-GUIDE.md](./EVENT-DRIVEN-GUIDE.md).
 
-| Event name | Topic | Data |
-| --- | --- | --- |
-| `subscribed` | `("subscribed", user_address)` | `(merchant, amount, interval)` |
-| `charged` | `("charged", user_address)` | `(merchant, amount, timestamp)` |
-| `pay_per_use` | `("pay_per_use", user_address)` | `(merchant, amount)` |
-| `cancelled` | `("cancelled", user_address)` | `()` |
-| `paused` | `("paused", user_address)` | `()` |
-| `resumed` | `("resumed", user_address)` | `()` |
-| `referred` | `("referred", user_address)` | `referrer_address` |
+| Event name                 | Topic                                                    | Data                                  |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------- |
+| `subscribed`               | `("subscribed", user_address)`                           | `(merchant, amount, interval)`        |
+| `charged`                  | `("charged", user_address)`                              | `(merchant, amount, timestamp)`       |
+| `pay_per_use`              | `("pay_per_use", user_address)`                          | `(merchant, amount)`                  |
+| `cancelled`                | `("cancelled", user_address)`                            | `()`                                  |
+| `paused`                   | `("paused", user_address)`                               | `()`                                  |
+| `resumed`                  | `("resumed", user_address)`                              | `()`                                  |
+| `referred`                 | `("referred", user_address)`                             | `referrer_address`                    |
 | `subscription_transferred` | `("subscription_transferred", from_address, to_address)` | `(merchant, amount, interval, token)` |
+| `subscription_repaired`    | `("subscription_repaired", user_address)`                | `fixed_inconsistencies: u32`          |
 | `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
 | `subscriber_index_cleared` | `("subscriber_index_cleared", user_address)` | `index: u64` |
 
@@ -3057,6 +3077,23 @@ For a complete reference of all events with detailed schemas and examples, see [
 
 All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
 
+| Code | Variant                  | Description                                                                     |
+| ---- | ------------------------ | ------------------------------------------------------------------------------- |
+| 1    | `AlreadyInitialized`     | `initialize()` was called on an already-initialized contract.                   |
+| 2    | `AmountMustBePositive`   | A payment or subscription amount was zero or negative.                          |
+| 3    | `IntervalMustBePositive` | A subscription interval was zero.                                               |
+| 4    | `NoSubscriptionFound`    | No subscription record exists for the given user.                               |
+| 5    | `SubscriptionInactive`   | The subscription exists but is cancelled or paused.                             |
+| 6    | `IntervalNotElapsed`     | `charge()` was called before the billing interval elapsed.                      |
+| 7    | `NotInitialized`         | A contract function was called before `initialize()`.                           |
+| 8    | `InsufficientAllowance`  | The user's token allowance is below the subscription amount.                    |
+| 9    | `GracePeriodElapsed`     | The charge grace period has passed; the subscription cannot be charged.         |
+| 10   | `MerchantNotWhitelisted` | The merchant is not on the whitelist (when whitelist is enabled).               |
+| 11   | `ContractPaused`         | The contract is paused; all user-facing write operations are blocked.           |
+| 24   | `DailyLimitExceeded`     | A `pay_per_use()` call would exceed the user's configured daily spending limit. |
+| 33   | `InvalidVolumeCap`       | `set_global_volume_cap` was called with a non-positive cap.                     |
+| 34   | `InvalidFeeBounds`       | `set_fee_bounds` min/max is inconsistent or `max_bps > 10000`.                  |
+| 35   | `FeeOutOfBoundsAtCommit` | `commit_fee` pending bps is outside current fee bounds.                         |
 | Code | Variant | Description |
 | --- | --- | --- |
 | 1 | `AlreadyInitialized` | `initialize()` was called on an already-initialized contract. |

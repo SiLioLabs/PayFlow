@@ -5,6 +5,9 @@
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
+    "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
+    "typecheck:scripts": "cd scripts && npx tsc --noEmit",
+    "test:scripts": "cd scripts && npm install --prefer-offline && npm test",
     "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
     "audit:contrast": "npm run typecheck",
     "backend:typecheck": "cd contract && cargo check",
