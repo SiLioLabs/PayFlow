@@ -29,15 +29,76 @@ export interface TxEntry {
 export type TxQueueListener = (entries: TxEntry[], open: boolean) => void;
 
 const MAX_ENTRIES = 10;
+export const TX_QUEUE_STORAGE_KEY = "flowpay_tx_queue";
+export const TX_PANEL_STORAGE_KEY = "flowpay_tx_panel_open";
 
-let nextId = 1;
-let entries: TxEntry[] = [];
-let panelOpen = false;
+export interface PersistedTxEntry {
+  id: number;
+  operation: string;
+  hash: string | null;
+  timestamp: string;
+  status: TxEntryStatus;
+  error: string | null;
+}
+
+function loadPersisted(): { entries: TxEntry[]; panelOpen: boolean; nextId: number } {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { entries: [], panelOpen: false, nextId: 1 };
+  }
+  try {
+    const raw = window.localStorage.getItem(TX_QUEUE_STORAGE_KEY);
+    const panelRaw = window.localStorage.getItem(TX_PANEL_STORAGE_KEY);
+    if (!raw) return { entries: [], panelOpen: panelRaw === "true", nextId: 1 };
+    const parsed = JSON.parse(raw) as PersistedTxEntry[];
+    if (!Array.isArray(parsed)) return { entries: [], panelOpen: false, nextId: 1 };
+    const restored: TxEntry[] = parsed.map((e) => ({
+      ...e,
+      retry: null,
+    }));
+    const maxId = restored.reduce((m, e) => Math.max(m, e.id), 0);
+    // Respect an explicit persisted panel state; only auto-open when the key
+    // was never written (legacy/first run with existing entries).
+    const panelOpenRestored = panelRaw === null ? restored.length > 0 : panelRaw === "true";
+    return {
+      entries: restored.slice(0, MAX_ENTRIES),
+      panelOpen: panelOpenRestored,
+      nextId: maxId + 1,
+    };
+  } catch {
+    return { entries: [], panelOpen: false, nextId: 1 };
+  }
+}
+
+function persist() {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const toPersist: PersistedTxEntry[] = entries.map(
+      ({ id, operation, hash, timestamp, status, error }) => ({
+        id,
+        operation,
+        hash,
+        timestamp,
+        status,
+        error,
+      })
+    );
+    window.localStorage.setItem(TX_QUEUE_STORAGE_KEY, JSON.stringify(toPersist));
+    window.localStorage.setItem(TX_PANEL_STORAGE_KEY, JSON.stringify(panelOpen));
+  } catch {
+    // localStorage unavailable or quota exceeded
+  }
+}
+
+const _loaded = loadPersisted();
+let nextId = _loaded.nextId;
+let entries: TxEntry[] = _loaded.entries;
+let panelOpen = _loaded.panelOpen;
 const listeners = new Set<TxQueueListener>();
 
 function notify() {
   const snapshot = [...entries];
   const open = panelOpen;
+  persist();
   listeners.forEach((fn) => fn(snapshot, open));
 }
 
@@ -53,6 +114,25 @@ export function addListener(fn: TxQueueListener): () => void {
 export function setPanelOpen(open: boolean): void {
   panelOpen = open;
   notify();
+}
+
+/** Remove a single entry (discard). Used for interrupted/failed tx recovery. */
+export function removeEntry(id: number): void {
+  entries = entries.filter((e) => e.id !== id);
+  if (entries.length === 0) panelOpen = false;
+  notify();
+}
+
+/** Clear all entries and close panel. */
+export function clearAllEntries(): void {
+  entries = [];
+  panelOpen = false;
+  notify();
+}
+
+/** Return only pending/submitted (in-flight or interrupted) entries. */
+export function getPendingEntries(): TxEntry[] {
+  return entries.filter((e) => e.status === "pending" || e.status === "submitted");
 }
 
 /**
@@ -112,12 +192,38 @@ export function isPanelOpen(): boolean {
   return panelOpen;
 }
 
-/** Reset queue state — used in tests. */
+/** Reset queue state — used in tests. Clears persisted storage as well. */
 export function _reset(): void {
   nextId = 1;
   entries = [];
   panelOpen = false;
   listeners.clear();
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(TX_QUEUE_STORAGE_KEY);
+      window.localStorage.removeItem(TX_PANEL_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+  // Also clear queue serialization state
+  queuePromise = Promise.resolve();
+  queueDepth = 0;
+  pendingLabel = null;
+  queueStateListeners.clear();
+  queueListeners.clear();
+}
+
+/**
+ * Re-hydrate from localStorage after a simulated reload (test helper).
+ * Used to verify persistence across refresh without a full page reload.
+ */
+export function _rehydrate(): void {
+  const loaded = loadPersisted();
+  nextId = loaded.nextId;
+  entries = loaded.entries;
+  panelOpen = loaded.panelOpen;
+  notify();
 }
 
 // ---------------------------------------------------------------------------

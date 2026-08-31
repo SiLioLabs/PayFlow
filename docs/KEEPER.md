@@ -29,15 +29,15 @@ The contract also enforces a configurable grace period. If a charge is attempted
 
 `batch_charge(users)` accepts a list of user addresses and processes each one independently — a failure on one address does not abort the rest. Each entry in the returned `Vec<ChargeResult>` is one of:
 
-| Result                    | Meaning                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `Charged`                 | Funds transferred successfully                                                                          |
-| `Skipped`                 | Interval has not elapsed yet                                                                            |
-| `NoSubscription`          | No subscription found for this address                                                                  |
-| `Inactive`                | Subscription is cancelled                                                                               |
-| `Paused`                  | Subscription is paused by the user                                                                      |
-| `GracePeriodElapsed`      | Charge window expired; subscription lapsed                                                              |
-| `AllowanceInsufficient`   | Subscriber's token allowance to the contract is below the gross subscription amount (`sub.amount`). No funds were transferred. The subscription remains active. The keeper should log the address and wait for the subscriber to increase their allowance before the next cycle. |
+| Result                  | Meaning                                                                                                                                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Charged`               | Funds transferred successfully                                                                                                                                                                                                                                                   |
+| `Skipped`               | Interval has not elapsed yet                                                                                                                                                                                                                                                     |
+| `NoSubscription`        | No subscription found for this address                                                                                                                                                                                                                                           |
+| `Inactive`              | Subscription is cancelled                                                                                                                                                                                                                                                        |
+| `Paused`                | Subscription is paused by the user                                                                                                                                                                                                                                               |
+| `GracePeriodElapsed`    | Charge window expired; subscription lapsed                                                                                                                                                                                                                                       |
+| `AllowanceInsufficient` | Subscriber's token allowance to the contract is below the gross subscription amount (`sub.amount`). No funds were transferred. The subscription remains active. The keeper should log the address and wait for the subscriber to increase their allowance before the next cycle. |
 
 > **`AllowanceInsufficient` does not abort the batch.** Healthy subscribers before and after an under-allowanced subscriber are still charged normally.
 

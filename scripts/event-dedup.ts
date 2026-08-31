@@ -70,7 +70,11 @@ const DEFAULT_TTL_MS = 0; // 0 = no TTL
  * This combination uniquely identifies a contract event. The same event
  * at a different ledger is treated as a different event.
  */
-export function createCacheKey(txHash: string, eventName: string, ledger: number): string {
+export function createCacheKey(
+  txHash: string,
+  eventName: string,
+  ledger: number,
+): string {
   return `${txHash}:${eventName}:${ledger}`;
 }
 
@@ -110,7 +114,8 @@ export class EventDedupCache {
    */
   constructor(maxSize?: number, ttlMs?: number) {
     this.cache = new Map();
-    this.maxSize = maxSize ?? envInt("EVENT_DEDUP_CACHE_SIZE", DEFAULT_CACHE_SIZE);
+    this.maxSize =
+      maxSize ?? envInt("EVENT_DEDUP_CACHE_SIZE", DEFAULT_CACHE_SIZE);
     this.ttlMs = ttlMs ?? envInt("EVENT_DEDUP_TTL_MS", DEFAULT_TTL_MS);
   }
 

@@ -7,9 +7,8 @@
  */
 
 import { MultiEndpointServer } from "./rpc-client.js";
-import {
 import { logger } from "./logger";
-  Contract,
+import {
   Networks,
   TransactionBuilder,
   BASE_FEE,
@@ -26,9 +25,6 @@ const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
   Networks.TESTNET) as string;
 
 if (!CONTRACT_ID) {
-  console.error("Error: CONTRACT_ID environment variable is required");
-  console.error(
-    "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]",
   logger.error("Error: CONTRACT_ID environment variable is required");
   logger.error(
     "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]"

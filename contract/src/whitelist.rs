@@ -142,6 +142,7 @@ pub fn remove_merchant(env: &Env, merchant: &Address) {
     }
 
     events::publish_merchant_removed(env, merchant);
+    crate::fee::clear_merchant_fee_recipient(env, merchant);
 }
 
 /// Returns a paginated vector of whitelisted merchants.
@@ -204,6 +205,7 @@ pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>
         .set(&DataKey::MerchantFrozen(merchant.clone()), &true);
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_frozen(env, merchant);
+    crate::fee::clear_merchant_fee_recipient(env, merchant);
 }
 
 /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.

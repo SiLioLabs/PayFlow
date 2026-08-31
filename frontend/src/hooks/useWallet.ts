@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import { NETWORK_PASSPHRASE, server } from "../stellar";
+import { ensureMainnetConfirmed } from "../utils/network";
 import { WalletAdapter } from "../services/wallets/WalletAdapter";
 import { FreighterAdapter } from "../services/wallets/FreighterAdapter";
 import { XBullAdapter } from "../services/wallets/XBullAdapter";
@@ -102,6 +103,10 @@ export function useWallet() {
   const signAndSubmit = useCallback(
     async (xdr: string): Promise<string> => {
       if (!activeAdapter) throw new Error("No wallet connected");
+      // Defense-in-depth mainnet gate for direct sign paths (e.g., SubscribeForm that bypasses useTransaction)
+      if (!ensureMainnetConfirmed()) {
+        throw new Error("Mainnet transaction cancelled");
+      }
       const signed = await activeAdapter.signTransaction(xdr, NETWORK_PASSPHRASE);
       const tx = new Transaction(signed, NETWORK_PASSPHRASE);
       const result = await server.sendTransaction(tx);

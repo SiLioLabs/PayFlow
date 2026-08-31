@@ -11300,6 +11300,533 @@ fn test_batch_charge_single_interesting_failure_emits_with_not_due_count() {
     assert_eq!(summary.charged, 0);
 }
 
+// ─────────────────────────────────────────────────────────────
+// Issue #801 (Issue 005): simulate_charge / get_batch_charge_estimate
+// parity matrix.
+// ─────────────────────────────────────────────────────────────
+//
+// These cases exhaust the existing skip/pause/grace/inactive/
+// not-due/missing-subscription/contract-paused matrix and
+// verify that both dry-run surfaces reach semantically
+// equivalent decisions (modulo the intentional enum-mapping
+// differences documented in charge_exec.rs at
+// DryRunSkipOutcome::into_sim_result / into_batch_result).
+
+/// Semantic skip-category labels shared by the parity matrix.
+/// The test asserts that both callers land in the same
+/// high-level category for each scenario.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum ParityCategory {
+    NoSubscription,
+    ContractPaused,
+    SubscriptionPaused,
+    Inactive,
+    NotDue,
+    GracePeriodElapsed,
+    WouldCharge,
+}
+
+fn categorize_sim(r: &ChargeSimResult) -> ParityCategory {
+    match r {
+        ChargeSimResult::WouldSucceed => ParityCategory::WouldCharge,
+        ChargeSimResult::NotDue => ParityCategory::NotDue,
+        ChargeSimResult::Inactive => ParityCategory::Inactive,
+        ChargeSimResult::InsufficientAllowance => ParityCategory::WouldCharge,
+        ChargeSimResult::GracePeriodElapsed => ParityCategory::GracePeriodElapsed,
+        ChargeSimResult::ContractPaused => ParityCategory::ContractPaused,
+        ChargeSimResult::SubscriptionPaused => ParityCategory::SubscriptionPaused,
+    }
+}
+
+fn categorize_batch(r: &ChargeResult) -> ParityCategory {
+    match r {
+        ChargeResult::Charged => ParityCategory::WouldCharge,
+        ChargeResult::Skipped => ParityCategory::NotDue,
+        ChargeResult::NoSubscription => ParityCategory::NoSubscription,
+        ChargeResult::Inactive => ParityCategory::Inactive,
+        ChargeResult::Paused => ParityCategory::SubscriptionPaused,
+        ChargeResult::GracePeriodElapsed => ParityCategory::GracePeriodElapsed,
+        ChargeResult::AllowanceInsufficient => ParityCategory::WouldCharge,
+    }
+}
+
+/// Returns (now, interval, grace_period, amount) constants for
+/// the parity test setup so row config is readable.
+struct ParityConfig {
+    interval: u64,
+    grace: u64,
+    amount: i128,
+}
+
+const PARITY_CFG: ParityConfig = ParityConfig {
+    interval: 86400,
+    grace: 3600,
+    amount: 1_0000000,
+};
+
+/// Description and setup function for a single parity-matrix
+/// row.  Setup runs inside a fresh `setup()` context.  The
+/// returned label is printed on assertion failure so it is
+/// clear which row diverged.
+struct ParityRow {
+    label: &'static str,
+    expected: ParityCategory,
+    setup: fn(env: &Env, client: &FlowPayClient, user: &Address, merchant: &Address, token_addr: &Address, contract_id: &Address),
+}
+
+fn parity_rows() -> std::vec::Vec<ParityRow> {
+    std::vec![
+        ParityRow {
+            label: "no subscription",
+            expected: ParityCategory::NoSubscription,
+            setup: |_env, _client, _user, _merchant, _token_addr, _contract_id| {
+                // Intentionally do not subscribe the user.
+            },
+        },
+        ParityRow {
+            label: "contract paused",
+            expected: ParityCategory::ContractPaused,
+            setup: |env, client, user, merchant, token_addr, contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                env.ledger().with_mut(|l| l.timestamp += PARITY_CFG.interval + 1);
+                env.as_contract(contract_id, || {
+                    storage::set_contract_paused(env, true);
+                });
+            },
+        },
+        ParityRow {
+            label: "paused indefinitely",
+            expected: ParityCategory::SubscriptionPaused,
+            setup: |_env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                client.pause(user);
+            },
+        },
+        ParityRow {
+            label: "paused with expiry — before expiry reached",
+            expected: ParityCategory::SubscriptionPaused,
+            setup: |env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                let now = env.ledger().timestamp();
+                let expiry = now + 600;
+                client.pause_until(user, &expiry);
+                env.ledger().with_mut(|l| l.timestamp = expiry - 1);
+            },
+        },
+        ParityRow {
+            label: "paused with expiry — at expiry + interval not yet elapsed (auto-resume -> not due)",
+            expected: ParityCategory::NotDue,
+            setup: |env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                let now = env.ledger().timestamp();
+                // expiry well before interval would be due
+                let expiry = now + 600;
+                client.pause_until(user, &expiry);
+                // advance to exactly expiry (auto-resumes), but subscription
+                // interval is 86400s so charge is not yet due.
+                env.ledger().with_mut(|l| l.timestamp = expiry);
+            },
+        },
+        ParityRow {
+            label: "paused with expiry — past expiry + interval elapsed (auto-resume -> would charge)",
+            expected: ParityCategory::WouldCharge,
+            setup: |env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                let now = env.ledger().timestamp();
+                let expiry = now + 600;
+                client.pause_until(user, &expiry);
+                // past both expiry and interval.
+                env.ledger().with_mut(|l| l.timestamp = expiry + PARITY_CFG.interval + 1);
+            },
+        },
+        ParityRow {
+            label: "inactive (cancelled)",
+            expected: ParityCategory::Inactive,
+            setup: |env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                client.cancel(user);
+                env.ledger().with_mut(|l| l.timestamp += PARITY_CFG.interval + 1);
+            },
+        },
+        ParityRow {
+            label: "not due (interval not elapsed)",
+            expected: ParityCategory::NotDue,
+            setup: |_env, client, user, merchant, token_addr, _contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                // Immediately after subscribe, next charge is interval away.
+            },
+        },
+        ParityRow {
+            label: "due and within grace window",
+            expected: ParityCategory::WouldCharge,
+            setup: |env, client, user, merchant, token_addr, contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                env.as_contract(contract_id, || {
+                    env.storage()
+                        .instance()
+                        .set(&DataKey::GracePeriod, &PARITY_CFG.grace);
+                });
+                // Advance past interval but still inside grace window.
+                env.ledger().with_mut(|l| l.timestamp += PARITY_CFG.interval + 1);
+            },
+        },
+        ParityRow {
+            label: "grace period elapsed",
+            expected: ParityCategory::GracePeriodElapsed,
+            setup: |env, client, user, merchant, token_addr, contract_id| {
+                client.subscribe(
+                    user, merchant,
+                    &PARITY_CFG.amount, &PARITY_CFG.interval,
+                    token_addr, &None, &None,
+                );
+                env.as_contract(contract_id, || {
+                    env.storage()
+                        .instance()
+                        .set(&DataKey::GracePeriod, &PARITY_CFG.grace);
+                });
+                env.ledger().with_mut(|l| {
+                    l.timestamp += PARITY_CFG.interval + PARITY_CFG.grace + 1;
+                });
+            },
+        },
+        ParityRow {
+            label: "missing subscription (fresh user, never subscribed)",
+            expected: ParityCategory::NoSubscription,
+            setup: |_env, _client, _user, _merchant, _token_addr, _contract_id| {
+                // Nothing to do; user has never subscribed.
+            },
+        },
+    ]
+}
+
+#[test]
+fn test_simulate_and_batch_estimate_skip_parity_matrix() {
+    let rows = parity_rows();
+    for row in rows.iter() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        (row.setup)(&env, &client, &user, &merchant, &token_addr, &contract_id);
+
+        let sim = client.simulate_charge(&user);
+        let sim_cat = categorize_sim(&sim);
+
+        let users_vec = soroban_sdk::vec![&env, user.clone()];
+        let estimates = client.get_batch_charge_estimate(&users_vec);
+        let est = estimates.get(0).expect("estimate vec has one entry");
+        let est_cat = categorize_batch(&est);
+
+        // ═══════════════════════════════════════════════════════
+        // The two rows below are the *only* places where the
+        // parity matrix tolerates a divergence:
+        //   (1) NoSubscription: simulate_charge returns Inactive
+        //       (historic API); estimate returns NoSubscription
+        //       (matches live batch_charge).  Category labels
+        //       differ intentionally; both mean "no charge".
+        //   (2) ContractPaused: simulate_charge returns
+        //       ContractPaused; estimate has no matching variant
+        //       (ChargeResult is frozen for off-chain consumers)
+        //       so it falls back to Inactive.  Both callers
+        //       agree that the charge would not proceed.
+        // ═══════════════════════════════════════════════════════
+        let est_cat_adjusted = match (row.expected, est_cat) {
+            (ParityCategory::NoSubscription, ParityCategory::NoSubscription) => {
+                // simulate collapses missing -> Inactive category.
+                ParityCategory::Inactive
+            }
+            (ParityCategory::ContractPaused, ParityCategory::Inactive) => {
+                // estimate maps contract-paused -> Inactive.
+                ParityCategory::ContractPaused
+            }
+            _ => est_cat,
+        };
+
+        assert_eq!(
+            sim_cat, est_cat_adjusted,
+            "parity divergence on row '{}': simulate={:?} (cat={:?}), estimate={:?} (cat={:?})",
+            row.label, sim, sim_cat, est, est_cat,
+        );
+        assert_eq!(
+            sim_cat, row.expected,
+            "simulate_charge reached wrong category on row '{}': got {:?}, want {:?}",
+            row.label, sim_cat, row.expected,
+        );
+    }
+}
+
+/// Additional, narrower check: when both dry-run surfaces say
+/// "would charge", neither has mutated storage (the virtual
+/// auto-resume inside the shared precheck must remain local).
+#[test]
+fn test_estimate_does_not_perform_auto_resume_storage_writes() {
+// Issue 041 (#836): MerchantFeeRecipient clearing tests
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_merchant_fee_recipient_cleared_on_remove_and_freeze() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    client.add_merchant(&merchant);
+    client.set_merchant_fee_recipient(&merchant, &recipient);
+    assert_eq!(client.get_merchant_fee_recipient(&merchant), Some(recipient.clone()));
+
+    client.remove_merchant(&merchant);
+    assert_eq!(client.get_merchant_fee_recipient(&merchant), None);
+
+    client.add_merchant(&merchant);
+    client.set_merchant_fee_recipient(&merchant, &recipient);
+    assert_eq!(client.get_merchant_fee_recipient(&merchant), Some(recipient.clone()));
+
+    client.freeze_merchant(&merchant, &None);
+    assert_eq!(client.get_merchant_fee_recipient(&merchant), None);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue 033 (#828): Grace period TTL expiry tests
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_grace_period_commit_expired_proposal_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.propose_grace_period(&3600);
+
+    env.ledger().with_mut(|l| {
+        l.sequence_number += 20000;
+    });
+
+    client.commit_grace_period();
+}
+
+#[test]
+fn test_grace_period_propose_commit_happy_path() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.propose_grace_period(&7200);
+
+    env.ledger().with_mut(|l| {
+        l.sequence_number += 100;
+    });
+
+    client.commit_grace_period();
+    assert_eq!(client.get_grace_period(), 7200);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue 034 (#829): Self-transfer & contract-as-user hazards
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_transfer_subscription_self_transfer_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user, &merchant,
+        &PARITY_CFG.amount, &PARITY_CFG.interval,
+        &token_addr, &None, &None,
+    );
+    let now = env.ledger().timestamp();
+    let expiry = now + 600;
+    client.pause_until(&user, &expiry);
+    env.ledger().with_mut(|l| l.timestamp = expiry + PARITY_CFG.interval + 1);
+
+    // Sanity-check: user is currently paused in storage.
+    let sub_before = client.get_subscription(&user).unwrap();
+    assert!(sub_before.paused, "sub must be paused before estimate call");
+    let pause_expiry_before = env.as_contract(&contract_id, || {
+        storage::get_pause_expiry(&env, &user)
+    });
+    assert!(pause_expiry_before.is_some(), "pause expiry must exist");
+
+    // Run the estimate — must be WouldCharge (via virtual auto-resume).
+    let users_vec = soroban_sdk::vec![&env, user.clone()];
+    let estimates = client.get_batch_charge_estimate(&users_vec);
+    assert_eq!(
+        estimates.get(0).unwrap(),
+        ChargeResult::Charged,
+        "estimate should report WouldCharge via virtual auto-resume"
+    );
+    let sim = client.simulate_charge(&user);
+    assert_eq!(
+        sim,
+        ChargeSimResult::WouldSucceed,
+        "simulate_charge should agree on WouldSucceed"
+    );
+
+    // CRITICAL: after the dry-run, storage must still show paused=true
+    // and pause expiry must still be present.  If either changed, the
+    // estimate path is leaking state writes (a regression from Issue
+    // 005's shared helper).
+    let sub_after = client.get_subscription(&user).unwrap();
+    assert!(
+        sub_after.paused,
+        "estimate call must NOT write auto-resume to storage; sub.paused remained true"
+    );
+    let pause_expiry_after = env.as_contract(&contract_id, || {
+        storage::get_pause_expiry(&env, &user)
+    });
+    assert!(
+        pause_expiry_after.is_some(),
+        "estimate call must NOT clear pause_expiry storage key"
+    );
+}
+
+/// Parity: the existing successful charge path is unchanged.
+/// We run a full cycle end-to-end and assert funds moved the
+/// same way they did before the Issue 005 refactor.
+#[test]
+fn test_successful_charge_path_unchanged_after_issue_005() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    // Both dry-runs should say "not due" immediately.
+    assert_eq!(client.simulate_charge(&user), ChargeSimResult::NotDue);
+    let uvec = soroban_sdk::vec![&env, user.clone()];
+    assert_eq!(
+        client.get_batch_charge_estimate(&uvec).get(0).unwrap(),
+        ChargeResult::Skipped
+    );
+
+    let user_before = token.balance(&user);
+    let merchant_before = token.balance(&merchant);
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+
+    // Now both dry-runs should say "would charge".
+    assert_eq!(client.simulate_charge(&user), ChargeSimResult::WouldSucceed);
+    assert_eq!(
+        client.get_batch_charge_estimate(&uvec).get(0).unwrap(),
+        ChargeResult::Charged
+    );
+
+    // Live charge should actually move funds.
+    client.charge(&user);
+
+    assert_eq!(user_before - token.balance(&user), amount);
+    assert_eq!(token.balance(&merchant) - merchant_before, amount);
+}
+
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    client.transfer_subscription(&user, &user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_transfer_subscription_to_contract_address_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    client.transfer_subscription(&user, &contract_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_subscribe_self_subscription_panics() {
+    let (env, contract_id, token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &user,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_subscribe_contract_as_user_panics() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &contract_id,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
 // Issue #813: batch_charge stress / resource-envelope coverage
 //
 // These tests exercise `batch_charge` at the configured max batch size and one

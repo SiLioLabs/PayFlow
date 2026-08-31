@@ -44,11 +44,17 @@ function main() {
     console.error("--limit must be a positive integer");
     process.exit(1);
   }
-  if (!dbPath) { logger.error("--db <path> required"); process.exit(1); }
+  if (!dbPath) {
+    logger.error("--db <path> required");
+    process.exit(1);
+  }
 
   const limitArg = getArg("--limit");
   const limit = limitArg ? parseInt(limitArg, 10) : 20;
-  if (isNaN(limit) || limit < 1) { logger.error("--limit must be a positive integer"); process.exit(1); }
+  if (isNaN(limit) || limit < 1) {
+    logger.error("--limit must be a positive integer");
+    process.exit(1);
+  }
 
   const db = new DatabaseSync(dbPath, { open: true });
   const rows = db
@@ -85,8 +91,10 @@ function main() {
     writeFileSync(out, json);
     console.log(`Wrote leaderboard to ${out}`);
   } else process.stdout.write(json + "\n");
-  if (out) { writeFileSync(out, json); logger.info(`Wrote leaderboard to ${out}`); }
-  else process.stdout.write(json + "\n");
+  if (out) {
+    writeFileSync(out, json);
+    logger.info(`Wrote leaderboard to ${out}`);
+  } else process.stdout.write(json + "\n");
 }
 
 main();

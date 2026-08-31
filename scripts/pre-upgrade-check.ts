@@ -25,7 +25,7 @@
  *   }
  */
 
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   Contract,
@@ -91,6 +91,9 @@ const WASM_PATH = getArg("--wasm");
 const UPGRADE_CONFIG_PATH =
   getArg("--upgrade-config") ?? process.env.UPGRADE_CONFIG_PATH ?? "";
 const CONFIRM = process.argv.includes("--confirm");
+const SNAPSHOT_PATH = getArg("--snapshot");
+const MAX_DRIFT = parseInt(getArg("--max-drift") ?? "0", 10);
+const REPORT_PATH = getArg("--report") ?? "pre-upgrade-report.json";
 
 function showHelp(): never {
   console.log(`
@@ -101,6 +104,9 @@ Options:
   --upgrade-config <path>    JSON config with expected_schema_version
   --skip-key-check           Skip admin key signing test (e.g. hardware wallet)
   --confirm                  Print ready-to-proceed message when all checks pass
+  --snapshot <path>          Path to a subscription snapshot to check drift against
+  --max-drift <number>       Maximum allowed active_count difference from snapshot (default 0)
+  --report <path>            Path to write the JSON report (default: pre-upgrade-report.json)
   --help, -h                 Show this help
 
 Environment:
@@ -438,14 +444,35 @@ async function runChecks(): Promise<ReadinessReport> {
       });
     } else {
       const count = Number(scValToNative(retval));
+      let status: CheckStatus = count > 0 ? "warn" : "pass";
+      let detail = count > 0
+        ? `${count} active subscription(s) will be affected by storage migration`
+        : "No active subscriptions";
+      let blocking = false;
+
+      if (SNAPSHOT_PATH) {
+        if (existsSync(SNAPSHOT_PATH)) {
+          const snapshotData = JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8"));
+          const snapCount = snapshotData.count ?? 0;
+          const drift = Math.abs(count - snapCount);
+          detail += ` (Snapshot count: ${snapCount}, drift: ${drift})`;
+          if (drift > MAX_DRIFT) {
+            status = "fail";
+            blocking = true;
+            detail += ` - Drift ${drift} exceeds maximum allowed ${MAX_DRIFT}`;
+          }
+        } else {
+          status = "fail";
+          blocking = true;
+          detail = `Snapshot file not found at ${SNAPSHOT_PATH}`;
+        }
+      }
+
       checks.push({
         name: "active_subscription_count",
-        status: count > 0 ? "warn" : "pass",
-        detail:
-          count > 0
-            ? `${count} active subscription(s) will be affected by storage migration`
-            : "No active subscriptions",
-        blocking: false,
+        status,
+        detail,
+        blocking,
       });
     }
   } catch (err) {
@@ -505,7 +532,7 @@ async function runChecks(): Promise<ReadinessReport> {
       "migrate",
       [emptyUsers],
       SKIP_KEY_CHECK ? undefined : ADMIN_SECRET || undefined
-async function main(): Promise<void> {
+    );
   if (!CONTRACT_ID) {
     logger.error("Error: CONTRACT_ID environment variable is required.");
     process.exit(1);
@@ -597,6 +624,11 @@ async function main(): Promise<void> {
   const report = await runChecks();
   printReport(report);
 
+  if (REPORT_PATH) {
+    writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
+    console.log(`\nReport written to ${REPORT_PATH}`);
+  }
+
   if (!report.ready) {
     console.error("Pre-upgrade check FAILED — resolve blocking issues before upgrading.");
     process.exit(1);
@@ -607,36 +639,9 @@ async function main(): Promise<void> {
   } else {
     console.log("All checks passed. Re-run with --confirm when you are ready to upgrade.");
   }
-  // 3. Schema version
-  const versionVal = await simulateReadOnly("get_schema_version");
-  const schemaVersion = scValToString(versionVal);
-  logger.info(`Schema version     : ${schemaVersion}`);
-  if (Number(schemaVersion) < 2) {
-    console.warn(
-      "  ⚠  Schema is below current version 2 — run migrate() after upgrading.",
-    );
-    logger.warn("  ⚠  Schema is below current version 2 — run migrate() after upgrading.");
-  }
-
-  logger.info("");
-
-  // 4. Confirmation gate
-  if (!CONFIRM) {
-    console.log(
-      "Checks complete. Re-run with --confirm to proceed with the upgrade.",
-    );
-    logger.info("Checks complete. Re-run with --confirm to proceed with the upgrade.");
-    process.exit(0);
-  }
-
-  logger.info("✔  --confirm flag present. Safe to proceed with upgrade.");
 }
 
 main().catch((err) => {
-  console.error(
-    "Pre-upgrade check failed:",
-    err instanceof Error ? err.message : err,
-  );
-  logger.error("Pre-upgrade check failed:", err instanceof Error ? err.message : err);
+  console.error("Pre-upgrade check failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 });

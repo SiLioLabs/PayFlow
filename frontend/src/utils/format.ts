@@ -42,3 +42,20 @@ export function displayAmount(stroops: string | number | bigint, unit: AmountUni
   // STROOP: raw integer with comma separators
   return `${stroopsNum.toLocaleString("en-US")} STROOP`;
 }
+
+/**
+ * Progress percentage for daily limit (0-100). Returns 0 when limit is null or zero.
+ */
+export function dailyLimitProgress(spent: bigint, limit: bigint | null): number {
+  if (limit === null || limit <= 0n) return 0;
+  const pct = Number((spent * 100n) / limit);
+  return Math.min(100, Math.max(0, pct));
+}
+
+/**
+ * Whether a pay-per-use amount would exceed the remaining daily budget.
+ */
+export function exceedsRemaining(amount: bigint | null, remaining: bigint | null): boolean {
+  if (amount === null || remaining === null) return false;
+  return amount > remaining;
+}

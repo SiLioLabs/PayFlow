@@ -12,12 +12,14 @@ export interface FormFields {
   merchant: string;
   amount: string;
   interval: number;
+  tokenAddress: string;
 }
 
 export interface FormErrors {
   merchant?: string;
   amount?: string;
   interval?: string;
+  tokenAddress?: string;
 }
 
 interface UseFormValidationResult {
@@ -87,8 +89,8 @@ export function validateAddress(addr: string): ValidationResult {
     return { valid: false, error: "Address is required." };
   }
 
-  if (!StrKey.isValidEd25519PublicKey(addr)) {
-    return { valid: false, error: "Invalid Stellar address." };
+  if (!StrKey.isValidEd25519PublicKey(addr) && !StrKey.isValidContract(addr)) {
+    return { valid: false, error: "Invalid Stellar address or contract ID." };
   }
 
   return { valid: true };
@@ -137,6 +139,11 @@ export function useFormValidation(): UseFormValidationResult {
     const addressResult = validateAddress(fields.merchant);
     if (!addressResult.valid) {
       next.merchant = addressResult.error;
+    }
+
+    const tokenAddressResult = validateAddress(fields.tokenAddress);
+    if (!tokenAddressResult.valid) {
+      next.tokenAddress = tokenAddressResult.error;
     }
 
     const amountResult = validateStroopAmount(

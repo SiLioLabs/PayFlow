@@ -59,6 +59,10 @@ interface DeploymentManifest {
     merchants: boolean;
   };
   lastUpdatedAt: string;
+  tokenAddress?: string;
+  adminAddress?: string;
+  rpcUrl?: string;
+  networkPassphrase?: string;
 }
 
 const CONFIG_PATH = projectPath("deployments", "config.json");
@@ -102,6 +106,10 @@ function defaultManifest(config: DeploymentConfig): DeploymentManifest {
       merchants: false,
     },
     lastUpdatedAt: new Date().toISOString(),
+    tokenAddress: config.tokenAddress,
+    adminAddress: config.adminAddress,
+    rpcUrl: config.rpcUrl,
+    networkPassphrase: config.networkPassphrase,
   };
 }
 
@@ -124,10 +132,17 @@ async function buildWasm(dryRun: boolean): Promise<void> {
     console.log("[dry-run] Would build contract WASM.");
     return;
   }
-  await runCommand("cargo", ["build", "--release", "--target", "wasm32-unknown-unknown"], projectPath("contract"));
+  await runCommand(
+    "cargo",
+    ["build", "--release", "--target", "wasm32-unknown-unknown"],
+    projectPath("contract"),
+  );
 }
 
-async function deployContract(config: DeploymentConfig, dryRun: boolean): Promise<string> {
+async function deployContract(
+  config: DeploymentConfig,
+  dryRun: boolean,
+): Promise<string> {
   if (dryRun) {
     console.log("[dry-run] Would deploy contract.");
     return "DRY_RUN_CONTRACT_ID";
@@ -139,8 +154,17 @@ async function deployContract(config: DeploymentConfig, dryRun: boolean): Promis
   }
 
   const configuredWasmPath =
-    config.wasmPath ?? projectPath("contract", "target", "wasm32-unknown-unknown", "release", "flow_pay.wasm");
-  const wasmPath = isAbsolute(configuredWasmPath) ? configuredWasmPath : resolve(process.cwd(), configuredWasmPath);
+    config.wasmPath ??
+    projectPath(
+      "contract",
+      "target",
+      "wasm32-unknown-unknown",
+      "release",
+      "flow_pay.wasm",
+    );
+  const wasmPath = isAbsolute(configuredWasmPath)
+    ? configuredWasmPath
+    : resolve(process.cwd(), configuredWasmPath);
   const output = await retry(
     3,
     () =>
@@ -158,20 +182,25 @@ async function deployContract(config: DeploymentConfig, dryRun: boolean): Promis
           "--network-passphrase",
           config.networkPassphrase,
         ],
-        process.cwd()
+        process.cwd(),
       ),
-    "deploy contract"
+    "deploy contract",
   );
 
   const contractId = output.split(/\s+/).find((token) => token.startsWith("C"));
   if (!contractId) {
-    throw new Error(`Could not parse contract ID from deploy output: ${output}`);
+    throw new Error(
+      `Could not parse contract ID from deploy output: ${output}`,
+    );
   }
 
   return contractId;
 }
 
-async function verifyInitialized(contractId: string, config: DeploymentConfig): Promise<boolean> {
+async function verifyInitialized(
+  contractId: string,
+  config: DeploymentConfig,
+): Promise<boolean> {
   const sorobanConfig = loadSorobanConfig({
     contractId,
     rpcUrl: config.rpcUrl,
@@ -184,13 +213,17 @@ async function verifyInitialized(contractId: string, config: DeploymentConfig): 
     server,
     "contract_health_check",
     [],
-    (value) => (value ? (scValToNative(value) as Record<string, unknown>) : {})
+    (value) => (value ? (scValToNative(value) as Record<string, unknown>) : {}),
   );
 
   return retval.admin_configured === true && retval.token_configured === true;
 }
 
-async function initializeContract(contractId: string, config: DeploymentConfig, dryRun: boolean): Promise<void> {
+async function initializeContract(
+  contractId: string,
+  config: DeploymentConfig,
+  dryRun: boolean,
+): Promise<void> {
   if (dryRun) {
     console.log("[dry-run] Would initialize contract.");
     return;
@@ -212,7 +245,11 @@ async function initializeContract(contractId: string, config: DeploymentConfig, 
   ]);
 }
 
-async function configureFee(contractId: string, config: DeploymentConfig, dryRun: boolean): Promise<void> {
+async function configureFee(
+  contractId: string,
+  config: DeploymentConfig,
+  dryRun: boolean,
+): Promise<void> {
   if (dryRun) {
     console.log("[dry-run] Would propose and commit fee.");
     return;
@@ -230,10 +267,14 @@ async function configureFee(contractId: string, config: DeploymentConfig, dryRun
     server,
     "get_fee",
     [],
-    (value) => (value ? (scValToNative(value) as [string, number]) : null)
+    (value) => (value ? (scValToNative(value) as [string, number]) : null),
   );
 
-  if (existing && existing[0] === config.feeCollector && Number(existing[1]) === config.feeBps) {
+  if (
+    existing &&
+    existing[0] === config.feeCollector &&
+    Number(existing[1]) === config.feeBps
+  ) {
     return;
   }
 
@@ -244,12 +285,18 @@ async function configureFee(contractId: string, config: DeploymentConfig, dryRun
   await invokeContract(sorobanConfig, server, "commit_fee", []);
 }
 
-async function whitelistInitialMerchants(contractId: string, config: DeploymentConfig, dryRun: boolean): Promise<void> {
+async function whitelistInitialMerchants(
+  contractId: string,
+  config: DeploymentConfig,
+  dryRun: boolean,
+): Promise<void> {
   if (config.initialMerchants.length === 0) {
     return;
   }
   if (dryRun) {
-    console.log(`[dry-run] Would whitelist ${config.initialMerchants.length} merchant(s).`);
+    console.log(
+      `[dry-run] Would whitelist ${config.initialMerchants.length} merchant(s).`,
+    );
     return;
   }
 
@@ -267,7 +314,7 @@ async function whitelistInitialMerchants(contractId: string, config: DeploymentC
       server,
       "is_merchant_whitelisted",
       [addressToScVal(merchant)],
-      (value) => Boolean(value?.b())
+      (value) => Boolean(value?.b()),
     );
     if (!whitelisted) {
       missing.push(merchant);
@@ -278,19 +325,27 @@ async function whitelistInitialMerchants(contractId: string, config: DeploymentC
     return;
   }
 
-  await invokeContract(sorobanConfig, server, "whitelist_batch_add", [vecAddressToScVal(missing)]);
+  await invokeContract(sorobanConfig, server, "whitelist_batch_add", [
+    vecAddressToScVal(missing),
+  ]);
 }
 
 async function main(): Promise<void> {
   const { dryRun } = parseArgs(process.argv);
   const config = await loadConfig();
 
-  const envPassphrase = process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE;
+  const envPassphrase =
+    process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE;
   if (envPassphrase && envPassphrase !== config.networkPassphrase) {
-    throw new Error("NETWORK_PASSPHRASE does not match deployments/config.json.");
+    throw new Error(
+      "NETWORK_PASSPHRASE does not match deployments/config.json.",
+    );
   }
 
-  const manifest = await readJsonFile<DeploymentManifest>(MANIFEST_PATH, defaultManifest(config));
+  const manifest = await readJsonFile<DeploymentManifest>(
+    MANIFEST_PATH,
+    defaultManifest(config),
+  );
 
   if (!manifest.steps.build) {
     await buildWasm(dryRun);
@@ -307,7 +362,9 @@ async function main(): Promise<void> {
   }
 
   if (!manifest.contractId) {
-    throw new Error("Manifest does not contain a contractId after deploy step.");
+    throw new Error(
+      "Manifest does not contain a contractId after deploy step.",
+    );
   }
 
   if (!manifest.steps.initialize) {
@@ -341,6 +398,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error("deploy-pipeline failed:", error instanceof Error ? error.message : error);
+  console.error(
+    "deploy-pipeline failed:",
+    error instanceof Error ? error.message : error,
+  );
   process.exit(1);
 });
