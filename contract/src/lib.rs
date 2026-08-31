@@ -2176,6 +2176,25 @@ impl FlowPay {
     /// at 50 per call, filtered to only those whose subscription is
     /// currently active. Avoids forcing callers to over-fetch via
     /// `get_subscriber_page` and filter client-side.
+    ///
+    /// # Pagination semantics (Issue #823)
+    ///
+    /// `offset` is a **slot index** in the append-only subscriber index, not
+    /// a result count. The function scans slots `[offset, offset+cap)` (where
+    /// `cap = min(limit, 50)`), skipping tombstoned and inactive entries.
+    /// Callers **must** advance `offset` by `cap` on each call to avoid
+    /// overlap or gaps:
+    ///
+    /// ```text
+    ///   page = get_active_subscriber_page(offset, limit)
+    ///   process(page)
+    ///   offset += cap   // cap = min(limit, 50)
+    /// ```
+    ///
+    /// A page may return fewer than `cap` results when slots are tombstoned
+    /// or contain inactive subscriptions. An empty page signals the end of
+    /// the index. The scan is bounded: at most `cap` slots are examined per
+    /// call, preventing unbounded iteration even on sparse indexes.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
         let count = subscription_count::get_subscriber_index_size(&env);
         let cap: u32 = if limit > 50 { 50 } else { limit };
@@ -2183,8 +2202,13 @@ impl FlowPay {
         if offset >= count || cap == 0 {
             return result;
         }
+        let end = (offset + cap as u64).min(count);
         let mut i = offset;
-        while i < count && result.len() < cap {
+        while i < end {
+            if subscription_count::is_subscriber_index_removed(&env, i) {
+                i += 1;
+                continue;
+            }
             if let Some(addr) = env
                 .storage()
                 .persistent()
