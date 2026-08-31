@@ -19,7 +19,13 @@
  *   DRY_RUN               Set to "true" to run in dry-run simulation mode.
  *   RPC_URL               Optional. Soroban RPC endpoint (default: testnet).
  *   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
- *   BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
+ *   BATCH_SIZE            Optional. Subscribers per page for legacy paging
+ *                         (default: on-chain max via get_max_batch_size,
+ *                         falling back to 50 if the RPC read fails). Always
+ *                         clamped to the live on-chain max (see
+ *                         get_max_batch_size) and to the hard ceiling of 200,
+ *                         so a misconfigured value can never trigger the
+ *                         contract's BatchTooLarge panic.
  *   INTERVAL_SECONDS      Optional. Loop interval (default: 3600).
  *   REPORT_DIR            Optional. Directory for dry-run reports and live-cycle pointer
  *                         (default: <script_dir>/data/benchmarks).
@@ -42,8 +48,11 @@
 
 import fs from "fs";
 import path from "path";
-import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { buildOptimizedBatches } from "./batch-optimizer";
+import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { buildOptimizedBatches } from "./batch-optimizer.js";
 import {
   startMetricsServer,
   recordBatchCharge,
@@ -70,12 +79,31 @@ const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET) 
 const DRY_RUN = process.env.DRY_RUN === "true";
 const KEEPER_PUBLIC_KEY = process.env.KEEPER_PUBLIC_KEY || "";
 const KEEPER_SECRET = process.env.KEEPER_SECRET || "";
-const BATCH_SIZE = Math.min(Math.max(Number(process.env.BATCH_SIZE) || 50, 1), 50);
+
+/**
+ * BATCH_SIZE resolution — kept in sync with the on-chain `get_max_batch_size`
+ * value (and with batch-optimizer.ts's MAX_BATCH_SIZE handling) so the legacy
+ * paging path can never request a page larger than the contract will accept.
+ *
+ * `ENV_BATCH_SIZE` is the raw operator-supplied override, if any.
+ * `BATCH_SIZE` starts as the env override (or the fallback default) and is
+ * narrowed down to the live on-chain max once `resolveBatchSize()` runs at
+ * startup. It is intentionally `let`, not `const`, so `main()` can tighten it
+ * before any charge cycle begins.
+ */
+const ENV_BATCH_SIZE = process.env.BATCH_SIZE ? Number(process.env.BATCH_SIZE) : undefined;
+const DEFAULT_BATCH_SIZE = 50; // Mirrors the contract's own MAX_BATCH_SIZE default.
+const BATCH_SIZE_CEILING = 200; // Mirrors the contract's MAX_BATCH_SIZE_CEILING.
+let BATCH_SIZE =
+  ENV_BATCH_SIZE && ENV_BATCH_SIZE > 0
+    ? Math.min(BATCH_SIZE_CEILING, Math.max(1, ENV_BATCH_SIZE))
+    : DEFAULT_BATCH_SIZE;
+
 const INTERVAL_SECONDS = Math.max(Number(process.env.INTERVAL_SECONDS) || 3600, 1);
 const REPORT_DIR = process.env.REPORT_DIR ?? path.join(__dirname, "data", "benchmarks");
 const USE_LEGACY_PAGING = process.env.KEEPER_USE_LEGACY_PAGING === "true";
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -113,7 +141,10 @@ Environment Variables:
   DRY_RUN               Set to "true" for dry-run simulation mode (no transactions submitted).
   RPC_URL               Optional. Soroban RPC endpoint (default: testnet).
   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
-  BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
+  BATCH_SIZE            Optional. Subscribers per page for legacy paging
+                        (default: on-chain max via get_max_batch_size,
+                        falling back to 50). Always clamped to the live
+                        on-chain max and to the 200 hard ceiling.
   INTERVAL_SECONDS      Optional. Seconds between cycles (default: 3600).
   REPORT_DIR            Optional. Directory where dry-run reports and the live-cycle
                         pointer file are written (default: <script_dir>/data/benchmarks).
@@ -290,6 +321,66 @@ async function getSubscriberCount(): Promise<number> {
   if (!retval) return 0;
 
   return Number(retval.u64());
+}
+
+/**
+ * Read the contract's current `get_max_batch_size()` — the on-chain cap for
+ * `batch_charge()` calls. Defaults to 50 on-chain but is admin-configurable
+ * up to `MAX_BATCH_SIZE_CEILING` (200) via `set_max_batch_size`.
+ *
+ * Throws on any RPC/simulation failure so callers can fall back explicitly
+ * rather than silently treating an unreadable value as "no limit".
+ */
+async function getMaxBatchSize(): Promise<number> {
+  const contract = new Contract(CONTRACT_ID);
+  const account = await server.getAccount(KEEPER_PUBLIC_KEY);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call("get_max_batch_size"))
+    .setTimeout(30)
+    .build();
+
+  const result = await server.simulateTransaction(tx);
+  if ("error" in result) throw new Error(result.error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) throw new Error("get_max_batch_size returned no value");
+
+  return retval.u32();
+}
+
+/**
+ * Resolve the effective legacy-paging BATCH_SIZE for this run.
+ *
+ * Starts from the operator-supplied BATCH_SIZE (or the 50-subscriber
+ * fallback default) and clamps it down to the live on-chain max reported by
+ * `get_max_batch_size()`, so BATCH_SIZE can never exceed what the contract
+ * will actually accept — regardless of what config.ts allowed through (up to
+ * the shared 200 ceiling). If the RPC read fails (network issue, contract not
+ * yet deployed, etc.), falls back to the env override / default value
+ * un-narrowed, still bounded by BATCH_SIZE_CEILING.
+ */
+async function resolveBatchSize(): Promise<number> {
+  let effective =
+    ENV_BATCH_SIZE && ENV_BATCH_SIZE > 0 ? ENV_BATCH_SIZE : DEFAULT_BATCH_SIZE;
+
+  try {
+    const onChainMax = await getMaxBatchSize();
+    if (onChainMax > 0) {
+      effective = Math.min(effective, onChainMax);
+    }
+  } catch (err) {
+    log(
+      DRY_RUN,
+      `WARNING: could not read on-chain get_max_batch_size (${err instanceof Error ? err.message : err}); ` +
+        `using ${effective} as the clamp`
+    );
+  }
+
+  return Math.min(BATCH_SIZE_CEILING, Math.max(1, effective));
 }
 
 async function getSubscriberPage(offset: number, limit: number): Promise<string[]> {
@@ -1055,6 +1146,8 @@ async function main(): Promise<void> {
   }
 
   startMetricsServer();
+  BATCH_SIZE = await resolveBatchSize();
+  log(DRY_RUN, `Effective legacy page size (BATCH_SIZE): ${BATCH_SIZE}`);
 
   if (once) {
     const report = await runCycle();

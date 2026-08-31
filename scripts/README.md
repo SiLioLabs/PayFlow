@@ -173,7 +173,7 @@ docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
 | -------------------- | -------------------------------- | --------------------------------------------------- |
 | `RPC_URL`            | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint                          |
 | `NETWORK_PASSPHRASE` | `Networks.TESTNET`               | Stellar network passphrase                          |
-| `BATCH_SIZE`         | `50` (clamped 1–50)              | Subscribers per `batch_charge` call                 |
+| `BATCH_SIZE`         | on-chain `get_max_batch_size()`, else `50` | Subscribers per `batch_charge` call (legacy paging only); always clamped ≤ live on-chain max and ≤ 200 ceiling — logged at startup |
 | `INTERVAL_SECONDS`   | `3600` (min 1)                   | Seconds between full charge cycles                  |
 | `DRY_RUN`            | unset → live (`=== "true"` only) | Simulate with `get_batch_charge_estimate`           |
 | `REPORT_DIR`         | `<script_dir>/data/benchmarks`   | Dry-run reports and live-cycle pointer              |

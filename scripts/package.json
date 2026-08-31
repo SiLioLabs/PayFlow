@@ -16,7 +16,9 @@
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
-    "test:event-dedup": "tsx test-event-dedup-integration.ts"
+    "test:event-dedup": "tsx test-event-dedup-integration.ts",
+    "test:renewal-forecast": "tsx test-renewal-forecast.ts",
+    "test:rpc-failover": "tsx test-rpc-failover.ts"
     "test:renewal-forecast": "tsx test-renewal-forecast.ts"
   },
   "dependencies": {
