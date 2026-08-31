@@ -41,6 +41,8 @@
     "test:event-dedup": "tsx test-event-dedup-integration.ts",
     "test:renewal-forecast": "tsx test-renewal-forecast.ts",
     "test:rpc-failover": "tsx test-rpc-failover.ts",
+    "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts",
+    "test:allowance-utils": "tsx test-allowance-utils.ts"
     "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts"
     "test": "tsx test-churn-analysis.ts"
     "test:rpc-failover": "tsx test-rpc-failover.ts"
