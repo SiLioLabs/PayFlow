@@ -62,7 +62,7 @@ function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
     validateAddress(fields.merchant).valid &&
     validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
     validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
-    referrerValid
+    referrerValid &&
     validateAddress(fields.tokenAddress).valid
   );
 }
@@ -96,17 +96,13 @@ export default function SubscribeForm({
 
   const amountString =
     amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
-  const fields: FormFields = { merchant, amount: amountString, interval };
-  const fields: FormFields = { merchant, amount, interval };
-  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
+  const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
   const referrerValidation = validateReferrer(referrer, userKey);
   const canSubmit =
     fieldsAreValid(fields, referrerValidation.valid) &&
     !pending &&
     !validating &&
     !isPaused;
-  const fields: FormFields = { merchant, amount, interval, tokenAddress };
-  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused;
 
   // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {
@@ -121,12 +117,7 @@ export default function SubscribeForm({
     touched.merchant,
     touched.amount,
     touched.interval,
-    amount,
-    interval,
     tokenAddress,
-    touched.merchant,
-    touched.amount,
-    touched.interval,
     touched.tokenAddress,
     validate,
   ]);
@@ -138,10 +129,6 @@ export default function SubscribeForm({
 
   function handleMerchantChange(e: React.ChangeEvent<HTMLInputElement>) {
     setMerchant(e.target.value);
-  }
-
-  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setAmount(e.target.value);
   }
 
   function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -334,7 +321,7 @@ export default function SubscribeForm({
         <AllowanceDisplay userKey={userKey} subscriptionAmount={0n} refreshTrigger={0} />
         <AllowanceDisplay
           userKey={userKey}
-          subscriptionAmount={BigInt(Math.round(parseFloat(amount || "0") * 10_000_000))}
+          subscriptionAmount={BigInt(Math.round(parseFloat(amountString || "0") * 10_000_000))}
           refreshTrigger={0}
           tokenId={tokenAddress}
         />

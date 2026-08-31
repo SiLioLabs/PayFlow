@@ -42,8 +42,7 @@ export default function ConfirmModal({
           <button className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
             Cancel
           </button>
-          <button className="btn-danger" onClick={onConfirm} disabled={confirmDisabled}>
-          <button className="btn-danger" onClick={onConfirm} data-testid={confirmTestId}>
+          <button className="btn-danger" onClick={onConfirm} disabled={confirmDisabled} data-testid={confirmTestId}>
             Confirm
           </button>
         </div>
