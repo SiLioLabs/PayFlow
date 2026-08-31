@@ -1,4 +1,3 @@
-import React, { useState, useEffect } from "react";
 import React, { useEffect, useRef, useState } from "react";
 import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
@@ -34,10 +33,6 @@ export default function App() {
   const [showRpcSettings, setShowRpcSettings] = useState(false);
 
   const isRpcFailing = !healthy || circuitOpen;
-  const { networkMatch, walletNetwork } = useNetworkCheck();
-  const { valid: isContractIdValid, error: contractIdError } = useContractId();
-  const isOnline = useNetworkStatus();
-  const { isAdmin } = useAdmin(publicKey);
   const { networkMatch, walletNetwork, isMainnet, requiresMainnetConfirm, confirmMainnet } =
     useNetworkCheck();
   const { valid: isContractIdValid, error: contractIdError } = useContractId();
@@ -106,7 +101,6 @@ export default function App() {
 
       <OfflineBanner visible={!isOnline} />
 
-      {/* Header */}
       {/* Header — NetworkBadge is persistent in shell so users always see Testnet/Mainnet */}
       <div style={{ marginBottom: 32, textAlign: "center" }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ FlowPay</h1>
@@ -189,19 +183,6 @@ export default function App() {
 
       {showRpcSettings && <RpcSettings onClose={() => setShowRpcSettings(false)} />}
 
-      {/* Network mismatch warning — preserves passphrase/network check from useNetworkCheck */}
-      {publicKey && !networkMatch && (
-        <div
-          className="card"
-          style={{ background: "#3b1f1f", marginBottom: 16, textAlign: "center" }}
-          data-testid="gate-warning"
-        >
-          <p style={{ color: "#f87171", fontSize: 13 }}>
-            ⚠ <strong>Configuration/Network Gate Warning:</strong> {gateError}
-          </p>
-        </div>
-      )}
-
       {/* Wallet connect */}
       {!publicKey ? (
         <div className="card" style={{ textAlign: "center" }}>
@@ -250,7 +231,6 @@ export default function App() {
                 isPaused={!gatePassed}
                 announce={announce}
                 isOffline={!isOnline}
-                isPaused={isPaused}
               />
             )}
             {tab === "dashboard" && (
@@ -261,7 +241,6 @@ export default function App() {
                 announce={announce}
                 isPaused={!gatePassed}
                 isOffline={!isOnline}
-                isPaused={isPaused}
               />
             )}
             {tab === "merchant" && (

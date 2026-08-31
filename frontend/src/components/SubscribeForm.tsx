@@ -107,8 +107,6 @@ export default function SubscribeForm({
     !pending &&
     !validating &&
     !isPaused;
-  const fields: FormFields = { merchant, amount, interval, tokenAddress };
-  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused;
 
   // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {

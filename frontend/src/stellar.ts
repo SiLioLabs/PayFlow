@@ -119,7 +119,6 @@ async function buildTx(
     }
   }
 
-  const account = await server.getAccount(sourcePublicKey);
   const s = getServer();
   const account = await s.getAccount(sourcePublicKey);
   const contract = new Contract(CONTRACT_ID);
