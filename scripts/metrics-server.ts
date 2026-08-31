@@ -109,6 +109,21 @@ const indexerDedupEvictionsTotal = new Counter({
   registers: [registry],
 });
 
+/** Total RPC failovers across multiple endpoints. */
+const rpcFailoversTotal = new Counter({
+  name: "keeper_rpc_failovers_total",
+  help: "Total number of RPC failovers triggered",
+  registers: [registry],
+});
+
+/** Granular outcomes for each subscriber checked. */
+const chargeResultsTotal = new Counter({
+  name: "keeper_charge_results_total",
+  help: "Total number of charge outcomes labeled by specific contract result",
+  labelNames: ["result"] as const,
+  registers: [registry],
+});
+
 // ── Public API for the keeper run loop ───────────────────────────────────────
 
 /**
@@ -143,9 +158,21 @@ export function recordBatchCharge(params: {
   }
 }
 
+/** Record specific granular charge results. */
+export function recordChargeResults(results: Record<string, number>): void {
+  for (const [result, count] of Object.entries(results)) {
+    chargeResultsTotal.inc({ result }, count);
+  }
+}
+
 /** Increment the RPC error counter. */
 export function incrementRpcErrors(): void {
   rpcErrorsTotal.inc(1);
+}
+
+/** Increment the RPC failovers counter. */
+export function incrementRpcFailovers(): void {
+  rpcFailoversTotal.inc(1);
 }
 
 /** Set the current active subscriber count gauge. */
