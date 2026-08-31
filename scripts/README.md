@@ -945,6 +945,120 @@ JSON output shape:
 
 ---
 
+## Subscriber health dashboard
+
+### Purpose
+
+Aggregate per-subscriber health for the entire subscriber set. Output JSON
+fields are aligned 1:1 with the on-chain `SubscriptionHealth` struct returned
+by `get_subscription_health`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `active` | `bool` | Subscription is active |
+| `charge_due` | `bool` | Billing interval elapsed, charge is due |
+| `within_grace` | `bool` | Subscriber is in the grace window |
+| `has_sufficient_allowance` | `bool` | Token allowance covers the subscription amount |
+| `is_paused` | `bool` | Subscription is paused |
+| `trial_active` | `bool` | Trial period is active |
+| `daily_limit_set` | `bool` | A daily spending cap has been configured |
+
+Plus an `address` identity field and ops-specific extensions: `amount`,
+`allowance`, `token`, `ttl_remaining`, `expiring_ttl`, `requires_restore`.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | All subscribers healthy (none paused, no charge due, allowance sufficient) |
+| `1` | Any subscriber unhealthy (paused, charge due, no allowance, requires restore) |
+| `2` | Hard failure (RPC error, fixture parse error, script crash) |
+
+### Usage
+
+```bash
+# Live RPC scan
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts
+
+# Table output
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts --format table
+
+# Fixture-driven run (no RPC needed)
+tsx subscriber-health-dashboard.ts --fixtures data/healthy-subscribers.json
+# → exit 0 (all healthy)
+
+ntsx subscriber-health-dashboard.ts --fixtures data/unhealthy-subscribers.json
+# → exit 1 (at least one unhealthy)
+
+# Write per-subscriber CSV
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts --detail subscribers.csv
+```
+
+### JSON output shape
+
+```json
+{
+  "status": "healthy|unhealthy",
+  "summary": {
+    "total": 3,
+    "total_active": 3,
+    "total_healthy": 3,
+    "total_unhealthy": 0,
+    "paused_count": 0,
+    "charge_due_count": 0,
+    "grace_period_active_count": 1,
+    "no_allowance_count": 0,
+    "trial_active_count": 1,
+    "daily_limit_set_count": 0,
+    "expiring_ttl_count": 0,
+    "requires_restore_count": 0,
+    "total_indexed": 3,
+    "scanned": 3
+  },
+  "subscribers": [
+    {
+      "address": "GAZ...",
+      "active": true,
+      "charge_due": false,
+      "within_grace": false,
+      "has_sufficient_allowance": true,
+      "is_paused": false,
+      "trial_active": false,
+      "daily_limit_set": false,
+      "amount": "10000000",
+      "allowance": "50000000",
+      "token": "CBDE...",
+      "ttl_remaining": 1000000,
+      "expiring_ttl": false,
+      "requires_restore": false
+    }
+  ]
+}
+```
+
+### Fixture files
+
+Fixture files in `data/` enable testing without a live RPC connection:
+
+| File | Description | Expected exit |
+| --- | --- | --- |
+| `data/healthy-subscribers.json` | All subscribers healthy | `0` |
+| `data/unhealthy-subscribers.json` | Mixed health (paused + no allowance + charge due) | `1` |
+
+### Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CONTRACT_ID` | — | Required (or use `--fixtures`) |
+| `RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` | `Networks.TESTNET` | Stellar network passphrase |
+| `PAGE_SIZE` | `50` | Subscriber page size (max 50) |
+| `LEDGER_ENTRY_BATCH` | `100` | getLedgerEntries batch size (max 200) |
+| `EXPIRING_TTL_LEDGERS` | `500000` | TTL threshold for expiring entries |
+| `PROGRESS` | `1` | Set `0` to suppress progress output |
+
+---
+
 ## Environment variable reference
 
 All scripts read configuration from environment variables. The full set used
