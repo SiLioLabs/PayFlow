@@ -16,8 +16,9 @@
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
-    "test:event-dedup": "tsx test-event-dedup-integration.ts"
-    "test:renewal-forecast": "tsx test-renewal-forecast.ts"
+    "test:event-dedup": "tsx test-event-dedup-integration.ts",
+    "test:renewal-forecast": "tsx test-renewal-forecast.ts",
+    "test": "tsx test-churn-analysis.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",
