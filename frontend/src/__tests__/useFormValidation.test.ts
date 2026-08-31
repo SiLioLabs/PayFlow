@@ -23,6 +23,7 @@ const validFields: FormFields = {
   merchant: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
   amount: "10",
   interval: 3600,
+  tokenAddress: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
 };
 
 function validateFields(fields: FormFields) {
@@ -58,7 +59,7 @@ describe("useFormValidation", () => {
     });
 
     expect(isValid).toBe(false);
-    expect(result.current.errors.merchant).toBe("Invalid Stellar address.");
+    expect(result.current.errors.merchant).toBe("Invalid Stellar address or contract ID.");
   });
 
   it("returns an amount error when amount is zero", () => {
@@ -156,7 +157,7 @@ describe("useFormValidation", () => {
 
       expect(isValid).toBe(false);
       expect(mockedServer.getAccount).not.toHaveBeenCalled();
-      expect(hook.result.current.errors.merchant).toBe("Invalid Stellar address.");
+      expect(hook.result.current.errors.merchant).toBe("Invalid Stellar address or contract ID.");
     });
 
     it("aborts previous validation request when a new validation starts", async () => {

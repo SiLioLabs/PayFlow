@@ -37,7 +37,6 @@ pub fn get_daily_limit(env: &Env, user: &Address) -> Option<i128> {
 
 The public contract method exposes this to callers. No auth is required — reading your own limit is a view-only operation:
 
-
 ```rust
 /// Returns the current daily spending limit for the caller, or `None` if unset.
 pub fn get_daily_limit(env: Env, user: Address) -> Option<i128> {
@@ -159,7 +158,6 @@ test test::test_daily_limit_visibility_and_spend_tracking ... ok
 
 A keeper is an off-chain scheduler (cron job, AWS Lambda, or any scripted process) that calls `batch_charge(users)` on the FlowPay contract whenever subscribers' billing intervals have elapsed. Because Soroban has no native scheduler, recurring charges depend entirely on this external trigger. To run one locally, maintain a list of subscriber addresses sourced from contract events and invoke `batch_charge` on a schedule — the contract handles all eligibility checks, so ineligible users are silently skipped without aborting the transaction. See [Architecture — Keeper Service](docs/ARCHITECTURE.md#keeper-service) for the recommended pattern.
 
-
 ### How do I spin up a local validation environment for testing?
 
 All contract tests run fully in-memory with no network connection required — `soroban-sdk`'s `Env::default()` provides an isolated Soroban runtime. Install Rust 1.70+ with the `wasm32-unknown-unknown` target, then run `cd contract && cargo test` to execute the full suite. To simulate time passing (e.g. advancing past a billing interval), use `env.ledger().with_mut(|l| { l.timestamp += seconds; })` inside your test. For frontend validation, run `cd frontend && npm run test` using Vitest. Full setup steps are in [Testing Guide](docs/TESTING.md).
@@ -232,6 +230,7 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 The **Subscriber Churn Analysis Dashboard** script offers detailed cohort-based monthly retention metrics, merchant-level churn breakdown, and future churn projections.
 
 ### Features
+
 - **Data Ingestion with Graceful Fallback**: Automatically reads from your local SQLite indexer database if available, and gracefully falls back to querying on-chain Soroban RPC events otherwise.
 - **Monthly Cohort Tracking**: Groups subscribers by initial subscription month to compute 30-day and 90-day active counts and retention rates. Includes data guarding that flags younger cohorts as `"insufficient data"`.
 - **Merchant Churn Breakdown**: Identifies the Top 5 high-churn merchants while automatically filtering out single-subscriber merchants (`subscribers <= 1`) to eliminate statistical skew.
@@ -257,12 +256,13 @@ npx tsx scripts/churn-analysis.ts --resubscription-logic retention --format csv
 ```
 
 #### CLI Options
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--format [json\|csv]` | Output format for the report | `json` |
-| `--db <path>` | Path override to the SQLite Indexer DB | `indexer.db` |
-| `--out <file>` | Path to save the report output file | stdout |
-| `--resubscription-logic [new\|retention]` | Resubscription handling strategy | `new` |
+
+| Option                                    | Description                            | Default      |
+| ----------------------------------------- | -------------------------------------- | ------------ |
+| `--format [json\|csv]`                    | Output format for the report           | `json`       |
+| `--db <path>`                             | Path override to the SQLite Indexer DB | `indexer.db` |
+| `--out <file>`                            | Path to save the report output file    | stdout       |
+| `--resubscription-logic [new\|retention]` | Resubscription handling strategy       | `new`        |
 
 ---
 
@@ -272,11 +272,11 @@ To configure multi-endpoint failover and ensure high availability for all backen
 
 ### Configuration Variables
 
-| Variable | Description | Example / Default |
-|----------|-------------|-------------------|
-| `RPC_URLS` | Comma-separated list of resilient RPC endpoints for script failover and retry mechanism. | `https://soroban-testnet.stellar.org,https://another-rpc-endpoint.com` |
-| `RPC_URL` / `VITE_RPC_URL` | Fallback single RPC endpoint if `RPC_URLS` is not provided. | `https://soroban-testnet.stellar.org` |
-| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | Expected network passphrase used during initialization/health check to validate endpoints. | `Test SDF Network ; September 2015` |
+| Variable                                         | Description                                                                                | Example / Default                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `RPC_URLS`                                       | Comma-separated list of resilient RPC endpoints for script failover and retry mechanism.   | `https://soroban-testnet.stellar.org,https://another-rpc-endpoint.com` |
+| `RPC_URL` / `VITE_RPC_URL`                       | Fallback single RPC endpoint if `RPC_URLS` is not provided.                                | `https://soroban-testnet.stellar.org`                                  |
+| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | Expected network passphrase used during initialization/health check to validate endpoints. | `Test SDF Network ; September 2015`                                    |
 
 ### Failover and Retry Behavior
 

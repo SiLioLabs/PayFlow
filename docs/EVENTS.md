@@ -29,6 +29,7 @@ This document provides a complete reference for all events emitted by the FlowPa
 Events related to subscription lifecycle transitions.
 
 ### subscribed
+
 - **Trigger**: `subscribe()` or `subscribe_with_metadata()`
 - **Topic keys**: `["subscribed", user_address]`
 - **Payload schema**:
@@ -54,6 +55,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### paused
+
 - **Trigger**: `pause()` (user-initiated)
 - **Topic keys**: `["paused", user_address]`
 - **Payload schema**: `()`
@@ -66,6 +68,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### resumed
+
 - **Trigger**: `resume()`
 - **Topic keys**: `["resumed", user_address]`
 - **Payload schema**: `()`
@@ -78,6 +81,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### cancelled
+
 - **Trigger**: `cancel()`
 - **Topic keys**: `["cancelled", user_address]`
 - **Payload schema**:
@@ -97,6 +101,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### cancelled_with_refund
+
 - **Trigger**: `cancel_and_refund_prorated()`
 - **Topic keys**: `["cancelled_with_refund", user_address]`
 - **Payload schema**:
@@ -118,6 +123,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### subscription_paused
+
 - **Trigger**: `batch_pause_subscriptions()` (admin batch operation)
 - **Topic keys**: `["subscription_paused", user_address]`
 - **Payload schema**: `()`
@@ -130,6 +136,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### subscription_auto_resumed
+
 - **Trigger**: `charge()` or `batch_charge()` when `pause_until` expiry has passed
 - **Topic keys**: `["subscription_auto_resumed", user_address]`
 - **Payload schema**: `()`
@@ -142,6 +149,7 @@ Events related to subscription lifecycle transitions.
   ```
 
 ### trial_extended
+
 - **Trigger**: `extend_trial()`
 - **Topic keys**: `["trial_extended", user_address]`
 - **Payload schema**:
@@ -171,6 +179,7 @@ Events related to subscription lifecycle transitions.
 Events related to charges and payments.
 
 ### charged
+
 - **Trigger**: `charge()` or `batch_charge()`
 - **Topic keys**: `["charged", user_address]`
 - **Payload schema**:
@@ -200,7 +209,8 @@ Events related to charges and payments.
   ```
 
 ### batch_charge_skips
-- **Trigger**: `batch_charge()` — **only** when the batch contained at least one *interesting* non-success outcome (`NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`). An all-charged or all-not-due batch emits nothing.
+
+- **Trigger**: `batch_charge()` — **only** when the batch contained at least one _interesting_ non-success outcome (`NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`). An all-charged or all-not-due batch emits nothing.
 - **Topic keys**: `["batch_charge_skips"]` — batch-level, so there is **no address topic**
 - **Payload schema**:
   ```rust
@@ -239,11 +249,12 @@ Events related to charges and payments.
 - `charged` is **unchanged**; this event is purely additive. Consumers that ignore unknown event names keep working.
 - The topic tuple has length 1. Parsers that assume `topic[1]` is a subscriber address (as [`scripts/indexer.ts`](../scripts/indexer.ts) does) will store an empty `address` for this row — that is correct, not a parse failure. Do not drop the event for a missing `topic[1]`.
 - Counts reconcile: `charged + not_due + no_subscription + inactive + paused + grace_elapsed + allowance_insufficient == total`. Use this to detect a truncated or mis-decoded payload.
-- **Per-user attribution is deliberately not in the event.** One summary per batch keeps event fees and ledger footprint flat in batch size, rather than growing one event per skipped address. To identify *which* subscribers were skipped, read the `batch_charge` return value, or call `get_batch_charge_estimate(users)` — it returns the same per-address `ChargeResult` vector without mutating state.
+- **Per-user attribution is deliberately not in the event.** One summary per batch keeps event fees and ledger footprint flat in batch size, rather than growing one event per skipped address. To identify _which_ subscribers were skipped, read the `batch_charge` return value, or call `get_batch_charge_estimate(users)` — it returns the same per-address `ChargeResult` vector without mutating state.
 - **`allowance_insufficient` is the alerting count.** `batch_charge` tolerates a subscriber whose allowance is below the gross amount: it records `ChargeResult::AllowanceInsufficient` for that address and continues the batch (no funds move, the subscription stays active). Those subscribers keep failing every cycle until they re-approve, so a non-zero count here is the signal to notify them. Outside `batch_charge` — single `charge()` and `pay_per_use*()` — an insufficient allowance still aborts the invocation with error `8 InsufficientAllowance` and emits nothing.
 - **Instruction impact:** measured on an 11-address batch (10 charged, 1 skipped): **+39,515 CPU instructions and +13,262 memory bytes** versus the same batch without the event — a flat per-batch cost, paid only when the event actually fires.
 
 ### pay_per_use
+
 - **Trigger**: `pay_per_use()` or `pay_per_use_to()`
 - **Topic keys**: `["pay_per_use", user_address]`
 - **Payload schema**:
@@ -267,6 +278,7 @@ Events related to charges and payments.
   ```
 
 ### daily_window_started
+
 - **Trigger**: Daily spending window reset in `spending_limit.rs`
 - **Topic keys**: `["daily_window_started", user_address]`
 - **Payload schema**: `()`
@@ -285,6 +297,7 @@ Events related to charges and payments.
 Events related to subscription configuration changes.
 
 ### sub_amount_updated
+
 - **Trigger**: `set_subscription_amount()`
 - **Topic keys**: `["sub_amount_updated", user_address]`
 - **Payload schema**: `(old_amount: i128, new_amount: i128)`
@@ -297,6 +310,7 @@ Events related to subscription configuration changes.
   ```
 
 ### sub_interval_updated
+
 - **Trigger**: `set_subscription_interval()`
 - **Topic keys**: `["sub_interval_updated", user_address]`
 - **Payload schema**: `(old_interval: u64, new_interval: u64)`
@@ -309,6 +323,7 @@ Events related to subscription configuration changes.
   ```
 
 ### sub_transferred
+
 - **Trigger**: `transfer_subscription()` (legacy event)
 - **Topic keys**: `["sub_transferred", old_user_address]`
 - **Payload schema**: `new_user: Address`
@@ -321,6 +336,7 @@ Events related to subscription configuration changes.
   ```
 
 ### subscription_transferred
+
 - **Trigger**: `transfer_subscription()` (new event, emitted alongside `sub_transferred`)
 - **Topic keys**: `["subscription_transferred", from_address, to_address]`
 - **Payload schema**: `(merchant: Address, amount: i128, interval: u64, token: Address)`
@@ -339,6 +355,7 @@ Events related to subscription configuration changes.
 Events related to admin operations.
 
 ### contract_paused
+
 - **Trigger**: Admin pauses the contract globally
 - **Topic keys**: `["contract_paused"]`
 - **Payload schema**: `()`
@@ -351,6 +368,7 @@ Events related to admin operations.
   ```
 
 ### contract_unpaused
+
 - **Trigger**: Admin unpauses the contract globally
 - **Topic keys**: `["contract_unpaused"]`
 - **Payload schema**: `()`
@@ -363,6 +381,7 @@ Events related to admin operations.
   ```
 
 ### admin_transferred
+
 - **Trigger**: Two-step admin transfer completed (`accept_admin()`)
 - **Topic keys**: `["admin_transferred"]`
 - **Payload schema**: `(old_admin: Address, new_admin: Address)`
@@ -375,6 +394,7 @@ Events related to admin operations.
   ```
 
 ### upgrade
+
 - **Trigger**: Contract WASM upgraded (`commit_upgrade()`)
 - **Topic keys**: `["upgrade"]`
 - **Payload schema**: `()` — note: the `new_wasm_hash` parameter is accepted but **not** emitted in the event data
@@ -387,6 +407,7 @@ Events related to admin operations.
   ```
 
 ### upg_proposed
+
 - **Trigger**: WASM upgrade proposed (`propose_upgrade()`)
 - **Topic keys**: `["upg_proposed"]`
 - **Payload schema**: `new_wasm_hash: BytesN<32>`
@@ -399,6 +420,7 @@ Events related to admin operations.
   ```
 
 ### min_interval_set
+
 - **Trigger**: `set_min_interval()`
 - **Topic keys**: `["min_interval_set"]`
 - **Payload schema**:
@@ -420,6 +442,7 @@ Events related to admin operations.
   ```
 
 ### merch_hist_cleared
+
 - **Trigger**: `clear_merchant_revenue_history()`
 - **Topic keys**: `["merch_hist_cleared"]`
 - **Payload schema**: `merchant: Address`
@@ -438,6 +461,7 @@ Events related to admin operations.
 Events related to protocol fee configuration.
 
 ### fee_proposed
+
 - **Trigger**: `propose_fee()` (two-step commit)
 - **Topic keys**: `["fee_proposed"]`
 - **Payload schema**: `(collector: Address, bps: u32)`
@@ -450,6 +474,7 @@ Events related to protocol fee configuration.
   ```
 
 ### fee_committed
+
 - **Trigger**: `commit_fee()` (two-step commit)
 - **Topic keys**: `["fee_committed"]`
 - **Payload schema**: `(collector: Address, bps: u32)`
@@ -462,6 +487,7 @@ Events related to protocol fee configuration.
   ```
 
 ### fee_cleared
+
 - **Trigger**: `clear_fee()`
 - **Topic keys**: `["fee_cleared"]`
 - **Payload schema**: `()`
@@ -474,6 +500,7 @@ Events related to protocol fee configuration.
   ```
 
 ### merchant_fee_recipient_set
+
 - **Trigger**: `set_merchant_fee_recipient()`
 - **Topic keys**: `["merchant_fee_recipient_set", merchant_address]`
 - **Payload schema**: `recipient: Address`
@@ -492,6 +519,7 @@ Events related to protocol fee configuration.
 Events related to merchant management.
 
 ### merchant_added
+
 - **Trigger**: `add_merchant()`
 - **Topic keys**: `["merchant_added", merchant_address]`
 - **Payload schema**: `()`
@@ -504,6 +532,7 @@ Events related to merchant management.
   ```
 
 ### merchant_removed
+
 - **Trigger**: `remove_merchant()`
 - **Topic keys**: `["merchant_removed", merchant_address]`
 - **Payload schema**: `()`
@@ -516,6 +545,7 @@ Events related to merchant management.
   ```
 
 ### merchant_frozen
+
 - **Trigger**: `freeze_merchant()`
 - **Topic keys**: `["merchant_frozen", merchant_address]`
 - **Payload schema**: `()`
@@ -528,6 +558,7 @@ Events related to merchant management.
   ```
 
 ### merchant_unfrozen
+
 - **Trigger**: `unfreeze_merchant()`
 - **Topic keys**: `["merchant_unfrozen", merchant_address]`
 - **Payload schema**: `()`
@@ -540,6 +571,7 @@ Events related to merchant management.
   ```
 
 ### merchant_withdrawal
+
 - **Trigger**: `withdraw_merchant_revenue()`
 - **Topic keys**: `["merchant_withdrawal", merchant_address]`
 - **Payload schema**: `amount: i128`
@@ -558,6 +590,7 @@ Events related to merchant management.
 Events related to user daily limit configuration.
 
 ### daily_limit_set
+
 - **Trigger**: `set_daily_limit()`
 - **Topic keys**: `["daily_limit_set", user_address]`
 - **Payload schema**: `limit: i128`
@@ -570,6 +603,7 @@ Events related to user daily limit configuration.
   ```
 
 ### daily_limit_removed
+
 - **Trigger**: `remove_daily_limit()`
 - **Topic keys**: `["daily_limit_removed", user_address]`
 - **Payload schema**: `()`
@@ -588,6 +622,7 @@ Events related to user daily limit configuration.
 Events related to grace period configuration.
 
 ### grace_period_proposed
+
 - **Trigger**: `propose_grace_period()` (two-step commit)
 - **Topic keys**: `["grace_period_proposed"]`
 - **Payload schema**: `seconds: u64`
@@ -600,6 +635,7 @@ Events related to grace period configuration.
   ```
 
 ### grace_period_committed
+
 - **Trigger**: `commit_grace_period()` (two-step commit)
 - **Topic keys**: `["grace_period_committed"]`
 - **Payload schema**: `seconds: u64`
@@ -618,6 +654,7 @@ Events related to grace period configuration.
 Events related to referral tracking.
 
 ### referred
+
 - **Trigger**: `subscribe()` (when referrer is provided)
 - **Topic keys**: `["referred", user_address]`
 - **Payload schema**: `referrer: Address`
@@ -638,6 +675,7 @@ See the canonical referral guide: [`REFERRALS.md`](./REFERRALS.md#referred-event
 Events related to contract migration and infrastructure operations.
 
 ### migration_completed
+
 - **Trigger**: `migrate()` (schema migration)
 - **Topic keys**: `["migration_completed"]`
 - **Payload schema**: `(version: u32, user_count: u32)`
@@ -650,6 +688,7 @@ Events related to contract migration and infrastructure operations.
   ```
 
 ### subscriber_index_ttl_extended
+
 - **Trigger**: `extend_subscriber_index_ttl()` (admin TTL refresh)
 - **Topic keys**: `["subscriber_index_ttl_extended"]`
 - **Payload schema**: `count: u64`
@@ -677,11 +716,11 @@ Events related to contract migration and infrastructure operations.
 
 ## Related Documentation
 
-| Doc | Role |
-| --- | --- |
-| [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Cookbook: consume events reliably, react, dedupe, detect gaps |
-| [`docs/KEEPER.md`](KEEPER.md) | Keeper operations (primary producer/consumer of charge cycles) |
-| [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) | Third-party app integration (transactions + reads) |
-| [`docs/API.md`](API.md) | Contract function surface |
-| [`scripts/watch-events.ts`](../scripts/watch-events.ts) | Live poller reference implementation |
-| [`scripts/replay-events.ts`](../scripts/replay-events.ts) | Historical range replay with upsert semantics |
+| Doc                                                       | Role                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------- |
+| [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md)     | Cookbook: consume events reliably, react, dedupe, detect gaps  |
+| [`docs/KEEPER.md`](KEEPER.md)                             | Keeper operations (primary producer/consumer of charge cycles) |
+| [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)       | Third-party app integration (transactions + reads)             |
+| [`docs/API.md`](API.md)                                   | Contract function surface                                      |
+| [`scripts/watch-events.ts`](../scripts/watch-events.ts)   | Live poller reference implementation                           |
+| [`scripts/replay-events.ts`](../scripts/replay-events.ts) | Historical range replay with upsert semantics                  |
