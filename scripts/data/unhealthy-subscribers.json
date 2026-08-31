@@ -1,0 +1,69 @@
+{
+  "description": "Fixture: mixed health — at least one unhealthy subscriber (paused + no allowance + charge due) — expected exit code 1",
+  "subscribers": [
+    {
+      "address": "GAZXP2EFNQJ3VXCR3QAOH3JZKGN3QHXYDQMAUIYNXFMCMRQD7GQZMBWP",
+      "active": true,
+      "charge_due": false,
+      "within_grace": false,
+      "has_sufficient_allowance": true,
+      "is_paused": false,
+      "trial_active": false,
+      "daily_limit_set": false,
+      "amount": "10000000",
+      "allowance": "50000000",
+      "token": "CBDEFU5CIXZHY7WVMJW63PEEY3DS7EFQVMPUHKGZC5HWAAQH4X5V6ZZM",
+      "ttl_remaining": 1000000,
+      "expiring_ttl": false,
+      "requires_restore": false
+    },
+    {
+      "address": "GBZV2CMX5Y3TAXKRG3VKVZEZJFRYX6ZZQRAXYNSY5DJL2QGXABY6ENXN",
+      "active": true,
+      "charge_due": false,
+      "within_grace": false,
+      "has_sufficient_allowance": false,
+      "is_paused": true,
+      "trial_active": false,
+      "daily_limit_set": false,
+      "amount": "5000000",
+      "allowance": "0",
+      "token": "CBDEFU5CIXZHY7WVMJW63PEEY3DS7EFQVMPUHKGZC5HWAAQH4X5V6ZZM",
+      "ttl_remaining": 1000000,
+      "expiring_ttl": false,
+      "requires_restore": false
+    },
+    {
+      "address": "GCNEPJUCLTDY3FQYAS6KW6OMJGX5ON4IZTTXD26EZSWYBP4I4VM7WKBX",
+      "active": true,
+      "charge_due": true,
+      "within_grace": true,
+      "has_sufficient_allowance": true,
+      "is_paused": false,
+      "trial_active": false,
+      "daily_limit_set": true,
+      "amount": "2500000",
+      "allowance": "2500000",
+      "token": "CBDEFU5CIXZHY7WVMJW63PEEY3DS7EFQVMPUHKGZC5HWAAQH4X5V6ZZM",
+      "ttl_remaining": 50000,
+      "expiring_ttl": true,
+      "requires_restore": false
+    },
+    {
+      "address": "GDQOIHCIB5TQYHLIPVHO6HLJUMRSNKRNPE3I52GWY5BGZQXQS6Z4WHS3",
+      "active": false,
+      "charge_due": false,
+      "within_grace": false,
+      "has_sufficient_allowance": false,
+      "is_paused": false,
+      "trial_active": false,
+      "daily_limit_set": false,
+      "amount": "10000000",
+      "allowance": "0",
+      "token": "CBDEFU5CIXZHY7WVMJW63PEEY3DS7EFQVMPUHKGZC5HWAAQH4X5V6ZZM",
+      "ttl_remaining": null,
+      "expiring_ttl": false,
+      "requires_restore": true
+    }
+  ]
+}

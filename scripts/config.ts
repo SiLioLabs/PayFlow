@@ -55,7 +55,10 @@ export const ConfigSchema = z.object({
   CONTRACT_ID: z
     .string({ required_error: "CONTRACT_ID is required" })
     .min(1, "CONTRACT_ID must not be empty")
-    .regex(contractIdRegex, "CONTRACT_ID must be a valid Stellar contract ID (starts with 'C', 56-char base32)"),
+    .regex(
+      contractIdRegex,
+      "CONTRACT_ID must be a valid Stellar contract ID (starts with 'C', 56-char base32)",
+    ),
 
   /** Soroban RPC endpoint (e.g. https://soroban-testnet.stellar.org) */
   RPC_URL: z
@@ -66,8 +69,13 @@ export const ConfigSchema = z.object({
   SECRET_KEY: z
     .string({ required_error: "SECRET_KEY is required" })
     .min(1, "SECRET_KEY must not be empty")
-    .regex(secretKeyRegex, "SECRET_KEY must be a valid Stellar secret key (starts with 'S', 56-char base32)"),
+    .regex(
+      secretKeyRegex,
+      "SECRET_KEY must be a valid Stellar secret key (starts with 'S', 56-char base32)",
+    ),
 
+  /** Maximum number of subscriptions to charge in a single transaction (1–200) */
+  BATCH_SIZE: z.coerce
   /**
    * Maximum number of subscriptions to charge in a single transaction (1–200).
    * The upper bound of 200 mirrors the contract's `MAX_BATCH_SIZE_CEILING` —
@@ -86,8 +94,7 @@ export const ConfigSchema = z.object({
     .max(200, "BATCH_SIZE must be at most 200"),
 
   /** Minimum interval in seconds between keeper charge cycles (≥ 60) */
-  INTERVAL_SECONDS: z
-    .coerce
+  INTERVAL_SECONDS: z.coerce
     .number({ invalid_type_error: "INTERVAL_SECONDS must be a number" })
     .int("INTERVAL_SECONDS must be an integer")
     .min(60, "INTERVAL_SECONDS must be at least 60 (1 minute)"),
@@ -110,9 +117,7 @@ export const ConfigSchema = z.object({
     .optional(),
 
   /** Optional network passphrase for Stellar network identification */
-  NETWORK_PASSPHRASE: z
-    .string()
-    .optional(),
+  NETWORK_PASSPHRASE: z.string().optional(),
 });
 
 /** Inferred TypeScript type from ConfigSchema */

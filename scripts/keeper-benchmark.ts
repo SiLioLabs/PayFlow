@@ -39,13 +39,32 @@
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { Keypair, Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
+import {
+  Keypair,
+  Contract,
+  Networks,
+  TransactionBuilder,
+  BASE_FEE,
+  nativeToScVal,
+  Address,
+  xdr,
+} from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
 
-const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || process.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
-const CONTRACT_ID = process.env.CONTRACT_ID || process.env.VITE_CONTRACT_ID || "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
-const SECRET_KEY = process.env.KEEPER_SECRET_KEY || process.env.SECRET_KEY || "";
+const RPC_URL =
+  process.env.RPC_URL ||
+  process.env.VITE_RPC_URL ||
+  "https://soroban-testnet.stellar.org";
+const NETWORK_PASSPHRASE =
+  process.env.NETWORK_PASSPHRASE ||
+  process.env.VITE_NETWORK_PASSPHRASE ||
+  Networks.TESTNET;
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ||
+  process.env.VITE_CONTRACT_ID ||
+  "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const SECRET_KEY =
+  process.env.KEEPER_SECRET_KEY || process.env.SECRET_KEY || "";
 
 const BATCH_SIZES = [10, 25, 50, 100, 200];
 const ITERATIONS_PER_BATCH = 5;
@@ -124,7 +143,10 @@ function generateBenchmarkSubscribers(count: number): string[] {
   return subscribers;
 }
 
-async function getBenchmarkSourceAccount(server: Server, secretKey: string): Promise<Keypair> {
+async function getBenchmarkSourceAccount(
+  server: Server,
+  secretKey: string,
+): Promise<Keypair> {
   if (secretKey) {
     return Keypair.fromSecret(secretKey);
   }
@@ -136,7 +158,7 @@ async function runBenchmarkIteration(
   signerKp: Keypair,
   subscribers: string[],
   simulate: boolean,
-  iteration: number
+  iteration: number,
 ): Promise<IterationResult> {
   const contract = new Contract(CONTRACT_ID);
 
@@ -149,7 +171,9 @@ async function runBenchmarkIteration(
   }
 
   const usersScValVec = xdr.ScVal.scvVec(
-    subscribers.map((s) => nativeToScVal(Address.fromString(s), { type: "address" }))
+    subscribers.map((s) =>
+      nativeToScVal(Address.fromString(s), { type: "address" }),
+    ),
   );
 
   const tx = new TransactionBuilder(sourceAccount, {
@@ -184,7 +208,9 @@ async function runBenchmarkIteration(
   } else {
     // Real submission on testnet
     if (!SECRET_KEY) {
-      throw new Error("KEEPER_SECRET_KEY / SECRET_KEY must be provided for real testnet benchmark execution.");
+      throw new Error(
+        "KEEPER_SECRET_KEY / SECRET_KEY must be provided for real testnet benchmark execution.",
+      );
     }
     tx.sign(signerKp);
     const sendResult = await server.sendTransaction(tx);
@@ -231,7 +257,9 @@ async function main() {
 
   console.log(`====================================================`);
   console.log(`FlowPay Keeper Performance Benchmark`);
-  console.log(`Mode: ${simulate ? "SIMULATION (--simulate)" : "TESTNET REAL SUBMISSION"}`);
+  console.log(
+    `Mode: ${simulate ? "SIMULATION (--simulate)" : "TESTNET REAL SUBMISSION"}`,
+  );
   console.log(`RPC Endpoint: ${RPC_URL}`);
   console.log(`Contract ID: ${CONTRACT_ID}`);
   console.log(`====================================================\n`);
@@ -248,11 +276,22 @@ async function main() {
 
     for (let iter = 1; iter <= ITERATIONS_PER_BATCH; iter++) {
       try {
-        const res = await runBenchmarkIteration(server, signerKp, subscribers, simulate, iter);
+        const res = await runBenchmarkIteration(
+          server,
+          signerKp,
+          subscribers,
+          simulate,
+          iter,
+        );
         iterations.push(res);
-        console.log(`  Iteration ${iter}/${ITERATIONS_PER_BATCH}: latency=${res.submissionLatencyMs}ms cpu_insns=${res.cpuInstructions} per_sub=${res.cpuInstructionsPerSubscriber}`);
+        console.log(
+          `  Iteration ${iter}/${ITERATIONS_PER_BATCH}: latency=${res.submissionLatencyMs}ms cpu_insns=${res.cpuInstructions} per_sub=${res.cpuInstructionsPerSubscriber}`,
+        );
       } catch (err) {
-        console.error(`  Iteration ${iter}/${ITERATIONS_PER_BATCH} failed:`, err instanceof Error ? err.message : err);
+        console.error(
+          `  Iteration ${iter}/${ITERATIONS_PER_BATCH} failed:`,
+          err instanceof Error ? err.message : err,
+        );
         iterations.push({
           iteration: iter,
           submissionLatencyMs: 0,
@@ -274,8 +313,11 @@ async function main() {
     const confirmationStats = computePercentiles(confLatencies);
 
     const totalCpu = iterations.reduce((acc, i) => acc + i.cpuInstructions, 0);
-    const avgCpuInstructions = iterations.length > 0 ? Math.round(totalCpu / iterations.length) : 0;
-    const avgCpuInstructionsPerSubscriber = Math.round(avgCpuInstructions / batchSize);
+    const avgCpuInstructions =
+      iterations.length > 0 ? Math.round(totalCpu / iterations.length) : 0;
+    const avgCpuInstructionsPerSubscriber = Math.round(
+      avgCpuInstructions / batchSize,
+    );
 
     batchResults.push({
       batchSize,
@@ -287,7 +329,9 @@ async function main() {
       iterations,
     });
 
-    console.log(`  -> Batch ${batchSize} summary: submission_p50=${submissionStats.p50}ms cpu_per_sub=${avgCpuInstructionsPerSubscriber}\n`);
+    console.log(
+      `  -> Batch ${batchSize} summary: submission_p50=${submissionStats.p50}ms cpu_per_sub=${avgCpuInstructionsPerSubscriber}\n`,
+    );
   }
 
   const report: BenchmarkReport = {
