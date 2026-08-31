@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "node16",
-    "moduleResolution": "node16",
-    "lib": ["ES2020"],
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2022"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -17,18 +17,4 @@
   },
   "include": ["./**/*.ts"],
   "exclude": ["dist", "node_modules"]
-    "module": "ESNext",
-    "lib": ["ES2020"],
-    "moduleResolution": "bundler",
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "skipLibCheck": true,
-    "types": ["node"],
-    "typeRoots": ["./node_modules/@types"]
-  },
-  "include": ["*.ts"],
-  "exclude": ["node_modules", "dist"]
 }
