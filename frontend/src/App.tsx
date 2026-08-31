@@ -12,8 +12,6 @@ import { useAdmin } from "./hooks/useAdmin";
 import { useContractId } from "./hooks/useContractId";
 import { useContractPaused } from "./hooks/useContractPaused";
 import { useToast } from "./hooks/useToast";
-import SubscribeForm from "./components/SubscribeForm";
-import Dashboard from "./components/Dashboard";
 import MerchantDashboard from "./components/MerchantDashboard";
 import WalletSelectModal from "./components/WalletSelectModal";
 import WalletBar from "./components/WalletBar";
@@ -22,7 +20,6 @@ import OfflineBanner from "./components/OfflineBanner";
 import ContractPauseBanner from "./components/ContractPauseBanner";
 import NetworkBadge from "./components/NetworkBadge";
 import AdminDashboard from "./pages/AdminDashboard";
-import ContractPauseBanner from "./components/ContractPauseBanner";
 import type { WalletAdapter } from "./services/wallets/WalletAdapter";
 
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
@@ -32,7 +29,7 @@ export default function App() {
     useWallet();
   const { announcement, announce } = useAccessibility();
   const { healthy, circuitOpen } = useRpcHealthContext();
-  const [tab, setTab] = useState<"subscribe" | "dashboard">("dashboard");
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [refresh, setRefresh] = useState(0);
   const [showRpcSettings, setShowRpcSettings] = useState(false);
 
@@ -43,6 +40,8 @@ export default function App() {
   const { isAdmin } = useAdmin(publicKey);
   const { networkMatch, walletNetwork, isMainnet, requiresMainnetConfirm, confirmMainnet } =
     useNetworkCheck();
+  const { valid: isContractIdValid, error: contractIdError } = useContractId();
+  const isOnline = useNetworkStatus();
   const { isAdmin } = useAdmin(publicKey);
   const { isPaused } = useContractPaused();
   // Dashboard/SubscribeForm/MerchantDashboard/admin panels each keep their own
@@ -51,8 +50,6 @@ export default function App() {
   // scope here. This App-level instance exists solely to drive the header's
   // NotificationCenter (issue #864).
   const { notifications, unreadCount, markAllRead, clearNotifications } = useToast();
-  const [tab, setTab] = useState<Tab>("dashboard");
-  const [refresh, setRefresh] = useState(0);
   const [showWalletModal, setShowWalletModal] = useState(false);
   const wasOnline = useRef(isOnline);
 
@@ -123,6 +120,17 @@ export default function App() {
 
       {/* Actionable gate warning banner */}
       {gateError && (
+        <div
+          className="card"
+          style={{ background: "#3b1f1f", marginBottom: 16, textAlign: "center" }}
+          data-testid="gate-warning"
+        >
+          <p style={{ color: "#f87171", fontSize: 13 }}>
+            ⚠ <strong>Configuration/Network Gate Warning:</strong> {gateError}
+          </p>
+        </div>
+      )}
+
       {/* Contract pause banner — shown at root level so it's always visible */}
       <ContractPauseBanner paused={isPaused} />
       {/* RPC Failure Banner */}
@@ -154,6 +162,10 @@ export default function App() {
             style={{ fontSize: 12, padding: "4px 8px", whiteSpace: "nowrap" }}
           >
             Try a different endpoint
+          </button>
+        </div>
+      )}
+
       {/* Mainnet safety gate — require explicit confirmation once per session when passphrase is mainnet */}
       {isMainnet && requiresMainnetConfirm && (
         <div

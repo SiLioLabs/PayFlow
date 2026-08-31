@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useMemo, forwardRef } from "react";
 import React, { useState, useEffect, forwardRef } from "react";
 import Spinner from "./Spinner";
 import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
@@ -5,6 +6,7 @@ import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { type AmountUnit } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
+import { validateStroopAmount } from "../hooks/useFormValidation";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;
@@ -82,6 +84,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     },
     ref
   ) => {
+    const { unit } = useAmountDisplay();
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [lastValue, setLastValue] = useState(amount);
@@ -136,6 +139,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     };
 
     const isFormValid = convertedStroops !== null && !error;
+
     const payDisabled = loading || isPaused || disabled;
 
     async function handleSubmit() {

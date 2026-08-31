@@ -46,7 +46,6 @@
     "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts"
     "test": "tsx test-churn-analysis.ts"
     "test:rpc-failover": "tsx test-rpc-failover.ts"
-    "test:renewal-forecast": "tsx test-renewal-forecast.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

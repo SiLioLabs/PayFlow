@@ -62,6 +62,7 @@ function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
     validateAddress(fields.merchant).valid &&
     validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
     validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
+    referrerValid &&
     referrerValid
     validateAddress(fields.tokenAddress).valid
   );
@@ -96,6 +97,7 @@ export default function SubscribeForm({
 
   const amountString =
     amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
+  const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
   const fields: FormFields = { merchant, amount: amountString, interval };
   const fields: FormFields = { merchant, amount, interval };
   const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
@@ -123,10 +125,10 @@ export default function SubscribeForm({
     touched.interval,
     amount,
     interval,
-    tokenAddress,
     touched.merchant,
     touched.amount,
     touched.interval,
+    tokenAddress,
     touched.tokenAddress,
     validate,
   ]);
@@ -140,8 +142,12 @@ export default function SubscribeForm({
     setMerchant(e.target.value);
   }
 
-  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setAmount(e.target.value);
+  function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setReferrer(e.target.value);
+  }
+
+  function handleReferrerBlur() {
+    setTouched((prev) => ({ ...prev, referrer: true }));
   }
 
   function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -334,7 +340,7 @@ export default function SubscribeForm({
         <AllowanceDisplay userKey={userKey} subscriptionAmount={0n} refreshTrigger={0} />
         <AllowanceDisplay
           userKey={userKey}
-          subscriptionAmount={BigInt(Math.round(parseFloat(amount || "0") * 10_000_000))}
+          subscriptionAmount={BigInt(Math.round(parseFloat(amountString || "0") * 10_000_000))}
           refreshTrigger={0}
           tokenId={tokenAddress}
         />

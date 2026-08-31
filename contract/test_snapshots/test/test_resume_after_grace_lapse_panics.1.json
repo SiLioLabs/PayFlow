@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -678,6 +679,14 @@
                           "hi": 0,
                           "lo": 10000000
                         }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "created_at"
+                      },
+                      "val": {
+                        "u64": 0
                       }
                     },
                     {
@@ -2041,7 +2050,7 @@
               },
               {
                 "error": {
-                  "contract": 35
+                  "contract": 100
                 }
               }
             ],
@@ -2051,7 +2060,7 @@
                   "string": "failing with contract error"
                 },
                 {
-                  "u32": 35
+                  "u32": 100
                 }
               ]
             }
@@ -2073,7 +2082,7 @@
               },
               {
                 "error": {
-                  "contract": 35
+                  "contract": 100
                 }
               }
             ],
@@ -2098,7 +2107,7 @@
               },
               {
                 "error": {
-                  "contract": 35
+                  "contract": 100
                 }
               }
             ],
@@ -2123,7 +2132,7 @@
               },
               {
                 "error": {
-                  "contract": 35
+                  "contract": 100
                 }
               }
             ],
@@ -2162,7 +2171,7 @@
               },
               {
                 "error": {
-                  "contract": 35
+                  "contract": 100
                 }
               }
             ],
