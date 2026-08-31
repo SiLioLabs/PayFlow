@@ -1,4 +1,4 @@
-import React from "react";
+mport React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -112,7 +112,9 @@ describe("MerchantDashboard – responsive layout", () => {
     await waitFor(() => screen.getByText(/Merchant Dashboard/));
     // At 768px (which matches max-width: 768px) -> isMobile via max-width:639px = false
     // so should use grid-cols-2
-    const grid = container.querySelector(".merchant-stats-grid");
-    expect(grid).toBeTruthy();
+    await waitFor(() => {
+      const grid = container.querySelector(".merchant-stats-grid");
+      expect(grid).toBeTruthy();
+    });
   });
 });

@@ -1,3 +1,348 @@
+#!/usr/bin/env ts-node
+/**
+ * pre-upgrade-check.ts
+ *
+ * Standalone preflight validator that is also called by deploy-pipeline.ts.
+ * Run this before invoking `upgrade()` on the FlowPay contract to catch
+ * common misconfiguration issues.
+ *
+ * Checks:
+ *   1. WASM file exists and its SHA-256 hash is recorded
+ *   2. Target network RPC is reachable and healthy
+ *   3. Contract ID is a valid Stellar contract address
+ *   4. Schema version is readable (migration status)
+ *   5. Source account exists on the network (funded)
+ *
+ * Usage:
+ *   npx ts-node scripts/pre-upgrade-check.ts --wasm path/to/flowpay.wasm
+ *
+ * Options:
+ *   --wasm <path>      Path to compiled .wasm file
+ *   --contract <id>    Deployed contract ID
+ *   --rpc-url <url>    Soroban RPC URL
+ *   --network <pass>   Network passphrase
+ *   --source <addr>    Source account (for read-only RPC queries)
+ *   --dry-run          Skip network calls, print config only
+ *
+ * Closes: https://github.com/SiLioLabs/PayFlow/issues/897
+ */
+
+import * as fs from "fs";
+import {
+  StrKey,
+  Networks,
+  Contract,
+  TransactionBuilder,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { Server } from "@stellar/stellar-sdk/rpc";
+import { computeWasmHash, type GateResult } from "./deploy-pipeline";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface PreUpgradeReport {
+  timestamp: string;
+  passed: boolean;
+  checks: GateResult[];
+  wasmHash: string | null;
+  schemaVersion: number | null;
+}
+
+// ── Individual checks ─────────────────────────────────────────────────────────
+
+export function checkWasmFile(wasmPath: string | undefined): GateResult & { hash: string | null } {
+  if (!wasmPath) {
+    return {
+      gate: "wasm-file",
+      status: "fail",
+      message: "No --wasm path provided",
+      hash: null,
+    };
+  }
+
+  if (!fs.existsSync(wasmPath)) {
+    return {
+      gate: "wasm-file",
+      status: "fail",
+      message: `WASM file not found: ${wasmPath}`,
+      hash: null,
+    };
+  }
+
+  const stats = fs.statSync(wasmPath);
+  if (stats.size === 0) {
+    return {
+      gate: "wasm-file",
+      status: "fail",
+      message: `WASM file is empty: ${wasmPath}`,
+      hash: null,
+    };
+  }
+
+  const hash = computeWasmHash(wasmPath);
+  return {
+    gate: "wasm-file",
+    status: "pass",
+    message: `WASM file valid (${(stats.size / 1024).toFixed(1)} KB), SHA-256: ${hash}`,
+    hash,
+  };
+}
+
+export function checkContractId(contractId: string): GateResult {
+  if (!contractId) {
+    return {
+      gate: "contract-id",
+      status: "fail",
+      message: "CONTRACT_ID is not set",
+    };
+  }
+
+  // Stellar contract IDs start with 'C' and are 56 chars (StrKey contract)
+  const valid = StrKey.isValidContract(contractId);
+  return {
+    gate: "contract-id",
+    status: valid ? "pass" : "fail",
+    message: valid
+      ? `Contract ID is valid: ${contractId}`
+      : `Contract ID is not a valid Stellar contract address: ${contractId}`,
+  };
+}
+
+export async function checkRpcReachable(server: Server): Promise<GateResult> {
+  try {
+    const health = await server.getHealth();
+    const healthy = (health as any).status === "healthy";
+    return {
+      gate: "rpc-reachable",
+      status: healthy ? "pass" : "fail",
+      message: healthy
+        ? "RPC is reachable and healthy"
+        : `RPC responded but status is: ${(health as any).status}`,
+    };
+  } catch (err: unknown) {
+    return {
+      gate: "rpc-reachable",
+      status: "fail",
+      message: `Cannot reach RPC: ${(err as Error).message}`,
+    };
+  }
+}
+
+export async function checkSourceAccountFunded(
+  server: Server,
+  sourceAccount: string
+): Promise<GateResult> {
+  if (!sourceAccount) {
+    return {
+      gate: "source-account",
+      status: "skip",
+      message: "No source account configured",
+    };
+  }
+
+  try {
+    await server.getAccount(sourceAccount);
+    return {
+      gate: "source-account",
+      status: "pass",
+      message: `Source account exists on network: ${sourceAccount}`,
+    };
+  } catch (err: unknown) {
+    return {
+      gate: "source-account",
+      status: "fail",
+      message: `Source account not found or unfunded: ${sourceAccount}`,
+    };
+  }
+}
+
+export async function checkSchemaVersion(
+  server: Server,
+  contractId: string,
+  networkPassphrase: string,
+  sourceAccount: string
+): Promise<GateResult & { version: number | null }> {
+  if (!contractId || !sourceAccount) {
+    return {
+      gate: "schema-version",
+      status: "skip",
+      message: "Skipped — contract ID or source account missing",
+      version: null,
+    };
+  }
+
+  try {
+    const contract = new Contract(contractId);
+    const account = await server.getAccount(sourceAccount);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase,
+    })
+      .addOperation(contract.call("get_schema_version"))
+      .setTimeout(30)
+      .build();
+
+    const simResult = await server.simulateTransaction(tx);
+    if ("error" in simResult) {
+      return {
+        gate: "schema-version",
+        status: "warn",
+        message: "Could not read schema version",
+        version: null,
+      };
+    }
+
+    const retval = (simResult as any).result?.retval;
+    const version = retval && retval.switch().name !== "scvVoid"
+      ? Number(retval.u32())
+      : null;
+
+    return {
+      gate: "schema-version",
+      status: version !== null ? "pass" : "warn",
+      message: version !== null
+        ? `On-chain schema version: ${version}`
+        : "Schema version not readable",
+      detail: { version },
+      version,
+    };
+  } catch (err: unknown) {
+    return {
+      gate: "schema-version",
+      status: "warn",
+      message: `Schema version check error: ${(err as Error).message}`,
+      version: null,
+    };
+  }
+}
+
+// ── Orchestrator ──────────────────────────────────────────────────────────────
+
+export async function runPreUpgradeCheck(options: {
+  wasmPath?: string;
+  contractId: string;
+  rpcUrl: string;
+  networkPassphrase: string;
+  sourceAccount: string;
+  dryRun: boolean;
+}): Promise<PreUpgradeReport> {
+  const report: PreUpgradeReport = {
+    timestamp: new Date().toISOString(),
+    passed: false,
+    checks: [],
+    wasmHash: null,
+    schemaVersion: null,
+  };
+
+  console.log("\n  FlowPay Pre-Upgrade Check");
+  console.log("  " + "─".repeat(50));
+
+  // WASM file check (local, no network)
+  const wasmCheck = checkWasmFile(options.wasmPath);
+  report.checks.push(wasmCheck);
+  report.wasmHash = wasmCheck.hash;
+  printCheck(wasmCheck);
+
+  // Contract ID format check (local, no network)
+  const idCheck = checkContractId(options.contractId);
+  report.checks.push(idCheck);
+  printCheck(idCheck);
+
+  if (options.dryRun) {
+    console.log("\n  [DRY-RUN] Skipping network checks.\n");
+    report.passed = report.checks.every(
+      (c) => c.status === "pass" || c.status === "skip" || c.status === "warn"
+    );
+    return report;
+  }
+
+  const server = new Server(options.rpcUrl);
+
+  // RPC reachability
+  const rpcCheck = await checkRpcReachable(server);
+  report.checks.push(rpcCheck);
+  printCheck(rpcCheck);
+
+  if (rpcCheck.status === "fail") {
+    report.passed = false;
+    return report;
+  }
+
+  // Source account funded
+  const accountCheck = await checkSourceAccountFunded(server, options.sourceAccount);
+  report.checks.push(accountCheck);
+  printCheck(accountCheck);
+
+  // Schema version
+  const schemaCheck = await checkSchemaVersion(
+    server,
+    options.contractId,
+    options.networkPassphrase,
+    options.sourceAccount
+  );
+  report.checks.push(schemaCheck);
+  report.schemaVersion = schemaCheck.version;
+  printCheck(schemaCheck);
+
+  report.passed = report.checks.every(
+    (c) => c.status === "pass" || c.status === "skip" || c.status === "warn"
+  );
+
+  const icon = report.passed ? "✓" : "✗";
+  console.log(`\n  ${icon} Pre-upgrade check ${report.passed ? "PASSED" : "FAILED"}\n`);
+
+  return report;
+}
+
+function printCheck(gate: GateResult): void {
+  const icons: Record<string, string> = { pass: "✓", fail: "✗", skip: "–", warn: "⚠" };
+  console.log(`  [${icons[gate.status]}] ${gate.gate.padEnd(18)} ${gate.message}`);
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const get = (flag: string) => {
+    const i = argv.indexOf(flag);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const has = (flag: string) => argv.includes(flag);
+
+  const report = await runPreUpgradeCheck({
+    wasmPath: get("--wasm"),
+    contractId:
+      get("--contract") ??
+      process.env.CONTRACT_ID ??
+      process.env.VITE_CONTRACT_ID ??
+      "",
+    rpcUrl:
+      get("--rpc-url") ??
+      process.env.RPC_URL ??
+      process.env.VITE_RPC_URL ??
+      "https://soroban-testnet.stellar.org",
+    networkPassphrase:
+      get("--network") ??
+      process.env.NETWORK_PASSPHRASE ??
+      process.env.VITE_NETWORK_PASSPHRASE ??
+      Networks.TESTNET,
+    sourceAccount:
+      get("--source") ??
+      process.env.SOROBAN_SOURCE_ACCOUNT ??
+      "",
+    dryRun: has("--dry-run"),
+  });
+
+  process.exit(report.passed ? 0 : 1);
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
 #!/usr/bin/env tsx
 /**
  * pre-upgrade-check.ts — Contract pre-upgrade validation for FlowPay.
@@ -25,7 +370,7 @@
  *   }
  */
 
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   Contract,
@@ -91,6 +436,9 @@ const WASM_PATH = getArg("--wasm");
 const UPGRADE_CONFIG_PATH =
   getArg("--upgrade-config") ?? process.env.UPGRADE_CONFIG_PATH ?? "";
 const CONFIRM = process.argv.includes("--confirm");
+const SNAPSHOT_PATH = getArg("--snapshot");
+const MAX_DRIFT = parseInt(getArg("--max-drift") ?? "0", 10);
+const REPORT_PATH = getArg("--report") ?? "pre-upgrade-report.json";
 
 function showHelp(): never {
   console.log(`
@@ -101,6 +449,9 @@ Options:
   --upgrade-config <path>    JSON config with expected_schema_version
   --skip-key-check           Skip admin key signing test (e.g. hardware wallet)
   --confirm                  Print ready-to-proceed message when all checks pass
+  --snapshot <path>          Path to a subscription snapshot to check drift against
+  --max-drift <number>       Maximum allowed active_count difference from snapshot (default 0)
+  --report <path>            Path to write the JSON report (default: pre-upgrade-report.json)
   --help, -h                 Show this help
 
 Environment:
@@ -438,14 +789,35 @@ async function runChecks(): Promise<ReadinessReport> {
       });
     } else {
       const count = Number(scValToNative(retval));
+      let status: CheckStatus = count > 0 ? "warn" : "pass";
+      let detail = count > 0
+        ? `${count} active subscription(s) will be affected by storage migration`
+        : "No active subscriptions";
+      let blocking = false;
+
+      if (SNAPSHOT_PATH) {
+        if (existsSync(SNAPSHOT_PATH)) {
+          const snapshotData = JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8"));
+          const snapCount = snapshotData.count ?? 0;
+          const drift = Math.abs(count - snapCount);
+          detail += ` (Snapshot count: ${snapCount}, drift: ${drift})`;
+          if (drift > MAX_DRIFT) {
+            status = "fail";
+            blocking = true;
+            detail += ` - Drift ${drift} exceeds maximum allowed ${MAX_DRIFT}`;
+          }
+        } else {
+          status = "fail";
+          blocking = true;
+          detail = `Snapshot file not found at ${SNAPSHOT_PATH}`;
+        }
+      }
+
       checks.push({
         name: "active_subscription_count",
-        status: count > 0 ? "warn" : "pass",
-        detail:
-          count > 0
-            ? `${count} active subscription(s) will be affected by storage migration`
-            : "No active subscriptions",
-        blocking: false,
+        status,
+        detail,
+        blocking,
       });
     }
   } catch (err) {
@@ -505,7 +877,7 @@ async function runChecks(): Promise<ReadinessReport> {
       "migrate",
       [emptyUsers],
       SKIP_KEY_CHECK ? undefined : ADMIN_SECRET || undefined
-async function main(): Promise<void> {
+    );
   if (!CONTRACT_ID) {
     logger.error("Error: CONTRACT_ID environment variable is required.");
     process.exit(1);
@@ -597,6 +969,11 @@ async function main(): Promise<void> {
   const report = await runChecks();
   printReport(report);
 
+  if (REPORT_PATH) {
+    writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
+    console.log(`\nReport written to ${REPORT_PATH}`);
+  }
+
   if (!report.ready) {
     console.error("Pre-upgrade check FAILED — resolve blocking issues before upgrading.");
     process.exit(1);
@@ -607,36 +984,9 @@ async function main(): Promise<void> {
   } else {
     console.log("All checks passed. Re-run with --confirm when you are ready to upgrade.");
   }
-  // 3. Schema version
-  const versionVal = await simulateReadOnly("get_schema_version");
-  const schemaVersion = scValToString(versionVal);
-  logger.info(`Schema version     : ${schemaVersion}`);
-  if (Number(schemaVersion) < 2) {
-    console.warn(
-      "  ⚠  Schema is below current version 2 — run migrate() after upgrading.",
-    );
-    logger.warn("  ⚠  Schema is below current version 2 — run migrate() after upgrading.");
-  }
-
-  logger.info("");
-
-  // 4. Confirmation gate
-  if (!CONFIRM) {
-    console.log(
-      "Checks complete. Re-run with --confirm to proceed with the upgrade.",
-    );
-    logger.info("Checks complete. Re-run with --confirm to proceed with the upgrade.");
-    process.exit(0);
-  }
-
-  logger.info("✔  --confirm flag present. Safe to proceed with upgrade.");
 }
 
 main().catch((err) => {
-  console.error(
-    "Pre-upgrade check failed:",
-    err instanceof Error ? err.message : err,
-  );
-  logger.error("Pre-upgrade check failed:", err instanceof Error ? err.message : err);
+  console.error("Pre-upgrade check failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 });

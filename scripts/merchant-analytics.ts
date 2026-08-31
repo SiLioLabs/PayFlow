@@ -121,8 +121,10 @@ function parseArgs(): CliArgs {
     sortByArg !== undefined
       ? validSortBy.includes(sortByArg)
         ? sortByArg
-        : (console.error(`ERROR: --sort-by must be one of: ${validSortBy.join(", ")}`),
-           process.exit(1))
+        : (console.error(
+            `ERROR: --sort-by must be one of: ${validSortBy.join(", ")}`,
+          ),
+          process.exit(1))
       : "revenue";
 
   const compareDaysArg = getArg("--compare-days");
@@ -141,8 +143,10 @@ function parseArgs(): CliArgs {
     formatArg !== undefined
       ? validFormats.includes(formatArg)
         ? formatArg
-        : (console.error(`ERROR: --format must be one of: ${validFormats.join(", ")}`),
-           process.exit(1))
+        : (console.error(
+            `ERROR: --format must be one of: ${validFormats.join(", ")}`,
+          ),
+          process.exit(1))
       : "table";
 
   const outFile = getArg("--out") ?? null;
@@ -156,11 +160,16 @@ function parseArgs(): CliArgs {
  * Load all relevant events from the SQLite indexer database and compute
  * per-merchant metrics.
  */
-function computeMetrics(dbPath: string, compareDays: number | null): Map<string, MerchantMetrics> {
+function computeMetrics(
+  dbPath: string,
+  compareDays: number | null,
+): Map<string, MerchantMetrics> {
   const db = new DatabaseSync(dbPath, { open: true });
 
   const rows = db
-    .prepare("SELECT event_name, data, timestamp FROM events WHERE event_name IN ('subscribed', 'charged', 'cancelled') ORDER BY timestamp ASC")
+    .prepare(
+      "SELECT event_name, data, timestamp FROM events WHERE event_name IN ('subscribed', 'charged', 'cancelled') ORDER BY timestamp ASC",
+    )
     .all() as unknown as EventRow[];
 
   db.close();
@@ -217,7 +226,8 @@ function computeMetrics(dbPath: string, compareDays: number | null): Map<string,
         }
       }
 
-      if (!subscriptionAmounts.has(merchant)) subscriptionAmounts.set(merchant, []);
+      if (!subscriptionAmounts.has(merchant))
+        subscriptionAmounts.set(merchant, []);
       if (amount > 0n) subscriptionAmounts.get(merchant)!.push(amount);
     } else if (row.event_name === "charged") {
       const amount = BigInt(String(parsed.amount ?? "0"));
@@ -227,13 +237,22 @@ function computeMetrics(dbPath: string, compareDays: number | null): Map<string,
       totalRevenue.set(merchant, (totalRevenue.get(merchant) ?? 0n) + net);
 
       if (!isBeforeWindow) {
-        revenueInWindow.set(merchant, (revenueInWindow.get(merchant) ?? 0n) + net);
+        revenueInWindow.set(
+          merchant,
+          (revenueInWindow.get(merchant) ?? 0n) + net,
+        );
       } else {
-        revenueBeforeWindow.set(merchant, (revenueBeforeWindow.get(merchant) ?? 0n) + net);
+        revenueBeforeWindow.set(
+          merchant,
+          (revenueBeforeWindow.get(merchant) ?? 0n) + net,
+        );
       }
     } else if (row.event_name === "cancelled") {
       if (!isBeforeWindow) {
-        cancellationsInWindow.set(merchant, (cancellationsInWindow.get(merchant) ?? 0) + 1);
+        cancellationsInWindow.set(
+          merchant,
+          (cancellationsInWindow.get(merchant) ?? 0) + 1,
+        );
       }
     }
   }
@@ -241,10 +260,7 @@ function computeMetrics(dbPath: string, compareDays: number | null): Map<string,
   // Build final metrics map
   const metrics = new Map<string, MerchantMetrics>();
 
-  const allMerchants = new Set([
-    ...totalRevenue.keys(),
-    ...subscribers.keys(),
-  ]);
+  const allMerchants = new Set([...totalRevenue.keys(), ...subscribers.keys()]);
 
   const windowDays = compareDays ?? 30;
   const oldestEligibleTimestamp = nowSeconds - windowDays * 86400;
@@ -275,7 +291,9 @@ function computeMetrics(dbPath: string, compareDays: number | null): Map<string,
         churnRate = Math.round((cancels / subsAtWindowStart) * 10000) / 100;
         const currentSubs = subs.size;
         growthRate =
-          Math.round(((currentSubs - subsAtWindowStart) / subsAtWindowStart) * 10000) / 100;
+          Math.round(
+            ((currentSubs - subsAtWindowStart) / subsAtWindowStart) * 10000,
+          ) / 100;
       } else if (subs.size > 0) {
         // New merchant: no prior subscribers, 100% growth if there are current subs
         growthRate = null; // cannot compute without base
@@ -303,7 +321,7 @@ function computeMetrics(dbPath: string, compareDays: number | null): Map<string,
 
 function sortMetrics(
   metrics: MerchantMetrics[],
-  sortBy: SortBy
+  sortBy: SortBy,
 ): MerchantMetrics[] {
   return [...metrics].sort((a, b) => {
     if (sortBy === "subscribers") {
@@ -312,8 +330,8 @@ function sortMetrics(
       return b.totalRevenue > a.totalRevenue
         ? 1
         : b.totalRevenue < a.totalRevenue
-        ? -1
-        : 0;
+          ? -1
+          : 0;
     } else {
       // growth: null growth rates sort to the bottom
       const ga = a.growthRate ?? -Infinity;
@@ -325,7 +343,10 @@ function sortMetrics(
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-function buildRows(sorted: MerchantMetrics[], compareDays: number | null): MerchantRow[] {
+function buildRows(
+  sorted: MerchantMetrics[],
+  compareDays: number | null,
+): MerchantRow[] {
   return sorted.map((m, i) => ({
     rank: i + 1,
     address: m.address,
@@ -333,17 +354,23 @@ function buildRows(sorted: MerchantMetrics[], compareDays: number | null): Merch
     avg_subscription_amount: m.avgSubscriptionAmount.toString(),
     subscriber_count: m.subscriberCount,
     churn_rate:
-      m.churnRate !== null ? `${m.churnRate.toFixed(2)}%` : compareDays ? "N/A" : "-",
+      m.churnRate !== null
+        ? `${m.churnRate.toFixed(2)}%`
+        : compareDays
+          ? "N/A"
+          : "-",
     growth_rate:
-      m.growthRate !== null ? `${m.growthRate.toFixed(2)}%` : compareDays ? "N/A" : "-",
-    revenue_in_window:
-      compareDays ? m.revenueInWindow.toString() : "-",
-    revenue_change:
-      compareDays
-        ? m.revenueBeforeWindow > 0n
-          ? `${(Number((m.revenueInWindow * 10000n) / m.revenueBeforeWindow) / 100).toFixed(2)}%`
-          : "N/A"
-        : "-",
+      m.growthRate !== null
+        ? `${m.growthRate.toFixed(2)}%`
+        : compareDays
+          ? "N/A"
+          : "-",
+    revenue_in_window: compareDays ? m.revenueInWindow.toString() : "-",
+    revenue_change: compareDays
+      ? m.revenueBeforeWindow > 0n
+        ? `${(Number((m.revenueInWindow * 10000n) / m.revenueBeforeWindow) / 100).toFixed(2)}%`
+        : "N/A"
+      : "-",
     is_new: m.isNew,
   }));
 }
@@ -360,7 +387,11 @@ function renderTable(rows: MerchantRow[], compareDays: number | null): string {
       ? [
           { key: "churn_rate", label: `${compareDays}d Churn`, width: 12 },
           { key: "growth_rate", label: `${compareDays}d Growth`, width: 14 },
-          { key: "revenue_in_window", label: `${compareDays}d Revenue`, width: 18 },
+          {
+            key: "revenue_in_window",
+            label: `${compareDays}d Revenue`,
+            width: 18,
+          },
           { key: "revenue_change", label: "Rev Change", width: 12 },
         ]
       : []),
@@ -372,8 +403,10 @@ function renderTable(rows: MerchantRow[], compareDays: number | null): string {
   const body = rows
     .map((r) =>
       cols
-        .map((c) => String((r as Record<string, unknown>)[c.key] ?? "").padEnd(c.width))
-        .join(" | ")
+        .map((c) =>
+          String((r as Record<string, unknown>)[c.key] ?? "").padEnd(c.width),
+        )
+        .join(" | "),
     )
     .join("\n");
 
@@ -386,7 +419,7 @@ function renderCsv(rows: MerchantRow[]): string {
   const lines = [
     headers.join(","),
     ...rows.map((r) =>
-      headers.map((h) => `"${String(r[h]).replace(/"/g, '""')}"`).join(",")
+      headers.map((h) => `"${String(r[h]).replace(/"/g, '""')}"`).join(","),
     ),
   ];
   return lines.join("\n");
@@ -411,7 +444,10 @@ function main(): void {
     process.exit(0);
   }
 
-  const sorted = sortMetrics([...metrics.values()], args.sortBy).slice(0, args.top);
+  const sorted = sortMetrics([...metrics.values()], args.sortBy).slice(
+    0,
+    args.top,
+  );
   const rows = buildRows(sorted, args.compareDays);
 
   let output: string;
@@ -420,8 +456,9 @@ function main(): void {
   } else if (args.format === "csv") {
     output = renderCsv(rows);
   } else {
-    const comparePart =
-      args.compareDays ? ` | ${args.compareDays}-day comparison` : "";
+    const comparePart = args.compareDays
+      ? ` | ${args.compareDays}-day comparison`
+      : "";
     output =
       `PayFlow Merchant Analytics — top ${args.top} by ${args.sortBy}${comparePart}\n` +
       renderTable(rows, args.compareDays);

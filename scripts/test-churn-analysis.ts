@@ -14,7 +14,9 @@ function assertEquals(actual: any, expected: any, message: string) {
 }
 
 function testCohortAndResubscriptionLogic() {
-  console.log("\n--- Running Churn Analysis Cohort and Resubscription Logic Tests ---");
+  console.log(
+    "\n--- Running Churn Analysis Cohort and Resubscription Logic Tests ---",
+  );
 
   // Reference time: 2026-06-15 (Unix Timestamp: 1781481600)
   const REF_TIME = 1781481600;
@@ -31,21 +33,51 @@ function testCohortAndResubscriptionLogic() {
   // 2026-04-05: 1775433600
   const events = [
     // Cohort 2026-01 (January)
-    { eventName: "subscribed", user: "user1", merchant: "merchA", timestamp: 1768003200 }, // User 1: Jan 10
-    { eventName: "subscribed", user: "user2", merchant: "merchA", timestamp: 1768435200 }, // User 2: Jan 15
+    {
+      eventName: "subscribed",
+      user: "user1",
+      merchant: "merchA",
+      timestamp: 1768003200,
+    }, // User 1: Jan 10
+    {
+      eventName: "subscribed",
+      user: "user2",
+      merchant: "merchA",
+      timestamp: 1768435200,
+    }, // User 2: Jan 15
     { eventName: "cancelled", user: "user2", timestamp: 1768867200 }, // User 2: cancels Jan 20 (day 5)
 
-    { eventName: "subscribed", user: "user3", merchant: "merchB", timestamp: 1768867200 }, // User 3: Jan 20
+    {
+      eventName: "subscribed",
+      user: "user3",
+      merchant: "merchB",
+      timestamp: 1768867200,
+    }, // User 3: Jan 20
     { eventName: "cancelled", user: "user3", timestamp: 1773532800 }, // User 3: cancels Mar 15 (day 54)
 
     // User 5: resubscribes
-    { eventName: "subscribed", user: "user5", merchant: "merchC", timestamp: 1767571200 }, // User 5: Jan 05
+    {
+      eventName: "subscribed",
+      user: "user5",
+      merchant: "merchC",
+      timestamp: 1767571200,
+    }, // User 5: Jan 05
     { eventName: "cancelled", user: "user5", timestamp: 1768435200 }, // User 5: cancels Jan 15 (day 10)
-    { eventName: "subscribed", user: "user5", merchant: "merchC", timestamp: 1769300000 }, // User 5: resubscribes Jan 25
+    {
+      eventName: "subscribed",
+      user: "user5",
+      merchant: "merchC",
+      timestamp: 1769300000,
+    }, // User 5: resubscribes Jan 25
     { eventName: "cancelled", user: "user5", timestamp: 1772236800 }, // User 5: cancels Feb 28 (day 34 from Jan 25)
 
     // Cohort 2026-04 (April)
-    { eventName: "subscribed", user: "user4", merchant: "merchB", timestamp: 1775433600 }, // User 4: Apr 05
+    {
+      eventName: "subscribed",
+      user: "user4",
+      merchant: "merchB",
+      timestamp: 1775433600,
+    }, // User 4: Apr 05
   ];
 
   // 1. Test "new" logic
@@ -62,22 +94,62 @@ function testCohortAndResubscriptionLogic() {
   // Active 30d = User 1, User 3, User 5 lifespan 2 = 3.
   // Active 90d = User 1 = 1.
   const janNew = reportNew.cohorts.find((c) => c.cohort === "2026-01");
-  assertEquals(janNew?.initial_size, 5, "Jan cohort initial size ('new' logic)");
-  assertEquals(janNew?.active_30_days, 3, "Jan cohort active at 30 days ('new' logic)");
-  assertEquals(janNew?.active_90_days, 1, "Jan cohort active at 90 days ('new' logic)");
-  assertEquals(janNew?.retention_rate_30d, "60.00%", "Jan 30d retention rate ('new' logic)");
-  assertEquals(janNew?.retention_rate_90d, "20.00%", "Jan 90d retention rate ('new' logic)");
+  assertEquals(
+    janNew?.initial_size,
+    5,
+    "Jan cohort initial size ('new' logic)",
+  );
+  assertEquals(
+    janNew?.active_30_days,
+    3,
+    "Jan cohort active at 30 days ('new' logic)",
+  );
+  assertEquals(
+    janNew?.active_90_days,
+    1,
+    "Jan cohort active at 90 days ('new' logic)",
+  );
+  assertEquals(
+    janNew?.retention_rate_30d,
+    "60.00%",
+    "Jan 30d retention rate ('new' logic)",
+  );
+  assertEquals(
+    janNew?.retention_rate_90d,
+    "20.00%",
+    "Jan 90d retention rate ('new' logic)",
+  );
 
   // Cohort 2026-04 lifespans:
   // Next month start: 2026-05-01.
   // 30d limit: May 31. REF_TIME (Jun 15) is past May 31. So 30d is sufficient.
   // 90d limit: Jul 30. REF_TIME (Jun 15) is before Jul 30. So 90d is insufficient!
   const aprNew = reportNew.cohorts.find((c) => c.cohort === "2026-04");
-  assertEquals(aprNew?.initial_size, 1, "Apr cohort initial size ('new' logic)");
-  assertEquals(aprNew?.active_30_days, 1, "Apr cohort active at 30 days ('new' logic)");
-  assertEquals(aprNew?.active_90_days, "insufficient data", "Apr cohort active at 90 days ('new' logic)");
-  assertEquals(aprNew?.retention_rate_30d, "100.00%", "Apr 30d retention rate ('new' logic)");
-  assertEquals(aprNew?.retention_rate_90d, "insufficient data", "Apr 90d retention rate ('new' logic)");
+  assertEquals(
+    aprNew?.initial_size,
+    1,
+    "Apr cohort initial size ('new' logic)",
+  );
+  assertEquals(
+    aprNew?.active_30_days,
+    1,
+    "Apr cohort active at 30 days ('new' logic)",
+  );
+  assertEquals(
+    aprNew?.active_90_days,
+    "insufficient data",
+    "Apr cohort active at 90 days ('new' logic)",
+  );
+  assertEquals(
+    aprNew?.retention_rate_30d,
+    "100.00%",
+    "Apr 30d retention rate ('new' logic)",
+  );
+  assertEquals(
+    aprNew?.retention_rate_90d,
+    "insufficient data",
+    "Apr 90d retention rate ('new' logic)",
+  );
 
   // 2. Test "retention" logic
   console.log("Testing resubscription logic: 'retention'");
@@ -94,11 +166,31 @@ function testCohortAndResubscriptionLogic() {
   // Active 30d = User 1, User 3, User 5 = 3.
   // Active 90d = User 1 = 1.
   const janRet = reportRetention.cohorts.find((c) => c.cohort === "2026-01");
-  assertEquals(janRet?.initial_size, 4, "Jan cohort initial size ('retention' logic)");
-  assertEquals(janRet?.active_30_days, 3, "Jan cohort active at 30 days ('retention' logic)");
-  assertEquals(janRet?.active_90_days, 1, "Jan cohort active at 90 days ('retention' logic)");
-  assertEquals(janRet?.retention_rate_30d, "75.00%", "Jan 30d retention rate ('retention' logic)");
-  assertEquals(janRet?.retention_rate_90d, "25.00%", "Jan 90d retention rate ('retention' logic)");
+  assertEquals(
+    janRet?.initial_size,
+    4,
+    "Jan cohort initial size ('retention' logic)",
+  );
+  assertEquals(
+    janRet?.active_30_days,
+    3,
+    "Jan cohort active at 30 days ('retention' logic)",
+  );
+  assertEquals(
+    janRet?.active_90_days,
+    1,
+    "Jan cohort active at 90 days ('retention' logic)",
+  );
+  assertEquals(
+    janRet?.retention_rate_30d,
+    "75.00%",
+    "Jan 30d retention rate ('retention' logic)",
+  );
+  assertEquals(
+    janRet?.retention_rate_90d,
+    "25.00%",
+    "Jan 90d retention rate ('retention' logic)",
+  );
 }
 
 function testMerchantChurnBreakdown() {
@@ -118,34 +210,70 @@ function testMerchantChurnBreakdown() {
   // - User 2: subscribed, active
   // - Total subscribers = 2. Cancellations = 0. Churn rate = 0%
   const events = [
-    { eventName: "subscribed", user: "user1", merchant: "merchA", timestamp: 100 },
+    {
+      eventName: "subscribed",
+      user: "user1",
+      merchant: "merchA",
+      timestamp: 100,
+    },
     { eventName: "cancelled", user: "user1", timestamp: 150 },
 
-    { eventName: "subscribed", user: "user1", merchant: "merchB", timestamp: 200 },
-    { eventName: "subscribed", user: "user2", merchant: "merchB", timestamp: 210 },
-    { eventName: "subscribed", user: "user3", merchant: "merchB", timestamp: 220 },
+    {
+      eventName: "subscribed",
+      user: "user1",
+      merchant: "merchB",
+      timestamp: 200,
+    },
+    {
+      eventName: "subscribed",
+      user: "user2",
+      merchant: "merchB",
+      timestamp: 210,
+    },
+    {
+      eventName: "subscribed",
+      user: "user3",
+      merchant: "merchB",
+      timestamp: 220,
+    },
     { eventName: "cancelled", user: "user2", timestamp: 250 },
     { eventName: "cancelled", user: "user3", timestamp: 260 },
 
-    { eventName: "subscribed", user: "user1", merchant: "merchC", timestamp: 300 },
-    { eventName: "subscribed", user: "user2", merchant: "merchC", timestamp: 310 },
+    {
+      eventName: "subscribed",
+      user: "user1",
+      merchant: "merchC",
+      timestamp: 300,
+    },
+    {
+      eventName: "subscribed",
+      user: "user2",
+      merchant: "merchC",
+      timestamp: 310,
+    },
   ];
 
   const report = calculateChurnAnalysis(events, "new", 500);
 
   // merchA should be filtered out because total unique subscribers <= 1
-  const merchA = report.top_merchants_churn.find((m) => m.merchant_id === "merchA");
+  const merchA = report.top_merchants_churn.find(
+    (m) => m.merchant_id === "merchA",
+  );
   assertEquals(merchA, undefined, "Merchant A filtered out (<= 1 subscriber)");
 
   // merchB should have 3 subscribers, 2 cancellations, 66.67% churn
-  const merchB = report.top_merchants_churn.find((m) => m.merchant_id === "merchB");
+  const merchB = report.top_merchants_churn.find(
+    (m) => m.merchant_id === "merchB",
+  );
   assertEquals(merchB !== undefined, true, "Merchant B is present");
   assertEquals(merchB?.subscribers, 3, "Merchant B subscribers count");
   assertEquals(merchB?.cancellations, 2, "Merchant B cancellations count");
   assertEquals(merchB?.churn_rate, "66.67%", "Merchant B churn rate");
 
   // merchC should have 2 subscribers, 0 cancellations, 0.00% churn
-  const merchC = report.top_merchants_churn.find((m) => m.merchant_id === "merchC");
+  const merchC = report.top_merchants_churn.find(
+    (m) => m.merchant_id === "merchC",
+  );
   assertEquals(merchC !== undefined, true, "Merchant C is present");
   assertEquals(merchC?.subscribers, 2, "Merchant C subscribers count");
   assertEquals(merchC?.cancellations, 0, "Merchant C cancellations count");
@@ -165,13 +293,41 @@ function testChurnProjection() {
 
   const events = [
     // Jan cohort (Starts Jan 05: 1767571200)
-    { eventName: "subscribed", user: "user1", merchant: "merchM", timestamp: 1767571200 },
-    { eventName: "subscribed", user: "user2", merchant: "merchM", timestamp: 1767571210 },
-    { eventName: "subscribed", user: "user3", merchant: "merchM", timestamp: 1767571220 },
-    { eventName: "subscribed", user: "user4", merchant: "merchM", timestamp: 1767571230 },
+    {
+      eventName: "subscribed",
+      user: "user1",
+      merchant: "merchM",
+      timestamp: 1767571200,
+    },
+    {
+      eventName: "subscribed",
+      user: "user2",
+      merchant: "merchM",
+      timestamp: 1767571210,
+    },
+    {
+      eventName: "subscribed",
+      user: "user3",
+      merchant: "merchM",
+      timestamp: 1767571220,
+    },
+    {
+      eventName: "subscribed",
+      user: "user4",
+      merchant: "merchM",
+      timestamp: 1767571230,
+    },
     // 2 cancel in Jan cohort
-    { eventName: "cancelled", user: "user1", timestamp: 1767571200 + 10 * 24 * 3600 },
-    { eventName: "cancelled", user: "user2", timestamp: 1767571200 + 15 * 24 * 3600 },
+    {
+      eventName: "cancelled",
+      user: "user1",
+      timestamp: 1767571200 + 10 * 24 * 3600,
+    },
+    {
+      eventName: "cancelled",
+      user: "user2",
+      timestamp: 1767571200 + 15 * 24 * 3600,
+    },
 
     // Feb cohort (Starts Feb 05: 1770249600)
     ...Array.from({ length: 10 }, (_, i) => ({
@@ -181,8 +337,16 @@ function testChurnProjection() {
       timestamp: 1770249600 + i,
     })),
     // 2 cancel in Feb cohort within 30 days
-    { eventName: "cancelled", user: "feb_user_0", timestamp: 1770249600 + 5 * 24 * 3600 },
-    { eventName: "cancelled", user: "feb_user_1", timestamp: 1770249600 + 10 * 24 * 3600 },
+    {
+      eventName: "cancelled",
+      user: "feb_user_0",
+      timestamp: 1770249600 + 5 * 24 * 3600,
+    },
+    {
+      eventName: "cancelled",
+      user: "feb_user_1",
+      timestamp: 1770249600 + 10 * 24 * 3600,
+    },
   ];
 
   const report = calculateChurnAnalysis(events, "new", REF_TIME);
@@ -194,9 +358,21 @@ function testChurnProjection() {
   // - Feb: 8 active (feb_user_2 to feb_user_9)
   // Total current active = 10.
   // Projected churn: 10 * 0.35 = 3.50
-  assertEquals(report.projection.average_monthly_churn_rate, "35.00%", "Avg Monthly Churn Rate");
-  assertEquals(report.projection.current_active_subscribers, 10, "Current Active Subscribers Count");
-  assertEquals(report.projection.projected_churn_count, "3.50", "Projected Churn Count");
+  assertEquals(
+    report.projection.average_monthly_churn_rate,
+    "35.00%",
+    "Avg Monthly Churn Rate",
+  );
+  assertEquals(
+    report.projection.current_active_subscribers,
+    10,
+    "Current Active Subscribers Count",
+  );
+  assertEquals(
+    report.projection.projected_churn_count,
+    "3.50",
+    "Projected Churn Count",
+  );
 }
 
 function testDatabaseAndRpcFallback() {
@@ -213,10 +389,13 @@ function testDatabaseAndRpcFallback() {
   `);
 
   const mockData = JSON.stringify({ user: "userA", merchant: "merchX" });
-  db.prepare("INSERT INTO events (event_name, data, timestamp) VALUES (?, ?, ?)")
-    .run("subscribed", mockData, 1768000000);
+  db.prepare(
+    "INSERT INTO events (event_name, data, timestamp) VALUES (?, ?, ?)",
+  ).run("subscribed", mockData, 1768000000);
 
-  const row = db.prepare("SELECT COUNT(*) as n FROM events").get() as { n: number };
+  const row = db.prepare("SELECT COUNT(*) as n FROM events").get() as {
+    n: number;
+  };
   assertEquals(row.n, 1, "Mock SQLite event inserted correctly");
   db.close();
 }

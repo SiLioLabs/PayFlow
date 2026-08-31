@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { nativeToScVal, Address } from "@stellar/stellar-sdk";
 import { ScValDecoder, ScValDecodeError } from "../services/scval";
@@ -6,15 +7,22 @@ import { ScValDecoder, ScValDecodeError } from "../services/scval";
 vi.mock("@stellar/stellar-sdk/rpc", () => {
   return {
     Server: class {
+      url: string;
+      constructor(url: string) {
+        this.url = url;
+      }
       getEvents = vi.fn();
       simulateTransaction = vi.fn();
       getAccount = vi.fn().mockResolvedValue({ id: "mock-account" });
+      getHealth = vi.fn().mockResolvedValue({});
+      getTransaction = vi.fn().mockResolvedValue({ status: "SUCCESS", events: [] });
     },
-    assembleTransaction: vi.fn(),
+    assembleTransaction: vi.fn().mockReturnValue({ toXDR: () => "assembled-xdr" }),
   };
 });
 
 // Import the implementation AFTER the mock block is securely established
+import { fetchEvents, getChargeHistory, server, getServer } from "../stellar";
 import {
   chargeSimBlocksPay,
   chargeSimIsRisky,
@@ -545,6 +553,50 @@ describe("rpcCache — dedupedCall deduplication & TTL", () => {
   });
 });
 
+// ── getServer resolution tests ────────────────────────────────────────────────
+//
+// Verifies that getServer() honours a custom RPC URL and that build/simulate
+// helpers invoke getServer() rather than the module-level singleton.
+
+describe("getServer — URL resolution", () => {
+  const CUSTOM_URL = "https://custom-rpc.example.com";
+
+  afterEach(() => {
+    // Clean up shimmed localStorage after each test
+    delete (globalThis as any).localStorage;
+    vi.restoreAllMocks();
+  });
+
+  it("returns the module singleton when localStorage is unavailable", () => {
+    // No localStorage shim — getServer must fall back gracefully
+    delete (globalThis as any).localStorage;
+    const s = getServer();
+    expect(s).toBe(server);
+  });
+
+  it("returns the module singleton when no custom URL key is present", () => {
+    (globalThis as any).localStorage = {
+      getItem: vi.fn().mockReturnValue(null),
+    };
+    const s = getServer();
+    expect(s).toBe(server);
+  });
+
+  it("returns a new Server pointing at the custom URL when one is stored", () => {
+    (globalThis as any).localStorage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify(CUSTOM_URL)),
+    };
+    const s = getServer();
+    expect(s).not.toBe(server);
+    expect((s as unknown as { url: string }).url).toBe(CUSTOM_URL);
+  });
+
+  it("falls back to the singleton when localStorage contains invalid JSON", () => {
+    (globalThis as any).localStorage = {
+      getItem: vi.fn().mockReturnValue("not-valid-json{{{"),
+    };
+    const s = getServer();
+    expect(s).toBe(server);
 describe("subscription health helpers", () => {
   const healthy = {
     active: true,

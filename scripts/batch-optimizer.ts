@@ -37,11 +37,16 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const CONTRACT_ID = process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const RPC_URL =
-  process.env.RPC_URL ?? process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
+  process.env.RPC_URL ??
+  process.env.VITE_RPC_URL ??
+  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
-  process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
+  process.env.NETWORK_PASSPHRASE ??
+  process.env.VITE_NETWORK_PASSPHRASE ??
+  Networks.TESTNET;
 const ENV_MAX_BATCH = process.env.MAX_BATCH_SIZE
   ? Number.parseInt(process.env.MAX_BATCH_SIZE, 10)
   : undefined;
@@ -50,7 +55,7 @@ const MAX_CYCLE_USERS = process.env.MAX_CYCLE_USERS
   : Number.POSITIVE_INFINITY;
 const PAGE_SIZE = Math.min(
   50,
-  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50)
+  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50),
 );
 
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
@@ -64,6 +69,7 @@ export interface ReadySubscriber {
   overdue_seconds: number;
   grace_remaining_seconds: number | null;
   approaching_grace_expiry: boolean;
+  urgency_score?: number;
 }
 
 export interface OptimizedBatch {
@@ -101,6 +107,7 @@ Usage: tsx scripts/batch-optimizer.ts [options]
 
 Options:
   --max-batches <n>   Limit how many batches to emit this cycle (remainder deferred)
+  --urgency-file <f>  Path to urgency JSON from monitor (use "-" for stdin)
   --json              Print full OptimizerResult JSON (default: batches array only)
   --help, -h          Show this help
 
@@ -118,7 +125,10 @@ function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
 }
 
-async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal | null> {
+async function simulate(
+  method: string,
+  ...args: xdr.ScVal[]
+): Promise<xdr.ScVal | null> {
   const contract = new Contract(CONTRACT_ID);
   const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
     fee: BASE_FEE,
@@ -130,7 +140,9 @@ async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal
 
   const result = await server.simulateTransaction(tx);
   if ("error" in result) {
-    throw new Error(`${method}: ${String((result as { error?: unknown }).error ?? "simulation failed")}`);
+    throw new Error(
+      `${method}: ${String((result as { error?: unknown }).error ?? "simulation failed")}`,
+    );
   }
   const success = result as { result?: { retval?: xdr.ScVal } };
   return success.result?.retval ?? null;
@@ -148,11 +160,14 @@ async function getU64(method: string): Promise<number> {
   return Number(scValToNative(val));
 }
 
-async function getSubscriberPage(offset: number, limit: number): Promise<string[]> {
+async function getSubscriberPage(
+  offset: number,
+  limit: number,
+): Promise<string[]> {
   const retval = await simulate(
     "get_subscriber_page",
     nativeToScVal(offset, { type: "u64" }),
-    nativeToScVal(limit, { type: "u32" })
+    nativeToScVal(limit, { type: "u32" }),
   );
   if (!retval) return [];
   const native = scValToNative(retval) as unknown;
@@ -166,7 +181,9 @@ async function isChargeDue(user: string): Promise<boolean> {
   return Boolean(scValToNative(retval));
 }
 
-async function getSubscription(user: string): Promise<SubscriptionFields | null> {
+async function getSubscription(
+  user: string,
+): Promise<SubscriptionFields | null> {
   const retval = await simulate("get_subscription", addressVal(user));
   if (!retval || retval.switch().name === "scvVoid") return null;
   const native = scValToNative(retval) as Record<string, unknown> | null;
@@ -185,7 +202,8 @@ async function getSubscription(user: string): Promise<SubscriptionFields | null>
  */
 export async function getNextChargeBatchSimulation(
   nowSeconds: number,
-  gracePeriod: number
+  gracePeriod: number,
+  urgencyScores: Record<string, number> = {}
 ): Promise<ReadySubscriber[]> {
   const count = await getU64("get_subscriber_count");
   const ready: ReadySubscriber[] = [];
@@ -200,7 +218,7 @@ export async function getNextChargeBatchSimulation(
         due = await isChargeDue(address);
       } catch (err) {
         console.warn(
-          `Skipping ${address}: is_charge_due failed (${err instanceof Error ? err.message : err})`
+          `Skipping ${address}: is_charge_due failed (${err instanceof Error ? err.message : err})`,
         );
         continue;
       }
@@ -226,6 +244,7 @@ export async function getNextChargeBatchSimulation(
         overdue_seconds: overdue,
         grace_remaining_seconds: graceRemaining,
         approaching_grace_expiry: approaching,
+        urgency_score: urgencyScores[address] ?? 0
       });
     }
   }
@@ -234,10 +253,15 @@ export async function getNextChargeBatchSimulation(
 }
 
 /**
- * Sort ready subscribers: grace-expiry urgency first, then most overdue first.
+ * Sort ready subscribers: urgency score first, then grace-expiry urgency, then most overdue first.
  */
 export function prioritizeReady(ready: ReadySubscriber[]): ReadySubscriber[] {
   return [...ready].sort((a, b) => {
+    const scoreA = a.urgency_score ?? 0;
+    const scoreB = b.urgency_score ?? 0;
+    if (scoreA !== scoreB) {
+      return scoreB - scoreA; // higher score first
+    }
     if (a.approaching_grace_expiry !== b.approaching_grace_expiry) {
       return a.approaching_grace_expiry ? -1 : 1;
     }
@@ -256,7 +280,7 @@ export function prioritizeReady(ready: ReadySubscriber[]): ReadySubscriber[] {
 export function chunkBatches(
   ordered: ReadySubscriber[],
   maxBatchSize: number,
-  maxCycleUsers: number
+  maxCycleUsers: number,
 ): { batches: OptimizedBatch[]; deferred: ReadySubscriber[] } {
   const size = Math.max(1, maxBatchSize);
   const scheduled = ordered.slice(0, maxCycleUsers);
@@ -278,12 +302,14 @@ export function chunkBatches(
 export async function buildOptimizedBatches(options?: {
   maxBatches?: number;
   nowSeconds?: number;
+  urgencyScores?: Record<string, number>;
 }): Promise<OptimizerResult> {
   if (!CONTRACT_ID) {
     throw new Error("CONTRACT_ID environment variable is required");
   }
 
-  let maxBatchSize = ENV_MAX_BATCH && ENV_MAX_BATCH > 0 ? ENV_MAX_BATCH : DEFAULT_MAX_BATCH;
+  let maxBatchSize =
+    ENV_MAX_BATCH && ENV_MAX_BATCH > 0 ? ENV_MAX_BATCH : DEFAULT_MAX_BATCH;
   try {
     const onChain = await getU32("get_max_batch_size");
     if (!ENV_MAX_BATCH && onChain > 0) maxBatchSize = onChain;
@@ -300,7 +326,7 @@ export async function buildOptimizedBatches(options?: {
   }
 
   const nowSeconds = options?.nowSeconds ?? Math.floor(Date.now() / 1000);
-  const ready = await getNextChargeBatchSimulation(nowSeconds, gracePeriod);
+  const ready = await getNextChargeBatchSimulation(nowSeconds, gracePeriod, options?.urgencyScores ?? {});
   const ordered = prioritizeReady(ready);
 
   let maxCycle = MAX_CYCLE_USERS;
@@ -312,12 +338,14 @@ export async function buildOptimizedBatches(options?: {
 
   if (deferred.length > 0) {
     console.warn(
-      `Deferred ${deferred.length} ready subscriber(s) to the next cycle (cycle cap ${maxCycle}).`
+      `Deferred ${deferred.length} ready subscriber(s) to the next cycle (cycle cap ${maxCycle}).`,
     );
   }
 
   if (batches.length === 0) {
-    console.log("No ready-to-charge subscribers found; returning empty batch list.");
+    console.log(
+      "No ready-to-charge subscribers found; returning empty batch list.",
+    );
   }
 
   return {
@@ -331,6 +359,7 @@ export async function buildOptimizedBatches(options?: {
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
+import { readFileSync } from "node:fs";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -343,14 +372,35 @@ async function main(): Promise<void> {
   }
 
   const maxBatchesArg = getArg("--max-batches");
-  const maxBatches = maxBatchesArg ? Number.parseInt(maxBatchesArg, 10) : undefined;
-  if (maxBatchesArg && (!maxBatches || maxBatches < 0 || Number.isNaN(maxBatches))) {
+  const maxBatches = maxBatchesArg
+    ? Number.parseInt(maxBatchesArg, 10)
+    : undefined;
+  if (
+    maxBatchesArg &&
+    (!maxBatches || maxBatches < 0 || Number.isNaN(maxBatches))
+  ) {
     console.error("--max-batches must be a non-negative integer");
     process.exit(1);
   }
 
+  let urgencyScores: Record<string, number> = {};
+  const urgencyFileArg = getArg("--urgency-file");
+  if (urgencyFileArg) {
+    try {
+      const dataStr = urgencyFileArg === "-" ? readFileSync(0, "utf-8") : readFileSync(urgencyFileArg, "utf-8");
+      const data = JSON.parse(dataStr);
+      if (data.scores) {
+        for (const s of data.scores) {
+           urgencyScores[s.subscriber] = s.urgencyScore;
+        }
+      }
+    } catch (err) {
+       console.error(`Failed to read urgency file: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   const fullJson = process.argv.includes("--json");
-  const result = await buildOptimizedBatches({ maxBatches });
+  const result = await buildOptimizedBatches({ maxBatches, urgencyScores });
 
   if (fullJson) {
     console.log(JSON.stringify(result, null, 2));

@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import { buildSetDailyLimitTx, getDailyLimit } from "../stellar";
-import { formatXlm } from "../utils/format";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import StroopInput from "./StroopInput";
 
 interface Props {
   userKey: string;
@@ -15,10 +16,11 @@ interface Props {
 
 export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, announce }: Props) {
   const [currentLimit, setCurrentLimit] = useState<bigint | null>(null);
-  const [amount, setAmount] = useState("0.0000000");
+  const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
+  const { displayCurrentAmount } = useAmountDisplay();
   const modalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(modalRef, true, onClose);
@@ -29,7 +31,7 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
         const limit = await getDailyLimit(userKey);
         setCurrentLimit(limit);
         if (limit !== null) {
-          setAmount((Number(limit) / 10_000_000).toFixed(7));
+          setAmountStroops(limit);
         }
       } catch {
         setCurrentLimit(null);
@@ -41,14 +43,8 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
 
   async function handleSubmit() {
     setError(null);
-    if (!amount) {
-      setError("Please enter a daily spending limit.");
-      return;
-    }
-
-    const parsed = parseFloat(amount);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      setError("Enter a valid positive XLM amount.");
+    if (amountStroops === null) {
+      setError("Please enter a valid daily spending limit.");
       return;
     }
 
@@ -56,8 +52,7 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
     announce("Submitting daily limit transaction");
 
     try {
-      const stroops = BigInt(Math.round(parsed * 10_000_000));
-      const xdr = await buildSetDailyLimitTx(userKey, stroops);
+      const xdr = await buildSetDailyLimitTx(userKey, amountStroops);
       const hash = await onSign(xdr);
       addToast(`Daily limit updated! tx: ${hash.slice(0, 12)}…`, "success");
       announce("Daily spending limit updated");
@@ -89,20 +84,15 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
         </p>
         {currentLimit !== null && (
           <p>
-            Current limit: <strong>{formatXlm(currentLimit)}</strong>
+            Current limit: <strong>{displayCurrentAmount(currentLimit)}</strong>
           </p>
         )}
-        <label className="form-group">
-          <span className="form-label">Daily limit (XLM)</span>
-          <input
-            type="number"
-            min="0.0000001"
-            step="0.0000001"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={submitting}
-          />
-        </label>
+        <StroopInput
+          label="Daily limit"
+          onChange={setAmountStroops}
+          disabled={submitting}
+          initialValue={currentLimit !== null ? currentLimit : undefined}
+        />
         {error && <p className="text-error">{error}</p>}
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose} disabled={submitting}>

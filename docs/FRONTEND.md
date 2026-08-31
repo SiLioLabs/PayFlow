@@ -211,12 +211,12 @@ Heavy views are lazy loaded where appropriate to reduce initial bundle size.
 
 The provider tree in `main.tsx` wraps the entire application:
 
-| Provider | Source | Purpose |
-| --- | --- | --- |
-| `React.StrictMode` | React built-in | Development warnings and double-render checks |
-| `RpcHealthProvider` | `context/RpcHealthContext.tsx` | Polls RPC with backoff / circuit breaker |
-| `ShortcutRegistryProvider` | `context/ShortcutRegistry.tsx` | Keyboard shortcut registration and dispatch |
-| `ErrorBoundary` | `components/ErrorBoundary.tsx` | Catches render errors in subtree with fallback UI |
+| Provider                   | Source                         | Purpose                                           |
+| -------------------------- | ------------------------------ | ------------------------------------------------- |
+| `React.StrictMode`         | React built-in                 | Development warnings and double-render checks     |
+| `RpcHealthProvider`        | `context/RpcHealthContext.tsx` | Polls RPC with backoff / circuit breaker          |
+| `ShortcutRegistryProvider` | `context/ShortcutRegistry.tsx` | Keyboard shortcut registration and dispatch       |
+| `ErrorBoundary`            | `components/ErrorBoundary.tsx` | Catches render errors in subtree with fallback UI |
 
 ## Tab Routing
 
@@ -231,35 +231,35 @@ There is no router library. `App.tsx` uses a `useState<"subscribe" | "dashboard"
 
 The following components exist in `frontend/src/components/` but are **not** currently mounted in the application tree. They are built and ready for use but need to be wired into `App.tsx` or a parent component:
 
-| Component | Purpose | How to wire |
-| --- | --- | --- |
-| `MerchantDashboard.tsx` | Merchant revenue & subscribers view | Add a "merchant" tab in App.tsx and render `<MerchantDashboard merchantKey={pk} onSign={sign} refreshTrigger={t} />` |
-| `MerchantSubscriberTable.tsx` | Sortable/filterable subscriber table | Used inside `MerchantDashboard` — auto-wired when MerchantDashboard is added |
-| `ConnectWallet.tsx` | Freighter connect CTA with install link | Replace the inline connect button in App.tsx |
-| `WalletBar.tsx` | Connected wallet strip with balance, network, disconnect | Replace the inline connected bar in App.tsx |
-| `WalletSelectModal.tsx` | Multi-wallet selection modal | Wire into `WalletBar` or as a standalone wallet picker |
-| `TabBar.tsx` | Main nav tabs (dashboard/subscribe/merchant/admin) | Replace the inline tab buttons in App.tsx |
-| `ThemeToggle.tsx` | Dark/light mode toggle | Add to the header or connected bar |
-| `NetworkBadge.tsx` | Testnet/Mainnet badge | Add to the header or `WalletBar` |
-| `ContractPauseBanner.tsx` | Maintenance banner when contract paused | Add near the top of `App.tsx` |
-| `OfflineBanner.tsx` | Full-width offline warning | Add near the top of `App.tsx` |
-| `SystemHealthCard.tsx` | Contract health status card | Add to a merchant or admin dashboard tab |
-| `SubscriptionHealthWidget.tsx` | Health indicator widget | Add to `Dashboard` or `SubscriptionCard` |
-| `TxQueuePanel.tsx` | Transaction queue panel | Add to `WalletBar` or as a sidebar widget |
-| `NotificationCenter.tsx` | Bell icon + notification dropdown | Add to `WalletBar` or header |
-| `StroopInput.tsx` | XLM amount input debounced to stroops | Use in forms that need XLM input (alternative to PayPerUseForm) |
-| `AmountUnitToggle.tsx` | Toggle XLM/STROOP display | Add to forms displaying amounts |
-| `ShortcutHelpOverlay.tsx` | Keyboard shortcuts overlay | Already available via ShortcutRegistry context — trigger with `?` key |
+| Component                      | Purpose                                                  | How to wire                                                                                                          |
+| ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `MerchantDashboard.tsx`        | Merchant revenue & subscribers view                      | Add a "merchant" tab in App.tsx and render `<MerchantDashboard merchantKey={pk} onSign={sign} refreshTrigger={t} />` |
+| `MerchantSubscriberTable.tsx`  | Sortable/filterable subscriber table                     | Used inside `MerchantDashboard` — auto-wired when MerchantDashboard is added                                         |
+| `ConnectWallet.tsx`            | Freighter connect CTA with install link                  | Replace the inline connect button in App.tsx                                                                         |
+| `WalletBar.tsx`                | Connected wallet strip with balance, network, disconnect | Replace the inline connected bar in App.tsx                                                                          |
+| `WalletSelectModal.tsx`        | Multi-wallet selection modal                             | Wire into `WalletBar` or as a standalone wallet picker                                                               |
+| `TabBar.tsx`                   | Main nav tabs (dashboard/subscribe/merchant/admin)       | Replace the inline tab buttons in App.tsx                                                                            |
+| `ThemeToggle.tsx`              | Dark/light mode toggle                                   | Add to the header or connected bar                                                                                   |
+| `NetworkBadge.tsx`             | Testnet/Mainnet badge                                    | Add to the header or `WalletBar`                                                                                     |
+| `ContractPauseBanner.tsx`      | Maintenance banner when contract paused                  | Add near the top of `App.tsx`                                                                                        |
+| `OfflineBanner.tsx`            | Full-width offline warning                               | Add near the top of `App.tsx`                                                                                        |
+| `SystemHealthCard.tsx`         | Contract health status card                              | Add to a merchant or admin dashboard tab                                                                             |
+| `SubscriptionHealthWidget.tsx` | Health indicator widget                                  | Add to `Dashboard` or `SubscriptionCard`                                                                             |
+| `TxQueuePanel.tsx`             | Transaction queue panel                                  | Add to `WalletBar` or as a sidebar widget                                                                            |
+| `NotificationCenter.tsx`       | Bell icon + notification dropdown                        | Add to `WalletBar` or header                                                                                         |
+| `StroopInput.tsx`              | XLM amount input debounced to stroops                    | Use in forms that need XLM input (alternative to PayPerUseForm)                                                      |
+| `AmountUnitToggle.tsx`         | Toggle XLM/STROOP display                                | Add to forms displaying amounts                                                                                      |
+| `ShortcutHelpOverlay.tsx`      | Keyboard shortcuts overlay                               | Already available via ShortcutRegistry context — trigger with `?` key                                                |
 
 ### Admin components (in `components/admin/`)
 
 These are wired into `pages/AdminDashboard.tsx` which is not currently mounted:
 
-| Component | Purpose |
-| --- | --- |
+| Component                     | Purpose                                  |
+| ----------------------------- | ---------------------------------------- |
 | `SubscriptionRepairPanel.tsx` | Admin subscription validation and repair |
-| `BatchPausePanel.tsx` | Batch pause subscriptions |
-| `BatchWhitelistPanel.tsx` | Batch whitelist add/remove |
+| `BatchPausePanel.tsx`         | Batch pause subscriptions                |
+| `BatchWhitelistPanel.tsx`     | Batch whitelist add/remove               |
 
 To wire admin features, add an "admin" tab in `App.tsx` and render `<AdminDashboard />` (from `pages/AdminDashboard.tsx`).
 

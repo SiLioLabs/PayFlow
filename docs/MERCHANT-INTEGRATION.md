@@ -617,16 +617,16 @@ The `recipient` address is the contract address itself. Both `pay_per_use_to` an
 
 ## 7. Related Docs
 
-| Doc                                                                         | Why                                                      |
-| --------------------------------------------------------------------------- | -------------------------------------------------------- |
-| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events              |
-| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)   |
-| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                   |
-| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on |
-| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                    |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                       |
-| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                  |
-| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                  |
-| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients               |
-| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance               |
+| Doc                                                                         | Why                                                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events                 |
+| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)      |
+| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                      |
+| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on    |
+| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                       |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                          |
+| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                     |
+| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
+| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
 | [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |

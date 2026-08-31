@@ -35,18 +35,18 @@ This document is the **canonical** referral guide for PayFlow: data model, subsc
 
 Referrals are **on-chain attribution**, not an on-chain reward vault. A subscriber may pass an optional referrer address when they subscribe. The contract stores that relationship and emits a `referred` event; payouts (bonuses, commissions) are built by integrators off-chain.
 
-| Where state lives | What |
-| --- | --- |
-| Persistent `DataKey::Referral(subscriber)` | Referrer `Address` (`contract/src/referral.rs`) |
-| `Subscription.referrer: Option<Address>` | Snapshot written at subscribe (`contract/src/lib.rs`) |
+| Where state lives                          | What                                                  |
+| ------------------------------------------ | ----------------------------------------------------- |
+| Persistent `DataKey::Referral(subscriber)` | Referrer `Address` (`contract/src/referral.rs`)       |
+| `Subscription.referrer: Option<Address>`   | Snapshot written at subscribe (`contract/src/lib.rs`) |
 
-| Component | Interaction |
-| --- | --- |
-| Contract `subscribe` / `subscribe_with_metadata` | User signs; optional `referrer` is stored |
-| Contract `get_referrer` / `get_referral` | Public reads of the referral key |
-| Indexer / RPC consumers | Index topic `referred` |
-| Frontend `ReferralPanel` | Share link `/?ref=<ADDRESS>`, referred-count display, self-referral warning |
-| Frontend `SubscribeForm` | Optional referrer text field passed into `buildSubscribeTx` |
+| Component                                        | Interaction                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------------------- |
+| Contract `subscribe` / `subscribe_with_metadata` | User signs; optional `referrer` is stored                                   |
+| Contract `get_referrer` / `get_referral`         | Public reads of the referral key                                            |
+| Indexer / RPC consumers                          | Index topic `referred`                                                      |
+| Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>`, referred-count display, self-referral warning |
+| Frontend `SubscribeForm`                         | Optional referrer text field passed into `buildSubscribeTx`                 |
 
 This is an attribution layer only. Protocol fees (`fee.rs`) do not pay referrers.
 
@@ -200,12 +200,12 @@ if r == user {
 }
 ```
 
-| | |
-| --- | --- |
-| Symbol | `ContractError::SelfReferral` |
-| Code | **11** |
-| When | `subscribe` / `subscribe_with_metadata` when `referrer == user` |
-| Recovery | Omit the referrer or pass a different address; resubmit |
+|          |                                                                 |
+| -------- | --------------------------------------------------------------- |
+| Symbol   | `ContractError::SelfReferral`                                   |
+| Code     | **11**                                                          |
+| When     | `subscribe` / `subscribe_with_metadata` when `referrer == user` |
+| Recovery | Omit the referrer or pass a different address; resubmit         |
 
 Playbook: [`ERROR-CODES.md` — 11 `SelfReferral`](./ERROR-CODES.md#11--selfreferral).
 
@@ -217,11 +217,11 @@ The dashboard [`ReferralPanel`](#frontend-referralpanel) warns when `?ref=` matc
 
 Emitted from `events::publish_referred` when `store_referral` writes a `Some` referrer (`contract/src/events.rs`).
 
-| Field | Value |
-| --- | --- |
-| Name | `referred` |
-| Topics | `("referred", user)` — `user` is the **referee** (subscriber) |
-| Payload | `referrer: Address` |
+| Field   | Value                                                         |
+| ------- | ------------------------------------------------------------- |
+| Name    | `referred`                                                    |
+| Topics  | `("referred", user)` — `user` is the **referee** (subscriber) |
+| Payload | `referrer: Address`                                           |
 
 Full schema and JSON example: [`EVENTS.md` — referred](./EVENTS.md#referred).
 
@@ -573,13 +573,13 @@ soroban contract invoke \
 
 Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` as `<ReferralPanel publicKey={userKey} />`.
 
-| Surface | Behavior |
-| --- | --- |
-| Referral code | Connected wallet public key (the shareable identifier) |
-| Share link | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>` |
-| Copy | Clipboard buttons for code and full URL (`useClipboard`) |
-| Users referred | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts` |
-| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey` |
+| Surface             | Behavior                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| Referral code       | Connected wallet public key (the shareable identifier)                              |
+| Share link          | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>` |
+| Copy                | Clipboard buttons for code and full URL (`useClipboard`)                            |
+| Users referred      | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts`                 |
+| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey`                       |
 
 **Subscribe input is not on this panel.** [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) has an optional “Referrer (optional)” field; on submit it passes `referrer.trim() || null` into `buildSubscribeTx`. The form does **not** auto-fill from `?ref=` (the helper `getReferrerFromSearch` is used on the panel for the warning only). Integrators who want `?ref=` → subscribe should wire that themselves (see snippets below).
 
@@ -776,12 +776,12 @@ There are **no** dedicated referral scripts under `scripts/` (no `referral` / `g
 
 Useful operational workflows using existing tools:
 
-| Goal | How |
-| --- | --- |
-| Read referrer | `soroban contract invoke ... -- get_referrer --user <USER>` (or `get_referral`) |
-| Confirm attribution | Index `referred` via [`indexer.ts`](../scripts/indexer.ts) / [`query-events.ts`](../scripts/query-events.ts) `--type referred` |
-| Backfill events | [`EVENT-DRIVEN-GUIDE.md`](./EVENT-DRIVEN-GUIDE.md) + [`replay-events.ts`](../scripts/replay-events.ts) |
-| Subscribe with referrer | CLI examples above (user must sign) |
+| Goal                    | How                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Read referrer           | `soroban contract invoke ... -- get_referrer --user <USER>` (or `get_referral`)                                                |
+| Confirm attribution     | Index `referred` via [`indexer.ts`](../scripts/indexer.ts) / [`query-events.ts`](../scripts/query-events.ts) `--type referred` |
+| Backfill events         | [`EVENT-DRIVEN-GUIDE.md`](./EVENT-DRIVEN-GUIDE.md) + [`replay-events.ts`](../scripts/replay-events.ts)                         |
+| Subscribe with referrer | CLI examples above (user must sign)                                                                                            |
 
 Do not invent a keeper or payout daemon in this repo; commission settlement is integrator-owned.
 
@@ -840,20 +840,20 @@ See [`ERROR-CODES.md`](./ERROR-CODES.md) for the full catalog.
 
 ## Related Source Files
 
-| Path                                                      | Role                                                                      |
-| --------------------------------------------------------- | ------------------------------------------------------------------------- |
-| [`contract/src/referral.rs`](../contract/src/referral.rs) | Store / get / remove referral; self-referral check; event                 |
-| [`contract/src/lib.rs`](../contract/src/lib.rs)           | `subscribe`, `get_referrer`, `DataKey::Referral`, `Subscription.referrer` |
-| [`contract/src/events.rs`](../contract/src/events.rs)     | `publish_referred`                                                        |
-| [`contract/src/errors.rs`](../contract/src/errors.rs)     | `SelfReferral = 11`                                                       |
-| [`contract/src/fee.rs`](../contract/src/fee.rs)           | Protocol fee split (not referrer-aware)                                   |
-| [`frontend/src/stellar.ts`](../frontend/src/stellar.ts)   | `buildSubscribeTx(..., referrer, ...)`                                    |
-| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning |
-| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Optional referrer field on subscribe |
-| [`docs/REFERRAL.md`](./REFERRAL.md)                       | Compatibility stub → this file                                            |
-| [`docs/EVENTS.md`](./EVENTS.md)                           | `referred` event schema                                                   |
-| [`docs/API.md`](./API.md)                                 | Full API reference                                                        |
-| [`docs/ERROR-CODES.md`](./ERROR-CODES.md)                 | `SelfReferral` (11)                                                       |
+| Path                                                                                        | Role                                                                      |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [`contract/src/referral.rs`](../contract/src/referral.rs)                                   | Store / get / remove referral; self-referral check; event                 |
+| [`contract/src/lib.rs`](../contract/src/lib.rs)                                             | `subscribe`, `get_referrer`, `DataKey::Referral`, `Subscription.referrer` |
+| [`contract/src/events.rs`](../contract/src/events.rs)                                       | `publish_referred`                                                        |
+| [`contract/src/errors.rs`](../contract/src/errors.rs)                                       | `SelfReferral = 11`                                                       |
+| [`contract/src/fee.rs`](../contract/src/fee.rs)                                             | Protocol fee split (not referrer-aware)                                   |
+| [`frontend/src/stellar.ts`](../frontend/src/stellar.ts)                                     | `buildSubscribeTx(..., referrer, ...)`                                    |
+| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning                         |
+| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Optional referrer field on subscribe                                      |
+| [`docs/REFERRAL.md`](./REFERRAL.md)                                                         | Compatibility stub → this file                                            |
+| [`docs/EVENTS.md`](./EVENTS.md)                                                             | `referred` event schema                                                   |
+| [`docs/API.md`](./API.md)                                                                   | Full API reference                                                        |
+| [`docs/ERROR-CODES.md`](./ERROR-CODES.md)                                                   | `SelfReferral` (11)                                                       |
 
 ---
 

@@ -49,6 +49,10 @@ interface EventRow {
   timestamp: number;
   tx_hash: string;
   raw_data: string;
+  merchant: string | null;
+  fee_amount: string | null;
+  token: string | null;
+  result_code: string | null;
 }
 
 interface QueryResult {
@@ -116,7 +120,7 @@ function queryByAddress(
 ): EventRow[] {
   return db
     .prepare(
-      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data
+      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code
        FROM events
        WHERE address = ?
        ORDER BY ledger DESC, rowid DESC
@@ -135,7 +139,7 @@ function queryByType(
 ): EventRow[] {
   return db
     .prepare(
-      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data
+      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code
        FROM events
        WHERE event_name = ?
        ORDER BY ledger DESC, rowid DESC
@@ -155,7 +159,7 @@ function queryByLedgerRange(
 ): EventRow[] {
   return db
     .prepare(
-      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data
+      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code
        FROM events
        WHERE ledger >= ? AND ledger <= ?
        ORDER BY ledger ASC, rowid ASC
@@ -170,7 +174,7 @@ function queryByLedgerRange(
 function queryRecent(db: DatabaseSync, n: number): EventRow[] {
   return db
     .prepare(
-      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data
+      `SELECT id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code
        FROM events
        ORDER BY ledger DESC, rowid DESC
        LIMIT ?`,

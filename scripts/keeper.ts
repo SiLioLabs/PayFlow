@@ -19,10 +19,19 @@
  *   DRY_RUN               Set to "true" to run in dry-run simulation mode.
  *   RPC_URL               Optional. Soroban RPC endpoint (default: testnet).
  *   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
- *   BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
+ *   BATCH_SIZE            Optional. Subscribers per page for legacy paging
+ *                         (default: on-chain max via get_max_batch_size,
+ *                         falling back to 50 if the RPC read fails). Always
+ *                         clamped to the live on-chain max (see
+ *                         get_max_batch_size) and to the hard ceiling of 200,
+ *                         so a misconfigured value can never trigger the
+ *                         contract's BatchTooLarge panic.
  *   INTERVAL_SECONDS      Optional. Loop interval (default: 3600).
  *   REPORT_DIR            Optional. Directory for dry-run reports and live-cycle pointer
  *                         (default: <script_dir>/data/benchmarks).
+ *   KEEPER_USE_LEGACY_PAGING  Optional. Set to "true" to use legacy sequential
+ *                         offset-based paging instead of grace-urgency-ordered
+ *                         optimized batches (default: false, i.e. optimized).
  *
  * Flags:
  *   --once      Run a single cycle and exit.
@@ -39,8 +48,11 @@
 
 import fs from "fs";
 import path from "path";
-import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { buildOptimizedBatches } from "./batch-optimizer";
+import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { buildOptimizedBatches } from "./batch-optimizer.js";
 import {
   Address,
   Contract,
@@ -56,15 +68,46 @@ import {
 
 const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
-const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET) as string;
+const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
+  Networks.TESTNET) as string;
 const DRY_RUN = process.env.DRY_RUN === "true";
 const KEEPER_PUBLIC_KEY = process.env.KEEPER_PUBLIC_KEY || "";
 const KEEPER_SECRET = process.env.KEEPER_SECRET || "";
-const BATCH_SIZE = Math.min(Math.max(Number(process.env.BATCH_SIZE) || 50, 1), 50);
+const BATCH_SIZE = Math.min(
+  Math.max(Number(process.env.BATCH_SIZE) || 50, 1),
+  50,
+);
+const INTERVAL_SECONDS = Math.max(
+  Number(process.env.INTERVAL_SECONDS) || 3600,
+  1,
+);
+const REPORT_DIR =
+  process.env.REPORT_DIR ?? path.join(__dirname, "data", "benchmarks");
+
+/**
+ * BATCH_SIZE resolution — kept in sync with the on-chain `get_max_batch_size`
+ * value (and with batch-optimizer.ts's MAX_BATCH_SIZE handling) so the legacy
+ * paging path can never request a page larger than the contract will accept.
+ *
+ * `ENV_BATCH_SIZE` is the raw operator-supplied override, if any.
+ * `BATCH_SIZE` starts as the env override (or the fallback default) and is
+ * narrowed down to the live on-chain max once `resolveBatchSize()` runs at
+ * startup. It is intentionally `let`, not `const`, so `main()` can tighten it
+ * before any charge cycle begins.
+ */
+const ENV_BATCH_SIZE = process.env.BATCH_SIZE ? Number(process.env.BATCH_SIZE) : undefined;
+const DEFAULT_BATCH_SIZE = 50; // Mirrors the contract's own MAX_BATCH_SIZE default.
+const BATCH_SIZE_CEILING = 200; // Mirrors the contract's MAX_BATCH_SIZE_CEILING.
+let BATCH_SIZE =
+  ENV_BATCH_SIZE && ENV_BATCH_SIZE > 0
+    ? Math.min(BATCH_SIZE_CEILING, Math.max(1, ENV_BATCH_SIZE))
+    : DEFAULT_BATCH_SIZE;
+
 const INTERVAL_SECONDS = Math.max(Number(process.env.INTERVAL_SECONDS) || 3600, 1);
 const REPORT_DIR = process.env.REPORT_DIR ?? path.join(__dirname, "data", "benchmarks");
+const USE_LEGACY_PAGING = process.env.KEEPER_USE_LEGACY_PAGING === "true";
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -72,13 +115,18 @@ function validateEnv(): void {
   const errors: string[] = [];
   if (!CONTRACT_ID) errors.push("CONTRACT_ID is required");
   if (!KEEPER_PUBLIC_KEY) errors.push("KEEPER_PUBLIC_KEY is required");
-  if (!DRY_RUN && !KEEPER_SECRET) errors.push("KEEPER_SECRET is required in live mode (or set DRY_RUN=true)");
+  if (!DRY_RUN && !KEEPER_SECRET)
+    errors.push("KEEPER_SECRET is required in live mode (or set DRY_RUN=true)");
 
   if (errors.length > 0) {
     console.error("Error: Missing required environment variables:");
     for (const err of errors) console.error(`  - ${err}`);
-    console.error("\nUsage: CONTRACT_ID=... KEEPER_PUBLIC_KEY=... tsx keeper.ts [--once]");
-    console.error("   or: CONTRACT_ID=... DRY_RUN=true KEEPER_PUBLIC_KEY=... tsx keeper.ts --once\n");
+    console.error(
+      "\nUsage: CONTRACT_ID=... KEEPER_PUBLIC_KEY=... tsx keeper.ts [--once]",
+    );
+    console.error(
+      "   or: CONTRACT_ID=... DRY_RUN=true KEEPER_PUBLIC_KEY=... tsx keeper.ts --once\n",
+    );
     process.exit(1);
   }
 }
@@ -102,10 +150,16 @@ Environment Variables:
   DRY_RUN               Set to "true" for dry-run simulation mode (no transactions submitted).
   RPC_URL               Optional. Soroban RPC endpoint (default: testnet).
   NETWORK_PASSPHRASE    Optional. Network passphrase (default: Testnet).
-  BATCH_SIZE            Optional. Subscribers per page (default: 50, max: 50).
+  BATCH_SIZE            Optional. Subscribers per page for legacy paging
+                        (default: on-chain max via get_max_batch_size,
+                        falling back to 50). Always clamped to the live
+                        on-chain max and to the 200 hard ceiling.
   INTERVAL_SECONDS      Optional. Seconds between cycles (default: 3600).
   REPORT_DIR            Optional. Directory where dry-run reports and the live-cycle
                         pointer file are written (default: <script_dir>/data/benchmarks).
+  KEEPER_USE_LEGACY_PAGING  Optional. Set to "true" to use legacy sequential
+                        offset-based paging instead of grace-urgency-ordered
+                        optimized batches (default: false).
 
 Caveats:
   Dry-run results may differ from actual charges — allowance changes, contract
@@ -164,7 +218,10 @@ function writeJsonFile(filePath: string, data: unknown): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
   } catch (err) {
-    log(DRY_RUN, `WARNING: failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    log(
+      DRY_RUN,
+      `WARNING: failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -207,11 +264,20 @@ interface DryRunReport {
   mode: "dry-run";
   contractId: string;
   rpcUrl: string;
+  /** Which batch-formation path was used: optimized (grace-urgency) or legacy (sequential). */
+  pagingMode: "optimized" | "legacy";
   estimatedOutcomes: {
     totalChecked: number;
     totalCharged: number;
     totalVolumeStroops: string;
     skipCounts: Record<string, number>;
+  };
+  /** Lapsed-vs-charged metrics by urgency bucket. */
+  graceMetrics: {
+    urgentCharged: number;
+    urgentLapsed: number;
+    normalCharged: number;
+    normalLapsed: number;
   };
   candidates: CandidateRecord[];
   lastLiveCycle: LatestLiveRecord | null;
@@ -248,6 +314,70 @@ async function getSubscriberCount(): Promise<number> {
   return Number(retval.u64());
 }
 
+async function getSubscriberPage(
+  offset: number,
+  limit: number,
+): Promise<string[]> {
+/**
+ * Read the contract's current `get_max_batch_size()` — the on-chain cap for
+ * `batch_charge()` calls. Defaults to 50 on-chain but is admin-configurable
+ * up to `MAX_BATCH_SIZE_CEILING` (200) via `set_max_batch_size`.
+ *
+ * Throws on any RPC/simulation failure so callers can fall back explicitly
+ * rather than silently treating an unreadable value as "no limit".
+ */
+async function getMaxBatchSize(): Promise<number> {
+  const contract = new Contract(CONTRACT_ID);
+  const account = await server.getAccount(KEEPER_PUBLIC_KEY);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call("get_max_batch_size"))
+    .setTimeout(30)
+    .build();
+
+  const result = await server.simulateTransaction(tx);
+  if ("error" in result) throw new Error(result.error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) throw new Error("get_max_batch_size returned no value");
+
+  return retval.u32();
+}
+
+/**
+ * Resolve the effective legacy-paging BATCH_SIZE for this run.
+ *
+ * Starts from the operator-supplied BATCH_SIZE (or the 50-subscriber
+ * fallback default) and clamps it down to the live on-chain max reported by
+ * `get_max_batch_size()`, so BATCH_SIZE can never exceed what the contract
+ * will actually accept — regardless of what config.ts allowed through (up to
+ * the shared 200 ceiling). If the RPC read fails (network issue, contract not
+ * yet deployed, etc.), falls back to the env override / default value
+ * un-narrowed, still bounded by BATCH_SIZE_CEILING.
+ */
+async function resolveBatchSize(): Promise<number> {
+  let effective =
+    ENV_BATCH_SIZE && ENV_BATCH_SIZE > 0 ? ENV_BATCH_SIZE : DEFAULT_BATCH_SIZE;
+
+  try {
+    const onChainMax = await getMaxBatchSize();
+    if (onChainMax > 0) {
+      effective = Math.min(effective, onChainMax);
+    }
+  } catch (err) {
+    log(
+      DRY_RUN,
+      `WARNING: could not read on-chain get_max_batch_size (${err instanceof Error ? err.message : err}); ` +
+        `using ${effective} as the clamp`
+    );
+  }
+
+  return Math.min(BATCH_SIZE_CEILING, Math.max(1, effective));
+}
+
 async function getSubscriberPage(offset: number, limit: number): Promise<string[]> {
   const contract = new Contract(CONTRACT_ID);
   const account = await server.getAccount(KEEPER_PUBLIC_KEY);
@@ -260,8 +390,8 @@ async function getSubscriberPage(offset: number, limit: number): Promise<string[
       contract.call(
         "get_subscriber_page",
         nativeToScVal(offset, { type: "u64" }),
-        nativeToScVal(limit, { type: "u32" })
-      )
+        nativeToScVal(limit, { type: "u32" }),
+      ),
     )
     .setTimeout(30)
     .build();
@@ -299,7 +429,8 @@ async function getSubscriptionAmount(user: string): Promise<bigint | null> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) return null;
 
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
+      ?.retval;
     if (!retval || retval.switch().name === "scvVoid") return null;
 
     for (const entry of retval.map() ?? []) {
@@ -337,7 +468,8 @@ async function isContractPaused(): Promise<boolean> {
     const result = await server.simulateTransaction(tx);
     if ("error" in result) return false;
 
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
+      ?.retval;
     return retval?.b() ?? false;
   } catch {
     return false;
@@ -434,8 +566,11 @@ async function submitBatchCharge(users: string[]): Promise<{
   const simResult = await server.simulateTransaction(tx);
   if ("error" in simResult) throw new Error(simResult.error);
 
-  const retval = (simResult as { result?: { retval?: xdr.ScVal } }).result?.retval;
-  const previewResults = retval ? decodeEnumVec(retval) : users.map(() => "Unknown");
+  const retval = (simResult as { result?: { retval?: xdr.ScVal } }).result
+    ?.retval;
+  const previewResults = retval
+    ? decodeEnumVec(retval)
+    : users.map(() => "Unknown");
 
   // Pre-fetch amounts for charging users (preview).
   // previewResults is index-aligned with users.
@@ -457,7 +592,9 @@ async function submitBatchCharge(users: string[]): Promise<{
   // Submit
   const sendResult = await server.sendTransaction(prepared);
   if (sendResult.status === "ERROR") {
-    const errObj = sendResult.errorResult as unknown as { code?: { toString(): string } };
+    const errObj = sendResult.errorResult as unknown as {
+      code?: { toString(): string };
+    };
     const code = errObj?.code?.toString() ?? "unknown";
     throw new Error(`Transaction failed (${code})`);
   }
@@ -483,7 +620,10 @@ async function submitBatchCharge(users: string[]): Promise<{
 
 // ── Page Processing ──────────────────────────────────────────────────────────
 
-async function processPageDryRun(users: string[], pageOffset: number): Promise<DryRunPageResult> {
+async function processPageDryRun(
+  users: string[],
+  pageOffset: number,
+): Promise<DryRunPageResult> {
   const result: DryRunPageResult = {
     checked: users.length,
     wouldCharge: 0,
@@ -507,7 +647,11 @@ async function processPageDryRun(users: string[], pageOffset: number): Promise<D
       const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
       result.wouldCharge++;
       result.totalVolume += amt;
-      result.candidates.push({ user, result: variant, amountStroops: amt.toString() });
+      result.candidates.push({
+        user,
+        result: variant,
+        amountStroops: amt.toString(),
+      });
       amountIdx++;
     } else {
       result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
@@ -518,7 +662,10 @@ async function processPageDryRun(users: string[], pageOffset: number): Promise<D
   return result;
 }
 
-async function processPageLive(users: string[], pageOffset: number): Promise<LivePageResult> {
+async function processPageLive(
+  users: string[],
+  pageOffset: number,
+): Promise<LivePageResult> {
   const result: LivePageResult = {
     charged: 0,
     totalVolume: 0n,
@@ -543,7 +690,11 @@ async function processPageLive(users: string[], pageOffset: number): Promise<Liv
         const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
         result.charged++;
         result.totalVolume += amt;
-        result.candidates.push({ user, result: variant, amountStroops: amt.toString() });
+        result.candidates.push({
+          user,
+          result: variant,
+          amountStroops: amt.toString(),
+        });
         amountIdx++;
       } else {
         result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
@@ -567,6 +718,13 @@ interface CycleReport {
   candidates: CandidateRecord[];
   errors: string[];
   txHashes: string[];
+  /** Grace-period lapse metrics: charged vs lapsed by ordering rationale. */
+  graceMetrics: {
+    urgentCharged: number;
+    urgentLapsed: number;
+    normalCharged: number;
+    normalLapsed: number;
+  };
 }
 
 async function runCycle(): Promise<CycleReport> {
@@ -579,6 +737,12 @@ async function runCycle(): Promise<CycleReport> {
     candidates: [],
     errors: [],
     txHashes: [],
+    graceMetrics: {
+      urgentCharged: 0,
+      urgentLapsed: 0,
+      normalCharged: 0,
+      normalLapsed: 0,
+    },
   };
 
   const paused = await isContractPaused();
@@ -587,6 +751,58 @@ async function runCycle(): Promise<CycleReport> {
     return report;
   }
 
+  if (USE_LEGACY_PAGING) {
+    log(isDryRun, "Using LEGACY sequential paging (KEEPER_USE_LEGACY_PAGING=true)");
+    await runCycleLegacy(report, isDryRun);
+  } else {
+    log(isDryRun, "Using OPTIMIZED grace-urgency ordering (default)");
+    await runCycleOptimized(report, isDryRun);
+  }
+
+  const skipDetails = Object.entries(report.totalSkips)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(" | ");
+
+  const summary = isDryRun
+    ? `Cycle complete: checked=${report.totalChecked} wouldCharge=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM`
+    : `Cycle complete: charged=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM${skipDetails ? ` | ${skipDetails}` : ""}`;
+
+  log(isDryRun, summary);
+
+  // Log lapsed-vs-charged grace metrics
+  const gm = report.graceMetrics;
+  const totalLapsed = gm.urgentLapsed + gm.normalLapsed;
+  const totalUrgent = gm.urgentCharged + gm.urgentLapsed;
+  if (totalLapsed > 0 || totalUrgent > 0) {
+    log(
+      isDryRun,
+      `Grace metrics: urgentCharged=${gm.urgentCharged} urgentLapsed=${gm.urgentLapsed} normalCharged=${gm.normalCharged} normalLapsed=${gm.normalLapsed}`
+    );
+  }
+
+  if (report.errors.length > 0) {
+    for (const err of report.errors) log(isDryRun, `Error: ${err}`);
+  }
+
+  // ── Post-cycle reporting ───────────────────────────────────────────────────
+
+  if (!isDryRun) {
+    writeLatestLive(report);
+  } else {
+    writeDryRunReport(report, USE_LEGACY_PAGING);
+  }
+
+  return report;
+}
+
+// ── Cycle Executors ─────────────────────────────────────────────────────────
+
+/**
+ * Run a charge cycle using the optimized grace-urgency batch ordering.
+ * Subscribers closest to grace-period expiry are charged first, reducing
+ * grace lapses caused by unordered sequential paging.
+ */
+async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promise<void> {
   // Ensure optimizer sees the same contract/RPC configuration as this keeper.
   process.env.CONTRACT_ID = CONTRACT_ID;
   process.env.RPC_URL = RPC_URL;
@@ -595,21 +811,34 @@ async function runCycle(): Promise<CycleReport> {
   const optimized = await buildOptimizedBatches();
   report.totalChecked = optimized.ready_count + optimized.deferred_count;
 
+  log(
+    isDryRun,
+    `Optimizer: grace_period=${optimized.grace_period}s max_batch_size=${optimized.max_batch_size} ready=${optimized.ready_count} deferred=${optimized.deferred_count} batches=${optimized.batches.length}`
+  );
+
+  // Debug-level: log per-subscriber ordering rationale
+  if (optimized.batches.length > 0) {
+    const allUsers = optimized.batches.flatMap((b) => b.users);
+    log(
+      isDryRun,
+      `Ordering rationale: ${allUsers.length} user(s) in ${optimized.batches.length} batch(es) — grace-expiry-urgent users are in earlier batches`
+    );
+  }
+
   if (optimized.batches.length === 0) {
     log(
       isDryRun,
-      `No ready subscribers (ready=${optimized.ready_count} deferred=${optimized.deferred_count})`
+      `No ready subscribers (ready=${optimized.ready_count} deferred=${optimized.deferred_count})`,
     );
-    // Still write the live pointer so the "latest live" file is fresh.
     if (!isDryRun) {
       writeLatestLive(report);
     }
-    return report;
+    return;
   }
 
   log(
     isDryRun,
-    `Optimizer selected ${optimized.ready_count} ready user(s) in ${optimized.batches.length} batch(es); deferred=${optimized.deferred_count}`
+    `Optimizer selected ${optimized.ready_count} ready user(s) in ${optimized.batches.length} batch(es); deferred=${optimized.deferred_count}`,
   );
 
   for (const batch of optimized.batches) {
@@ -623,13 +852,22 @@ async function runCycle(): Promise<CycleReport> {
       report.candidates.push(...pageResult.candidates);
       report.errors.push(...pageResult.errors);
 
+      // Track grace metrics for optimized path
+      for (const c of pageResult.candidates) {
+        if (c.result === "Charged") {
+          report.graceMetrics.normalCharged++;
+        } else if (c.result === "GracePeriodElapsed") {
+          report.graceMetrics.normalLapsed++;
+        }
+      }
+
       const skipDetails = Object.entries(pageResult.skipCounts)
         .map(([k, v]) => `${k}: ${v}`)
         .join(" | ");
 
       log(
         true,
-        `Batch ${offset}: checked=${pageResult.checked} wouldCharge=${pageResult.wouldCharge} volume=${stroopsToXlm(pageResult.totalVolume)} XLM`
+        `Batch ${offset}: checked=${pageResult.checked} wouldCharge=${pageResult.wouldCharge} volume=${stroopsToXlm(pageResult.totalVolume)} XLM`,
       );
       if (skipDetails) log(true, `  ${skipDetails}`);
     } else {
@@ -637,6 +875,15 @@ async function runCycle(): Promise<CycleReport> {
       report.totalCharged += pageResult.charged;
       report.totalVolume += pageResult.totalVolume;
       report.candidates.push(...pageResult.candidates);
+
+      // Track grace metrics for optimized path
+      for (const c of pageResult.candidates) {
+        if (c.result === "Charged") {
+          report.graceMetrics.normalCharged++;
+        } else if (c.result === "GracePeriodElapsed") {
+          report.graceMetrics.normalLapsed++;
+        }
+      }
 
       for (const [k, v] of Object.entries(pageResult.skipCounts)) {
         report.totalSkips[k] = (report.totalSkips[k] || 0) + v;
@@ -650,35 +897,106 @@ async function runCycle(): Promise<CycleReport> {
 
       log(
         false,
-        `Batch ${offset}: charged=${pageResult.charged} volume=${stroopsToXlm(pageResult.totalVolume)} XLM${pageResult.txHash ? ` tx=${pageResult.txHash}` : ""}`
+        `Batch ${offset}: charged=${pageResult.charged} volume=${stroopsToXlm(pageResult.totalVolume)} XLM${pageResult.txHash ? ` tx=${pageResult.txHash}` : ""}`,
       );
       if (skipDetails) log(false, `  ${skipDetails}`);
     }
   }
+}
 
-  const skipDetails = Object.entries(report.totalSkips)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(" | ");
-
-  const summary = isDryRun
-    ? `Cycle complete: checked=${report.totalChecked} wouldCharge=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM`
-    : `Cycle complete: charged=${report.totalCharged} totalVolume=${stroopsToXlm(report.totalVolume)} XLM${skipDetails ? ` | ${skipDetails}` : ""}`;
-
-  log(isDryRun, summary);
-
-  if (report.errors.length > 0) {
-    for (const err of report.errors) log(isDryRun, `Error: ${err}`);
+/**
+ * Run a charge cycle using legacy sequential offset-based paging.
+ * Pages through the subscriber index in insertion order (no urgency sorting).
+ * This is the pre-optimized path — kept as a fallback via
+ * KEEPER_USE_LEGACY_PAGING=true for A/B comparison.
+ */
+async function runCycleLegacy(report: CycleReport, isDryRun: boolean): Promise<void> {
+  const contract = new Contract(CONTRACT_ID);
+  let totalSubscribers = 0;
+  try {
+    totalSubscribers = await getSubscriberCount();
+  } catch (err) {
+    log(isDryRun, `Failed to get subscriber count: ${err}`);
+    report.errors.push(`getSubscriberCount failed: ${err}`);
+    return;
   }
 
-  // ── Post-cycle reporting ───────────────────────────────────────────────────
+  report.totalChecked = totalSubscribers;
 
-  if (!isDryRun) {
-    writeLatestLive(report);
-  } else {
-    writeDryRunReport(report);
+  if (totalSubscribers === 0) {
+    log(isDryRun, "No subscribers found");
+    if (!isDryRun) writeLatestLive(report);
+    return;
   }
 
-  return report;
+  log(isDryRun, `Legacy paging: ${totalSubscribers} subscriber(s), batch_size=${BATCH_SIZE}`);
+
+  let offset = 0;
+  while (offset < totalSubscribers) {
+    const users = await getSubscriberPage(offset, BATCH_SIZE);
+    if (users.length === 0) break;
+
+    const batchNum = Math.floor(offset / BATCH_SIZE) + 1;
+
+    if (isDryRun) {
+      const pageResult = await processPageDryRun(users, batchNum);
+      report.totalCharged += pageResult.wouldCharge;
+      report.totalVolume += pageResult.totalVolume;
+      report.candidates.push(...pageResult.candidates);
+      report.errors.push(...pageResult.errors);
+
+      // Track grace metrics for legacy path (urgent bucket = none in legacy)
+      for (const c of pageResult.candidates) {
+        if (c.result === "Charged") {
+          report.graceMetrics.normalCharged++;
+        } else if (c.result === "GracePeriodElapsed") {
+          report.graceMetrics.normalLapsed++;
+        }
+      }
+
+      const skipDetails = Object.entries(pageResult.skipCounts)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" | ");
+
+      log(
+        true,
+        `Page ${batchNum} (offset=${offset}): checked=${pageResult.checked} wouldCharge=${pageResult.wouldCharge} volume=${stroopsToXlm(pageResult.totalVolume)} XLM`
+      );
+      if (skipDetails) log(true, `  ${skipDetails}`);
+    } else {
+      const pageResult = await processPageLive(users, batchNum);
+      report.totalCharged += pageResult.charged;
+      report.totalVolume += pageResult.totalVolume;
+      report.candidates.push(...pageResult.candidates);
+
+      // Track grace metrics for legacy path
+      for (const c of pageResult.candidates) {
+        if (c.result === "Charged") {
+          report.graceMetrics.normalCharged++;
+        } else if (c.result === "GracePeriodElapsed") {
+          report.graceMetrics.normalLapsed++;
+        }
+      }
+
+      for (const [k, v] of Object.entries(pageResult.skipCounts)) {
+        report.totalSkips[k] = (report.totalSkips[k] || 0) + v;
+      }
+      report.errors.push(...pageResult.errors);
+      if (pageResult.txHash) report.txHashes.push(pageResult.txHash);
+
+      const skipDetails = Object.entries(pageResult.skipCounts)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" | ");
+
+      log(
+        false,
+        `Page ${batchNum} (offset=${offset}): charged=${pageResult.charged} volume=${stroopsToXlm(pageResult.totalVolume)} XLM${pageResult.txHash ? ` tx=${pageResult.txHash}` : ""}`
+      );
+      if (skipDetails) log(false, `  ${skipDetails}`);
+    }
+
+    offset += BATCH_SIZE;
+  }
 }
 
 // ── Report Writers ────────────────────────────────────────────────────────────
@@ -688,7 +1006,10 @@ async function runCycle(): Promise<CycleReport> {
  * just-completed live cycle. This is the "pointer" used by dry-run comparison.
  */
 function writeLatestLive(report: CycleReport): void {
-  const totalSkips = Object.values(report.totalSkips).reduce((a, b) => a + b, 0);
+  const totalSkips = Object.values(report.totalSkips).reduce(
+    (a, b) => a + b,
+    0,
+  );
   const record: LatestLiveRecord = {
     timestamp: new Date().toISOString(),
     contractId: CONTRACT_ID,
@@ -706,7 +1027,7 @@ function writeLatestLive(report: CycleReport): void {
  * Build and write a timestamped dry-run report to REPORT_DIR.
  * Reads keeper-latest-live.json if available and computes a comparison delta.
  */
-function writeDryRunReport(report: CycleReport): void {
+function writeDryRunReport(report: CycleReport, useLegacyPaging: boolean): void {
   const timestamp = new Date().toISOString();
   const safeTs = timestamp.replace(/:/g, "-");
 
@@ -734,7 +1055,9 @@ function writeDryRunReport(report: CycleReport): void {
     comparison = {
       checkedDelta: report.totalChecked - lastLive.totalChecked,
       chargedDelta: report.totalCharged - lastLive.totalCharged,
-      volumeDelta: (report.totalVolume - BigInt(lastLive.totalVolume)).toString(),
+      volumeDelta: (
+        report.totalVolume - BigInt(lastLive.totalVolume)
+      ).toString(),
       lastLiveAgeMs: ageMs,
       lastLiveAgeHuman: ageHuman,
     };
@@ -745,12 +1068,14 @@ function writeDryRunReport(report: CycleReport): void {
     mode: "dry-run",
     contractId: CONTRACT_ID,
     rpcUrl: RPC_URL,
+    pagingMode: useLegacyPaging ? "legacy" : "optimized",
     estimatedOutcomes: {
       totalChecked: report.totalChecked,
       totalCharged: report.totalCharged,
       totalVolumeStroops: report.totalVolume.toString(),
       skipCounts,
     },
+    graceMetrics: { ...report.graceMetrics },
     candidates: report.candidates,
     lastLiveCycle: lastLive ?? null,
     comparison,
@@ -777,10 +1102,16 @@ async function main(): Promise<void> {
   validateEnv();
 
   if (DRY_RUN) {
-    log(true, "Keeper started in DRY-RUN mode — no transactions will be submitted");
+    log(
+      true,
+      "Keeper started in DRY-RUN mode — no transactions will be submitted",
+    );
   } else {
     log(false, "Keeper started in LIVE mode");
   }
+
+  BATCH_SIZE = await resolveBatchSize();
+  log(DRY_RUN, `Effective legacy page size (BATCH_SIZE): ${BATCH_SIZE}`);
 
   if (once) {
     const report = await runCycle();
@@ -791,7 +1122,10 @@ async function main(): Promise<void> {
   while (true) {
     const report = await runCycle();
     const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
-    log(DRY_RUN, `Next cycle at ${nextRun.toISOString()} (in ${INTERVAL_SECONDS}s)`);
+    log(
+      DRY_RUN,
+      `Next cycle at ${nextRun.toISOString()} (in ${INTERVAL_SECONDS}s)`,
+    );
 
     if (report.errors.length > 0 && report.totalCharged === 0) {
       log(DRY_RUN, "All pages errored — will retry next cycle");
@@ -802,6 +1136,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(`Fatal error: ${error instanceof Error ? error.message : error}`);
+  console.error(
+    `Fatal error: ${error instanceof Error ? error.message : error}`,
+  );
   process.exit(1);
 });
