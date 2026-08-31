@@ -25,6 +25,7 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     let contract_id = env.register_contract(None, FlowPay);
     env.as_contract(&contract_id, || {
         whitelist::set_whitelist_enabled(&env, false);
+        env.storage().instance().set(&DataKey::SchemaVersion, &3u32);
     });
 
     let user = Address::generate(&env);
@@ -3803,6 +3804,9 @@ fn test_migrate_v1_to_v2() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
+    });
+    env.as_contract(&contract_id, || {
         storage::set_admin(&env, &user);
     });
 
@@ -4250,6 +4254,70 @@ fn test_initialize_deploy_invariant_persists_token_and_admin() {
     assert!(report.admin_configured);
 }
 
+/// Every published error code remains stable on the Soroban wire format.
+#[test]
+fn test_published_error_code_mapping() {
+    use crate::errors::ContractError;
+
+    let published = [
+        (ContractError::AlreadyInitialized, 1),
+        (ContractError::AmountMustBePositive, 2),
+        (ContractError::IntervalMustBePositive, 3),
+        (ContractError::NoSubscriptionFound, 4),
+        (ContractError::SubscriptionInactive, 5),
+        (ContractError::IntervalNotElapsed, 6),
+        (ContractError::NotInitialized, 7),
+        (ContractError::InsufficientAllowance, 8),
+        (ContractError::GracePeriodElapsed, 9),
+        (ContractError::MerchantNotWhitelisted, 10),
+        (ContractError::SelfReferral, 11),
+        (ContractError::InvalidTokenAddress, 12),
+        (ContractError::InvalidFeeBps, 13),
+        (ContractError::MetadataLabelTooLong, 14),
+        (ContractError::AmountExceedsMaximum, 15),
+        (ContractError::SubscriptionNotActive, 16),
+        (ContractError::SubscriptionPaused, 17),
+        (ContractError::ContractPaused, 18),
+        (ContractError::IntervalTooShort, 19),
+        (ContractError::BatchTooLarge, 20),
+        (ContractError::ZeroBalanceAvailable, 21),
+        (ContractError::MerchantFrozen, 22),
+        (ContractError::NoPendingProposal, 23),
+        (ContractError::SubscriptionAlreadyActive, 24),
+        (ContractError::DailyLimitExceeded, 25),
+        (ContractError::InvalidFeeCollector, 26),
+        (ContractError::InvalidPauseExpiry, 27),
+        (ContractError::GlobalVolumeExceeded, 28),
+        (ContractError::InvalidBatchSize, 29),
+        (ContractError::InvalidRecipient, 32),
+        (ContractError::InvalidVolumeCap, 33),
+        (ContractError::InvalidFeeBounds, 34),
+        (ContractError::FeeOutOfBoundsAtCommit, 35),
+        (ContractError::ArithmeticOverflow, 36),
+        (ContractError::RefundMerchantMismatch, 38),
+        (ContractError::RefundAmountMustBePositive, 39),
+        (ContractError::InsufficientMerchantBalance, 40),
+        (ContractError::CannotClearActiveSubscriber, 41),
+        (ContractError::SchemaMigrationRequired, 42),
+        (ContractError::ResumeGraceLapsed, 43),
+    ];
+
+    for (error, code) in published {
+        assert_eq!(error as u32, code);
+        assert_eq!(soroban_sdk::Error::from_contract_error(code), soroban_sdk::Error::from_contract_error(error as u32));
+    }
+
+    // Code 30 remains source-compatible for clients that referenced the old
+    // variant, but no current pause path emits it. Code 31 is intentionally
+    // reserved and has no current enum variant.
+    #[allow(deprecated)]
+    {
+        assert_eq!(ContractError::ContractPausedError as u32, 30);
+    }
+    assert!(!published.iter().any(|(_, code)| *code == 31));
+    assert!(!published.iter().any(|(_, code)| *code == 30));
+}
+
 /// Storage read used by deploy scripts: get_admin returns the initialized admin.
 #[test]
 fn test_initialize_deploy_invariant_stored_admin() {
@@ -4392,13 +4460,16 @@ fn test_self_referral_rejected_via_try_subscribe() {
 
 #[test]
 fn test_migrate_sets_schema_version() {
-    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let user = Address::generate(&env);
     let client = FlowPayClient::new(&env, &contract_id);
     env.as_contract(&contract_id, || {
         storage::set_admin(&env, &user);
     });
 
-    // Before migration, version defaults to 0
+    // Fresh contract starts at schema version 0 before migration.
     assert_eq!(client.get_schema_version(), 0);
 
     let empty_users = soroban_sdk::Vec::new(&env);
@@ -5899,7 +5970,7 @@ fn test_get_protocol_stats_initial() {
     assert!(stats.fee_collector.is_none());
     assert_eq!(stats.grace_period, 0);
     assert!(!stats.whitelist_enabled);
-    assert_eq!(stats.schema_version, 0); // default unmigrated version
+    assert_eq!(stats.schema_version, 3); // setup uses the current schema
     assert!(!stats.contract_paused);
 }
 
@@ -6322,7 +6393,7 @@ fn prop_subscribe_interval_respects_min_interval_floor() {
 
 /// set_min_interval(0) panics.
 #[test]
-#[should_panic(expected = "min interval must be positive")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_set_min_interval_zero_panics() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -6897,7 +6968,7 @@ fn test_non_admin_set_grace_period_panics() {
 
 /// resume on a grace-lapsed subscription must panic with ResumeGraceLapsed (#100).
 #[test]
-#[should_panic(expected = "Error(Contract, #100)")]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn test_resume_after_grace_lapse_panics() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -7510,6 +7581,7 @@ fn test_subscribe_zero_allowance_panics() {
     let contract_id = env.register_contract(None, FlowPay);
     env.as_contract(&contract_id, || {
         whitelist::set_whitelist_enabled(&env, false);
+        env.storage().instance().set(&DataKey::SchemaVersion, &3u32);
     });
 
     let user = Address::generate(&env);
@@ -7580,6 +7652,9 @@ fn test_subscribe_exact_allowance_succeeds() {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::SchemaVersion, &3u32);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -7618,6 +7693,9 @@ fn test_resubscribe_zero_allowance_panics() {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::SchemaVersion, &3u32);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -9038,7 +9116,10 @@ fn test_simulate_charge_variants() {
 
 #[test]
 fn test_get_schema_version_returns_zero_and_updates() {
-    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FlowPay);
+    let user = Address::generate(&env);
     let client = FlowPayClient::new(&env, &contract_id);
 
     assert_eq!(client.get_schema_version(), 0);
@@ -9606,7 +9687,7 @@ fn test_contract_config() {
     client.initialize(&token_addr, &admin);
 
     let config = client.get_contract_config();
-    assert_eq!(config.schema_version, 1);
+    assert_eq!(config.schema_version, 3);
     assert_eq!(config.paused, false);
 }
 

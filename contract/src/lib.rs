@@ -500,6 +500,7 @@ impl FlowPay {
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         ensure_contract_not_paused(&env);
         let key = DataKey::Subscription(user.clone());
 
@@ -606,6 +607,7 @@ impl FlowPay {
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         pay_per_use_inner(&env, user, amount, None);
     }
 
@@ -633,6 +635,7 @@ impl FlowPay {
     /// and the user's daily spend tracking (shared with `pay_per_use`), and
     /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
     pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
+        migration::require_current_version(&env);
         pay_per_use_inner(&env, user, amount, Some(recipient));
     }
 
@@ -1185,7 +1188,9 @@ impl FlowPay {
     /// Sets the minimum allowed subscription interval in seconds.
     /// Only the contract admin can call this. Panics if seconds == 0.
     pub fn set_min_interval(env: Env, seconds: u64) {
-        assert!(seconds > 0, "min interval must be positive");
+        if seconds == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
         admin::require_admin(&env);
         min_interval::set_min_interval(&env, seconds);
     }
@@ -1414,6 +1419,7 @@ impl FlowPay {
     /// variant and do **not** abort the batch.
     pub fn batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         ensure_contract_not_paused(&env);
         batch::batch_charge(&env, users)
     }
@@ -1805,6 +1811,12 @@ impl FlowPay {
         migration::get_schema_version(&env)
     }
 
+    /// Returns the schema version required before current-schema subscription
+    /// writes and charges are enabled. Migration is admin-driven and paginated.
+    pub fn require_current_schema(env: Env) {
+        migration::require_current_version(&env);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Subscription metadata
     // ─────────────────────────────────────────────────────────────
@@ -1908,6 +1920,7 @@ impl FlowPay {
     pub fn set_initial_admin(env: Env, admin: Address) {
         admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
+            env.panic_with_error(ContractError::AlreadyInitialized);
             env.panic_with_error(ContractError::AdminAlreadySet);
         }
         storage::set_admin(&env, &admin);
@@ -2294,6 +2307,7 @@ fn subscribe_inner(
     referrer: Option<Address>,
 ) {
     bump_instance_ttl(env);
+    migration::require_current_version(env);
     validation::require_valid_subscribe_addresses(env, &user, &merchant);
     user.require_auth();
 
@@ -2312,7 +2326,7 @@ fn subscribe_inner(
         .get::<_, bool>(&DataKey::ContractPaused)
         .unwrap_or(false);
     if paused {
-        env.panic_with_error(ContractError::ContractPausedError);
+        env.panic_with_error(ContractError::ContractPaused);
     }
 
     validation::require_valid_amount(env, amount);
