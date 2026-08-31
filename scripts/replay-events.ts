@@ -65,7 +65,9 @@ function parseArgs(argv: string[]): ReplayArgs {
           "Usage: replay-events.ts --from-ledger <n> --to-ledger <n>",
         );
         logger.error(`Unknown argument: ${argv[i]}`);
-        logger.error("Usage: replay-events.ts --from-ledger <n> --to-ledger <n>");
+        logger.error(
+          "Usage: replay-events.ts --from-ledger <n> --to-ledger <n>",
+        );
         process.exit(1);
     }
   }
@@ -115,8 +117,8 @@ function parseEvent(rawEvent: any): ReplayEvent {
   const timestamp = rawEvent.ledgerClosedAt
     ? new Date(rawEvent.ledgerClosedAt).toISOString()
     : rawEvent.ledgerCloseTime
-    ? new Date(rawEvent.ledgerCloseTime * 1000).toISOString()
-    : new Date().toISOString();
+      ? new Date(rawEvent.ledgerCloseTime * 1000).toISOString()
+      : new Date().toISOString();
   const txHash = rawEvent.txHash ?? rawEvent.id ?? "";
 
   return {
@@ -257,7 +259,9 @@ async function main(): Promise<void> {
       console.error(
         `ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`,
       );
-      logger.error(`ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`);
+      logger.error(
+        `ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`,
+      );
       process.exit(1);
     }
   }

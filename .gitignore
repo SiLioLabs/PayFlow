@@ -186,6 +186,12 @@ config/local.json
 # Backup files
 *.bak
 *.backup
+
+.agents/
+.claude/
+iissue.md
+skills-lock.json
+
 contract/target/
 
 contract/target/

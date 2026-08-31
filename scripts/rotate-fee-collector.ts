@@ -96,6 +96,23 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
     }
   }
 
+  // Acceptance Criteria: Calls set_fee preserving existing fee_bps
+  logger.info("\nInitiating rotation...");
+  await set_fee(newCollector, currentFee.fee_bps);
+  logger.info("Transaction successfully confirmed on-chain.");
+
+  // Acceptance Criteria: Verifies change by reading get_fee after update
+  logger.info("\n=== Verifying On-Chain Update ===");
+  const updatedFee = await get_fee();
+
+  if (updatedFee.collector === newCollector) {
+    console.log("✅ Success: Fee collector rotated correctly!");
+    console.log(
+    logger.info("✅ Success: Fee collector rotated correctly!");
+    logger.info(`New Verification -> Collector: ${updatedFee.collector}, BPS: ${updatedFee.fee_bps}`);
+  } else {
+    logger.error("❌ Error: Verification failed. Collector address does not match expected update.");
+    process.exit(1);
   if (isCommit) {
     logger.info("Committing pending fee proposal...");
 

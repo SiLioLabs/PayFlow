@@ -1,3 +1,10 @@
+# FlowPay Scripts
+
+Operational and analytics scripts for the FlowPay contract.  All scripts are written in TypeScript and run with `ts-node`.
+
+---
+
+## Setup
 # PayFlow Scripts
 
 Operational scripts for the FlowPay recurring-billing contract. All scripts are
@@ -30,10 +37,246 @@ cd scripts
 npm install
 ```
 
+All scripts read configuration from environment variables.  Copy `.env.example` at the repo root and fill in the required values:
+
+```bash
+cp .env.example .env
+# edit .env with your CONTRACT_ID, RPC_URL, SOROBAN_SOURCE_ACCOUNT, etc.
+```
+
+---
+
+## Scripts Reference
+
+### top-merchants.ts
+
+Fetches the top merchants by subscriber count using the on-chain `get_top_merchants_by_subs` getter.
+
+**Contract limit:** The contract enforces a hard cap of **20** per call (`BatchTooLarge` panic if exceeded).  Use `--limit` and `--page-size` to stay within this boundary.
+
+```bash
+# Show top 10 merchants (default)
+npx ts-node scripts/top-merchants.ts
+
+# Show top 20 (contract maximum)
+npx ts-node scripts/top-merchants.ts --limit 20
+
+# Paginate: page 2, 5 per page
+npx ts-node scripts/top-merchants.ts --limit 20 --page 2 --page-size 5
+
+# JSON output
+npx ts-node scripts/top-merchants.ts --json
+
+# Dry-run (validate config without RPC call)
+npx ts-node scripts/top-merchants.ts --dry-run
+```
+
+**Options:**
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--limit <n>` | `10` | Merchants to fetch from contract (1–20) |
+| `--page <n>` | `1` | Page number (1-based) |
+| `--page-size <n>` | `10` | Results per page (1–20) |
+| `--contract <id>` | `$CONTRACT_ID` | Contract address |
+| `--rpc-url <url>` | `$RPC_URL` | Soroban RPC endpoint |
+| `--json` | `false` | Emit machine-readable JSON |
+| `--dry-run` | `false` | Print config without calling RPC |
+
+Closes [issue #896](https://github.com/SiLioLabs/PayFlow/issues/896).
+
+---
+
+### deploy-pipeline.ts
+
+Hardened deployment pipeline with preflight checklist.  Run before any `upgrade()` call.
+
+```bash
+# Full preflight with WASM hash verification
+npx ts-node scripts/deploy-pipeline.ts \
+  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm \
+  --contract $CONTRACT_ID \
+  --source $SOROBAN_SOURCE_ACCOUNT
+
+# Dry-run (validate config, skip all network calls)
+npx ts-node scripts/deploy-pipeline.ts --dry-run
+
+# Custom summary output path
+npx ts-node scripts/deploy-pipeline.ts --summary-out ci-artifacts/deploy-summary.json
+```
+
+**Preflight gates:**
+
+| Gate | Failure behaviour |
+| --- | --- |
+| RPC health | Aborts pipeline |
+| WASM hash (local vs on-chain) | Aborts on mismatch; warns if on-chain hash unavailable |
+| Schema version | Warns if migration pending (does not abort) |
+
+**Options:**
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--wasm <path>` | — | Path to compiled `.wasm` file |
+| `--contract <id>` | `$CONTRACT_ID` | Deployed contract address |
+| `--rpc-url <url>` | `$RPC_URL` | Soroban RPC endpoint |
+| `--source <addr>` | `$SOROBAN_SOURCE_ACCOUNT` | Source account for read queries |
+| `--summary-out <path>` | `deploy-summary.json` | Machine-readable JSON summary |
+| `--dry-run` | `false` | Skip all network calls |
+
+The summary artifact is always written, even on failure, so CI can archive it as a build artefact.
+
+Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
+
+---
+
+### pre-upgrade-check.ts
+
+Standalone pre-upgrade validator (also called internally by `deploy-pipeline.ts`).  Run this as a lightweight gate in CI before building a release.
+
+```bash
+npx ts-node scripts/pre-upgrade-check.ts \
+  --wasm path/to/flowpay.wasm \
+  --contract $CONTRACT_ID \
+  --source $SOROBAN_SOURCE_ACCOUNT
+```
+
+Checks: WASM file exists & non-empty, contract ID format, RPC reachable, source account funded, schema version readable.
+
+Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
+
+---
+
+### backup-indexer-db.ts
+
+Online-safe backup and restore helper for the indexer SQLite database (`data/events.db`).
+
+The backup uses SQLite's `backup()` API (hot copy — no write lock on source).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file.  Restore verifies integrity of the backup before touching the live database.
+
+#### Backup
+
+```bash
+# Default: backup to data/backups/events-<timestamp>.db
+npx ts-node scripts/backup-indexer-db.ts backup
+
+# Custom paths
+npx ts-node scripts/backup-indexer-db.ts backup \
+  --db data/events.db \
+  --out /mnt/backups/events-2026-08-29.db
+
+# Overwrite if destination exists
+npx ts-node scripts/backup-indexer-db.ts backup --force
+
+# Dry-run
+npx ts-node scripts/backup-indexer-db.ts backup --dry-run
+```
+
+#### Restore
+
+```bash
+# Restore from a backup
+npx ts-node scripts/backup-indexer-db.ts restore \
+  --from data/backups/events-2026-08-29.db
+
+# Overwrite live DB
+npx ts-node scripts/backup-indexer-db.ts restore \
+  --from data/backups/events-2026-08-29.db \
+  --force
+
+# Dry-run (verify backup integrity, print plan, do not overwrite)
+npx ts-node scripts/backup-indexer-db.ts restore \
+  --from data/backups/events-2026-08-29.db \
+  --dry-run
+```
+
+**Restore safety rules:**
+1. Backup integrity check (`PRAGMA integrity_check`) must return `ok`.
+2. If destination exists, `--force` is required.
+3. Destination directory is created if it does not exist.
+
+**Options (backup):**
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--db <path>` | `$INDEXER_DB_PATH` or `data/events.db` | Source database |
+| `--out <path>` | `data/backups/events-<ts>.db` | Backup destination |
+| `--force` | `false` | Overwrite destination if it exists |
+| `--dry-run` | `false` | Print plan without writing files |
+
+**Options (restore):**
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--from <path>` | — (required) | Backup file to restore from |
+| `--db <path>` | `$INDEXER_DB_PATH` or `data/events.db` | Restore destination |
+| `--force` | `false` | Overwrite destination if it exists |
+| `--dry-run` | `false` | Verify + print plan without writing |
+
+**Optional: S3 lifecycle policies**
+
+For production deployments you may want to ship backups to S3 and apply lifecycle rules to expire old backups automatically.  This is not implemented in the script but can be added by piping the backup output to `aws s3 cp`:
+
+```bash
+npx ts-node scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
+aws s3 cp /tmp/events-backup.db s3://my-bucket/flowpay-backups/
+```
+
+Closes [issue #898](https://github.com/SiLioLabs/PayFlow/issues/898).
+
+---
+
+## Running Tests
+
+```bash
+cd scripts
+npm test
+```
+
+Tests use [Vitest](https://vitest.dev/) with Node environment.  All tests mock file I/O and SQLite — no running database or network connection is needed.
+
+```bash
+# Typecheck only
+npm run typecheck
+```
+
+---
+
+## Environment Variables
+
+| Variable | Used by | Description |
+| --- | --- | --- |
+| `CONTRACT_ID` / `VITE_CONTRACT_ID` | all | Deployed FlowPay contract ID |
+| `RPC_URL` / `VITE_RPC_URL` | all | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | all | Stellar network passphrase |
+| `SOROBAN_SOURCE_ACCOUNT` | deploy-pipeline, top-merchants | Source account for read-only RPC queries |
+| `SOROBAN_SECRET_KEY` | keeper (not in this dir) | Keeper signing key |
+| `INDEXER_DB_PATH` | backup-indexer-db | Override default `data/events.db` |
+| `BACKUP_DIR` | backup-indexer-db | Override default `data/backups/` |
+| `PAGE_SIZE` | keeper | Batch size for `batch_charge` (max **20**) |
+
+---
+
+## See Also
+
+- [`docs/KEEPER.md`](../docs/KEEPER.md) — Full keeper runbook (env vars, DLQ, dry-run, ChargeResult table)
+- [`docs/API.md`](../docs/API.md) — Contract function reference
+- [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) — Contract deployment and migration guide
 ---
 
 ## Scripts
 
+| Script                         | Purpose                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `keeper.ts`                    | Autonomous keeper — calls `batch_charge` on a schedule; supports dry-run |
+| `watch-events.ts`              | Real-time contract event monitor                                         |
+| `check-allowances.ts`          | Audit subscriber token allowances                                        |
+| `alert-expiring-allowances.ts` | Alert on allowances expiring within a configurable window                |
+| `indexer.ts`                   | Persist contract events to SQLite                                        |
+| `query-events.ts`              | Query the SQLite event database                                          |
+| `health-check.ts`              | Contract responsiveness check                                            |
+| `subscription-snapshot.ts`     | Snapshot all subscription states                                         |
+| `daily-revenue-summary.ts`     | Daily revenue report                                                     |
+| `export-merchant-report.ts`    | Per-merchant activity report                                             |
 | Script                         | Purpose                                                                   |
 | ------------------------------ | ------------------------------------------------------------------------- |
 | `keeper.ts`                    | Autonomous keeper — calls `batch_charge` on a schedule; supports dry-run  |
@@ -87,6 +330,11 @@ docker compose down
 
 ## Keeper
 
+The keeper bot uses `buildOptimizedBatches()` to select only ready subscribers
+(ordered by grace urgency and overdue age) and calls `batch_charge()` on each
+batch, then sleeps until the next cycle. Supports a `DRY_RUN` mode that
+simulates charges without submitting any transactions.
+
 ### Purpose
 
 The keeper is an off-chain loop that selects ready subscribers with
@@ -107,6 +355,10 @@ transactions. Flags: `--once` (one cycle then exit), `--help` / `-h`.
 
 ### Required environment variables
 
+| Variable        | Required           | Notes                                                  |
+| --------------- | ------------------ | ------------------------------------------------------ |
+| `CONTRACT_ID`   | yes                | Empty value exits 1                                    |
+| `KEEPER_SECRET` | yes (live signing) | Secret key `S…`; first config block always requires it |
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `CONTRACT_ID` | yes | Empty value fails `validateEnv` |
@@ -169,6 +421,14 @@ docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
 
 ### Additional variables the file reads
 
+| Variable             | Default                        | Description                                          |
+| -------------------- | ------------------------------ | ---------------------------------------------------- |
+| `RPC_URL`            | testnet RPC                    | Soroban RPC endpoint                                 |
+| `NETWORK_PASSPHRASE` | testnet passphrase             | Stellar network passphrase                           |
+| `BATCH_SIZE`         | `50`                           | Subscribers per `batch_charge` call (max 50)         |
+| `INTERVAL_SECONDS`   | `3600` (1 h)                   | Seconds between full charge cycles                   |
+| `DRY_RUN`            | `false`                        | Set `true` to simulate charges without submitting    |
+| `REPORT_DIR`         | `<script_dir>/data/benchmarks` | Directory for dry-run reports and live-cycle pointer |
 | Variable             | Default                          | Description                                         |
 | -------------------- | -------------------------------- | --------------------------------------------------- |
 | `RPC_URL`            | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint                          |
@@ -253,6 +513,18 @@ for the full expected shape.
 > **Note:** The benchmark files produced by `keeper-benchmark.ts`
 > (`keeper-bench-*.json`) have a completely different schema (submission and
 > confirmation latency percentiles) and are unrelated to these reports.
+> `keeper.ts` currently contains two overlapping configuration blocks. Docker and
+> `.env.example` follow the first. The second also reads:
+
+| Variable            | Default in that block                   | Role                                           |
+| ------------------- | --------------------------------------- | ---------------------------------------------- |
+| `DRY_RUN`           | `"true"` (boolean if equal to `"true"`) | Simulation mode; secret not required when true |
+| `KEEPER_PUBLIC_KEY` | `""`                                    | Required by `validateEnv` in that block        |
+| `BATCH_SIZE`        | `50` (clamped 1–50)                     | Page size in that block                        |
+| `INTERVAL_SECONDS`  | `3600` (min 1)                          | Loop interval in that block                    |
+
+Set the variables that match how you start the process. Prefer the
+`.env.example` names for Compose.
 
 ---
 
@@ -274,15 +546,15 @@ so the same events are not re-fetched as duplicates (upsert key
 
 ### Environment variables
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `CONTRACT_ID` | (required) | Contract to filter |
-| `RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC |
-| `POLL_INTERVAL_MS` | `10000` | Poll interval |
-| `LOG_LEVEL` | `info` | `debug` \| `info` \| `error` |
-| `DATA_DIR` | `data` | Directory for the DB file |
-| `DB_FILE` | `resolve(DATA_DIR, "events.db")` | Full path override |
-| `START_LEDGER` | unset → latest ledger | First-run start when no `last_ledger` |
+| Variable           | Default                               | Purpose                               |
+| ------------------ | ------------------------------------- | ------------------------------------- |
+| `CONTRACT_ID`      | (required)                            | Contract to filter                    |
+| `RPC_URL`          | `https://soroban-testnet.stellar.org` | Soroban RPC                           |
+| `POLL_INTERVAL_MS` | `10000`                               | Poll interval                         |
+| `LOG_LEVEL`        | `info`                                | `debug` \| `info` \| `error`          |
+| `DATA_DIR`         | `data`                                | Directory for the DB file             |
+| `DB_FILE`          | `resolve(DATA_DIR, "events.db")`      | Full path override                    |
+| `START_LEDGER`     | unset → latest ledger                 | First-run start when no `last_ledger` |
 
 The indexer header mentions `NETWORK_PASSPHRASE`; the implementation does **not**
 read that env var.
@@ -348,12 +620,12 @@ tsx scripts/metrics-server.ts
 
 ### Environment
 
-| Variable | Default | Actually read? |
-| --- | --- | --- |
-| `METRICS_PORT` | `9090` | **Yes** — listen port |
-| `CONTRACT_ID` | — | Header only; **not** read |
-| `RPC_URL` | — | Header only; **not** read |
-| `NETWORK_PASSPHRASE` | — | Header only; **not** read |
+| Variable             | Default | Actually read?            |
+| -------------------- | ------- | ------------------------- |
+| `METRICS_PORT`       | `9090`  | **Yes** — listen port     |
+| `CONTRACT_ID`        | —       | Header only; **not** read |
+| `RPC_URL`            | —       | Header only; **not** read |
+| `NETWORK_PASSPHRASE` | —       | Header only; **not** read |
 
 ### Endpoint / port
 
@@ -379,13 +651,13 @@ stay empty unless a process records into this registry.
 
 Dashboard JSON: [`grafana-dashboard.json`](grafana-dashboard.json)
 
-| Property | Value |
-| --- | --- |
-| Title | PayFlow Keeper |
-| uid | `payflow-keeper` |
-| Tags | `payflow`, `keeper`, `prometheus` |
-| Datasource template | `DS_PROMETHEUS` (Prometheus) |
-| Refresh | 10s, timezone `utc`, default range `now-6h` |
+| Property            | Value                                       |
+| ------------------- | ------------------------------------------- |
+| Title               | PayFlow Keeper                              |
+| uid                 | `payflow-keeper`                            |
+| Tags                | `payflow`, `keeper`, `prometheus`           |
+| Datasource template | `DS_PROMETHEUS` (Prometheus)                |
+| Refresh             | 10s, timezone `utc`, default range `now-6h` |
 
 Import the JSON into Grafana and select a Prometheus datasource that scrapes
 the metrics server. This repository does **not** ship a Grafana or Prometheus
@@ -463,15 +735,15 @@ Two stages (`scripts/Dockerfile`):
 `HEALTH_CHECK_URL` is mentioned in a comment; the `HEALTHCHECK` command uses
 `RPC_URL` only.
 
-| Property | Value |
-| --- | --- |
-| Base image | `node:20-alpine` |
-| Run user | `node` (non-root) |
-| Entrypoint / CMD | `node dist/keeper.js` |
-| Health check | `wget` → RPC `getHealth` (60 s / timeout 10 s / start 15 s / retries 3) |
-| Restart policy | `unless-stopped` |
-| Log driver | `json-file` (max-size 10m, max-file 5) |
-| Resources (Compose) | limits 0.50 CPU / 256M; reservations 0.05 / 64M |
+| Property            | Value                                                                   |
+| ------------------- | ----------------------------------------------------------------------- |
+| Base image          | `node:20-alpine`                                                        |
+| Run user            | `node` (non-root)                                                       |
+| Entrypoint / CMD    | `node dist/keeper.js`                                                   |
+| Health check        | `wget` → RPC `getHealth` (60 s / timeout 10 s / start 15 s / retries 3) |
+| Restart policy      | `unless-stopped`                                                        |
+| Log driver          | `json-file` (max-size 10m, max-file 5)                                  |
+| Resources (Compose) | limits 0.50 CPU / 256M; reservations 0.05 / 64M                         |
 
 ---
 
@@ -480,6 +752,27 @@ Two stages (`scripts/Dockerfile`):
 Variables actually used by keeper, indexer, metrics-server, Compose, or the
 keeper Dockerfile. Defaults are from source or `.env.example`.
 
+| Variable             | Default / example                                                        | Used by                                 | Purpose                       | Notes                                                                                           |
+| -------------------- | ------------------------------------------------------------------------ | --------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `CONTRACT_ID`        | empty; `.env.example` blank                                              | keeper, indexer                         | Deployed contract ID          | Required (exit 1 if missing). Metrics header lists it but does not read it. Compose via `.env`. |
+| `KEEPER_SECRET`      | empty                                                                    | keeper                                  | Sign keeper transactions      | Required in the primary config block. Testnet `S…` only in examples.                            |
+| `KEEPER_PUBLIC_KEY`  | `""`                                                                     | keeper (second block)                   | Source account pubkey         | Required by that block's `validateEnv`. Not in `.env.example`.                                  |
+| `DRY_RUN`            | `"true"` in second block                                                 | keeper (second block)                   | Simulation vs live            | Not in `.env.example`.                                                                          |
+| `RPC_URL`            | `https://soroban-testnet.stellar.org`                                    | keeper, indexer, Dockerfile HEALTHCHECK | Soroban RPC                   | Compose via `.env`. Metrics header only.                                                        |
+| `NETWORK_PASSPHRASE` | `Networks.TESTNET` / `.env.example`: `Test SDF Network ; September 2015` | keeper                                  | Network passphrase            | Indexer header only — not read by indexer.                                                      |
+| `CHARGE_INTERVAL_MS` | `3600000`                                                                | keeper (first block)                    | Sleep between full cycles     | `.env.example`                                                                                  |
+| `PAGE_SIZE`          | `100` (capped at 100)                                                    | keeper (first block)                    | Page size for `batch_charge`  | `.env.example`                                                                                  |
+| `MAX_RETRIES`        | `3`                                                                      | keeper (first block)                    | Per-page retries              | `.env.example`                                                                                  |
+| `BATCH_SIZE`         | `50` (clamped 1–50)                                                      | keeper (second block)                   | Alternate page size           | Conflicts in name with `PAGE_SIZE`.                                                             |
+| `INTERVAL_SECONDS`   | `3600`                                                                   | keeper (second block)                   | Alternate loop interval       |                                                                                                 |
+| `LOG_LEVEL`          | `info`                                                                   | keeper, indexer                         | Log verbosity                 | Indexer: `debug` \| `info` \| `error`                                                           |
+| `DATA_DIR`           | `data`                                                                   | indexer                                 | SQLite directory              | Compose volume is `/app/data` if indexer is run there. Not in `.env.example`.                   |
+| `DB_FILE`            | `DATA_DIR/events.db`                                                     | indexer                                 | SQLite path override          | Not in `.env.example`.                                                                          |
+| `POLL_INTERVAL_MS`   | `10000`                                                                  | indexer                                 | Event poll interval           | Not in `.env.example`.                                                                          |
+| `START_LEDGER`       | unset → latest                                                           | indexer                                 | First-run start ledger        | Not in `.env.example`.                                                                          |
+| `METRICS_PORT`       | `9090`                                                                   | metrics-server                          | HTTP listen port              | Not in `.env.example` or Compose.                                                               |
+| `NODE_ENV`           | `production` (image)                                                     | Docker runtime                          | Node environment              | Set in Dockerfile.                                                                              |
+| `NODE_OPTIONS`       | `--unhandled-rejections=throw`                                           | Docker runtime                          | Crash on unhandled rejections | Set in Dockerfile.                                                                              |
 | Variable | Default / example | Used by | Purpose | Notes |
 | --- | --- | --- | --- | --- |
 | `CONTRACT_ID` | empty; `.env.example` blank | keeper, indexer | Deployed contract ID | Required (validateEnv / indexer exit 1). Metrics header lists it but does not read it. Compose via `.env`. |
@@ -510,14 +803,14 @@ Compose itself declares no `environment:` keys; it only loads `.env`.
 
 ## events.db persistence
 
-| Question | Answer |
-| --- | --- |
-| Where is it stored? | Default `data/events.db` relative to the process cwd (`DATA_DIR` + `events.db`), or `DB_FILE` if set. |
-| Which component uses it? | **`indexer.ts`** (and `query-events.ts` when pointed at the same file). The keeper image/CMD does not write this DB. |
-| Must it survive restarts? | **Yes**, if you need cursor continuity. `meta.last_ledger` lives in the same file. |
-| Docker volume? | Compose mounts named volume `keeper-data` at `/app/data`. That path matches the indexer default directory name `data` only if the process cwd is `/app` **and** you run the indexer with `DATA_DIR=/app/data` (or default `data` from `/app`). Compose does not start the indexer. |
+| Question                          | Answer                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where is it stored?               | Default `data/events.db` relative to the process cwd (`DATA_DIR` + `events.db`), or `DB_FILE` if set.                                                                                                                                                                                                                         |
+| Which component uses it?          | **`indexer.ts`** (and `query-events.ts` when pointed at the same file). The keeper image/CMD does not write this DB.                                                                                                                                                                                                          |
+| Must it survive restarts?         | **Yes**, if you need cursor continuity. `meta.last_ledger` lives in the same file.                                                                                                                                                                                                                                            |
+| Docker volume?                    | Compose mounts named volume `keeper-data` at `/app/data`. That path matches the indexer default directory name `data` only if the process cwd is `/app` **and** you run the indexer with `DATA_DIR=/app/data` (or default `data` from `/app`). Compose does not start the indexer.                                            |
 | If the database is deleted/reset? | A new empty DB is opened and schema is recreated. `last_ledger` is missing, so the indexer takes the first-run path: `START_LEDGER` if set and `> 0`, otherwise the **latest** ledger. Local event history is gone; the indexer does not walk the full chain unless you set `START_LEDGER` (and RPC still has those ledgers). |
-| Backup / replay? | Back up the SQLite file (and WAL) if you need history. Historical backfill is documented in [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md) via [`replay-events.ts`](replay-events.ts) — that is a separate RPC replay path, not an automatic restore of `events.db`. |
+| Backup / replay?                  | Back up the SQLite file (and WAL) if you need history. Historical backfill is documented in [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md) via [`replay-events.ts`](replay-events.ts) — that is a separate RPC replay path, not an automatic restore of `events.db`.                                           |
 
 ---
 
@@ -525,14 +818,14 @@ Compose itself declares no `environment:` keys; it only loads `.env`.
 
 This ops guide does not reproduce those playbooks:
 
-| Topic | Where |
-| --- | --- |
-| Keeper overview + runbook pointer | [`docs/KEEPER.md`](../docs/KEEPER.md) |
-| Dead-letter queue recovery | [`docs/operations/keeper_runbook.md`](../docs/operations/keeper_runbook.md) (section “Dead-Letter Queue Recovery”) |
-| RPC failover (runbook) | Same file, section “RPC Failover Configuration” |
-| TS DLQ replay helper | [`replay-dlq.ts`](replay-dlq.ts) (default `DLQ_FILE=dlq/failed-batches.jsonl`) |
-| Event backfill | [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md), [`replay-events.ts`](replay-events.ts) |
-| Multi-endpoint RPC helper | [`rpc-client.ts`](rpc-client.ts) (`RPC_URLS`) — **not** imported by the current keeper/indexer entrypoints |
+| Topic                             | Where                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Keeper overview + runbook pointer | [`docs/KEEPER.md`](../docs/KEEPER.md)                                                                              |
+| Dead-letter queue recovery        | [`docs/operations/keeper_runbook.md`](../docs/operations/keeper_runbook.md) (section “Dead-Letter Queue Recovery”) |
+| RPC failover (runbook)            | Same file, section “RPC Failover Configuration”                                                                    |
+| TS DLQ replay helper              | [`replay-dlq.ts`](replay-dlq.ts) (default `DLQ_FILE=dlq/failed-batches.jsonl`)                                     |
+| Event backfill                    | [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md), [`replay-events.ts`](replay-events.ts)              |
+| Multi-endpoint RPC helper         | [`rpc-client.ts`](rpc-client.ts) (`RPC_URLS`) — **not** imported by the current keeper/indexer entrypoints         |
 
 `replay-dlq.ts` states that `keeper.ts` writes the JSONL DLQ. Confirm that path
 against the keeper you actually run before relying on it in production.
@@ -652,29 +945,144 @@ JSON output shape:
 
 ---
 
+## Subscriber health dashboard
+
+### Purpose
+
+Aggregate per-subscriber health for the entire subscriber set. Output JSON
+fields are aligned 1:1 with the on-chain `SubscriptionHealth` struct returned
+by `get_subscription_health`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `active` | `bool` | Subscription is active |
+| `charge_due` | `bool` | Billing interval elapsed, charge is due |
+| `within_grace` | `bool` | Subscriber is in the grace window |
+| `has_sufficient_allowance` | `bool` | Token allowance covers the subscription amount |
+| `is_paused` | `bool` | Subscription is paused |
+| `trial_active` | `bool` | Trial period is active |
+| `daily_limit_set` | `bool` | A daily spending cap has been configured |
+
+Plus an `address` identity field and ops-specific extensions: `amount`,
+`allowance`, `token`, `ttl_remaining`, `expiring_ttl`, `requires_restore`.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | All subscribers healthy (none paused, no charge due, allowance sufficient) |
+| `1` | Any subscriber unhealthy (paused, charge due, no allowance, requires restore) |
+| `2` | Hard failure (RPC error, fixture parse error, script crash) |
+
+### Usage
+
+```bash
+# Live RPC scan
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts
+
+# Table output
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts --format table
+
+# Fixture-driven run (no RPC needed)
+tsx subscriber-health-dashboard.ts --fixtures data/healthy-subscribers.json
+# → exit 0 (all healthy)
+
+ntsx subscriber-health-dashboard.ts --fixtures data/unhealthy-subscribers.json
+# → exit 1 (at least one unhealthy)
+
+# Write per-subscriber CSV
+CONTRACT_ID=C... tsx subscriber-health-dashboard.ts --detail subscribers.csv
+```
+
+### JSON output shape
+
+```json
+{
+  "status": "healthy|unhealthy",
+  "summary": {
+    "total": 3,
+    "total_active": 3,
+    "total_healthy": 3,
+    "total_unhealthy": 0,
+    "paused_count": 0,
+    "charge_due_count": 0,
+    "grace_period_active_count": 1,
+    "no_allowance_count": 0,
+    "trial_active_count": 1,
+    "daily_limit_set_count": 0,
+    "expiring_ttl_count": 0,
+    "requires_restore_count": 0,
+    "total_indexed": 3,
+    "scanned": 3
+  },
+  "subscribers": [
+    {
+      "address": "GAZ...",
+      "active": true,
+      "charge_due": false,
+      "within_grace": false,
+      "has_sufficient_allowance": true,
+      "is_paused": false,
+      "trial_active": false,
+      "daily_limit_set": false,
+      "amount": "10000000",
+      "allowance": "50000000",
+      "token": "CBDE...",
+      "ttl_remaining": 1000000,
+      "expiring_ttl": false,
+      "requires_restore": false
+    }
+  ]
+}
+```
+
+### Fixture files
+
+Fixture files in `data/` enable testing without a live RPC connection:
+
+| File | Description | Expected exit |
+| --- | --- | --- |
+| `data/healthy-subscribers.json` | All subscribers healthy | `0` |
+| `data/unhealthy-subscribers.json` | Mixed health (paused + no allowance + charge due) | `1` |
+
+### Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CONTRACT_ID` | — | Required (or use `--fixtures`) |
+| `RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` | `Networks.TESTNET` | Stellar network passphrase |
+| `PAGE_SIZE` | `50` | Subscriber page size (max 50) |
+| `LEDGER_ENTRY_BATCH` | `100` | getLedgerEntries batch size (max 200) |
+| `EXPIRING_TTL_LEDGERS` | `500000` | TTL threshold for expiring entries |
+| `PROGRESS` | `1` | Set `0` to suppress progress output |
+
+---
+
 ## Environment variable reference
 
 All scripts read configuration from environment variables. The full set used
 across all scripts:
 
-| Variable               | Used by                                         | Description                                                                          |
-| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                         |
-| `RPC_URL`              | all                                             | Soroban RPC endpoint                                                                 |
-| `NETWORK_PASSPHRASE`   | keeper, check-allowances                        | Stellar network passphrase                                                           |
-| `KEEPER_PUBLIC_KEY`    | keeper                                          | Source account public key (must be funded on the network)                            |
-| `KEEPER_SECRET`        | keeper                                          | Stellar secret key (S…) for signing transactions (required in live mode)             |
-| `DRY_RUN`              | keeper                                          | Set `true` to simulate charges without submitting transactions                       |
-| `BATCH_SIZE`           | keeper                                          | Subscriptions per batch_charge call (default 50, max 50)                             |
-| `INTERVAL_SECONDS`     | keeper                                          | Seconds between charge cycles (default 3600)                                         |
-| `REPORT_DIR`           | keeper                                          | Directory for dry-run reports and live-cycle pointer (default: `data/benchmarks`)    |
-| `WEBHOOK_URL`          | alert-expiring-allowances, alert-failed-charges | Webhook POST target                                                                  |
-| `ALERT_WINDOW_LEDGERS` | alert-expiring-allowances                       | Expiry alert threshold                                                               |
-| `DATA_DIR`             | indexer, query-events                           | SQLite database directory                                                            |
-| `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                        |
-| `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                               |
-| `START_LEDGER`         | indexer                                         | First-run start ledger                                                               |
-| `LOG_LEVEL`            | keeper, indexer                                 | Log verbosity                                                                        |
+| Variable               | Used by                                         | Description                                                                       |
+| ---------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
+| `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                      |
+| `RPC_URL`              | all                                             | Soroban RPC endpoint                                                              |
+| `NETWORK_PASSPHRASE`   | keeper, check-allowances                        | Stellar network passphrase                                                        |
+| `KEEPER_PUBLIC_KEY`    | keeper                                          | Source account public key (must be funded on the network)                         |
+| `KEEPER_SECRET`        | keeper                                          | Stellar secret key (S…) for signing transactions (required in live mode)          |
+| `DRY_RUN`              | keeper                                          | Set `true` to simulate charges without submitting transactions                    |
+| `BATCH_SIZE`           | keeper                                          | Subscriptions per batch_charge call (default 50, max 50)                          |
+| `INTERVAL_SECONDS`     | keeper                                          | Seconds between charge cycles (default 3600)                                      |
+| `REPORT_DIR`           | keeper                                          | Directory for dry-run reports and live-cycle pointer (default: `data/benchmarks`) |
+| `WEBHOOK_URL`          | alert-expiring-allowances, alert-failed-charges | Webhook POST target                                                               |
+| `ALERT_WINDOW_LEDGERS` | alert-expiring-allowances                       | Expiry alert threshold                                                            |
+| `DATA_DIR`             | indexer, query-events                           | SQLite database directory                                                         |
+| `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                     |
+| `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                            |
+| `START_LEDGER`         | indexer                                         | First-run start ledger                                                            |
+| `LOG_LEVEL`            | keeper, indexer                                 | Log verbosity                                                                     |
+
 ## Related
 
 - Mainnet gates: [`docs/MAINNET-DEPLOYMENT.md`](../docs/MAINNET-DEPLOYMENT.md)

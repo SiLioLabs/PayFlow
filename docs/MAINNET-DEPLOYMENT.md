@@ -54,10 +54,10 @@ There is no in-repo override that weakens this requirement.
 
 Configured fee bounds are admin-set guardrails on future protocol-fee commits. They must be verified **before any Mainnet funds** (user allowances or merchant revenue) are allowed into the contract.
 
-| Method | Auth | Role |
-| --- | --- | --- |
-| `set_fee_bounds(min_bps: u32, max_bps: u32)` | admin (`require_admin`) | Writes instance keys `MinFeeBps` / `MaxFeeBps` |
-| `get_fee_bounds() -> (u32, u32)` | none | Returns configured bounds; defaults to `(0, 10000)` if unset |
+| Method                                       | Auth                    | Role                                                         |
+| -------------------------------------------- | ----------------------- | ------------------------------------------------------------ |
+| `set_fee_bounds(min_bps: u32, max_bps: u32)` | admin (`require_admin`) | Writes instance keys `MinFeeBps` / `MaxFeeBps`               |
+| `get_fee_bounds() -> (u32, u32)`             | none                    | Returns configured bounds; defaults to `(0, 10000)` if unset |
 
 **Semantics (from `contract/src/lib.rs` and `contract/src/fee.rs`):**
 
@@ -89,11 +89,11 @@ GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000  // 50 trillion stroops
 HOUR_IN_SECONDS            = 3600
 ```
 
-| Method | Auth | Role |
-| --- | --- | --- |
-| `get_global_volume_cap() -> i128` | none | Effective cap: instance override `GlobalVolumeCapOverride`, or the compile-time default |
-| `get_global_volume_window() -> (i128, u64)` | none | `(accumulated_volume, window_start_timestamp)`; `(0, 0)` if no window yet |
-| `set_global_volume_cap(new_cap: i128)` | admin | Stores a positive override; panics `InvalidVolumeCap` (33) if `new_cap <= 0` |
+| Method                                      | Auth  | Role                                                                                    |
+| ------------------------------------------- | ----- | --------------------------------------------------------------------------------------- |
+| `get_global_volume_cap() -> i128`           | none  | Effective cap: instance override `GlobalVolumeCapOverride`, or the compile-time default |
+| `get_global_volume_window() -> (i128, u64)` | none  | `(accumulated_volume, window_start_timestamp)`; `(0, 0)` if no window yet               |
+| `set_global_volume_cap(new_cap: i128)`      | admin | Stores a positive override; panics `InvalidVolumeCap` (33) if `new_cap <= 0`            |
 
 **Operational purpose:** limit protocol-wide transfer volume per rolling hour. Exceeding the cap during charge accounting panics with `GlobalVolumeExceeded` (28).
 

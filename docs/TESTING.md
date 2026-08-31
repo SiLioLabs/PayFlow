@@ -395,6 +395,7 @@ This runs `tsc -p tsconfig.build.json` to produce compiled JavaScript output.
 
 ### Fixture workflow
 
+[`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) creates deterministic test accounts from a `--seed` value, funds them via Friendbot, and writes a manifest file for use in integration/E2E testing.
  [`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) initializes the testnet fixture accounts (Admin, Merchant, and 5 Subscribers) using the values in `deployments/manifest.json` as the source of truth for defaults.
 
 ```bash
@@ -441,7 +442,7 @@ npx tsx watch-events.ts
 | Workflow                                          | Steps                                                                | Covers                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`Backend (Rust)`](../.github/workflows/rust.yml) | `cargo clippy -- -D warnings`, `cargo build`, `cargo test --verbose` | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md#ci-integration) for adding a dedicated `--nocapture` reporting step) |
-| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                          |
+| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                        |
 
 ### What requires manual testing
 

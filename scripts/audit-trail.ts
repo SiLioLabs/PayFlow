@@ -142,8 +142,10 @@ function parseArgs(): CliArgs {
     formatArg !== undefined
       ? validFormats.includes(formatArg)
         ? formatArg
-        : (console.error(`ERROR: --format must be one of: ${validFormats.join(", ")}`),
-           process.exit(1))
+        : (console.error(
+            `ERROR: --format must be one of: ${validFormats.join(", ")}`,
+          ),
+          process.exit(1))
       : "json";
 
   return {
@@ -174,7 +176,7 @@ interface RawEvent {
 async function* fetchEventStream(
   server: Server,
   fromLedger: number,
-  toLedger: number
+  toLedger: number,
 ): AsyncGenerator<RawEvent> {
   for (
     let batchStart = fromLedger;
@@ -197,7 +199,9 @@ async function* fetchEventStream(
         params.startLedger = batchStart;
       }
 
-      const response = await server.getEvents(params as Parameters<typeof server.getEvents>[0]);
+      const response = await server.getEvents(
+        params as Parameters<typeof server.getEvents>[0],
+      );
 
       for (const raw of response.events) {
         const eventLedger: number = (raw as unknown as RawEvent).ledger ?? 0;
@@ -258,7 +262,7 @@ function feeBpsAtLedger(snapshots: FeeSnapshot[], ledger: number): number {
  */
 function parseAuditEntry(
   raw: RawEvent,
-  feeSnapshots: FeeSnapshot[]
+  feeSnapshots: FeeSnapshot[],
 ): AuditEntry | null {
   const eventType = topicString(raw.topic[0]);
   const subscriber = topicString(raw.topic[1]);
@@ -365,7 +369,7 @@ function parseAuditEntry(
 function buildSummary(
   entries: AuditEntry[],
   args: CliArgs,
-  contentHash: string
+  contentHash: string,
 ): AuditSummary {
   let totalVolume = 0n;
   let totalFees = 0n;
@@ -422,7 +426,9 @@ function renderCsv(report: AuditReport): string {
     `# SHA-256: ${report.summary.sha256_hash}`,
     "",
     entryHeaders.join(","),
-    ...report.entries.map((e) => entryHeaders.map((h) => escape(e[h])).join(",")),
+    ...report.entries.map((e) =>
+      entryHeaders.map((h) => escape(e[h])).join(","),
+    ),
     "",
     "# Summary",
     "field,value",
@@ -446,7 +452,7 @@ function renderMarkdown(report: AuditReport): string {
   const tableRows = report.entries
     .map(
       (e, i) =>
-        `| ${i + 1} | ${e.event_type} | ${e.timestamp} | ${shortAddr(e.subscriber)} | ${shortAddr(e.merchant)} | ${e.amount_stroops} | ${e.fee_stroops} | ${e.net_stroops} | ${e.tx_hash.slice(0, 12)}… | ${e.ledger} |`
+        `| ${i + 1} | ${e.event_type} | ${e.timestamp} | ${shortAddr(e.subscriber)} | ${shortAddr(e.merchant)} | ${e.amount_stroops} | ${e.fee_stroops} | ${e.net_stroops} | ${e.tx_hash.slice(0, 12)}… | ${e.ledger} |`,
     )
     .join("\n");
 
@@ -489,7 +495,7 @@ async function main(): Promise<void> {
   const server = new Server(RPC_URL);
 
   console.error(
-    `Fetching audit trail: ledgers ${args.fromLedger} → ${args.toLedger}…`
+    `Fetching audit trail: ledgers ${args.fromLedger} → ${args.toLedger}…`,
   );
 
   // First pass: collect fee_set / fee_committed events to reconstruct fee history
@@ -498,7 +504,11 @@ async function main(): Promise<void> {
   const entries: AuditEntry[] = [];
 
   try {
-    for await (const raw of fetchEventStream(server, args.fromLedger, args.toLedger)) {
+    for await (const raw of fetchEventStream(
+      server,
+      args.fromLedger,
+      args.toLedger,
+    )) {
       const eventType = topicString(raw.topic[0]);
 
       // Track fee configuration changes so we can accurately reconstruct fees

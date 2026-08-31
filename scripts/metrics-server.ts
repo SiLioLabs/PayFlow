@@ -28,7 +28,13 @@
 
 import http from "node:http";
 import { fileURLToPath } from "node:url";
-import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from "prom-client";
+import {
+  collectDefaultMetrics,
+  Counter,
+  Gauge,
+  Histogram,
+  Registry,
+} from "prom-client";
 import type { Server } from "node:http";
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -109,6 +115,21 @@ const indexerDedupEvictionsTotal = new Counter({
   registers: [registry],
 });
 
+/** Total RPC failovers across multiple endpoints. */
+const rpcFailoversTotal = new Counter({
+  name: "keeper_rpc_failovers_total",
+  help: "Total number of RPC failovers triggered",
+  registers: [registry],
+});
+
+/** Granular outcomes for each subscriber checked. */
+const chargeResultsTotal = new Counter({
+  name: "keeper_charge_results_total",
+  help: "Total number of charge outcomes labeled by specific contract result",
+  labelNames: ["result"] as const,
+  registers: [registry],
+});
+
 // ── Public API for the keeper run loop ───────────────────────────────────────
 
 /**
@@ -143,9 +164,21 @@ export function recordBatchCharge(params: {
   }
 }
 
+/** Record specific granular charge results. */
+export function recordChargeResults(results: Record<string, number>): void {
+  for (const [result, count] of Object.entries(results)) {
+    chargeResultsTotal.inc({ result }, count);
+  }
+}
+
 /** Increment the RPC error counter. */
 export function incrementRpcErrors(): void {
   rpcErrorsTotal.inc(1);
+}
+
+/** Increment the RPC failovers counter. */
+export function incrementRpcFailovers(): void {
+  rpcFailoversTotal.inc(1);
 }
 
 /** Set the current active subscriber count gauge. */
@@ -222,14 +255,16 @@ export function startMetricsServer(): boolean {
         res.end(text);
       } catch (err) {
         res.writeHead(500);
-        res.end(`# metrics collection failed: ${err instanceof Error ? err.message : err}\n`);
+        res.end(
+          `# metrics collection failed: ${err instanceof Error ? err.message : err}\n`,
+        );
       }
     });
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         console.error(
-          `[metrics] Port ${METRICS_PORT} already in use — keeper will continue without metrics`
+          `[metrics] Port ${METRICS_PORT} already in use — keeper will continue without metrics`,
         );
         server?.close();
         server = null;
@@ -239,13 +274,15 @@ export function startMetricsServer(): boolean {
     });
 
     server.listen(METRICS_PORT, () => {
-      console.error(`[metrics] Prometheus metrics server listening on :${METRICS_PORT}/metrics`);
+      console.error(
+        `[metrics] Prometheus metrics server listening on :${METRICS_PORT}/metrics`,
+      );
     });
 
     return true;
   } catch (err) {
     console.error(
-      `[metrics] Failed to start metrics server: ${err instanceof Error ? err.message : err}`
+      `[metrics] Failed to start metrics server: ${err instanceof Error ? err.message : err}`,
     );
     return false;
   }
@@ -276,7 +313,9 @@ export function stopMetricsServer(): Promise<void> {
  * keeper process imports and uses the exported record* functions.
  */
 async function main(): Promise<void> {
-  console.error(`[metrics] Starting standalone metrics server on port ${METRICS_PORT}`);
+  console.error(
+    `[metrics] Starting standalone metrics server on port ${METRICS_PORT}`,
+  );
   startMetricsServer();
 
   // Keep the process alive. In standalone mode the metrics just reflect
@@ -297,7 +336,9 @@ async function main(): Promise<void> {
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
   main().catch((err) => {
-    console.error(`[metrics] Fatal: ${err instanceof Error ? err.message : err}`);
+    console.error(
+      `[metrics] Fatal: ${err instanceof Error ? err.message : err}`,
+    );
     process.exit(1);
   });
 }

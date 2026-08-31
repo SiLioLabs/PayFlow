@@ -86,6 +86,29 @@ export interface ForecastReport {
  * Validate a single subscription snapshot.  Returns an error string on
  * invalid input, or null when the snapshot is valid.
  */
+async function simulate(
+  method: string,
+  ...args: xdr.ScVal[]
+): Promise<xdr.ScVal | null> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call(method, ...args))
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) throw new Error(`${method}: ${result.error}`);
+    return result.result?.retval ?? null;
+  } catch (err) {
+    console.error(
+      `[warn] simulate ${method} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
 export function validateSnapshot(s: SubscriptionSnapshot): string | null {
   if (!s || typeof s !== "object") {
     return "snapshot is not an object";
@@ -149,6 +172,28 @@ export function safeStdDev(values: number[]): number {
  * Returns the differences in seconds between consecutive entries.
  * Filters out zero or negative gaps (which would indicate duplicate/bad data).
  */
+async function getSubscriberPage(
+  offset: bigint,
+  limit: number,
+): Promise<string[]> {
+  const retval = await simulate(
+    "get_subscriber_page",
+    xdr.ScVal.scvU64(new xdr.Uint64(offset)),
+    xdr.ScVal.scvU32(limit),
+  );
+  if (!retval || retval.switch().name === "scvVoid") return [];
+
+  const vec = retval.vec();
+  if (!vec) return [];
+  return vec.map((v: xdr.ScVal) => decodeAddress(v));
+}
+
+// ── Forecast Logic ──────────────────────────────────────────────────────────
+
+interface DailyBucket {
+  date: string; // YYYY-MM-DD
+  count: number;
+  totalVolumeStroops: bigint;
 export function computeIntervals(timestamps: number[]): number[] {
   if (timestamps.length < 2) return [];
   const gaps: number[] = [];
@@ -234,6 +279,32 @@ export function forecastSubscription(sub: SubscriptionSnapshot): ForecastEntry {
     return { ...base, next_renewal: null, confidence_band: null, reason: "invalid_anchor_timestamp" };
   }
 
+// ── Output ────────────────────────────────────────────────────────────────────
+
+/** Build a ForecastResult from raw daily buckets */
+function buildResult(
+  buckets: Map<string, DailyBucket>,
+  startDate: string,
+  endDate: string,
+  activeCount: number,
+): ForecastResult {
+  const allDates = dateRange(startDate, endDate);
+  const daily = allDates.map((date) => {
+    const bucket = buckets.get(date);
+    return {
+      date,
+      count: bucket?.count ?? 0,
+      totalVolumeXlm: bucket
+        ? stroopsToXlm(bucket.totalVolumeStroops)
+        : "0.0000000",
+    };
+  });
+
+  const totalCharges = daily.reduce((sum, d) => sum + d.count, 0);
+  const totalVolume = daily.reduce(
+    (sum, d) => sum + (buckets.get(d.date)?.totalVolumeStroops ?? 0n),
+    0n,
+  );
   const predicted = anchor + meanInterval;
 
   // Confidence band: ±1 std-dev; clamp to at least ±10% of the interval
@@ -303,6 +374,13 @@ export function forecastRenewals(subs: SubscriptionSnapshot[]): ForecastReport {
   };
 }
 
+function printSummary(result: ForecastResult): void {
+  console.error(
+    `\nSummary: ${result.totalActiveSubscribers} active subscribers, ` +
+      `${result.totalProjectedCharges} projected charges, ` +
+      `${result.totalVolumeXlm} XLM over ${result.forecastDays} days ` +
+      `(${result.forecastStart} → ${result.forecastEnd})`,
+  );
 // ── CLI helpers ──────────────────────────────────────────────────────────────
 
 function getArg(flag: string): string | undefined {
@@ -331,6 +409,22 @@ function main(): void {
       console.error("Use --db <path> or --stdin to specify input.");
       process.exit(1);
     }
+  }
+
+  // Validate required env
+  if (!CONTRACT_ID) {
+    console.error("Error: CONTRACT_ID environment variable is required.");
+    console.error(
+      "Usage: CONTRACT_ID=your_contract_id tsx scripts/renewal-forecast.ts",
+    );
+    process.exit(1);
+  }
+
+  console.error(
+    `Forecasting ${days} days of renewals for contract ${CONTRACT_ID}...`,
+  );
+
+  // ── Step 1: Compute forecast window ──────────────────────────────────────
     console.error("Error: No input specified. Use --db <path> or --stdin.");
     console.error("Usage: npx tsx scripts/renewal-forecast.ts [--db <path>] [--stdin] [--json] [--out <file>]");
     process.exit(1);
@@ -357,12 +451,22 @@ function main(): void {
     process.exit(1);
   }
 
+    // Fetch subscription details in parallel for each address in the page
+    const results = await Promise.all(
+      page.map((addr) => getSubscription(addr)),
+    );
   const report = forecastRenewals(snapshots);
 
   const output = jsonMode || outFile
     ? JSON.stringify(report, null, 2)
     : formatHumanReadable(report);
 
+    // Advance by page size, not returned count — contract skips pruned slots
+    // in the scan window but the window always covers `limit` index positions.
+    offset += BigInt(PAGE_SIZE);
+    console.error(
+      `  Scanned through ${offset < totalSubscribers ? offset : totalSubscribers}/${totalSubscribers} slots (${activeSubs.length} active so far)...`,
+    );
   if (outFile) {
     writeFileSync(outFile, output);
     console.error(`Wrote forecast to ${outFile}`);
@@ -395,6 +499,13 @@ function formatHumanReadable(report: ForecastReport): string {
     inactive: [],
   };
 
+  if (activeSubs.length === 0) {
+    const emptyResult = buildResult(new Map(), todayDate, forecastEndDate, 0);
+    const output =
+      format === "json" ? formatJson(emptyResult) : formatCsv(emptyResult);
+    if (outPath) {
+      writeFileSync(outPath, output);
+      console.error(`Wrote forecast to ${outPath}`);
   for (const f of report.forecasts) {
     if (!f.next_renewal) {
       if (f.reason === "subscription_inactive") grouped.inactive.push(f);
@@ -444,6 +555,13 @@ function formatHumanReadable(report: ForecastReport): string {
   return lines.join("\n");
 }
 
+  const result = buildResult(
+    buckets,
+    todayDate,
+    forecastEndDate,
+    activeSubs.length,
+  );
+  const output = format === "json" ? formatJson(result) : formatCsv(result);
 // Only run main() when THIS file is the entry point (not when imported for testing)
 const _thisFile = basename(fileURLToPath(import.meta.url));
 const _entryFile = basename(process.argv[1] ?? "");
