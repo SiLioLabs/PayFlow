@@ -23,6 +23,7 @@ mod subscription_count;
 mod subscription_history;
 mod subscription_metadata;
 mod test;
+mod test_migration;
 mod trial;
 mod upgrade;
 mod validation;
@@ -348,53 +349,45 @@ impl FlowPay {
         }
     }
 
+    /// Dry-run estimate of a `batch_charge` call.  Returns one `ChargeResult`
+    /// per input user using the same decision logic as the live path, but
+    /// **never** performs state writes, token transfers, or fee collection.
+    ///
+    /// Share one precheck with `simulate_charge`: both callers route through
+    /// `charge_exec::dry_run_skip_precheck` so they agree on skip/pause/grace/
+    /// inactive/not-due outcomes.  See the design-comment block in
+    /// `charge_exec.rs` at `DryRunSkipOutcome` for the full list of intentional
+    /// differences (return enums, allowance handling deferred to Issue 001,
+    /// etc.).
+    ///
+    /// Non-goals (Issue 005 scope boundaries — do NOT expand):
+    ///   * Allowance / InsufficientAllowance redesign → Issue 001.
+    ///   * Volume-cap precheck redesign → separate issue.
     pub fn get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
         if users.len() > 200 {
             env.panic_with_error(ContractError::BatchTooLarge);
         }
         let mut results: Vec<ChargeResult> = Vec::new(&env);
-        let now = env.ledger().timestamp();
-        let grace_period = grace::get_grace_period(&env);
 
         for user in users.iter() {
             let key = DataKey::Subscription(user.clone());
             let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
-            let result = match sub_opt {
-                None => ChargeResult::NoSubscription,
-                Some(mut sub) => {
-                    if sub.paused && charge_exec::try_auto_resume(&env, &user, &mut sub, now) {
-                        // Auto-resumed — fall through to allowance check below.
-                        // Re-run precheck on the now-active sub to be safe, then
-                        // mirror the same allowance check as the live batch path.
-                        match charge_exec::precheck_charge(&sub, now, grace_period) {
-                            Err(skip) => skip,
-                            Ok(()) => {
-                                if !validation::has_sufficient_allowance(
-                                    &env, &user, &sub.token, sub.amount,
-                                ) {
-                                    ChargeResult::AllowanceInsufficient
-                                } else {
-                                    ChargeResult::Charged
-                                }
-                            }
-                        }
-                    } else {
-                        match charge_exec::precheck_charge(&sub, now, grace_period) {
-                            Err(skip) => skip,
-                            Ok(()) => {
-                                if !validation::has_sufficient_allowance(
-                                    &env, &user, &sub.token, sub.amount,
-                                ) {
-                                    ChargeResult::AllowanceInsufficient
-                                } else {
-                                    ChargeResult::Charged
-                                }
-                            }
-                        }
-                    }
+            let (outcome, sub_after_precheck) =
+                charge_exec::dry_run_skip_precheck(&env, &user, sub_opt, true);
+
+            let result = if let charge_exec::DryRunSkipOutcome::ProceedToAllowance = outcome {
+                let sub = sub_after_precheck
+                    .expect("sub present when dry_run_precheck returns ProceedToAllowance");
+                if !validation::has_sufficient_allowance(&env, &user, &sub.token, sub.amount) {
+                    ChargeResult::AllowanceInsufficient
+                } else {
+                    ChargeResult::Charged
                 }
+            } else {
+                outcome.into_batch_result()
             };
+
             results.push_back(result);
         }
         results
@@ -508,6 +501,7 @@ impl FlowPay {
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         ensure_contract_not_paused(&env);
         let key = DataKey::Subscription(user.clone());
 
@@ -614,6 +608,7 @@ impl FlowPay {
     /// and daily spend tracking, and emits `pay_per_use`.
     pub fn pay_per_use(env: Env, user: Address, amount: i128) {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         pay_per_use_inner(&env, user, amount, None);
     }
 
@@ -641,6 +636,7 @@ impl FlowPay {
     /// and the user's daily spend tracking (shared with `pay_per_use`), and
     /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
     pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
+        migration::require_current_version(&env);
         pay_per_use_inner(&env, user, amount, Some(recipient));
     }
 
@@ -1193,7 +1189,9 @@ impl FlowPay {
     /// Sets the minimum allowed subscription interval in seconds.
     /// Only the contract admin can call this. Panics if seconds == 0.
     pub fn set_min_interval(env: Env, seconds: u64) {
-        assert!(seconds > 0, "min interval must be positive");
+        if seconds == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
         admin::require_admin(&env);
         min_interval::set_min_interval(&env, seconds);
     }
@@ -1422,6 +1420,7 @@ impl FlowPay {
     /// variant and do **not** abort the batch.
     pub fn batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
         bump_instance_ttl(&env);
+        migration::require_current_version(&env);
         ensure_contract_not_paused(&env);
         batch::batch_charge(&env, users)
     }
@@ -1813,6 +1812,12 @@ impl FlowPay {
         migration::get_schema_version(&env)
     }
 
+    /// Returns the schema version required before current-schema subscription
+    /// writes and charges are enabled. Migration is admin-driven and paginated.
+    pub fn require_current_schema(env: Env) {
+        migration::require_current_version(&env);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Subscription metadata
     // ─────────────────────────────────────────────────────────────
@@ -1916,6 +1921,7 @@ impl FlowPay {
     pub fn set_initial_admin(env: Env, admin: Address) {
         admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
+            env.panic_with_error(ContractError::AlreadyInitialized);
             env.panic_with_error(ContractError::AdminAlreadySet);
         }
         storage::set_admin(&env, &admin);
@@ -2302,6 +2308,12 @@ fn subscribe_inner(
     referrer: Option<Address>,
 ) {
     bump_instance_ttl(env);
+    // Invariant: refuse new subscription writes when the storage schema has not
+    // been fully migrated to the current version. After a WASM upgrade, the
+    // operator must call `migrate` (paged) for all existing subscribers before
+    // new blobs can be written, preventing mixed v1/v2/v3 storage states.
+    migration::require_current_version(env);
+    migration::require_current_version(env);
     validation::require_valid_subscribe_addresses(env, &user, &merchant);
     user.require_auth();
 
@@ -2320,7 +2332,7 @@ fn subscribe_inner(
         .get::<_, bool>(&DataKey::ContractPaused)
         .unwrap_or(false);
     if paused {
-        env.panic_with_error(ContractError::ContractPausedError);
+        env.panic_with_error(ContractError::ContractPaused);
     }
 
     validation::require_valid_amount(env, amount);
@@ -2429,3 +2441,4 @@ fn ensure_contract_not_paused(env: &Env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
+

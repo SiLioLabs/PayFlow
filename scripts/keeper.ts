@@ -54,6 +54,13 @@ import { buildOptimizedBatches } from "./batch-optimizer";
 import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import { buildOptimizedBatches } from "./batch-optimizer.js";
 import {
+  startMetricsServer,
+  recordBatchCharge,
+  recordChargeResults,
+  incrementCycles,
+  setActiveSubscribers,
+} from "./metrics-server";
+import {
   Address,
   Contract,
   Keypair,
@@ -232,6 +239,27 @@ function readJsonFile<T = unknown>(filePath: string): T | null {
     return JSON.parse(raw) as T;
   } catch {
     return null;
+  }
+}
+
+interface DlqEntry {
+  timestamp: string;
+  offset: number;
+  limit: number;
+  users: string[];
+  error: string;
+  tx_xdr: string | null;
+  attempts: number;
+  ledger?: number;
+}
+
+function writeDlqEntry(entry: DlqEntry): void {
+  const dlqFile = path.resolve(process.cwd(), process.env.DLQ_FILE || "dlq/failed-batches.jsonl");
+  try {
+    fs.mkdirSync(path.dirname(dlqFile), { recursive: true });
+    fs.appendFileSync(dlqFile, JSON.stringify(entry) + "\n", "utf8");
+  } catch (err) {
+    log(DRY_RUN, `WARNING: failed to write DLQ: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -635,14 +663,26 @@ async function processPageDryRun(
 
   if (users.length === 0) return result;
 
-  const { results, amounts } = await simulateBatchCharge(users);
+  const startMs = Date.now();
+  try {
+    const { results, amounts } = await simulateBatchCharge(users);
 
-  // results is index-aligned with users (same order, one entry per input).
-  let amountIdx = 0;
-  for (let i = 0; i < results.length; i++) {
-    const variant = results[i];
-    const user = i < users.length ? users[i] : "unknown";
+    // results is index-aligned with users (same order, one entry per input).
+    let amountIdx = 0;
+    for (let i = 0; i < results.length; i++) {
+      const variant = results[i];
+      const user = i < users.length ? users[i] : "unknown";
 
+      if (variant === "Charged") {
+        const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
+        result.wouldCharge++;
+        result.totalVolume += amt;
+        result.candidates.push({ user, result: variant, amountStroops: amt.toString() });
+        amountIdx++;
+      } else {
+        result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
+        result.candidates.push({ user, result: variant, amountStroops: "0" });
+      }
     if (variant === "Charged") {
       const amt = amountIdx < amounts.length ? amounts[amountIdx] : 0n;
       result.wouldCharge++;
@@ -657,6 +697,26 @@ async function processPageDryRun(
       result.skipCounts[variant] = (result.skipCounts[variant] || 0) + 1;
       result.candidates.push({ user, result: variant, amountStroops: "0" });
     }
+
+    const durationMs = Date.now() - startMs;
+    recordBatchCharge({
+      status: "success",
+      charged: result.wouldCharge,
+      skipped: users.length - result.wouldCharge,
+      durationMs,
+    });
+    recordChargeResults({ Charged: result.wouldCharge, ...result.skipCounts });
+  } catch (err) {
+    const durationMs = Date.now() - startMs;
+    recordBatchCharge({
+      status: "failed",
+      charged: 0,
+      skipped: 0,
+      durationMs,
+      rpcError: true,
+    });
+    const errorStr = err instanceof Error ? err.message : String(err);
+    result.errors.push(`Page ${pageOffset}: ${errorStr}`);
   }
 
   return result;
@@ -675,6 +735,8 @@ async function processPageLive(
   };
 
   if (users.length === 0) return result;
+
+  const startMs = Date.now();
 
   try {
     const { results, amounts, txHash } = await submitBatchCharge(users);
@@ -701,8 +763,45 @@ async function processPageLive(
         result.candidates.push({ user, result: variant, amountStroops: "0" });
       }
     }
+
+    const durationMs = Date.now() - startMs;
+    recordBatchCharge({
+      status: "success",
+      charged: result.charged,
+      skipped: users.length - result.charged,
+      durationMs,
+    });
+    recordChargeResults({ Charged: result.charged, ...result.skipCounts });
+
   } catch (err) {
-    result.errors.push(`Page ${pageOffset}: ${err}`);
+    const durationMs = Date.now() - startMs;
+    recordBatchCharge({
+      status: "failed",
+      charged: 0,
+      skipped: 0,
+      durationMs,
+      rpcError: true,
+    });
+
+    const errorStr = err instanceof Error ? err.message : String(err);
+    result.errors.push(`Page ${pageOffset}: ${errorStr}`);
+    let ledgerSeq: number | undefined;
+    try {
+      const { last_ledger } = await server.getFeeStats();
+      ledgerSeq = last_ledger;
+    } catch {
+      // ignore
+    }
+    writeDlqEntry({
+      timestamp: new Date().toISOString(),
+      offset: pageOffset,
+      limit: users.length,
+      users,
+      error: errorStr,
+      tx_xdr: null,
+      attempts: 0,
+      ledger: ledgerSeq,
+    });
   }
 
   return result;
@@ -785,6 +884,8 @@ async function runCycle(): Promise<CycleReport> {
   }
 
   // ── Post-cycle reporting ───────────────────────────────────────────────────
+
+  setActiveSubscribers(report.totalChecked);
 
   if (!isDryRun) {
     writeLatestLive(report);
@@ -1110,17 +1211,20 @@ async function main(): Promise<void> {
     log(false, "Keeper started in LIVE mode");
   }
 
+  startMetricsServer();
   BATCH_SIZE = await resolveBatchSize();
   log(DRY_RUN, `Effective legacy page size (BATCH_SIZE): ${BATCH_SIZE}`);
 
   if (once) {
     const report = await runCycle();
+    incrementCycles();
     process.exit(report.errors.length > 0 && report.totalCharged === 0 ? 1 : 0);
   }
 
   // Loop mode
   while (true) {
     const report = await runCycle();
+    incrementCycles();
     const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
     log(
       DRY_RUN,

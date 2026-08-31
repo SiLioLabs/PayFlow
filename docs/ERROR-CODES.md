@@ -43,15 +43,21 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 27   | `InvalidPauseExpiry`        | Validation   | Pause expiry not in future         |
 | 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
 | 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
-| 30   | `ContractPausedError`       | State        | Subscribe while paused             |
-| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid          |
+| 30   | `ContractPausedError` (deprecated) | Compatibility | Legacy paused code; never emitted |
+| 31   | *(reserved)*                | Reserved     | Historical gap; never emitted      |
+| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid           |
 | 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| 38   | `RefundMerchantMismatch`    | Validation   | Refund caller is not merchant     |
+| 39   | `RefundAmountMustBePositive`| Validation   | Prorated refund is zero           |
+| 40   | `InsufficientMerchantBalance`| Limit       | Merchant cannot fund refund       |
 | 41   | `CannotClearActiveSubscriber` | State      | Admin index repair of an active subscriber |
+| 42   | `SchemaMigrationRequired`   | State        | Migration required before writes |
+| 43   | `ResumeGraceLapsed`         | State        | Resume after grace period elapsed |
 
-> **Note:** Code `31` is intentionally unused. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 is intentionally reserved and has no enum variant in the published map. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
 ---
 
@@ -775,7 +781,7 @@ is not representable at all.
 
 | Codes     | Guidance                                                  |
 | --------- | --------------------------------------------------------- |
-| 7, 18, 30 | “Service temporarily unavailable.”                        |
+| 7, 18 | “Service temporarily unavailable.”                        |
 | 10        | “Merchant pending approval.”                              |
 | 28        | “Protocol capacity reached; try later.”                   |
 | 20, 29    | Operator/config bugs — log to telemetry, don’t blame user |

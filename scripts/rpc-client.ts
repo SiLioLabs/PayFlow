@@ -8,6 +8,7 @@ import {
   Networks,
 } from "@stellar/stellar-sdk";
 import { Server, Durability, Api } from "@stellar/stellar-sdk/rpc";
+import { incrementRpcFailovers } from "./metrics-server";
 
 /**
  * Interface representing state of a single RPC endpoint.
@@ -167,6 +168,7 @@ export class MultiEndpointServer {
         console.warn(
           `[RPC Failover] Endpoint ${failedUrl} failed: ${err?.message || err}. Retrying with ${nextUrl}...`,
         );
+        incrementRpcFailovers();
       }
     }
 

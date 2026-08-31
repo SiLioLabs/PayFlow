@@ -79,6 +79,14 @@ vi.mock("../components/Toast", () => ({
   default: () => <div data-testid="toast-container" />,
 }));
 
+vi.mock("../components/ReferralPanel", () => ({
+  default: ({ publicKey }: { publicKey: string | null }) => (
+    <div data-testid="referral-panel">
+      Referral: {publicKey || "not connected"}
+    </div>
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Valid Stellar addresses for tests (generated via Keypair.random())
 // ---------------------------------------------------------------------------
@@ -626,5 +634,184 @@ describe("SubscribeForm component — inline validation on blur", () => {
       expect(mockBuildSubscribeTx).toHaveBeenCalled();
       expect(onSign).toHaveBeenCalledWith("mock-xdr");
     });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Referral validation tests
+// ---------------------------------------------------------------------------
+
+describe("Referral field validation", () => {
+  it("allows empty referrer (optional field)", () => {
+    renderForm();
+    // Form should be submittable with all required fields filled but no referrer
+    const merchantInput = screen.getByTestId("merchant-input");
+    const amountInput = screen.getByTestId("amount-input");
+
+    fireEvent.change(merchantInput, { target: { value: VALID_MERCHANT } });
+    fireEvent.change(amountInput, { target: { value: "5" } });
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    expect(submitBtn).not.toBeDisabled();
+  });
+
+  it("allows valid referrer address", async () => {
+    renderForm();
+    const merchantInput = screen.getByTestId("merchant-input");
+    const amountInput = screen.getByTestId("amount-input");
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    await userEvent.type(merchantInput, VALID_MERCHANT);
+    await userEvent.type(amountInput, "5");
+    await userEvent.type(referrerInput, VALID_USER);
+    fireEvent.blur(referrerInput);
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    expect(submitBtn).not.toBeDisabled();
+
+    // No error message should appear for valid referrer
+    expect(screen.queryByTestId("referrer-error")).not.toBeInTheDocument();
+  });
+
+  it("blocks self-referral with error message", async () => {
+    renderForm({ userKey: VALID_USER });
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    await userEvent.type(referrerInput, VALID_USER);
+    fireEvent.blur(referrerInput);
+
+    await waitFor(() => {
+      const errorMsg = screen.getByTestId("referrer-error");
+      expect(errorMsg).toBeInTheDocument();
+      expect(errorMsg).toHaveTextContent(/cannot refer yourself/i);
+    });
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it("shows error for invalid referrer address format", async () => {
+    renderForm();
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    await userEvent.type(referrerInput, "INVALID_ADDRESS");
+    fireEvent.blur(referrerInput);
+
+    await waitFor(() => {
+      const errorMsg = screen.getByTestId("referrer-error");
+      expect(errorMsg).toBeInTheDocument();
+      expect(errorMsg).toHaveTextContent(/invalid stellar address format/i);
+    });
+  });
+
+  it("clears referrer error when user corrects the address", async () => {
+    renderForm();
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    // Type invalid address
+    await userEvent.type(referrerInput, "INVALID");
+    fireEvent.blur(referrerInput);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("referrer-error")).toBeInTheDocument();
+    });
+
+    // Clear and type valid address
+    await userEvent.clear(referrerInput);
+    await userEvent.type(referrerInput, VALID_USER);
+    fireEvent.blur(referrerInput);
+
+    // Error should be gone
+    await waitFor(() => {
+      expect(screen.queryByTestId("referrer-error")).not.toBeInTheDocument();
+    });
+  });
+
+  it("passes valid referrer to buildSubscribeTx on submit", async () => {
+    mockBuildSubscribeTx.mockResolvedValue("mock-xdr");
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    const onSuccess = vi.fn();
+
+    render(
+      <SubscribeForm
+        userKey={VALID_USER}
+        onSign={onSign}
+        onSuccess={onSuccess}
+      />
+    );
+
+    const merchantInput = screen.getByTestId("merchant-input");
+    const amountInput = screen.getByTestId("amount-input");
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    await userEvent.type(merchantInput, VALID_MERCHANT);
+    await userEvent.type(amountInput, "5");
+    await userEvent.type(referrerInput, VALID_USER);
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockBuildSubscribeTx).toHaveBeenCalled();
+      const call = mockBuildSubscribeTx.mock.calls[0];
+      // buildSubscribeTx(userKey, merchant, stroops, interval, token, referrer, metadata)
+      expect(call[5]).toBe(VALID_USER); // referrer should be passed
+    });
+  });
+
+  it("passes null referrer to buildSubscribeTx when referrer field is empty", async () => {
+    mockBuildSubscribeTx.mockResolvedValue("mock-xdr");
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    const onSuccess = vi.fn();
+
+    render(
+      <SubscribeForm
+        userKey={VALID_USER}
+        onSign={onSign}
+        onSuccess={onSuccess}
+      />
+    );
+
+    const merchantInput = screen.getByTestId("merchant-input");
+    const amountInput = screen.getByTestId("amount-input");
+
+    await userEvent.type(merchantInput, VALID_MERCHANT);
+    await userEvent.type(amountInput, "5");
+    // Don't type anything in referrerInput
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockBuildSubscribeTx).toHaveBeenCalled();
+      const call = mockBuildSubscribeTx.mock.calls[0];
+      // referrer should be null when empty
+      expect(call[5]).toBe(null);
+    });
+  });
+
+  it("trims whitespace from referrer before validation", async () => {
+    renderForm();
+    const referrerInput = screen.getByTestId("referrer-input");
+
+    await userEvent.type(referrerInput, `  ${VALID_USER}  `);
+    fireEvent.blur(referrerInput);
+
+    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
+    expect(submitBtn).not.toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ReferralPanel integration tests
+// ---------------------------------------------------------------------------
+
+describe("ReferralPanel integration", () => {
+  it("renders ReferralPanel with user's public key", () => {
+    renderForm({ userKey: VALID_USER });
+    const panel = screen.getByTestId("referral-panel");
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveTextContent(VALID_USER);
   });
 });
