@@ -49,7 +49,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { EventDedupCache, type DedupStats } from "./event-dedup.js";
 import { recordIndexerDedupStats } from "./metrics-server.js";
 
@@ -366,7 +366,7 @@ export function indexEvents(
 
 // ── Polling Loop ──────────────────────────────────────────────────────────────
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 
 /** Unique events processed since the last dedup-stats log/metrics snapshot. */
 let eventsSinceLastStatsLog = 0;
