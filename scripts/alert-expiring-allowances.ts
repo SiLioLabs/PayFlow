@@ -1,28 +1,31 @@
 #!/usr/bin/env tsx
 /**
- * alert-expiring-allowances.ts — Proactive alerting for soon-to-expire token allowances
+ * alert-expiring-allowances.ts — Proactive alerting for soon-to-expire token
+ * allowances.
  *
- * Checks each subscriber's token allowance expiry ledger. Subscribers whose
+ * Checks each subscriber's token allowance expiry ledger.  Subscribers whose
  * allowance will expire within ALERT_WINDOW_LEDGERS (default 17280 ≈ 24 h at
- * ~5 s/ledger) are included in the report.
+ * ~5 s/ledger) are included in the report.  Checks run concurrently under a
+ * configurable cap; transient RPC errors are retried with exponential backoff.
  *
  * Usage:
- *   tsx alert-expiring-allowances.ts [--file subscribers.txt] [--dry-run] [address1 ...]
+ *   tsx alert-expiring-allowances.ts [--file subscribers.txt] [--dry-run] [addr ...]
  *
  * Environment variables:
  *   CONTRACT_ID           Required. Deployed FlowPay contract ID.
- *   RPC_URL               Optional. Soroban RPC endpoint (default: testnet).
- *   NETWORK_PASSPHRASE    Optional. Network passphrase (default: testnet).
- *   ALERT_WINDOW_LEDGERS  Optional. Ledgers ahead to consider "expiring soon"
- *                         (default: 17280 ≈ 24 h).
- *   WEBHOOK_URL           Optional. POST the JSON report here if set.
+ *   RPC_URL               Soroban RPC endpoint (default: testnet).
+ *   NETWORK_PASSPHRASE    Network passphrase (default: testnet).
+ *   ALERT_WINDOW_LEDGERS  Ledgers ahead to consider "expiring soon" (default: 17280).
+ *   WEBHOOK_URL           POST the JSON report here if set.
+ *   CONCURRENCY           Max simultaneous RPC calls (default: 5).
+ *   MAX_RETRIES           Retry attempts per transient error (default: 3).
+ *   RETRY_BASE_MS         Base backoff delay in ms (default: 300).
  *
  * Exit codes:
  *   0 — no expiring allowances found (or dry-run with none found)
- *   1 — one or more allowances are expiring within the alert window
+ *   1 — one or more allowances expiring within the alert window
  */
 
-import { Server } from "@stellar/stellar-sdk/rpc";
 import {
   Contract,
   Networks,
@@ -33,11 +36,18 @@ import {
   xdr,
   Account,
 } from "@stellar/stellar-sdk";
+import { MultiEndpointServer } from "./rpc-client.js";
+import {
+  withRetry,
+  runConcurrent,
+  type ExpiryEntry,
+  type ExpiryAlertReport,
+} from "./allowance-utils.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
   Networks.TESTNET) as string;
 const ALERT_WINDOW_LEDGERS = parseInt(
@@ -45,6 +55,12 @@ const ALERT_WINDOW_LEDGERS = parseInt(
   10,
 );
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY ?? "5", 10));
+const MAX_RETRIES = Math.max(0, parseInt(process.env.MAX_RETRIES ?? "3", 10));
+const RETRY_BASE_MS = Math.max(
+  0,
+  parseInt(process.env.RETRY_BASE_MS ?? "300", 10),
+);
 
 if (!CONTRACT_ID) {
   console.error("Error: CONTRACT_ID environment variable is required.");
@@ -54,10 +70,10 @@ if (!CONTRACT_ID) {
   process.exit(1);
 }
 
-/** A stable dummy source used for read-only simulations (no funds needed). */
+/** Stable dummy source account for read-only simulations. */
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 const FlowPayAddress = Address.fromString(CONTRACT_ID);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -69,29 +85,6 @@ interface Subscription {
   token: string;
   active: boolean;
   paused: boolean;
-}
-
-/**
- * Per-subscriber expiry report entry.
- * Emitted in the JSON report and sent to the webhook (if configured).
- */
-export interface ExpiryEntry {
-  address: string;
-  merchant: string;
-  allowance_amount: string;
-  /** Ledger sequence number at which the allowance expires (0 = no expiry set). */
-  expires_at_ledger: number;
-  ledgers_remaining: number;
-}
-
-/** Top-level report posted to the webhook and/or printed to stdout. */
-interface AlertReport {
-  generated_at: string;
-  contract: string;
-  current_ledger: number;
-  alert_window_ledgers: number;
-  expiring_count: number;
-  expiring: ExpiryEntry[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,10 +122,13 @@ Environment variables:
   NETWORK_PASSPHRASE    Network passphrase (default: Test SDF Network ; September 2015)
   ALERT_WINDOW_LEDGERS  Ledgers ahead to flag as expiring (default: 17280 ≈ 24 h)
   WEBHOOK_URL           If set, POST the JSON report to this URL
+  CONCURRENCY           Max simultaneous RPC calls (default: 5)
+  MAX_RETRIES           Retry attempts per transient error (default: 3)
+  RETRY_BASE_MS         Base backoff delay in ms (default: 300)
 
 Exit codes:
   0  No allowances expiring within the alert window
-  1  One or more allowances expiring soon (or webhook returned non-2xx)
+  1  One or more allowances expiring soon
 
 Examples:
   CONTRACT_ID=CD123... tsx alert-expiring-allowances.ts GXYZ... GABC...
@@ -148,120 +144,147 @@ Examples:
 
 /**
  * Fetches the subscription record for `user` from the FlowPay contract.
- * Returns null if the user has no subscription or on any RPC error.
+ * Retries on transient RPC failures. Returns null on no subscription or after
+ * exhausting retries.
  */
-async function getSubscription(user: string): Promise<Subscription | null> {
-  try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
-      fee: BASE_FEE,
-      networkPassphrase: NETWORK_PASSPHRASE,
-    })
-      .addOperation(contract.call("get_subscription", addressVal(user)))
-      .setTimeout(30)
-      .build();
+export async function getSubscription(
+  user: string,
+  opts?: { maxRetries?: number; baseDelayMs?: number },
+): Promise<Subscription | null> {
+  return withRetry(
+    async () => {
+      const contract = new Contract(CONTRACT_ID);
+      const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_subscription", addressVal(user)))
+        .setTimeout(30)
+        .build();
 
-    const result = await server.simulateTransaction(tx);
-    if ("error" in result) return null;
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
 
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
-      ?.retval;
-    if (!retval || retval.switch().name === "scvVoid") return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result
+        ?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
 
-    const fields: Record<string, unknown> = {};
-    for (const entry of retval.map() ?? []) {
-      const key = entry.key().sym().toString();
-      const val = entry.val();
-      switch (key) {
-        case "amount":
-          fields[key] = BigInt(val.i128().toString());
-          break;
-        case "token":
-          fields[key] = Address.fromScVal(val).toString();
-          break;
-        case "merchant":
-          fields[key] = Address.fromScVal(val).toString();
-          break;
-        case "active":
-          fields[key] = val.b();
-          break;
-        case "paused":
-          fields[key] = val.b();
-          break;
+      const fields: Record<string, unknown> = {};
+      for (const entry of retval.map() ?? []) {
+        const key = entry.key().sym().toString();
+        const val = entry.val();
+        switch (key) {
+          case "amount":
+            fields[key] = BigInt(val.i128().toString());
+            break;
+          case "token":
+            fields[key] = Address.fromScVal(val).toString();
+            break;
+          case "merchant":
+            fields[key] = Address.fromScVal(val).toString();
+            break;
+          case "active":
+            fields[key] = val.b();
+            break;
+          case "paused":
+            fields[key] = val.b();
+            break;
+        }
       }
-    }
 
-    if (
-      fields.amount === undefined ||
-      fields.token === undefined ||
-      fields.merchant === undefined
-    ) {
-      return null;
-    }
+      if (
+        fields.amount === undefined ||
+        fields.token === undefined ||
+        fields.merchant === undefined
+      ) {
+        return null;
+      }
 
-    return {
-      merchant: fields.merchant as string,
-      amount: fields.amount as bigint,
-      token: fields.token as string,
-      active: (fields.active as boolean | undefined) ?? false,
-      paused: (fields.paused as boolean | undefined) ?? false,
-    };
-  } catch {
+      return {
+        merchant: fields.merchant as string,
+        amount: fields.amount as bigint,
+        token: fields.token as string,
+        active: (fields.active as boolean | undefined) ?? false,
+        paused: (fields.paused as boolean | undefined) ?? false,
+      };
+    },
+    {
+      maxRetries: opts?.maxRetries ?? MAX_RETRIES,
+      baseDelayMs: opts?.baseDelayMs ?? RETRY_BASE_MS,
+      onRetry: (attempt, err) =>
+        console.error(
+          `[alert-expiring] getSubscription retry ${attempt} for ${user}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    },
+  ).catch((err) => {
+    console.error(
+      `[alert-expiring] getSubscription failed after retries for ${user}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
-  }
+  });
 }
 
 /**
  * Returns the current allowance amount that the FlowPay contract is approved
  * to spend on behalf of `owner` for token `tokenId`.
+ * Retries on transient RPC failures.
  */
-async function getAllowanceAmount(
+export async function getAllowanceAmount(
   owner: string,
   tokenId: string,
+  opts?: { maxRetries?: number; baseDelayMs?: number },
 ): Promise<bigint> {
-  try {
-    const tokenContract = new Contract(tokenId);
-    const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
-      fee: BASE_FEE,
-      networkPassphrase: NETWORK_PASSPHRASE,
-    })
-      .addOperation(
-        tokenContract.call(
-          "allowance",
-          addressVal(owner),
-          nativeToScVal(FlowPayAddress, { type: "address" }),
+  return withRetry(
+    async () => {
+      const tokenContract = new Contract(tokenId);
+      const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(
+          tokenContract.call(
+            "allowance",
+            addressVal(owner),
+            nativeToScVal(FlowPayAddress, { type: "address" }),
+          ),
+        )
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return 0n;
+
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result
+        ?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return 0n;
+
+      return BigInt(retval.i128().toString());
+    },
+    {
+      maxRetries: opts?.maxRetries ?? MAX_RETRIES,
+      baseDelayMs: opts?.baseDelayMs ?? RETRY_BASE_MS,
+      onRetry: (attempt, err) =>
+        console.error(
+          `[alert-expiring] getAllowanceAmount retry ${attempt} for ${owner}: ${err instanceof Error ? err.message : String(err)}`,
         ),
-      )
-      .setTimeout(30)
-      .build();
-
-    const result = await server.simulateTransaction(tx);
-    if ("error" in result) return 0n;
-
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
-      ?.retval;
-    if (!retval || retval.switch().name === "scvVoid") return 0n;
-
-    return BigInt(retval.i128().toString());
-  } catch {
+    },
+  ).catch((err) => {
+    console.error(
+      `[alert-expiring] getAllowanceAmount failed after retries for ${owner}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 0n;
-  }
+  });
 }
 
 /**
  * Builds the ledger key for the allowance entry stored in a SEP-41 / SAC token
- * contract. Allowances are stored as Temporary ContractData with a Map key of
- * the form `{ "from": Address, "spender": Address }`.
- *
- * The `liveUntilLedgerSeq` of this entry is the expiry ledger.
+ * contract.  The `liveUntilLedgerSeq` of this entry is the expiry ledger.
  */
 function buildAllowanceLedgerKey(
   tokenId: string,
   owner: string,
   spender: string,
 ): xdr.LedgerKey {
-  // The SEP-41 / Stellar Asset Contract stores allowances as a Temporary
-  // ContractData entry keyed by a ScMap:  { "from": owner, "spender": spender }
   const mapKey = xdr.ScVal.scvMap([
     new xdr.ScMapEntry({
       key: xdr.ScVal.scvSymbol("from"),
@@ -283,29 +306,41 @@ function buildAllowanceLedgerKey(
 }
 
 /**
- * Returns the `liveUntilLedgerSeq` for the allowance ledger entry, or 0 if the
- * entry doesn't exist (meaning no expiry / zero allowance).
+ * Returns the `liveUntilLedgerSeq` for the allowance ledger entry, or 0 if
+ * the entry doesn't exist.  Retries on transient RPC failures.
  */
-async function getAllowanceExpiryLedger(
+export async function getAllowanceExpiryLedger(
   tokenId: string,
   owner: string,
   spender: string,
+  opts?: { maxRetries?: number; baseDelayMs?: number },
 ): Promise<number> {
-  try {
-    const ledgerKey = buildAllowanceLedgerKey(tokenId, owner, spender);
-    const response = await server.getLedgerEntries(ledgerKey);
+  return withRetry(
+    async () => {
+      const ledgerKey = buildAllowanceLedgerKey(tokenId, owner, spender);
+      const response = await server.getLedgerEntries(ledgerKey);
 
-    if (!response.entries || response.entries.length === 0) return 0;
+      if (!response.entries || response.entries.length === 0) return 0;
 
-    const entry = response.entries[0];
-    // liveUntilLedgerSeq is the last ledger the entry is live on.
-    // The field is named liveUntilLedgerSeq in the SDK response object.
-    const liveUntil = (entry as { liveUntilLedgerSeq?: number })
-      .liveUntilLedgerSeq;
-    return typeof liveUntil === "number" ? liveUntil : 0;
-  } catch {
+      const entry = response.entries[0];
+      const liveUntil = (entry as { liveUntilLedgerSeq?: number })
+        .liveUntilLedgerSeq;
+      return typeof liveUntil === "number" ? liveUntil : 0;
+    },
+    {
+      maxRetries: opts?.maxRetries ?? MAX_RETRIES,
+      baseDelayMs: opts?.baseDelayMs ?? RETRY_BASE_MS,
+      onRetry: (attempt, err) =>
+        console.error(
+          `[alert-expiring] getAllowanceExpiryLedger retry ${attempt} for ${owner}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    },
+  ).catch((err) => {
+    console.error(
+      `[alert-expiring] getAllowanceExpiryLedger failed after retries for ${owner}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 0;
-  }
+  });
 }
 
 // ── Core Logic ────────────────────────────────────────────────────────────────
@@ -314,17 +349,13 @@ async function getAllowanceExpiryLedger(
  * Checks a single subscriber and returns an ExpiryEntry if their allowance is
  * expiring within the alert window, or null otherwise.
  *
- * Skips:
- *  - Invalid addresses
- *  - Subscribers with no active subscription
- *  - Allowances with no expiry set (liveUntil = 0)
- *  - Allowances that are still healthy (ledgers_remaining > ALERT_WINDOW_LEDGERS)
+ * Skips: invalid addresses, no active subscription, no expiry set,
+ * allowances with more than ALERT_WINDOW_LEDGERS remaining.
  */
-async function checkSubscriber(
+export async function checkSubscriber(
   address: string,
   currentLedger: number,
 ): Promise<ExpiryEntry | null> {
-  // Validate the G-address format
   try {
     Address.fromString(address);
   } catch {
@@ -333,9 +364,7 @@ async function checkSubscriber(
   }
 
   const sub = await getSubscription(address);
-  if (!sub) return null; // No subscription — nothing to alert on
-
-  // Paused or inactive subscribers won't be charged, so skip them.
+  if (!sub) return null;
   if (!sub.active || sub.paused) return null;
 
   const [allowanceAmount, expiresAtLedger] = await Promise.all([
@@ -343,11 +372,9 @@ async function checkSubscriber(
     getAllowanceExpiryLedger(sub.token, address, CONTRACT_ID),
   ]);
 
-  // No expiry set — this allowance never expires, skip it.
   if (expiresAtLedger === 0) return null;
 
   const ledgersRemaining = Math.max(0, expiresAtLedger - currentLedger);
-
   if (ledgersRemaining > ALERT_WINDOW_LEDGERS) return null;
 
   return {
@@ -363,13 +390,12 @@ async function checkSubscriber(
 
 /**
  * POSTs the report as JSON to WEBHOOK_URL.
- *
- * Logs the HTTP status on success, logs the error on failure.
- * Does NOT throw — callers rely on the exit code, not exceptions here.
- *
- * @returns true if the webhook was delivered with a 2xx status, false otherwise.
+ * Returns true on HTTP 2xx, false otherwise. Never throws.
  */
-async function sendWebhook(url: string, report: AlertReport): Promise<boolean> {
+async function sendWebhook(
+  url: string,
+  report: ExpiryAlertReport,
+): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -377,16 +403,13 @@ async function sendWebhook(url: string, report: AlertReport): Promise<boolean> {
       body: JSON.stringify(report),
     });
     if (response.ok) {
-      console.error(
-        `Webhook delivered successfully (HTTP ${response.status}).`,
-      );
+      console.error(`Webhook delivered successfully (HTTP ${response.status}).`);
       return true;
-    } else {
-      console.error(
-        `Webhook returned non-2xx response: HTTP ${response.status} ${response.statusText}`,
-      );
-      return false;
     }
+    console.error(
+      `Webhook returned non-2xx response: HTTP ${response.status} ${response.statusText}`,
+    );
+    return false;
   } catch (err) {
     console.error(`Webhook delivery failed: ${err}`);
     return false;
@@ -418,15 +441,11 @@ async function main(): Promise<void> {
     }
   }
 
-  if (cliAddresses.length === 0 && !filePath) {
-    showHelp();
-  }
+  if (cliAddresses.length === 0 && !filePath) showHelp();
 
-  // Collect all addresses
   const allAddresses = [...cliAddresses];
   if (filePath) {
-    const fileAddresses = await readAddressesFromFile(filePath);
-    allAddresses.push(...fileAddresses);
+    allAddresses.push(...(await readAddressesFromFile(filePath)));
   }
 
   if (allAddresses.length === 0) {
@@ -444,19 +463,35 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Check each subscriber sequentially to avoid hammering the RPC endpoint.
+  console.error(
+    `Checking ${allAddresses.length} subscriber(s) — concurrency=${CONCURRENCY}, maxRetries=${MAX_RETRIES}, window=${ALERT_WINDOW_LEDGERS} ledgers`,
+  );
+
+  // Run all checks concurrently under the configured cap.
+  const rawResults = await runConcurrent(
+    allAddresses.map(
+      (addr) => () => checkSubscriber(addr, currentLedger),
+    ),
+    CONCURRENCY,
+  );
+
+  // Collect non-null entries; log batch-level errors but don't abort.
   const expiring: ExpiryEntry[] = [];
-  for (const addr of allAddresses) {
-    const entry = await checkSubscriber(addr, currentLedger);
-    if (entry !== null) {
-      expiring.push(entry);
+  for (let i = 0; i < rawResults.length; i++) {
+    const r = rawResults[i];
+    if (r instanceof Error) {
+      console.error(
+        `Unexpected error for ${allAddresses[i]}: ${r.message}`,
+      );
+    } else if (r !== null) {
+      expiring.push(r);
     }
   }
 
-  // Sort by ledgers_remaining ascending (most urgent first).
+  // Sort by urgency (fewest ledgers remaining first).
   expiring.sort((a, b) => a.ledgers_remaining - b.ledgers_remaining);
 
-  const report: AlertReport = {
+  const report: ExpiryAlertReport = {
     generated_at: new Date().toISOString(),
     contract: CONTRACT_ID,
     current_ledger: currentLedger,
@@ -465,8 +500,8 @@ async function main(): Promise<void> {
     expiring,
   };
 
-  // Always print the report to stdout.
-  console.log(JSON.stringify(report, null, 2));
+  // Always print the JSON report to stdout.
+  process.stdout.write(JSON.stringify(report, null, 2) + "\n");
 
   if (expiring.length === 0) {
     console.error(
@@ -479,13 +514,8 @@ async function main(): Promise<void> {
     `${expiring.length} allowance(s) expiring within ${ALERT_WINDOW_LEDGERS} ledgers.`,
   );
 
-  // Send webhook unless --dry-run is set.
   if (WEBHOOK_URL && !dryRun) {
-    const delivered = await sendWebhook(WEBHOOK_URL, report);
-    // Exit 1 regardless of webhook success — the expiring allowances are the signal.
-    if (!delivered) {
-      // Already logged the error inside sendWebhook; still exit 1 below.
-    }
+    await sendWebhook(WEBHOOK_URL, report);
   } else if (dryRun) {
     console.error("Dry-run mode: webhook not sent.");
   } else if (!WEBHOOK_URL) {

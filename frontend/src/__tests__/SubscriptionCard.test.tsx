@@ -63,11 +63,18 @@ vi.mock("../hooks/useSubscriptionSync", () => ({
   }),
 }));
 
+const { mockPause, mockPauseUntil } = vi.hoisted(() => ({
+  mockPause: vi.fn(),
+  mockPauseUntil: vi.fn(),
+}));
+
 vi.mock("../hooks/usePauseResume", () => ({
   usePauseResume: () => ({
-    pause: vi.fn(),
+    pause: mockPause,
+    pauseUntil: mockPauseUntil,
     resume: vi.fn(),
     pauseTx: { state: "idle", error: null },
+    pauseUntilTx: { state: "idle", error: null },
     resumeTx: { state: "idle", error: null },
   }),
 }));
@@ -677,6 +684,52 @@ describe("SubscriptionCard", () => {
       );
       expect(screen.queryByRole("button", { name: /^pause$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Bounded pause (pause_until)", () => {
+    it("shows a validation error and does not call pauseUntil when no date is chosen", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+
+      expect(screen.getByTestId("pause-until-error")).toBeInTheDocument();
+      expect(mockPauseUntil).not.toHaveBeenCalled();
+    });
+
+    it("calls pauseUntil with the chosen future expiry (Unix seconds)", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+
+      const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const localValue = future.toISOString().slice(0, 16);
+      const input = screen.getByTestId("pause-until-input");
+      await userEvent.type(input, localValue);
+
+      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+
+      expect(mockPauseUntil).toHaveBeenCalledTimes(1);
+      const expiryArg = mockPauseUntil.mock.calls[0][0] as bigint;
+      expect(typeof expiryArg).toBe("bigint");
+      expect(expiryArg).toBeGreaterThan(BigInt(Math.floor(Date.now() / 1000)));
     });
   });
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, forwardRef } from "react";
+import React, { useState, useEffect, forwardRef } from "react";
 import Spinner from "./Spinner";
 import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
 import { useDebounce } from "../hooks/useDebounce";
@@ -66,6 +67,8 @@ function validate(
 }
 
 const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
+  ({ onPay, loading, isPaused = false, disabled = false, disabledReason, warningReason }, ref) => {
+    const { unit } = useAmountDisplay();
   (
     {
       onPay,
@@ -137,6 +140,11 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
 
     const isFormValid = convertedStroops !== null && !error;
 
+    const payDisabled = loading || isPaused || disabled;
+
+    async function handleSubmit() {
+      if (!isFormValid || payDisabled) return;
+      await onPay(convertedStroops);
     const validationResult = useMemo(() => {
       return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
     }, [amount]);
