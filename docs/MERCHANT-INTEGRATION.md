@@ -446,6 +446,43 @@ For a continuous terminal watcher:
 npx tsx scripts/watch-events.ts
 ```
 
+### 4.2 Webhook Notifications
+
+`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks.
+
+#### Configuration
+Set the following environment variables (e.g. in `scripts/.env`):
+* `WEBHOOK_URL`: The HTTP POST endpoint of your server.
+* `WEBHOOK_SECRET`: A shared secret string used to sign request bodies.
+* `WEBHOOK_DLQ_FILE`: Optional path to write failed deliveries after retry exhaustion (default: `data/webhook-dlq.jsonl`).
+
+#### Signature Verification
+Each request is signed with a deterministic HMAC-SHA256 signature calculated over the exact raw JSON request body bytes using `WEBHOOK_SECRET` as the key. The signature is sent as a hexadecimal string in the `X-PayFlow-Signature` header.
+
+To verify a webhook delivery:
+1. Read the raw request body buffer.
+2. Compute the HMAC-SHA256 hash using your configured shared secret.
+3. Compare the computed signature to the value in the `X-PayFlow-Signature` header using constant-time comparison.
+
+Example verification in Node.js:
+```typescript
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyWebhook(body: string, secret: string, headerSignature: string): boolean {
+  const computed = createHmac("sha256", secret).update(body).digest("hex");
+  const a = Buffer.from(computed);
+  const b = Buffer.from(headerSignature);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+#### Reliability & Retry Logic
+Webhook delivery handles network/server errors automatically:
+* **Transient errors** (HTTP 408, 429, 5xx, or network dropouts) are retried up to 5 times (6 attempts total) with exponential backoff.
+* The script respects the `Retry-After` header for rate-limiting (up to a maximum delay of 30 seconds).
+* **Permanent failures** (HTTP 4xx client errors) are aborted immediately without retry.
+* Failed payloads are logged to the Dead Letter Queue (DLQ) file without exposing the shared secret. Webhook failures do not disrupt the event polling daemon.
+
 ---
 
 ## 5. Withdrawing Revenue
@@ -580,16 +617,16 @@ The `recipient` address is the contract address itself. Both `pay_per_use_to` an
 
 ## 7. Related Docs
 
-| Doc                                                                         | Why                                                      |
-| --------------------------------------------------------------------------- | -------------------------------------------------------- |
-| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events              |
-| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)   |
-| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                   |
-| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on |
-| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                    |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                       |
-| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                  |
-| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                  |
-| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients               |
-| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance               |
+| Doc                                                                         | Why                                                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events                 |
+| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)      |
+| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                      |
+| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on    |
+| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                       |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                          |
+| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                     |
+| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
+| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
 | [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |

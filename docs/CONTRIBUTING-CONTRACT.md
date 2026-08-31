@@ -352,13 +352,13 @@ The full error reference is in [`docs/ERROR-CODES.md`](../docs/ERROR-CODES.md).
 
 Every new contract entrypoint must address these concerns before merging:
 
-| Concern | Requirement | Where to enforce |
-|---------|-------------|-----------------|
-| **Authorization** | Call `require_auth()` on every address that owns state or funds, before any mutation | `lib.rs` entry point |
-| **Validation** | Reject invalid amounts, intervals, addresses, and out-of-range values before any mutation | `validation.rs` or inline in the module |
-| **Errors** | Use a dedicated `ContractError` variant (sequential discriminant, doc comment) — never panic with a raw string | `errors.rs` |
-| **Events** | Emit a `publish_*` event from `events.rs` after all state writes succeed | `events.rs` + `lib.rs` |
-| **Tests** | Happy path, auth enforcement, precondition failure, state-after, and event assertion | `test.rs` |
+| Concern           | Requirement                                                                                                    | Where to enforce                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **Authorization** | Call `require_auth()` on every address that owns state or funds, before any mutation                           | `lib.rs` entry point                    |
+| **Validation**    | Reject invalid amounts, intervals, addresses, and out-of-range values before any mutation                      | `validation.rs` or inline in the module |
+| **Errors**        | Use a dedicated `ContractError` variant (sequential discriminant, doc comment) — never panic with a raw string | `errors.rs`                             |
+| **Events**        | Emit a `publish_*` event from `events.rs` after all state writes succeed                                       | `events.rs` + `lib.rs`                  |
+| **Tests**         | Happy path, auth enforcement, precondition failure, state-after, and event assertion                           | `test.rs`                               |
 
 This checklist is a summary of the detailed guidance in the sections above. Use it as a quick reminder during code review.
 

@@ -57,6 +57,7 @@ The PR should include:
 - PR note describing new ChargeResult semantics for `scripts/keeper.ts` consumers
 
 ---
+
 ---
 
 ## Issue 002: Enforce global volume cap before any SAC transfers
@@ -107,6 +108,7 @@ The PR should include:
 - Short security rationale in PR body
 
 ---
+
 ---
 
 ## Issue 003: Enforce MinFeeBps/MaxFeeBps inside propose_fee
@@ -157,6 +159,7 @@ The PR should include:
 - ERROR-CODES / API note if error surface changes
 
 ---
+
 ---
 
 ## Issue 004: Harden set_initial_admin with require_auth and typed errors
@@ -206,6 +209,7 @@ The PR should include:
 - Security note
 
 ---
+
 ---
 
 ## Issue 005: Align get_batch_charge_estimate skip outcomes with simulate_charge for existing ChargeResult reasons
@@ -255,6 +259,7 @@ The PR should include:
 
 - Shared precheck for existing skip reasons + parity tests
 - Comment block listing intentional differences and explicit non-goals (allowance)
+
 ---
 
 ## Issue 006: Preflight gross allowance before two-leg fee and net transfers
@@ -302,6 +307,7 @@ The PR should include:
 - Helper hardening + tests
 
 ---
+
 ---
 
 ## Issue 007: Resolve whitelist batch TODO by wiring configurable batch limits
@@ -352,6 +358,7 @@ The PR should include:
 - Design rationale
 
 ---
+
 ---
 
 ## Issue 008: Replace unwrap/unchecked arithmetic in trial, fee, and volume paths
@@ -399,6 +406,7 @@ The PR should include:
 - Safe math + tests
 
 ---
+
 ---
 
 ## Issue 009: Emit indexer-friendly events for non-success batch_charge outcomes
@@ -449,6 +457,7 @@ The PR should include:
 - Parser note for indexers
 
 ---
+
 ---
 
 ## Issue 010: Clarify and correct contract_health_check TTL and duplicate pending fields
@@ -496,6 +505,7 @@ The PR should include:
 - HealthReport update + tests + note
 
 ---
+
 ---
 
 ## Issue 011: Add decoder-stability tests and docs for ChargeResult discriminant ordering after batch outcome extensions
@@ -545,6 +555,7 @@ The PR should include:
 
 - Compatibility/golden tests + decode note
 - Clear statement that behavioral allowance handling remains Issue 001
+
 ---
 
 ## Issue 012: Fail closed when fee bounds storage is inconsistent at commit time
@@ -592,6 +603,7 @@ The PR should include:
 - Commit validation + tests
 
 ---
+
 ---
 
 ## Issue 013: Extend PauseExpiry TTL whenever Subscription TTL is bumped
@@ -641,6 +653,7 @@ The PR should include:
 
 - PauseExpiry TTL coupling + tests
 - Brief comment in storage helper documenting the invariant
+
 ---
 
 ## Issue 014: Add authorization-boundary tests for administrative entrypoints
@@ -689,6 +702,7 @@ The PR should include:
 - Matrix table in PR description
 
 ---
+
 ---
 
 ## Issue 015: Harden transfer_subscription subscriber-index and MerchantSubCount integrity
@@ -738,6 +752,7 @@ The PR should include:
 
 - Index/count hardening + tests
 - PR explicitly lists non-goals (referral/metadata/history/pause)
+
 ---
 
 ## Issue 016: Make cancel_and_refund_prorated failure modes explicit and typed
@@ -785,6 +800,7 @@ The PR should include:
 - Validation + tests + comment on funding model
 
 ---
+
 ---
 
 ## Issue 017: Add batch_charge stress coverage for max batch size and instruction ceilings
@@ -832,6 +848,7 @@ The PR should include:
 - Stress tests + notes
 
 ---
+
 ---
 
 ## Issue 018: Close error-code gaps and remove duplicate ContractPaused variants
@@ -879,6 +896,7 @@ The PR should include:
 - Error normalization + docs/tests
 
 ---
+
 ---
 
 ## Issue 019: Require schema migration invariants before enabling new subscription writes post-upgrade
@@ -926,6 +944,7 @@ The PR should include:
 - Invariant handling + tests
 
 ---
+
 ---
 
 ## Issue 020: Add get_pause_expiry read API and event consistency for pause_until auto-resume
@@ -972,6 +991,7 @@ The PR should include:
 - Getter + consistency tests
 
 ---
+
 ---
 
 ## Issue 021: Enforce a max MerchantRevenueDayIndex size with typed overflow error
@@ -1002,6 +1022,7 @@ Does NOT include: automatic oldest-day pruning, ETL redesign, or changing prune 
 - Files: `merchant_stats.rs`, `errors.rs`, `lib.rs` revenue increment paths, `test.rs`.
 - Choose a conservative default cap justified in code comments (instruction/storage awareness).
 - When at cap, adding a *new* day fails closed; updating an existing day’s bucket may still succeed.
+- When at cap, adding a _new_ day fails closed; updating an existing day’s bucket may still succeed.
 - Document that admins must prune before the cap blocks new days.
 
 ### Acceptance Criteria
@@ -1021,6 +1042,7 @@ The PR should include:
 
 - Cap enforcement + typed error + tests
 - Comment explaining cap choice and prune expectation
+
 ---
 
 ## Issue 022: Validate token contract address and SAC interface on subscribe
@@ -1068,6 +1090,7 @@ The PR should include:
 - Validation + tests
 
 ---
+
 ---
 
 ## Issue 023: Convert string panic/expect failures in admin, fee, grace, and upgrade modules to ContractError
@@ -1117,6 +1140,7 @@ The PR should include:
 
 - Typed error conversions + tests
 - Inventory of converted call sites in the PR description
+
 ---
 
 ## Issue 024: Implement idempotent whitelist and freeze operations with event suppression rules
@@ -1163,6 +1187,7 @@ The PR should include:
 - Policy + tests
 
 ---
+
 ---
 
 ## Issue 025: Add simulate_pay_per_use dry-run helper mirroring spending limits
@@ -1209,6 +1234,7 @@ The PR should include:
 - New API + tests + brief API blurb
 
 ---
+
 ---
 
 ## Issue 026: Guard extend_trial against inactive, paused, and overflowed trial ends
@@ -1256,6 +1282,7 @@ The PR should include:
 - Guards + event + tests
 
 ---
+
 ---
 
 ## Issue 027: Add pagination safety tests for get_active_subscriber_page with tombstones
@@ -1302,6 +1329,7 @@ The PR should include:
 - Semantics + tests (+ fix if needed)
 
 ---
+
 ---
 
 ## Issue 028: Block charge, batch_charge, and pay_per_use when the subscription merchant is frozen
@@ -1351,6 +1379,7 @@ The PR should include:
 
 - Fail-closed freeze enforcement + tests
 - Keeper-facing note on batch outcome choice
+
 ---
 
 ## Issue 029: Add upgrade pending TTL refresh and cancellation entrypoint
@@ -1398,6 +1427,7 @@ The PR should include:
 - API + tests
 
 ---
+
 ---
 
 ## Issue 030: Record protocol fee accrual events distinct from charged
@@ -1445,6 +1475,7 @@ The PR should include:
 - Event + tests + parser note
 
 ---
+
 ---
 
 ## Issue 031: Unify subscription label reads to prefer SubscriptionMeta without a schema version bump
@@ -1494,6 +1525,7 @@ The PR should include:
 
 - Read/write unification without migration + tests
 - Precedence comment for future contributors
+
 ---
 
 ## Issue 032: Bound metadata label validation uniformly across set_metadata and subscribe_with_metadata
@@ -1540,6 +1572,7 @@ The PR should include:
 - Shared validation + tests
 
 ---
+
 ---
 
 ## Issue 033: Add negative tests for grace period propose/commit temporary TTL expiry
@@ -1587,6 +1620,7 @@ The PR should include:
 - Tests (+fixes)
 
 ---
+
 ---
 
 ## Issue 034: Prevent self-transfer and contract-as-user hazards on transfer_subscription and subscribe
@@ -1633,6 +1667,7 @@ The PR should include:
 - Validation + tests
 
 ---
+
 ---
 
 ## Issue 035: Expose get_next_charge_batch filtering that excludes grace-lapsed subscriptions
@@ -1679,6 +1714,7 @@ The PR should include:
 - Query filter + tests
 
 ---
+
 ---
 
 ## Issue 036: Add contract-side property tests for fee split conservation
@@ -1730,6 +1766,10 @@ The PR should include:
 
 ## Issue 037:  Harden batch_cancel auth and result parity with cancel_inner side effects
 
+---
+
+## Issue 037: Harden batch_cancel auth and result parity with cancel_inner side effects
+
 **Category:** Contract
 **Complexity:** 200 points
 **Labels:** contract, wave-200
@@ -1772,6 +1812,7 @@ The PR should include:
 - Parity tests (+fixes)
 
 ---
+
 ---
 
 ## Issue 038: Add read API for day-window spending limit status composite
@@ -1818,6 +1859,7 @@ The PR should include:
 - API + tests
 
 ---
+
 ---
 
 ## Issue 039: Add a permissionless bump_instance_ttl entrypoint for liveness probes
@@ -1867,6 +1909,7 @@ The PR should include:
 
 - Permissionless instance TTL bump + tests
 - Rustdoc/API note for operators
+
 ---
 
 ## Issue 040: Add fuzz/property coverage for subscribe interval floor vs min_interval
@@ -1913,6 +1956,7 @@ The PR should include:
 - Property tests
 
 ---
+
 ---
 
 ## Issue 041: Synchronize MerchantFeeRecipient clearing when merchants are removed or frozen
@@ -1959,6 +2003,7 @@ The PR should include:
 - Lifecycle handling + tests
 
 ---
+
 ---
 
 ## Issue 042: Centralize subscribe/charge allowance requirement helper with failing-case unit tests
@@ -2008,6 +2053,7 @@ The PR should include:
 
 - Allowance requirement helper + tests
 - Call-site list in PR description
+
 ---
 
 ## Issue 043: Implement safe clear_subscriber_index_entry admin repair with audit event
@@ -2056,6 +2102,7 @@ The PR should include:
 - Repair API + tests
 
 ---
+
 ---
 
 ## Issue 044: Harden initialize against double-init and missing admin auth with deploy-facing invariants
@@ -2105,6 +2152,7 @@ The PR should include:
 
 - Initialize invariant hardening + deploy-facing tests
 - Note linking scripts that depend on these invariants
+
 ---
 
 ## Issue 045: Reject resume on grace-lapsed subscriptions with a typed error while allowing cancel
@@ -2154,6 +2202,7 @@ The PR should include:
 
 - Typed resume rejection + tests
 - Explicit non-goals: no new reactivate entrypoint in this PR
+
 ---
 
 ## Issue 046: Wire WalletSelectModal into App connect flow for multi-wallet UX
@@ -2202,6 +2251,7 @@ The PR should include:
 - UI wiring + tests + screenshot optional
 
 ---
+
 ---
 
 ## Issue 047: Route MerchantDashboard and AdminDashboard through TabBar in the main app shell
@@ -2250,6 +2300,7 @@ The PR should include:
 - Shell wiring + tests
 
 ---
+
 ---
 
 ## Issue 048: Use getServer() consistently for transaction build and simulation paths
@@ -2296,6 +2347,7 @@ The PR should include:
 - Server resolution fix + tests
 
 ---
+
 ---
 
 ## Issue 049: Surface subscription health and simulate_charge before pay/charge actions
@@ -2342,6 +2394,7 @@ The PR should include:
 - Integration + tests
 
 ---
+
 ---
 
 ## Issue 050: Add daily spending limit status UX on PayPerUseForm and DailyLimitCard
@@ -2389,6 +2442,7 @@ The PR should include:
 - UX + tests
 
 ---
+
 ---
 
 ## Issue 051: Add mainnet/testnet safety gate before first mutating transaction
@@ -2436,6 +2490,7 @@ The PR should include:
 - Safety gate + tests
 
 ---
+
 ---
 
 ## Issue 052: Implement transaction lifecycle recovery for interrupted wallet submissions
@@ -2483,6 +2538,7 @@ The PR should include:
 - Recovery UX + tests
 
 ---
+
 ---
 
 ## Issue 053: Map all ContractError codes in frontend error utilities with recovery hints
@@ -2529,6 +2585,7 @@ The PR should include:
 - Mapper completeness + tests
 
 ---
+
 ---
 
 ## Issue 054: Integrate NextChargeCountdown and trial countdown into SubscriptionCard states
@@ -2575,6 +2632,7 @@ The PR should include:
 - State UX + tests
 
 ---
+
 ---
 
 ## Issue 055: Add multi-token token selector and allowance display on SubscribeForm
@@ -2622,6 +2680,7 @@ The PR should include:
 - Multi-token subscribe UX + tests
 
 ---
+
 ---
 
 ## Issue 056: Persist and restore RpcHealthContext failover selection across sessions
@@ -2668,6 +2727,7 @@ The PR should include:
 - Hardening + tests
 
 ---
+
 ---
 
 ## Issue 057: Require ConfirmModal for withdraw, freeze, revenue reset, and batch cancel actions
@@ -2717,6 +2777,7 @@ The PR should include:
 
 - ConfirmModal wiring for the named actions + tests
 - Screenshot or short note of confirm copy optional
+
 ---
 
 ## Issue 058: Expose referral share/track UI with clipboard and validation against self-referral
@@ -2764,6 +2825,7 @@ The PR should include:
 - Referral UX + tests
 
 ---
+
 ---
 
 ## Issue 059: Add accessible keyboard shortcut help and ensure ShortcutRegistry covers critical actions
@@ -2810,6 +2872,7 @@ The PR should include:
 - Shortcuts + tests
 
 ---
+
 ---
 
 ## Issue 060: Harden OfflineBanner and network status interactions with tx submission
@@ -2857,6 +2920,7 @@ The PR should include:
 - Offline UX + tests
 
 ---
+
 ---
 
 ## Issue 061: Add Protocol Stats view using get_protocol_stats and contract_health_check
@@ -2903,6 +2967,7 @@ The PR should include:
 - Stats panel + tests
 
 ---
+
 ---
 
 ## Issue 062: Improve MerchantSubscriberTable virtualization performance with useVirtualList
@@ -2949,6 +3014,7 @@ The PR should include:
 - Perf wiring + tests
 
 ---
+
 ---
 
 ## Issue 063: Add pause_until datetime UX with validation for InvalidPauseExpiry
@@ -2996,6 +3062,7 @@ The PR should include:
 - Bounded pause UX + tests
 
 ---
+
 ---
 
 ## Issue 064: Integrate EventFeed into dashboards with deduped polling
@@ -3042,6 +3109,7 @@ The PR should include:
 - Integration + tests
 
 ---
+
 ---
 
 ## Issue 065: Version SubscriptionExport schema with on-chain health, token, and referral fields
@@ -3091,6 +3159,7 @@ The PR should include:
 
 - Versioned export schema + tests
 - Header/field policy documented in component
+
 ---
 
 ## Issue 066: Gate mutating flows on valid CONTRACT_ID and matching wallet network
@@ -3140,6 +3209,7 @@ The PR should include:
 
 - Combined config/network gate + tests
 - .env.example clarification
+
 ---
 
 ## Issue 067: Add Stroop/XLM dual display consistency via useAmountDisplay across forms
@@ -3186,6 +3256,7 @@ The PR should include:
 - Consistency + tests
 
 ---
+
 ---
 
 ## Issue 068: Expand frontend Vitest coverage for stellar.ts builders of newer contract APIs
@@ -3233,6 +3304,7 @@ The PR should include:
 - Optional CI test step if needed for validation
 
 ---
+
 ---
 
 ## Issue 069: Integrate NotificationCenter with toast and contract pause banner priorities
@@ -3279,6 +3351,7 @@ The PR should include:
 - Orchestration + tests
 
 ---
+
 ---
 
 ## Issue 070: Add merchant withdraw revenue flow with fee/net transparency
@@ -3326,6 +3399,7 @@ The PR should include:
 - Withdraw flow + tests
 
 ---
+
 ---
 
 ## Issue 071: Add transfer_subscription guided UI with address book and danger checklist
@@ -3373,6 +3447,7 @@ The PR should include:
 - Transfer UX + tests
 
 ---
+
 ---
 
 ## Issue 072: Ensure ThemeToggle and CSS variables remain accessible for contrast-sensitive views
@@ -3419,6 +3494,7 @@ The PR should include:
 - Token fixes + check
 
 ---
+
 ---
 
 ## Issue 073: Add pay_per_use_to recipient flow with whitelist validation messaging
@@ -3466,6 +3542,7 @@ The PR should include:
 - Recipient flow + tests
 
 ---
+
 ---
 
 ## Issue 074: Reconcile AddressBook usage across SubscribeForm and admin address list inputs
@@ -3512,6 +3589,7 @@ The PR should include:
 - Shared address UX + tests
 
 ---
+
 ---
 
 ## Issue 075: Add loading skeletons and race-safe empty/error states to admin batch panels
@@ -3561,6 +3639,7 @@ The PR should include:
 
 - Skeleton + race-safe state handling + tests
 - Short note on the sequencing approach chosen
+
 ---
 
 ## Issue 076: Align keeper PAGE_SIZE with contract max batch size and config schema
@@ -3612,6 +3691,7 @@ The PR should include:
 - Notes in scripts README
 
 ---
+
 ---
 
 ## Issue 077: Integrate MultiEndpointServer failover into keeper and indexer RPC paths
@@ -3659,6 +3739,7 @@ The PR should include:
 - env example
 
 ---
+
 ---
 
 ## Issue 078: Wire EventDedupCache into indexer and watch-events pipelines
@@ -3705,6 +3786,7 @@ The PR should include:
 - Integration + tests
 
 ---
+
 ---
 
 ## Issue 079: Expand indexer SQLite schema for fee, merchant, and skip-related event fields
@@ -3751,6 +3833,7 @@ The PR should include:
 - Schema v2 + migration + sample queries
 
 ---
+
 ---
 
 ## Issue 080: Harden keeper DLQ writing and replay-dlq idempotency
@@ -3798,6 +3881,7 @@ The PR should include:
 - DLQ hardening + tests
 
 ---
+
 ---
 
 ## Issue 081: Make batch-optimizer grace urgency ordering the default keeper path
@@ -3844,6 +3928,7 @@ The PR should include:
 - Integration + flag + docs in scripts README
 
 ---
+
 ---
 
 ## Issue 082: Add Prometheus metrics for keeper charge outcomes and RPC errors
@@ -3890,6 +3975,7 @@ The PR should include:
 - Metrics + dashboard update
 
 ---
+
 ---
 
 ## Issue 083: Migrate keeper, indexer, health-check, and alert-failed-charges to shared structured logger
@@ -3939,6 +4025,7 @@ The PR should include:
 
 - Logger migration for the fixed four scripts
 - README example
+
 ---
 
 ## Issue 084: Extend health-check.ts to verify batch estimate and instance liveness probes
@@ -3985,6 +4072,7 @@ The PR should include:
 - Deep health checks
 
 ---
+
 ---
 
 ## Issue 085: Add indexer catch-up backfill tool with ledger range checkpoints
@@ -4031,6 +4119,7 @@ The PR should include:
 - Backfill mode + tests
 
 ---
+
 ---
 
 ## Issue 086: Secure keeper secret handling and refuse mainnet without explicit opt-in
@@ -4077,6 +4166,7 @@ The PR should include:
 - Safety gates + tests
 
 ---
+
 ---
 
 ## Issue 087: Repair scripts package.json and add CI typecheck plus config-validation smoke
@@ -4126,6 +4216,7 @@ The PR should include:
 
 - package.json fix + scripts CI workflow with typecheck and config smoke
 - Brief CI section note in scripts README
+
 ---
 
 ## Issue 088: Implement alert-failed-charges classification using ChargeResult and DLQ
@@ -4173,6 +4264,7 @@ The PR should include:
 - Alert classification + tests
 
 ---
+
 ---
 
 ## Issue 089: Enhance grace-period-monitor to prioritize keeper scheduling inputs
@@ -4219,6 +4311,7 @@ The PR should include:
 - Pipeline wiring + schema docs
 
 ---
+
 ---
 
 ## Issue 090: Add subscription-snapshot and snapshot-diff integrity checks for upgrades
@@ -4265,6 +4358,7 @@ The PR should include:
 - Upgrade checks + sample report
 
 ---
+
 ---
 
 ## Issue 091: Add churn-analysis deterministic tests and golden fixtures
@@ -4311,6 +4405,7 @@ The PR should include:
 - Fixtures + tests
 
 ---
+
 ---
 
 ## Issue 092: Harden renewal-forecast against sparse charge history
@@ -4357,6 +4452,7 @@ The PR should include:
 - Forecast hardening + tests
 
 ---
+
 ---
 
 ## Issue 093: Implement merchant-analytics SQLite rollups from indexer events
@@ -4403,6 +4499,7 @@ The PR should include:
 - DB-backed analytics + fixture
 
 ---
+
 ---
 
 ## Issue 094: Add docker-compose services for indexer and metrics alongside keeper
@@ -4449,6 +4546,7 @@ The PR should include:
 - Compose expansion + docs
 
 ---
+
 ---
 
 ## Issue 095: Add validate-config strict mode for all script entrypoints
@@ -4495,6 +4593,7 @@ The PR should include:
 - Shared config bootstrap + tests
 
 ---
+
 ---
 
 ## Issue 096: Implement audit-trail export reconciliation against indexer
@@ -4541,6 +4640,7 @@ The PR should include:
 - Reconciliation mode + tests
 
 ---
+
 ---
 
 ## Issue 097: Add bounded concurrency and retries to allowance audit scripts with JSON output
@@ -4591,6 +4691,7 @@ The PR should include:
 
 - Concurrency/retry/JSON for allowance scripts + tests
 - Explicit non-goal: MultiEndpoint failover owned elsewhere
+
 ---
 
 ## Issue 098: Create keeper dry-run report artifact comparing estimate vs last live cycle
@@ -4637,6 +4738,7 @@ The PR should include:
 - Report feature + sample
 
 ---
+
 ---
 
 ## Issue 099: Align subscriber-health-dashboard output with SubscriptionHealth and aggregate exit semantics
@@ -4686,6 +4788,7 @@ The PR should include:
 
 - Schema-aligned CLI + exit semantics + fixtures
 - README sample
+
 ---
 
 ## Issue 100: Implement rotate-fee-collector two-step automation with pending verification
@@ -4733,6 +4836,7 @@ The PR should include:
 - Automation hardening + tests
 
 ---
+
 ---
 
 ## Issue 101: Add event watch webhook sink with signature/shared-secret header
@@ -4780,6 +4884,7 @@ The PR should include:
 - Webhook sink + tests
 
 ---
+
 ---
 
 ## Issue 102: Normalize onboard-merchant and testnet-setup scripts with deploy manifest
@@ -4826,6 +4931,7 @@ The PR should include:
 - Manifest-driven setup
 
 ---
+
 ---
 
 ## Issue 103: Add top-merchants script consistency with get_top_merchants_by_subs
@@ -4872,6 +4978,7 @@ The PR should include:
 - Script alignment + tests
 
 ---
+
 ---
 
 ## Issue 104: Instrument deploy-pipeline with preflight wasm hash and health gates
@@ -4919,6 +5026,7 @@ The PR should include:
 - Pipeline gates + sample summary
 
 ---
+
 ---
 
 ## Issue 105: Add SQLite backup/restore helper for indexer data directory
@@ -4965,6 +5073,7 @@ The PR should include:
 - Backup tool + docs
 
 ---
+
 ---
 
 ## Issue 106: Rewrite KEEPER.md to match TypeScript keeper and on-chain batch limits
@@ -5014,6 +5123,7 @@ The PR should include:
 - Cross-links fixed
 
 ---
+
 ---
 
 ## Issue 107: Correct SECURITY.md auth matrix against current require_admin and upgrade flows
@@ -5061,6 +5171,7 @@ The PR should include:
 - Corrected auth matrix
 
 ---
+
 ---
 
 ## Issue 108: Document batch_charge failure semantics and allowance abort risk for integrators
@@ -5108,6 +5219,7 @@ The PR should include:
 - Doc section + links to scripts
 
 ---
+
 ---
 
 ## Issue 109: Publish a canonical referral guide covering auth, events, self-referral, and client touchpoints
@@ -5157,6 +5269,7 @@ The PR should include:
 
 - Canonical referral guide + stubs + link updates
 - Checklist of sections mapped to code symbols
+
 ---
 
 ## Issue 110: Document health, estimate, fee-bounds, pause_until, and active-subscriber page APIs in API.md
@@ -5206,6 +5319,7 @@ The PR should include:
 
 - Bounded API.md delta + checklist
 - Links to related ops docs where useful
+
 ---
 
 ## Issue 111: Expand storage_and_ttl.md for PauseExpiry, temporary daily limits, and pending proposals
@@ -5253,6 +5367,7 @@ The PR should include:
 - TTL doc update
 
 ---
+
 ---
 
 ## Issue 112: Document keeper, indexer, metrics, and docker-compose operations in scripts README
@@ -5302,6 +5417,7 @@ The PR should include:
 
 - Focused scripts README ops guide
 - Env matrix for the four-area stack
+
 ---
 
 ## Issue 113: Update MAINNET-DEPLOYMENT.md with fee bounds, volume cap, and health gates
@@ -5349,6 +5465,7 @@ The PR should include:
 - Checklist update
 
 ---
+
 ---
 
 ## Issue 114: Document frontend architecture composition and orphaned components
@@ -5396,6 +5513,7 @@ The PR should include:
 - Frontend composition doc
 
 ---
+
 ---
 
 ## Issue 115: Add troubleshooting runbook for common ChargeResult and wallet errors
@@ -5443,6 +5561,7 @@ The PR should include:
 - Troubleshooting runbook
 
 ---
+
 ---
 
 ## Issue 116: Update INTEGRATION-GUIDE and MERCHANT-INTEGRATION for pay_per_use_to and fee recipients
@@ -5490,6 +5609,7 @@ The PR should include:
 - Integration doc updates
 
 ---
+
 ---
 
 ## Issue 117: Refresh TESTING.md for Vitest, contract snapshots, and scripts fixtures
@@ -5537,6 +5657,7 @@ The PR should include:
 - TESTING.md refresh
 
 ---
+
 ---
 
 ## Issue 118: Document two-step upgrade and fee rotation operator playbooks with timing
@@ -5583,6 +5704,7 @@ The PR should include:
 - Operator playbooks
 
 ---
+
 ---
 
 ## Issue 119: Resolve glossary conflicts for ChargeResult, health, schema, and keeper terms against ARCHITECTURE/KEEPER
@@ -5632,6 +5754,7 @@ The PR should include:
 
 - Glossary update + conflict reconciliation
 - PR table of contradictions resolved
+
 ---
 
 ## Issue 120: Create backend onboarding path in ONBOARDING.md for scripts contributors
@@ -5679,6 +5802,7 @@ The PR should include:
 - Onboarding expansion
 
 ---
+
 ---
 
 ## Issue 121: Document current CI workflows with concrete recommended YAML for Vitest and scripts typecheck
@@ -5728,6 +5852,7 @@ The PR should include:
 
 - CI truth + concrete recommended YAML snippets
 - Clear enforced-vs-recommended labeling
+
 ---
 
 ## Issue 122: Publish event catalog addendum for migration, auto-resume, and fee events
@@ -5775,6 +5900,7 @@ The PR should include:
 - Events catalog sync
 
 ---
+
 ---
 
 ## Issue 123: Clarify multi-token fee and volume semantics for accountants
@@ -5822,6 +5948,7 @@ The PR should include:
 - Economic semantics doc
 
 ---
+
 ---
 
 ## Issue 124: Refresh CONTRIBUTING-CONTRACT module map with charge/fee/TTL invariants and test guidance
@@ -5871,6 +5998,7 @@ The PR should include:
 
 - Contributing-contract refresh with invariants + test guidance
 - ARCHITECTURE module table sync if needed
+
 ---
 
 ## Issue 125: Document local development network matrix for frontend, contract tests, and scripts

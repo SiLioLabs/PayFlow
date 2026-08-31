@@ -113,12 +113,25 @@ function slackPayload(report: RevenueWebhookPayload): Record<string, unknown> {
           { type: "mrkdwn", text: `*Charges:* ${report.total_charges}` },
           { type: "mrkdwn", text: `*Merchants:* ${report.unique_merchants}` },
           { type: "mrkdwn", text: `*Fees:* ${report.fee_collected_xlm} XLM` },
-          { type: "mrkdwn", text: `*New subscribers:* ${report.new_subscribers}` },
+          {
+            type: "mrkdwn",
+            text: `*New subscribers:* ${report.new_subscribers}`,
+          },
           { type: "mrkdwn", text: `*Cancellations:* ${report.cancellations}` },
         ],
       },
       ...(report.partial
-        ? [{ type: "context", elements: [{ type: "mrkdwn", text: "This report covers a partial UTC day." }] }]
+        ? [
+            {
+              type: "context",
+              elements: [
+                {
+                  type: "mrkdwn",
+                  text: "This report covers a partial UTC day.",
+                },
+              ],
+            },
+          ]
         : []),
     ],
   };
@@ -167,8 +180,12 @@ async function main(): Promise<void> {
   const cachedPath = reportPath(targetDate);
   if (!force && existsSync(cachedPath)) {
     try {
-      const cached = JSON.parse(readFileSync(cachedPath, "utf8")) as RevenueWebhookPayload;
-      logger.info(`Report for ${targetDate} already cached; skipping computation and delivery.`);
+      const cached = JSON.parse(
+        readFileSync(cachedPath, "utf8"),
+      ) as RevenueWebhookPayload;
+      logger.info(
+        `Report for ${targetDate} already cached; skipping computation and delivery.`,
+      );
       logger.info(JSON.stringify(cached, null, 2));
       return;
     } catch (err) {
@@ -272,6 +289,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  logger.error(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+  logger.error(
+    `Fatal error: ${err instanceof Error ? err.message : String(err)}`,
+  );
   process.exitCode = 1;
 });

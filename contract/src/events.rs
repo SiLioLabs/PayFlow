@@ -409,3 +409,11 @@ pub fn publish_merchant_fee_recipient_set(env: &Env, merchant: &Address, recipie
     );
 }
 
+pub fn publish_merchant_fee_recipient_cleared(env: &Env, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_fee_recipient_cleared"), merchant.clone()),
+        (),
+    );
+}
+
+

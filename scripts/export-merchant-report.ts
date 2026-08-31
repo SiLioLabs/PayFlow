@@ -325,8 +325,8 @@ async function main() {
   }
 }
 
-main().catch(console.error);
 main().catch((err) => {
   logger.error("Export report failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 });
+

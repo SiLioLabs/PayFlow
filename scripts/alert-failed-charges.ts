@@ -63,10 +63,8 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      console.error(
-        `Webhook responded with HTTP ${response.status}: ${response.statusText}`,
       logger.error(
-        `Webhook responded with HTTP ${response.status}: ${response.statusText}`
+        `Webhook responded with HTTP ${response.status}: ${response.statusText}`,
       );
     } else {
       logger.error(`Webhook delivered successfully (HTTP ${response.status})`);
