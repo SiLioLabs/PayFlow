@@ -23,6 +23,7 @@ mod subscription_count;
 mod subscription_history;
 mod subscription_metadata;
 mod test;
+mod test_migration;
 mod trial;
 mod upgrade;
 mod validation;
@@ -2307,6 +2308,11 @@ fn subscribe_inner(
     referrer: Option<Address>,
 ) {
     bump_instance_ttl(env);
+    // Invariant: refuse new subscription writes when the storage schema has not
+    // been fully migrated to the current version. After a WASM upgrade, the
+    // operator must call `migrate` (paged) for all existing subscribers before
+    // new blobs can be written, preventing mixed v1/v2/v3 storage states.
+    migration::require_current_version(env);
     migration::require_current_version(env);
     validation::require_valid_subscribe_addresses(env, &user, &merchant);
     user.require_auth();
@@ -2435,3 +2441,4 @@ fn ensure_contract_not_paused(env: &Env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
+

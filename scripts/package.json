@@ -19,11 +19,13 @@
     "batch-optimizer": "tsx batch-optimizer.ts",
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
-    "top-merchants": "ts-node top-merchants.ts",
-    "deploy-pipeline": "ts-node deploy-pipeline.ts",
-    "backup-indexer-db": "ts-node backup-indexer-db.ts",
+    "typecheck": "tsc --noEmit",
+    "validate-config": "tsx validate-config.ts",
+    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
+    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
     "test:event-dedup": "tsx test-event-dedup-integration.ts",
     "test:renewal-forecast": "tsx test-renewal-forecast.ts",
+    "test": "tsx test-churn-analysis.ts"
     "test:rpc-failover": "tsx test-rpc-failover.ts"
   },
   "dependencies": {

@@ -175,7 +175,7 @@ async function getSubscriberPage(
   return native.map((a) => String(a));
 }
 
-async function isChargeDue(user: string): Promise<boolean> {
+export async function isChargeDue(user: string): Promise<boolean> {
   const retval = await simulate("is_charge_due", addressVal(user));
   if (!retval) return false;
   return Boolean(scValToNative(retval));
