@@ -1380,6 +1380,189 @@ fn test_unfreeze_merchant_non_frozen_is_noop() {
     assert!(!client.is_merchant_frozen(&merchant));
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Issue #820: Idempotent whitelist/freeze event suppression tests
+// ─────────────────────────────────────────────────────────────────────
+//
+// Event suppression policy (Issue #820):
+//
+// When an admin mutation is a noop (storage already in the desired state),
+// the function must:
+// 1. Not modify any storage
+// 2. Not emit any event
+//
+// This prevents event spam when keepers or admin scripts retry operations.
+// Indexers should not see duplicate events for the same logical state change.
+
+/// freeze_merchant on an already-frozen merchant must not emit an event.
+#[test]
+fn test_freeze_merchant_idempotent_suppresses_event() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    // First freeze emits event
+    client.freeze_merchant(&merchant, &None);
+    let events_after_first = env.events().all().len();
+
+    // Second freeze is a noop — no new events
+    client.freeze_merchant(&merchant, &None);
+    let events_after_second = env.events().all().len();
+
+    assert_eq!(
+        events_after_first, events_after_second,
+        "duplicate freeze must not emit event"
+    );
+}
+
+/// unfreeze_merchant on a non-frozen merchant must not emit an event.
+#[test]
+fn test_unfreeze_merchant_non_frozen_suppresses_event() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let events_before = env.events().all().len();
+
+    // Unfreeze on non-frozen is a noop — no events
+    client.unfreeze_merchant(&merchant);
+    let events_after = env.events().all().len();
+
+    assert_eq!(
+        events_before, events_after,
+        "unfreeze on non-frozen must not emit event"
+    );
+}
+
+/// add_merchant for an already-whitelisted merchant must not emit an event.
+#[test]
+fn test_add_merchant_idempotent_suppresses_event() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    // First add emits event
+    client.add_merchant(&merchant);
+    let events_after_first = env.events().all().len();
+
+    // Second add is a noop — no new events
+    client.add_merchant(&merchant);
+    let events_after_second = env.events().all().len();
+
+    assert_eq!(
+        events_after_first, events_after_second,
+        "duplicate add_merchant must not emit event"
+    );
+}
+
+/// remove_merchant for a non-whitelisted merchant must not emit an event.
+#[test]
+fn test_remove_merchant_non_whitelisted_suppresses_event() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let events_before = env.events().all().len();
+
+    // Remove on non-whitelisted is a noop — no events
+    client.remove_merchant(&merchant);
+    let events_after = env.events().all().len();
+
+    assert_eq!(
+        events_before, events_after,
+        "remove_merchant on non-whitelisted must not emit event"
+    );
+}
+
+/// freeze_merchant preserves existing reason when re-frozen with None.
+#[test]
+fn test_freeze_merchant_idempotent_preserves_reason() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let reason = soroban_sdk::String::from_str(&env, "violation");
+    client.freeze_merchant(&merchant, &Some(reason.clone()));
+
+    // Re-freeze with None — noop, reason should be preserved
+    client.freeze_merchant(&merchant, &None);
+    assert_eq!(client.get_merchant_freeze_reason(&merchant), Some(reason));
+}
+
+/// freeze → unfreeze → freeze cycle emits exactly 3 events (one per state change).
+#[test]
+fn test_freeze_unfreeze_freeze_emits_exactly_three_events() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let events_before = env.events().all().len();
+
+    client.freeze_merchant(&merchant, &None);
+    client.unfreeze_merchant(&merchant);
+    client.freeze_merchant(&merchant, &None);
+
+    let events_after = env.events().all().len();
+
+    // Exactly 3 state changes → 3 events
+    assert_eq!(
+        events_after - events_before,
+        3,
+        "freeze → unfreeze → freeze should emit exactly 3 events"
+    );
+}
+
+/// freeze → freeze → unfreeze → unfreeze emits exactly 2 events.
+#[test]
+fn test_freeze_freeze_unfreeze_unfreeze_emits_two_events() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let events_before = env.events().all().len();
+
+    client.freeze_merchant(&merchant, &None); // event
+    client.freeze_merchant(&merchant, &None); // noop
+    client.unfreeze_merchant(&merchant); // event
+    client.unfreeze_merchant(&merchant); // noop
+
+    let events_after = env.events().all().len();
+
+    assert_eq!(
+        events_after - events_before,
+        2,
+        "freeze→freeze→unfreeze→unfreeze should emit exactly 2 events"
+    );
+}
+
 /// freeze_merchant requires admin auth.
 #[test]
 #[should_panic]
@@ -11510,6 +11693,34 @@ fn test_simulate_and_batch_estimate_skip_parity_matrix() {
 /// auto-resume inside the shared precheck must remain local).
 #[test]
 fn test_estimate_does_not_perform_auto_resume_storage_writes() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let user = setup_funded_user(&env, &contract_id, &token_addr);
+    let interval: u64 = 86400;
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Pause the subscription
+    client.pause(&user);
+
+    // Simulate charge — should return Paused, not mutate storage
+    let result = client.simulate_charge(&user);
+    assert_eq!(result, ChargeSimResult::SubscriptionPaused);
+
+    // Verify subscription is still paused (storage not mutated)
+    let sub = client.get_subscription(&user).unwrap();
+    assert!(sub.paused);
+}
+
 // Issue 041 (#836): MerchantFeeRecipient clearing tests
 // ─────────────────────────────────────────────────────────────
 
@@ -11683,18 +11894,6 @@ fn test_successful_charge_path_unchanged_after_issue_005() {
     assert_eq!(token.balance(&merchant) - merchant_before, amount);
 }
 
-        &user,
-        &merchant,
-        &1_0000000,
-        &86400,
-        &token_addr,
-        &None,
-        &None,
-    );
-
-    client.transfer_subscription(&user, &user);
-}
-
 #[test]
 #[should_panic(expected = "Error(Contract, #32)")]
 fn test_transfer_subscription_to_contract_address_panics() {
@@ -11746,6 +11945,8 @@ fn test_subscribe_contract_as_user_panics() {
         &None,
         &None,
     );
+}
+
 // Issue #813: batch_charge stress / resource-envelope coverage
 //
 // These tests exercise `batch_charge` at the configured max batch size and one

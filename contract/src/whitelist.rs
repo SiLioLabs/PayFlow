@@ -190,7 +190,17 @@ pub fn is_frozen(env: &Env, merchant: &Address) -> bool {
 }
 
 /// Freezes a merchant, blocking new subscriptions. Idempotent.
+///
+/// # Idempotency (Issue #820)
+///
+/// If the merchant is already frozen, this is a no-op: no storage is
+/// written and no event is emitted. This prevents event spam when
+/// keepers or admin scripts retry freeze calls.
 pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>) {
+    if is_frozen(env, merchant) {
+        return;
+    }
+
     if let Some(r) = &reason {
         if r.len() > 128 {
             env.panic_with_error(crate::errors::ContractError::MetadataLabelTooLong);
@@ -209,7 +219,17 @@ pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>
 }
 
 /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
+///
+/// # Idempotency (Issue #820)
+///
+/// If the merchant is not currently frozen, this is a no-op: no storage is
+/// modified and no event is emitted. This prevents event spam when
+/// keepers or admin scripts retry unfreeze calls.
 pub fn unfreeze(env: &Env, merchant: &Address) {
+    if !is_frozen(env, merchant) {
+        return;
+    }
+
     env.storage()
         .persistent()
         .remove(&DataKey::MerchantFrozen(merchant.clone()));
