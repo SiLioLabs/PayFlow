@@ -1021,6 +1021,7 @@ Does NOT include: automatic oldest-day pruning, ETL redesign, or changing prune 
 
 - Files: `merchant_stats.rs`, `errors.rs`, `lib.rs` revenue increment paths, `test.rs`.
 - Choose a conservative default cap justified in code comments (instruction/storage awareness).
+- When at cap, adding a *new* day fails closed; updating an existing day’s bucket may still succeed.
 - When at cap, adding a _new_ day fails closed; updating an existing day’s bucket may still succeed.
 - Document that admins must prune before the cap blocks new days.
 
@@ -1761,6 +1762,9 @@ The PR should include:
 - Property tests + rounding comment
 
 ---
+---
+
+## Issue 037:  Harden batch_cancel auth and result parity with cancel_inner side effects
 
 ---
 

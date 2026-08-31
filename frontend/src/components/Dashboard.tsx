@@ -44,6 +44,8 @@ interface Props {
   onCancelled?: () => void;
   onPayPerUse?: (amount: bigint) => void;
   isPaused?: boolean;
+  /** When true, wallet mutations are disabled because the browser is offline. */
+  isOffline?: boolean;
 }
 
 export default function Dashboard({
@@ -54,6 +56,7 @@ export default function Dashboard({
   onCancelled,
   onPayPerUse,
   isPaused = false,
+  isOffline = false,
 }: Props) {
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
   const { toasts, addToast, removeToast } = useToast();
@@ -122,6 +125,10 @@ export default function Dashboard({
 
   const handlePayPerUse = useCallback(
     async (stroops: bigint) => {
+      if (isOffline) {
+        announce("You're offline. Wallet actions are unavailable.");
+        return;
+      }
       announce("Transaction submitted");
       try {
         const hash = await ppuTx.submit(async () => {
@@ -137,7 +144,7 @@ export default function Dashboard({
         announce(msg);
       }
     },
-    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]
+    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx, isOffline]
   );
 
   if (loading)
@@ -240,6 +247,7 @@ export default function Dashboard({
                   <SubscriptionExport
                     data={[
                       {
+                        subscriber: userKey,
                         merchant: sub.merchant,
                         amount_stroops: sub.amount,
                         interval_seconds: sub.interval,
@@ -261,8 +269,16 @@ export default function Dashboard({
                 onPay={handlePayPerUse}
                 loading={ppuPending}
                 isPaused={isPaused}
-                disabled={subscriptionHealthBlocksPay(subHealth) || chargeSimBlocksPay(simResult)}
-                disabledReason={payBlockedReason(subHealth, simResult) ?? undefined}
+                disabled={
+                  isOffline ||
+                  subscriptionHealthBlocksPay(subHealth) ||
+                  chargeSimBlocksPay(simResult)
+                }
+                disabledReason={
+                  isOffline
+                    ? "You're offline. Wallet actions are unavailable."
+                    : (payBlockedReason(subHealth, simResult) ?? undefined)
+                }
                 warningReason={payWarningReason(subHealth, simResult) ?? undefined}
                 dailyLimit={dailyLimit}
                 dailySpent={dailySpent}
