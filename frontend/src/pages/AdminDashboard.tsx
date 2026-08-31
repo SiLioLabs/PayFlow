@@ -9,10 +9,13 @@ import Spinner from "../components/Spinner";
 interface Props {
   publicKey: string;
   onSign: (xdr: string) => Promise<string>;
+  gatePassed?: boolean;
 }
 
-export default function AdminDashboard({ publicKey, onSign }: Props) {
+export default function AdminDashboard({ publicKey, onSign, gatePassed = true }: Props) {
   const { isAdmin, adminAddress, loading } = useAdmin(publicKey);
+
+  const effectiveAdmin = isAdmin && gatePassed;
 
   return (
     <div className="dashboard admin-dashboard">
@@ -39,6 +42,7 @@ export default function AdminDashboard({ publicKey, onSign }: Props) {
       )}
 
       <div className="card admin-dashboard__section mb-4">
+        <SubscriptionRepairPanel adminKey={publicKey} onSign={onSign} gatePassed={gatePassed} />
         <ProtocolStatsPanel callerKey={publicKey} />
       </div>
 
@@ -48,30 +52,30 @@ export default function AdminDashboard({ publicKey, onSign }: Props) {
 
       <div
         className="card admin-dashboard__section mb-4"
-        style={{ opacity: isAdmin ? 1 : 0.6 }}
-        aria-disabled={!isAdmin}
+        style={{ opacity: effectiveAdmin ? 1 : 0.6 }}
+        aria-disabled={!effectiveAdmin}
       >
-        {!isAdmin && !loading && (
+        {!effectiveAdmin && !loading && (
           <div className="network-warning mb-4" role="alert">
             <span>🔒</span>
             <span>Admin access required to use batch operations.</span>
           </div>
         )}
-        <BatchPausePanel adminKey={publicKey} onSign={onSign} isAdmin={isAdmin} />
+        <BatchPausePanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
       </div>
 
       <div
         className="card admin-dashboard__section"
-        style={{ opacity: isAdmin ? 1 : 0.6 }}
-        aria-disabled={!isAdmin}
+        style={{ opacity: effectiveAdmin ? 1 : 0.6 }}
+        aria-disabled={!effectiveAdmin}
       >
-        {!isAdmin && !loading && (
+        {!effectiveAdmin && !loading && (
           <div className="network-warning mb-4" role="alert">
             <span>🔒</span>
             <span>Admin access required to manage the whitelist.</span>
           </div>
         )}
-        <BatchWhitelistPanel adminKey={publicKey} onSign={onSign} isAdmin={isAdmin} />
+        <BatchWhitelistPanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
       </div>
     </div>
   );

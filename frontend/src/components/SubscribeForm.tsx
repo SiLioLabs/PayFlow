@@ -16,6 +16,7 @@ import AddressBook from "./AddressBook";
 import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
 import { useToast } from "../hooks/useToast";
+import StroopInput from "./StroopInput";
 
 interface Props {
   userKey: string;
@@ -75,7 +76,7 @@ export default function SubscribeForm({
   isOffline = false,
 }: Props) {
   const [merchant, setMerchant] = useState("");
-  const [amount, setAmount] = useState("");
+  const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [referrer, setReferrer] = useState("");
   const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
@@ -93,6 +94,9 @@ export default function SubscribeForm({
   const { errors, validate, validating } = useFormValidation();
   const { toasts, addToast, removeToast } = useToast();
 
+  const amountString =
+    amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
+  const fields: FormFields = { merchant, amount: amountString, interval };
   const fields: FormFields = { merchant, amount, interval };
   const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
   const referrerValidation = validateReferrer(referrer, userKey);
@@ -112,6 +116,11 @@ export default function SubscribeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on field values + touched
   }, [
     merchant,
+    amountStroops,
+    interval,
+    touched.merchant,
+    touched.amount,
+    touched.interval,
     amount,
     interval,
     tokenAddress,
@@ -149,16 +158,15 @@ export default function SubscribeForm({
     setStatus(null);
 
     const ok = validate(fields);
-    if (!ok) return;
+    if (!ok || amountStroops === null) return;
 
     setPending(true);
     announce?.("Transaction submitted");
     try {
-      const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
       const xdr = await buildSubscribeTx(
         userKey,
         merchant,
-        stroops,
+        amountStroops,
         BigInt(interval),
         tokenAddress,
         referrer.trim() || null,
@@ -231,25 +239,8 @@ export default function SubscribeForm({
       </div>
 
       {/* Amount Field */}
-      <div className="form-group">
-        <label className="form-label" htmlFor="amount-input">
-          Amount (XLM per period)
-        </label>
-        <input
-          id="amount-input"
-          data-testid="amount-input"
-          name="amount"
-          className="input"
-          type="number"
-          min="0.0000001"
-          step="0.0000001"
-          placeholder="5"
-          value={amount}
-          onChange={handleAmountChange}
-          onBlur={() => handleBlur("amount")}
-          aria-invalid={amountError ? true : undefined}
-          aria-describedby={amountError ? "amount-error" : undefined}
-        />
+      <div data-testid="amount-wrapper" onBlur={() => handleBlur("amount")}>
+        <StroopInput label="Amount" onChange={setAmountStroops} disabled={pending || isPaused} />
         {amountError && (
           <span
             id="amount-error"

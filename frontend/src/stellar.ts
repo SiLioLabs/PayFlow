@@ -80,6 +80,13 @@ export interface ContractEvent {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+/** Practical C-prefixed Stellar contract ID shape check */
+export function isValidContractIdShape(id: string): boolean {
+  return (
+    typeof id === "string" && id.startsWith("C") && id.length === 56 && /^[A-Z0-9]+$/i.test(id)
+  );
+}
+
 /** Convert a Stellar public key string to an ScVal Address */
 function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
@@ -91,6 +98,28 @@ async function buildTx(
   method: string,
   args: xdr.ScVal[]
 ): Promise<string> {
+  if (!CONTRACT_ID) {
+    throw new Error("VITE_CONTRACT_ID environment variable is not set");
+  }
+
+  if (!isValidContractIdShape(CONTRACT_ID)) {
+    throw new Error("VITE_CONTRACT_ID is not a valid Soroban contract address");
+  }
+
+  if (typeof window !== "undefined" && window.freighter) {
+    try {
+      const { networkPassphrase } = await window.freighter.getNetwork();
+      if (networkPassphrase !== NETWORK_PASSPHRASE) {
+        throw new Error(
+          "Wallet network passphrase mismatch with configured VITE_NETWORK_PASSPHRASE"
+        );
+      }
+    } catch {
+      // Older Freighter or getNetwork failure
+    }
+  }
+
+  const account = await server.getAccount(sourcePublicKey);
   const s = getServer();
   const account = await s.getAccount(sourcePublicKey);
   const contract = new Contract(CONTRACT_ID);
@@ -1580,4 +1609,80 @@ export async function estimateExtendTtlFee(
   } catch {
     return null;
   }
+}
+
+export function getSubscriptionToken(user: string): Promise<string | null> {
+  return dedupedCall(`getSubscriptionToken:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_subscription", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      const decoded = ScValDecoder.decodeStruct(retval, {
+        token: ScValDecoder.decodeAddress,
+      });
+      return decoded.token;
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function getReferral(user: string): Promise<string | null> {
+  return dedupedCall(`getReferral:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_referral", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      return ScValDecoder.decodeAddress(retval);
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function getReferrer(user: string): Promise<string | null> {
+  return dedupedCall(`getReferrer:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_referrer", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      return ScValDecoder.decodeAddress(retval);
+    } catch {
+      return null;
+    }
+  });
 }

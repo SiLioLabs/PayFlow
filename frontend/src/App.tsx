@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import React, { useEffect, useRef, useState } from "react";
 import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
@@ -8,6 +9,7 @@ import RpcSettings from "./components/RpcSettings";
 import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { useAdmin } from "./hooks/useAdmin";
+import { useContractId } from "./hooks/useContractId";
 import { useContractPaused } from "./hooks/useContractPaused";
 import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
@@ -36,6 +38,7 @@ export default function App() {
 
   const isRpcFailing = !healthy || circuitOpen;
   const { networkMatch, walletNetwork } = useNetworkCheck();
+  const { valid: isContractIdValid, error: contractIdError } = useContractId();
   const isOnline = useNetworkStatus();
   const { isAdmin } = useAdmin(publicKey);
   const { networkMatch, walletNetwork, isMainnet, requiresMainnetConfirm, confirmMainnet } =
@@ -64,6 +67,24 @@ export default function App() {
         : "You are offline. Wallet actions are unavailable."
     );
   }, [isOnline, announce]);
+
+  // Combine configuration and network validation into a single actionable gate
+  let gatePassed = true;
+  let gateError: string | null = null;
+
+  if (!isContractIdValid) {
+    gatePassed = false;
+    gateError = contractIdError;
+  } else if (publicKey && !networkMatch) {
+    gatePassed = false;
+    gateError = `Wallet is on "${walletNetwork}" — app expects a different network. Please switch your wallet network to match "${import.meta.env.VITE_NETWORK_PASSPHRASE || "testnet"}".`;
+  }
+
+  useEffect(() => {
+    if (gateError) {
+      announce?.(`Configuration Warning: ${gateError}`);
+    }
+  }, [gateError, announce]);
 
   async function handleSelectWallet(adapter: WalletAdapter) {
     setShowWalletModal(false);
@@ -100,6 +121,8 @@ export default function App() {
         </div>
       </div>
 
+      {/* Actionable gate warning banner */}
+      {gateError && (
       {/* Contract pause banner — shown at root level so it's always visible */}
       <ContractPauseBanner paused={isPaused} />
       {/* RPC Failure Banner */}
@@ -159,10 +182,10 @@ export default function App() {
         <div
           className="card"
           style={{ background: "#3b1f1f", marginBottom: 16, textAlign: "center" }}
+          data-testid="gate-warning"
         >
           <p style={{ color: "#f87171", fontSize: 13 }}>
-            ⚠ Wallet is on <strong>{walletNetwork}</strong> — app expects a different network.
-            Please switch your wallet network.
+            ⚠ <strong>Configuration/Network Gate Warning:</strong> {gateError}
           </p>
         </div>
       )}
@@ -212,6 +235,7 @@ export default function App() {
                   setTab("dashboard");
                   setRefresh((r) => r + 1);
                 }}
+                isPaused={!gatePassed}
                 announce={announce}
                 isOffline={!isOnline}
                 isPaused={isPaused}
@@ -223,6 +247,7 @@ export default function App() {
                 onSign={signAndSubmit}
                 refreshTrigger={refresh}
                 announce={announce}
+                isPaused={!gatePassed}
                 isOffline={!isOnline}
                 isPaused={isPaused}
               />
@@ -236,7 +261,11 @@ export default function App() {
               />
             )}
             {tab === "admin" && isAdmin && (
-              <AdminDashboard publicKey={publicKey} onSign={signAndSubmit} />
+              <AdminDashboard
+                publicKey={publicKey}
+                onSign={signAndSubmit}
+                gatePassed={gatePassed}
+              />
             )}
           </div>
         </>
