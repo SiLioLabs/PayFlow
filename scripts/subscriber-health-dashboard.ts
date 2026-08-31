@@ -54,20 +54,29 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const CONTRACT_ID = process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const RPC_URL =
-  process.env.RPC_URL ?? process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
+  process.env.RPC_URL ??
+  process.env.VITE_RPC_URL ??
+  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
-  process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
+  process.env.NETWORK_PASSPHRASE ??
+  process.env.VITE_NETWORK_PASSPHRASE ??
+  Networks.TESTNET;
 const PAGE_SIZE = Math.min(
   50,
-  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50)
+  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50),
 );
 const LEDGER_ENTRY_BATCH = Math.min(
   200,
-  Math.max(1, Number.parseInt(process.env.LEDGER_ENTRY_BATCH ?? "100", 10) || 100)
+  Math.max(
+    1,
+    Number.parseInt(process.env.LEDGER_ENTRY_BATCH ?? "100", 10) || 100,
+  ),
 );
-const EXPIRING_TTL_LEDGERS = Number.parseInt(process.env.EXPIRING_TTL_LEDGERS ?? "500000", 10) || 500_000;
+const EXPIRING_TTL_LEDGERS =
+  Number.parseInt(process.env.EXPIRING_TTL_LEDGERS ?? "500000", 10) || 500_000;
 const SHOW_PROGRESS = process.env.PROGRESS !== "0";
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
@@ -170,7 +179,10 @@ function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
 }
 
-async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal | null> {
+async function simulate(
+  method: string,
+  ...args: xdr.ScVal[]
+): Promise<xdr.ScVal | null> {
   const contract = new Contract(CONTRACT_ID);
   const tx = new TransactionBuilder(new Account(SIM_SOURCE, "0"), {
     fee: BASE_FEE,
@@ -181,7 +193,9 @@ async function simulate(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal
     .build();
   const result = await server.simulateTransaction(tx);
   if ("error" in result) {
-    throw new Error(`${method}: ${String((result as { error?: unknown }).error ?? "failed")}`);
+    throw new Error(
+      `${method}: ${String((result as { error?: unknown }).error ?? "failed")}`,
+    );
   }
   return (result as { result?: { retval?: xdr.ScVal } }).result?.retval ?? null;
 }
@@ -192,11 +206,14 @@ async function getU64(method: string): Promise<number> {
   return Number(scValToNative(val));
 }
 
-async function getSubscriberPage(offset: number, limit: number): Promise<string[]> {
+async function getSubscriberPage(
+  offset: number,
+  limit: number,
+): Promise<string[]> {
   const retval = await simulate(
     "get_subscriber_page",
     nativeToScVal(offset, { type: "u64" }),
-    nativeToScVal(limit, { type: "u32" })
+    nativeToScVal(limit, { type: "u32" }),
   );
   if (!retval) return [];
   const native = scValToNative(retval);
@@ -215,7 +232,7 @@ function subscriptionLedgerKey(user: string): xdr.LedgerKey {
       contract: Address.fromString(CONTRACT_ID).toScAddress(),
       key,
       durability: xdr.ContractDataDurability.persistent(),
-    })
+    }),
   );
 }
 
@@ -228,11 +245,16 @@ interface LedgerMeta {
 
 async function fetchLedgerEntries(
   users: string[],
-  latestLedger: number
+  latestLedger: number,
 ): Promise<Map<string, LedgerMeta>> {
   const out = new Map<string, LedgerMeta>();
   for (const u of users) {
-    out.set(u, { found: false, archived: false, liveUntilLedger: null, raw: null });
+    out.set(u, {
+      found: false,
+      archived: false,
+      liveUntilLedger: null,
+      raw: null,
+    });
   }
 
   for (let i = 0; i < users.length; i += LEDGER_ENTRY_BATCH) {
@@ -269,7 +291,9 @@ async function fetchLedgerEntries(
       const msg = err instanceof Error ? err.message : String(err);
       for (const user of slice) {
         try {
-          const resp = await server.getLedgerEntries(subscriptionLedgerKey(user));
+          const resp = await server.getLedgerEntries(
+            subscriptionLedgerKey(user),
+          );
           const entry = resp.entries?.[0];
           if (!entry) continue;
           out.set(user, {
@@ -279,8 +303,12 @@ async function fetchLedgerEntries(
             raw: entry.val.contractData().val(),
           });
         } catch (inner) {
-          const innerMsg = inner instanceof Error ? inner.message : String(inner);
-          if (/archiv|expired|not found/i.test(innerMsg) || /archiv|expired/i.test(msg)) {
+          const innerMsg =
+            inner instanceof Error ? inner.message : String(inner);
+          if (
+            /archiv|expired|not found/i.test(innerMsg) ||
+            /archiv|expired/i.test(msg)
+          ) {
             out.set(user, {
               found: false,
               archived: true,
@@ -329,7 +357,9 @@ async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
   if (!tokenId || !flowPayAddress) return 0n;
   try {
     const tokenContract = new Contract(tokenId);
-    const account = await server.getAccount(owner).catch(() => new Account(SIM_SOURCE, "0"));
+    const account = await server
+      .getAccount(owner)
+      .catch(() => new Account(SIM_SOURCE, "0"));
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: NETWORK_PASSPHRASE,
@@ -338,14 +368,15 @@ async function getAllowance(owner: string, tokenId: string): Promise<bigint> {
         tokenContract.call(
           "allowance",
           addressVal(owner),
-          nativeToScVal(flowPayAddress, { type: "address" })
-        )
+          nativeToScVal(flowPayAddress, { type: "address" }),
+        ),
       )
       .setTimeout(30)
       .build();
     const result = await server.simulateTransaction(tx);
     if ("error" in result) return 0n;
-    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result
+      ?.retval;
     if (!retval || retval.switch().name === "scvVoid") return 0n;
     return BigInt(String(scValToNative(retval)));
   } catch {
@@ -420,7 +451,7 @@ export async function collectHealth(): Promise<{
     if (page.length === 0) break;
 
     progress(
-      `Scanning subscribers ${Math.min(offset + page.length, indexSize)}/${indexSize}…`
+      `Scanning subscribers ${Math.min(offset + page.length, indexSize)}/${indexSize}…`,
     );
 
     const ledgerMap = await fetchLedgerEntries(page, latestLedger);
@@ -439,7 +470,10 @@ export async function collectHealth(): Promise<{
 
       if (!sub && !requiresRestore) {
         try {
-          const retval = await simulate("get_subscription", addressVal(address));
+          const retval = await simulate(
+            "get_subscription",
+            addressVal(address),
+          );
           if (retval && retval.switch().name !== "scvVoid") {
             sub = decodeSubscription(retval);
           }
@@ -471,6 +505,11 @@ export async function collectHealth(): Promise<{
 
       const health = await getSubscriptionHealth(address);
       const allowance = sub.active ? await getAllowance(address, sub.token) : 0n;
+      const allowance = sub.active
+        ? await getAllowance(address, sub.token)
+        : 0n;
+      const lowAllowance =
+        sub.active && !sub.paused && allowance < sub.amount * 2n;
 
       // Determine fields from on-chain health where possible, fall back to computation
       let withinGrace = health?.within_grace ?? false;
@@ -492,10 +531,14 @@ export async function collectHealth(): Promise<{
       if (health === null && sub.active && !sub.paused) {
         chargeDue = now >= sub.last_charged + sub.interval;
       }
+      const trialActive = health?.trial_active ?? sub.last_charged > now;
 
       const ttlRemaining =
-        meta.liveUntilLedger != null ? Math.max(0, meta.liveUntilLedger - latestLedger) : null;
-      const expiringTtl = ttlRemaining != null && ttlRemaining < EXPIRING_TTL_LEDGERS;
+        meta.liveUntilLedger != null
+          ? Math.max(0, meta.liveUntilLedger - latestLedger)
+          : null;
+      const expiringTtl =
+        ttlRemaining != null && ttlRemaining < EXPIRING_TTL_LEDGERS;
 
       details.push({
         address,
@@ -711,6 +754,8 @@ function toCsv(details: SubscriberHealth[]): string {
         d.expiring_ttl,
         d.requires_restore,
       ].join(",")
+        d.token,
+      ].join(","),
     );
   }
   return lines.join("\n") + "\n";
@@ -766,7 +811,9 @@ async function main(): Promise<void> {
   const { summary, details } = result;
 
   if (SHOW_PROGRESS) {
-    console.error(`Completed in ${(elapsedMs / 1000).toFixed(1)}s (scanned ${summary.scanned})`);
+    console.error(
+      `Completed in ${(elapsedMs / 1000).toFixed(1)}s (scanned ${summary.scanned})`,
+    );
   }
 
   // Determine aggregate status

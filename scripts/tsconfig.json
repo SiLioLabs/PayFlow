@@ -1,6 +1,22 @@
 {
   "compilerOptions": {
     "target": "ES2020",
+    "module": "node16",
+    "moduleResolution": "node16",
+    "lib": ["ES2020"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["dist", "node_modules"]
     "module": "ESNext",
     "lib": ["ES2020"],
     "moduleResolution": "bundler",

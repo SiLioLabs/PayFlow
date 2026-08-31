@@ -9,11 +9,11 @@ vi.mock("../stellar", () => ({
   getAllowance: vi.fn(() => Promise.resolve(0n)),
   fetchEvents: vi.fn(() => Promise.resolve([])),
   buildSubscribeTx: vi.fn(),
-  DEFAULT_TOKEN: "CTOKEN",
+  DEFAULT_TOKEN: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
   RPC_URL: "https://soroban-testnet.stellar.org",
   NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",
   CONTRACT_ID: "CTEST",
-  TOKEN_CONTRACT_ID: "CTOKEN",
+  TOKEN_CONTRACT_ID: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
   server: { getAccount: vi.fn().mockResolvedValue({}) },
 }));
 
@@ -59,7 +59,7 @@ describe("SubscribeForm mobile layout", () => {
     );
 
     const groups = document.querySelectorAll(".subscribe-form .form-group");
-    expect(groups.length).toBe(5);
+    expect(groups.length).toBe(6);
 
     const btn = screen.getByRole("button", { name: /subscribe/i });
     const btnWidth = parseFloat(getComputedStyle(btn).width);

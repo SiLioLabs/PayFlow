@@ -24,7 +24,7 @@
  * );
  */
 import { useState, useEffect, useRef } from "react";
-import { getBalance } from "../stellar";
+import { getBalance, getTokenBalance } from "../stellar";
 
 interface CacheEntry {
   balance: string;
@@ -41,13 +41,18 @@ export interface UseStellarBalanceResult {
   error: string | null;
 }
 
-export function useStellarBalance(address: string, staleAfterMs = 10000): UseStellarBalanceResult {
+export function useStellarBalance(
+  address: string,
+  staleAfterMs = 10000,
+  tokenId?: string
+): UseStellarBalanceResult {
+  const cacheKey = tokenId ? `${address}:${tokenId}` : address;
   const minFetchIntervalMs = 5000;
 
   const lastKnownBalance = useRef<string>("0");
 
   const [state, setState] = useState<UseStellarBalanceResult>(() => {
-    const cached = cache.get(address);
+    const cached = cache.get(cacheKey);
     if (cached) {
       lastKnownBalance.current = cached.balance;
       const isStale = Date.now() - cached.timestamp > staleAfterMs;
@@ -73,7 +78,7 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
 
     const fetchBalance = async () => {
       const now = Date.now();
-      const cached = cache.get(address);
+      const cached = cache.get(cacheKey);
 
       if (cached) {
         lastKnownBalance.current = cached.balance;
@@ -116,19 +121,27 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
       }
 
       try {
-        let fetchPromise = inFlightRequests.get(address);
+        let fetchPromise = inFlightRequests.get(cacheKey);
         if (!fetchPromise) {
-          fetchPromise = getBalance(address, { asset_type: "native" }).finally(() => {
-            inFlightRequests.delete(address);
-          });
-          inFlightRequests.set(address, fetchPromise);
+          if (tokenId) {
+            fetchPromise = getTokenBalance(address, tokenId)
+              .then((b) => b.toString())
+              .finally(() => {
+                inFlightRequests.delete(cacheKey);
+              });
+          } else {
+            fetchPromise = getBalance(address, { asset_type: "native" }).finally(() => {
+              inFlightRequests.delete(cacheKey);
+            });
+          }
+          inFlightRequests.set(cacheKey, fetchPromise);
         }
 
         const newBalance = await fetchPromise;
 
         if (isMounted) {
           lastKnownBalance.current = newBalance;
-          cache.set(address, { balance: newBalance, timestamp: Date.now() });
+          cache.set(cacheKey, { balance: newBalance, timestamp: Date.now() });
 
           setState({
             balance: newBalance,
@@ -154,7 +167,7 @@ export function useStellarBalance(address: string, staleAfterMs = 10000): UseSte
     return () => {
       isMounted = false;
     };
-  }, [address, staleAfterMs]);
+  }, [address, staleAfterMs, cacheKey, tokenId]);
 
   return state;
 }

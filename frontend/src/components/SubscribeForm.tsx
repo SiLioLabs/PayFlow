@@ -7,13 +7,16 @@ import {
   validateStroopAmount,
   type FormFields,
 } from "../hooks/useFormValidation";
+import { isValidStellarAddress } from "../utils/addressValidation";
 import { BILLING_INTERVALS, CONTRACT_LIMITS } from "../constants";
 import IntervalSelector from "./IntervalSelector";
 import BalanceDisplay from "./BalanceDisplay";
 import AllowanceDisplay from "./AllowanceDisplay";
 import AddressBook from "./AddressBook";
+import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
 import { useToast } from "../hooks/useToast";
+import StroopInput from "./StroopInput";
 
 interface Props {
   userKey: string;
@@ -21,19 +24,46 @@ interface Props {
   onSuccess: () => void;
   announce?: (message: string) => void;
   isPaused?: boolean;
+  /** When true, wallet mutations are disabled because the browser is offline. */
+  isOffline?: boolean;
 }
 
 type TouchedFields = {
   merchant: boolean;
   amount: boolean;
   interval: boolean;
+  referrer: boolean;
+  tokenAddress: boolean;
 };
 
-function fieldsAreValid(fields: FormFields): boolean {
+function validateReferrer(referrer: string, userKey: string): { valid: boolean; error?: string } {
+  if (!referrer.trim()) {
+    // Referrer is optional
+    return { valid: true };
+  }
+
+  const trimmed = referrer.trim();
+
+  // Check if it's a valid Stellar address
+  if (!isValidStellarAddress(trimmed)) {
+    return { valid: false, error: "Invalid Stellar address format" };
+  }
+
+  // Check for self-referral client-side
+  if (trimmed === userKey) {
+    return { valid: false, error: "Cannot refer yourself — the contract will reject this" };
+  }
+
+  return { valid: true };
+}
+
+function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
   return (
     validateAddress(fields.merchant).valid &&
     validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
-    validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid
+    validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
+    referrerValid
+    validateAddress(fields.tokenAddress).valid
   );
 }
 
@@ -43,15 +73,19 @@ export default function SubscribeForm({
   onSuccess,
   announce,
   isPaused = false,
+  isOffline = false,
 }: Props) {
   const [merchant, setMerchant] = useState("");
-  const [amount, setAmount] = useState("");
+  const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
   const [referrer, setReferrer] = useState("");
+  const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
   const [touched, setTouched] = useState<TouchedFields>({
     merchant: false,
     amount: false,
     interval: false,
+    referrer: false,
+    tokenAddress: false,
   });
   const [showAddressBook, setShowAddressBook] = useState(false);
   const [pending, setPending] = useState(false);
@@ -60,16 +94,42 @@ export default function SubscribeForm({
   const { errors, validate, validating } = useFormValidation();
   const { toasts, addToast, removeToast } = useToast();
 
+  const amountString =
+    amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
+  const fields: FormFields = { merchant, amount: amountString, interval };
   const fields: FormFields = { merchant, amount, interval };
+  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
+  const referrerValidation = validateReferrer(referrer, userKey);
+  const canSubmit =
+    fieldsAreValid(fields, referrerValidation.valid) &&
+    !pending &&
+    !validating &&
+    !isPaused;
+  const fields: FormFields = { merchant, amount, interval, tokenAddress };
   const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused;
 
   // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {
-    if (touched.merchant || touched.amount || touched.interval) {
+    if (touched.merchant || touched.amount || touched.interval || touched.tokenAddress) {
       validate(fields);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on field values + touched
-  }, [merchant, amount, interval, touched.merchant, touched.amount, touched.interval, validate]);
+  }, [
+    merchant,
+    amountStroops,
+    interval,
+    touched.merchant,
+    touched.amount,
+    touched.interval,
+    amount,
+    interval,
+    tokenAddress,
+    touched.merchant,
+    touched.amount,
+    touched.interval,
+    touched.tokenAddress,
+    validate,
+  ]);
 
   function handleBlur(field: keyof TouchedFields) {
     setTouched((prev) => ({ ...prev, [field]: true }));
@@ -84,24 +144,31 @@ export default function SubscribeForm({
     setAmount(e.target.value);
   }
 
+  function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setReferrer(e.target.value);
+  }
+
+  function handleReferrerBlur() {
+    setTouched((prev) => ({ ...prev, referrer: true }));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setTouched({ merchant: true, amount: true, interval: true });
+    setTouched({ merchant: true, amount: true, interval: true, tokenAddress: true });
     setStatus(null);
 
     const ok = validate(fields);
-    if (!ok) return;
+    if (!ok || amountStroops === null) return;
 
     setPending(true);
     announce?.("Transaction submitted");
     try {
-      const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
       const xdr = await buildSubscribeTx(
         userKey,
         merchant,
-        stroops,
+        amountStroops,
         BigInt(interval),
-        DEFAULT_TOKEN,
+        tokenAddress,
         referrer.trim() || null,
         ""
       );
@@ -123,14 +190,20 @@ export default function SubscribeForm({
   const merchantError = touched.merchant && errors.merchant ? errors.merchant : undefined;
   const amountError = touched.amount && errors.amount ? errors.amount : undefined;
   const intervalError = touched.interval && errors.interval ? errors.interval : undefined;
+  const referrerError = touched.referrer ? referrerValidation.error : undefined;
+  const tokenAddressError =
+    touched.tokenAddress && errors.tokenAddress ? errors.tokenAddress : undefined;
 
   return (
     <form className="subscribe-form" onSubmit={handleSubmit} noValidate>
       <h2 className="subscribe-form__title">New Subscription</h2>
 
       <div className="form-group">
-        <BalanceDisplay address={userKey} />
+        <BalanceDisplay address={userKey} tokenId={tokenAddress} />
       </div>
+
+      {/* Referral Panel */}
+      <ReferralPanel publicKey={userKey} />
 
       {/* Merchant Field */}
       <div className="form-group">
@@ -166,25 +239,8 @@ export default function SubscribeForm({
       </div>
 
       {/* Amount Field */}
-      <div className="form-group">
-        <label className="form-label" htmlFor="amount-input">
-          Amount (XLM per period)
-        </label>
-        <input
-          id="amount-input"
-          data-testid="amount-input"
-          name="amount"
-          className="input"
-          type="number"
-          min="0.0000001"
-          step="0.0000001"
-          placeholder="5"
-          value={amount}
-          onChange={handleAmountChange}
-          onBlur={() => handleBlur("amount")}
-          aria-invalid={amountError ? true : undefined}
-          aria-describedby={amountError ? "amount-error" : undefined}
-        />
+      <div data-testid="amount-wrapper" onBlur={() => handleBlur("amount")}>
+        <StroopInput label="Amount" onChange={setAmountStroops} disabled={pending || isPaused} />
         {amountError && (
           <span
             id="amount-error"
@@ -217,6 +273,36 @@ export default function SubscribeForm({
         )}
       </div>
 
+      {/* Referrer Field */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="tokenAddress-input">
+          Token Address
+        </label>
+        <input
+          id="tokenAddress-input"
+          data-testid="tokenAddress-input"
+          name="tokenAddress"
+          className="input"
+          placeholder="Token Address G…"
+          value={tokenAddress}
+          onChange={(e) => setTokenAddress(e.target.value)}
+          onBlur={() => handleBlur("tokenAddress")}
+          aria-invalid={tokenAddressError ? true : undefined}
+          aria-describedby={tokenAddressError ? "tokenAddress-error" : undefined}
+          autoComplete="off"
+        />
+        {tokenAddressError && (
+          <span
+            id="tokenAddress-error"
+            data-testid="tokenAddress-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {tokenAddressError}
+          </span>
+        )}
+      </div>
+
       {/* Referrer / allowance */}
       <div className="form-group">
         <label className="form-label" htmlFor="referrer-input">
@@ -229,10 +315,29 @@ export default function SubscribeForm({
           className="input"
           placeholder="Optional referrer G…"
           value={referrer}
-          onChange={(e) => setReferrer(e.target.value)}
+          onChange={handleReferrerChange}
+          onBlur={handleReferrerBlur}
+          aria-invalid={referrerError ? true : undefined}
+          aria-describedby={referrerError ? "referrer-error" : undefined}
           autoComplete="off"
         />
+        {referrerError && (
+          <span
+            id="referrer-error"
+            data-testid="referrer-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {referrerError}
+          </span>
+        )}
         <AllowanceDisplay userKey={userKey} subscriptionAmount={0n} refreshTrigger={0} />
+        <AllowanceDisplay
+          userKey={userKey}
+          subscriptionAmount={BigInt(Math.round(parseFloat(amount || "0") * 10_000_000))}
+          refreshTrigger={0}
+          tokenId={tokenAddress}
+        />
       </div>
 
       <button
@@ -240,7 +345,14 @@ export default function SubscribeForm({
         disabled={!canSubmit}
         className="btn-primary subscribe-form__submit"
         aria-busy={pending || validating}
-        aria-label={isPaused ? "Subscribe (unavailable during maintenance)" : undefined}
+        aria-label={
+          isOffline
+            ? "Subscribe (unavailable while offline)"
+            : isPaused
+              ? "Subscribe (unavailable during maintenance)"
+              : undefined
+        }
+        title={isOffline ? "You're offline — wallet actions are unavailable" : undefined}
       >
         {pending ? "Confirming…" : validating ? "Validating…" : "Subscribe"}
       </button>

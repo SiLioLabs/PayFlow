@@ -7,5 +7,15 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/setupTests.ts"],
+    poolOptions: {
+      threads: {
+        maxThreads: process.env.CI ? 2 : undefined,
+        minThreads: 1,
+      },
+      forks: {
+        maxForks: process.env.CI ? 2 : undefined,
+        minForks: 1,
+      },
+    },
   },
 });

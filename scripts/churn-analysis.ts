@@ -123,13 +123,18 @@ class CommandLineArgs {
 export function calculateChurnAnalysis(
   events: UnifiedEvent[],
   logic: "new" | "retention",
-  referenceTimeOverride?: number
+  referenceTimeOverride?: number,
 ): ChurnAnalysisReport {
   // Determine reference time.
   // To handle historical datasets or test environments correctly, we default to the maximum
   // of the current system time and the latest event timestamp in our dataset.
-  const latestEventTime = events.reduce((max, e) => Math.max(max, e.timestamp), 0);
-  const referenceTime = referenceTimeOverride ?? Math.max(Math.floor(Date.now() / 1000), latestEventTime);
+  const latestEventTime = events.reduce(
+    (max, e) => Math.max(max, e.timestamp),
+    0,
+  );
+  const referenceTime =
+    referenceTimeOverride ??
+    Math.max(Math.floor(Date.now() / 1000), latestEventTime);
 
   // Helper to convert timestamp to "YYYY-MM"
   const getCohortMonth = (ts: number): string => {
@@ -148,8 +153,14 @@ export function calculateChurnAnalysis(
   const allLifespans: SubscriptionLifespan[] = [];
   const activeLifespans = new Map<string, SubscriptionLifespan>();
   const userFirstSubscribe = new Map<string, number>();
-  const userEvents = new Map<string, Array<{ eventName: string; timestamp: number }>>();
-  const userMerchantState = new Map<string, Map<string, "subscribed" | "cancelled">>();
+  const userEvents = new Map<
+    string,
+    Array<{ eventName: string; timestamp: number }>
+  >();
+  const userMerchantState = new Map<
+    string,
+    Map<string, "subscribed" | "cancelled">
+  >();
 
   for (const e of events) {
     const { eventName, user, timestamp, merchant } = e;
@@ -190,7 +201,10 @@ export function calculateChurnAnalysis(
       if (!userFirstSubscribe.has(user)) {
         userFirstSubscribe.set(user, timestamp);
       }
-    } else if (eventName === "cancelled" || eventName === "cancelled_with_refund") {
+    } else if (
+      eventName === "cancelled" ||
+      eventName === "cancelled_with_refund"
+    ) {
       // Find active merchant for this user to attribute cancellation
       let currentMerchant: string | undefined;
 
@@ -207,7 +221,10 @@ export function calculateChurnAnalysis(
           if (history[i].eventName === "subscribed") {
             // Find corresponding subscription event in original array to get merchant
             const subEvent = events.find(
-              (evt) => evt.user === user && evt.eventName === "subscribed" && evt.timestamp === history[i].timestamp
+              (evt) =>
+                evt.user === user &&
+                evt.eventName === "subscribed" &&
+                evt.timestamp === history[i].timestamp,
             );
             if (subEvent?.merchant) {
               currentMerchant = subEvent.merchant;
@@ -227,7 +244,10 @@ export function calculateChurnAnalysis(
   }
 
   // 2. Cohort Analysis Grouping
-  const cohortsMap = new Map<string, { initial: number; active30: number; active90: number }>();
+  const cohortsMap = new Map<
+    string,
+    { initial: number; active30: number; active90: number }
+  >();
   const cohortsList: string[] = [];
 
   if (logic === "new") {
@@ -352,7 +372,10 @@ export function calculateChurnAnalysis(
     .slice(0, 5);
 
   // 4. Historical Churn Projection
-  const avgMonthlyChurnRate = completedCohortsCount > 0 ? completedCohortsChurnSum / completedCohortsCount : 0;
+  const avgMonthlyChurnRate =
+    completedCohortsCount > 0
+      ? completedCohortsChurnSum / completedCohortsCount
+      : 0;
 
   // Determine currently active subscribers at the reference time
   let currentActiveCount = 0;
@@ -402,12 +425,13 @@ export function calculateChurnAnalysis(
 
 async function main() {
   // Only execute CLI parsing and output if called directly
-  const isMain = process.argv[1]?.endsWith("/churn-analysis.ts") ||
-                 process.argv[1]?.endsWith("\\churn-analysis.ts") ||
-                 process.argv[1]?.endsWith("/churn-analysis.js") ||
-                 process.argv[1]?.endsWith("\\churn-analysis.js") ||
-                 process.argv[1]?.endsWith("scripts/churn-analysis.ts") ||
-                 process.argv[1]?.endsWith("scripts/churn-analysis.js");
+  const isMain =
+    process.argv[1]?.endsWith("/churn-analysis.ts") ||
+    process.argv[1]?.endsWith("\\churn-analysis.ts") ||
+    process.argv[1]?.endsWith("/churn-analysis.js") ||
+    process.argv[1]?.endsWith("\\churn-analysis.js") ||
+    process.argv[1]?.endsWith("scripts/churn-analysis.ts") ||
+    process.argv[1]?.endsWith("scripts/churn-analysis.js");
   if (!isMain) return;
 
   const cli = new CommandLineArgs();
@@ -416,14 +440,20 @@ async function main() {
   let events: UnifiedEvent[] = [];
   let dataSource: "sqlite" | "rpc" = "sqlite";
 
-  const dbPath = cli.dbPath ?? process.env.INDEXER_DB_PATH ?? process.env.INDEXER_DB ?? "indexer.db";
+  const dbPath =
+    cli.dbPath ??
+    process.env.INDEXER_DB_PATH ??
+    process.env.INDEXER_DB ??
+    "indexer.db";
 
   let hasSqlite = false;
   try {
     const db = new DatabaseSync(dbPath, { open: true });
     // Verify required events table exists
     const row = db
-      .prepare("SELECT COUNT(*) as n FROM sqlite_master WHERE type='table' AND name='events'")
+      .prepare(
+        "SELECT COUNT(*) as n FROM sqlite_master WHERE type='table' AND name='events'",
+      )
       .get() as { n: number };
 
     if (row && row.n > 0) {
@@ -432,9 +462,13 @@ async function main() {
         .prepare(
           `SELECT event_name, data, timestamp FROM events
            WHERE event_name IN ('subscribed', 'cancelled', 'cancelled_with_refund')
-           ORDER BY timestamp ASC`
+           ORDER BY timestamp ASC`,
         )
-        .all() as Array<{ event_name: string; data: string; timestamp: number }>;
+        .all() as Array<{
+        event_name: string;
+        data: string;
+        timestamp: number;
+      }>;
 
       for (const r of rows) {
         try {
@@ -464,7 +498,9 @@ async function main() {
 
   if (!hasSqlite) {
     console.warn("SQLite Indexer database is unavailable or unconfigured.");
-    console.warn("Falling back to querying on-chain events via the Soroban RPC...");
+    console.warn(
+      "Falling back to querying on-chain events via the Soroban RPC...",
+    );
     dataSource = "rpc";
     try {
       const rpcEvents = await fetchEventsFromRpc();
@@ -492,7 +528,8 @@ async function main() {
     // Formatted CSV output
     let csv = "";
     csv += "=== COHORT RETENTION ANALYSIS ===\n";
-    csv += "cohort,initial_size,active_30_days,active_90_days,retention_rate_30d,retention_rate_90d\n";
+    csv +=
+      "cohort,initial_size,active_30_days,active_90_days,retention_rate_30d,retention_rate_90d\n";
     for (const c of report.cohorts) {
       csv += `${c.cohort},${c.initial_size},${c.active_30_days},${c.active_90_days},${c.retention_rate_30d},${c.retention_rate_90d}\n`;
     }
@@ -516,7 +553,9 @@ async function main() {
       writeFileSync(cli.outPath, outputContent);
       console.log(`Report successfully written to ${cli.outPath}`);
     } catch (err: any) {
-      console.error(`Failed to write output to ${cli.outPath}: ${err?.message || err}`);
+      console.error(
+        `Failed to write output to ${cli.outPath}: ${err?.message || err}`,
+      );
       process.exit(1);
     }
   } else {

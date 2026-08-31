@@ -100,6 +100,12 @@ export function loadEnvFile(projectRoot: string): Map<string, string> {
     return parseEnvFile(envDefault);
   }
 
+  logger.error("ERROR: No .env or .env.local file found in project root.");
+  logger.error("  Create one from .env.example or set required variables:");
+  logger.error(
+    "    CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS",
+  );
+  process.exit(1);
   throw new Error(
     "No .env or .env.local file found in project root. " +
       "Create one from .env.example or set required variables: " +

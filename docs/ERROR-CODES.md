@@ -43,15 +43,21 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 27   | `InvalidPauseExpiry`        | Validation   | Pause expiry not in future         |
 | 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
 | 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
-| 30   | `ContractPausedError`       | State        | Subscribe while paused             |
-| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid          |
+| 30   | `ContractPausedError` (deprecated) | Compatibility | Legacy paused code; never emitted |
+| 31   | *(reserved)*                | Reserved     | Historical gap; never emitted      |
+| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid           |
 | 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| 38   | `RefundMerchantMismatch`    | Validation   | Refund caller is not merchant     |
+| 39   | `RefundAmountMustBePositive`| Validation   | Prorated refund is zero           |
+| 40   | `InsufficientMerchantBalance`| Limit       | Merchant cannot fund refund       |
 | 41   | `CannotClearActiveSubscriber` | State      | Admin index repair of an active subscriber |
+| 42   | `SchemaMigrationRequired`   | State        | Migration required before writes |
+| 43   | `ResumeGraceLapsed`         | State        | Resume after grace period elapsed |
 
-> **Note:** Code `31` is intentionally unused. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 is intentionally reserved and has no enum variant in the published map. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
 ---
 
@@ -178,10 +184,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 8 — `InsufficientAllowance`
 
-| Field               | Detail                                                               |
-| ------------------- | -------------------------------------------------------------------- |
+| Field               | Detail                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------- |
 | **When it occurs**  | Charge, subscribe, or pay-per-use path finds token allowance below required amount |
-| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down             |
+| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down                           |
 
 `charge()` and `pay_per_use*()` preflight the allowance against the **gross**
 amount before any transfer runs. When a protocol fee is configured the charge
@@ -587,10 +593,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 33 — `InvalidVolumeCap`
 
-| Field               | Detail                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_global_volume_cap` with `new_cap <= 0`              |
-| **Immediate cause** | Configured hourly volume cap must be strictly positive         |
+| Field               | Detail                                                 |
+| ------------------- | ------------------------------------------------------ |
+| **When it occurs**  | Admin `set_global_volume_cap` with `new_cap <= 0`      |
+| **Immediate cause** | Configured hourly volume cap must be strictly positive |
 
 **Recovery steps**
 
@@ -603,10 +609,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 34 — `InvalidFeeBounds`
 
-| Field               | Detail                                                                      |
-| ------------------- | --------------------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_fee_bounds` with `min_bps > max_bps` or `max_bps > 10_000`      |
-| **Immediate cause** | Fee bound range is empty or exceeds 100% (10_000 bps)                       |
+| Field               | Detail                                                                |
+| ------------------- | --------------------------------------------------------------------- |
+| **When it occurs**  | Admin `set_fee_bounds` with `min_bps > max_bps` or `max_bps > 10_000` |
+| **Immediate cause** | Fee bound range is empty or exceeds 100% (10_000 bps)                 |
 
 **Recovery steps**
 
@@ -619,10 +625,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 35 — `FeeOutOfBoundsAtCommit`
 
-| Field               | Detail                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| **When it occurs**  | `commit_fee` when pending bps is outside current `[MinFeeBps, MaxFeeBps]`              |
-| **Immediate cause** | Bounds were tightened (or never matched) between `propose_fee` and `commit_fee`        |
+| Field               | Detail                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| **When it occurs**  | `commit_fee` when pending bps is outside current `[MinFeeBps, MaxFeeBps]`       |
+| **Immediate cause** | Bounds were tightened (or never matched) between `propose_fee` and `commit_fee` |
 
 **Recovery steps**
 
@@ -635,10 +641,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 36 — `ArithmeticOverflow`
 
-| Field               | Detail                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Field               | Detail                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **When it occurs**  | A checked operation would leave range: trial extension, fee multiplication, protocol-fee accrual, or global volume accumulation |
-| **Immediate cause** | Inputs or accumulated state near the type's limit (`u64::MAX`, `i128::MAX`)                                  |
+| **Immediate cause** | Inputs or accumulated state near the type's limit (`u64::MAX`, `i128::MAX`)                                                     |
 
 **Recovery steps**
 
@@ -674,12 +680,16 @@ is not representable at all.
 
 ## Error Categories
 
+| Category       | Codes                                                | Typical owners                |
+| -------------- | ---------------------------------------------------- | ----------------------------- |
+| Auth / access  | 8, 10, 22                                            | User + admin                  |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36           | Deployer, user, admin, keeper |
 | Category       | Codes                                    | Typical owners                |
 | -------------- | ---------------------------------------- | ----------------------------- |
 | Auth / access  | 8, 10, 22                                | User + admin                  |
 | State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41 | Deployer, user, admin, keeper |
 | Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35 | Client / admin tooling        |
-| Limit / timing | 6, 9, 15, 20, 25, 28                     | Keeper + user                 |
+| Limit / timing | 6, 9, 15, 20, 25, 28                                 | Keeper + user                 |
 
 ---
 
@@ -771,7 +781,7 @@ is not representable at all.
 
 | Codes     | Guidance                                                  |
 | --------- | --------------------------------------------------------- |
-| 7, 18, 30 | “Service temporarily unavailable.”                        |
+| 7, 18 | “Service temporarily unavailable.”                        |
 | 10        | “Merchant pending approval.”                              |
 | 28        | “Protocol capacity reached; try later.”                   |
 | 20, 29    | Operator/config bugs — log to telemetry, don’t blame user |

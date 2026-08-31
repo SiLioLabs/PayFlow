@@ -134,7 +134,7 @@ function loadSnapshot(path: string): Snapshot {
     data = JSON.parse(raw);
   } catch (e) {
     console.error(
-      `ERROR: Invalid JSON in snapshot file: ${path}\n  ${(e as Error).message}`
+      `ERROR: Invalid JSON in snapshot file: ${path}\n  ${(e as Error).message}`,
     );
     process.exit(2);
   }
@@ -142,7 +142,7 @@ function loadSnapshot(path: string): Snapshot {
   const snapshot = data as Snapshot;
   if (!snapshot.subscriptions || !Array.isArray(snapshot.subscriptions)) {
     console.error(
-      `ERROR: Snapshot file missing 'subscriptions' array: ${path}`
+      `ERROR: Snapshot file missing 'subscriptions' array: ${path}`,
     );
     process.exit(2);
   }
@@ -157,7 +157,7 @@ function loadSnapshot(path: string): Snapshot {
  * Subscriptions with `found: false` are excluded.
  */
 function buildSubscriptionMap(
-  subscriptions: SubscriptionEntry[]
+  subscriptions: SubscriptionEntry[],
 ): Map<string, SubscriptionEntry> {
   const map = new Map<string, SubscriptionEntry>();
   for (const sub of subscriptions) {
@@ -177,7 +177,7 @@ function buildSubscriptionMap(
 function diffSubscriptionFields(
   before: SubscriptionEntry,
   after: SubscriptionEntry,
-  fieldFilter?: keyof SubscriptionEntry
+  fieldFilter?: keyof SubscriptionEntry,
 ): FieldChange[] {
   const changes: FieldChange[] = [];
 
@@ -192,7 +192,11 @@ function diffSubscriptionFields(
     const normB = b === undefined || b === "" ? undefined : b;
 
     if (!deepEqual(normA, normB)) {
-      changes.push({ field, before: normA ?? "(none)", after: normB ?? "(none)" });
+      changes.push({
+        field,
+        before: normA ?? "(none)",
+        after: normB ?? "(none)",
+      });
     }
   }
 
@@ -213,7 +217,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 function diffSnapshots(
   before: Snapshot,
   after: Snapshot,
-  fieldFilter?: keyof SubscriptionEntry
+  fieldFilter?: keyof SubscriptionEntry,
 ): DiffResult {
   const beforeMap = buildSubscriptionMap(before.subscriptions);
   const afterMap = buildSubscriptionMap(after.subscriptions);
@@ -223,17 +227,17 @@ function diffSnapshots(
 
   // New: in after but not in before
   const newAddresses = new Set(
-    [...afterAddresses].filter((a) => !beforeAddresses.has(a))
+    [...afterAddresses].filter((a) => !beforeAddresses.has(a)),
   );
 
   // Removed: in before but not in after
   const removedAddresses = new Set(
-    [...beforeAddresses].filter((a) => !afterAddresses.has(a))
+    [...beforeAddresses].filter((a) => !afterAddresses.has(a)),
   );
 
   // Intersection: check for modifications
   const intersection = new Set(
-    [...beforeAddresses].filter((a) => afterAddresses.has(a))
+    [...beforeAddresses].filter((a) => afterAddresses.has(a)),
   );
 
   const modified: Modification[] = [];
@@ -241,7 +245,7 @@ function diffSnapshots(
     const changes = diffSubscriptionFields(
       beforeMap.get(addr)!,
       afterMap.get(addr)!,
-      fieldFilter
+      fieldFilter,
     );
     if (changes.length > 0) {
       modified.push({ address: addr, changes });
@@ -326,9 +330,13 @@ function printDiff(result: DiffResult, fieldFilter?: string): void {
       if (!fieldFilter || fieldFilter === "interval")
         console.log(`      interval : ${sub.interval ?? "(none)"}`);
       if (!fieldFilter || fieldFilter === "merchant")
-        console.log(`      merchant : ${sub.merchant ? shortAddr(sub.merchant) : "(none)"}`);
+        console.log(
+          `      merchant : ${sub.merchant ? shortAddr(sub.merchant) : "(none)"}`,
+        );
       if (!fieldFilter || fieldFilter === "token")
-        console.log(`      token    : ${sub.token ? shortAddr(sub.token) : "(none)"}`);
+        console.log(
+          `      token    : ${sub.token ? shortAddr(sub.token) : "(none)"}`,
+        );
     }
     console.log("");
   }
@@ -346,7 +354,9 @@ function printDiff(result: DiffResult, fieldFilter?: string): void {
   // ── Modified subscriptions ──────────────────────────────────────────────
   if (modifiedSubscriptions.length > 0) {
     const fieldLabel = fieldFilter ? ` (field: ${fieldFilter})` : "";
-    console.log(`  ✏️  MODIFIED SUBSCRIPTIONS (${modifiedSubscriptions.length})${fieldLabel}`);
+    console.log(
+      `  ✏️  MODIFIED SUBSCRIPTIONS (${modifiedSubscriptions.length})${fieldLabel}`,
+    );
     console.log("  ─────────────────────────────────────────");
     for (const mod of modifiedSubscriptions) {
       console.log(`    ${shortAddr(mod.address)}`);
@@ -361,7 +371,7 @@ function printDiff(result: DiffResult, fieldFilter?: string): void {
 
   // ── Summary ─────────────────────────────────────────────────────────────
   console.log(
-    `  SUMMARY: ${newSubscribers.length} new, ${removedSubscribers.length} removed, ${modifiedSubscriptions.length} modified subscriptions`
+    `  SUMMARY: ${newSubscribers.length} new, ${removedSubscribers.length} removed, ${modifiedSubscriptions.length} modified subscriptions`,
   );
   console.log("");
 }
@@ -387,7 +397,7 @@ function parseArgs(): {
     }
     if (!isValidField(rawField)) {
       console.error(
-        `ERROR: Invalid --field value: "${rawField}". Valid fields: ${COMPARED_FIELDS.join(", ")}`
+        `ERROR: Invalid --field value: "${rawField}". Valid fields: ${COMPARED_FIELDS.join(", ")}`,
       );
       process.exit(2);
     }
@@ -397,10 +407,14 @@ function parseArgs(): {
   }
 
   if (args.length < 2) {
-    console.error("Usage: npx tsx scripts/snapshot-diff.ts <before.json> <after.json> [--field <name>]");
+    console.error(
+      "Usage: npx tsx scripts/snapshot-diff.ts <before.json> <after.json> [--field <name>]",
+    );
     console.error("");
     console.error("  --field <name>  Filter diff to a specific field");
-    console.error(`                  Valid fields: ${COMPARED_FIELDS.join(", ")}`);
+    console.error(
+      `                  Valid fields: ${COMPARED_FIELDS.join(", ")}`,
+    );
     process.exit(2);
   }
 

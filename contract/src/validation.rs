@@ -91,3 +91,22 @@ pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, i
         env.panic_with_error(ContractError::IntervalNotElapsed);
     }
 }
+
+pub fn require_valid_transfer_targets(env: &Env, user: &Address, new_user: &Address) {
+    if user == new_user {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+    if user == &env.current_contract_address() || new_user == &env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+}
+
+pub fn require_valid_subscribe_addresses(env: &Env, user: &Address, merchant: &Address) {
+    if user == merchant {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+    if user == &env.current_contract_address() || merchant == &env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+}
+

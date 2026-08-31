@@ -1,5 +1,25 @@
 {
   "name": "payflow-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Operational and analytics scripts for FlowPay",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "top-merchants": "ts-node top-merchants.ts",
+    "deploy-pipeline": "ts-node deploy-pipeline.ts",
+    "backup-indexer-db": "ts-node backup-indexer-db.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0",
+    "better-sqlite3": "^9.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,7 +35,12 @@
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
     "typecheck": "tsc --noEmit",
+    "validate-config": "tsx validate-config.ts",
+    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
+    "test:event-dedup": "tsx test-event-dedup-integration.ts",
+    "test:renewal-forecast": "tsx test-renewal-forecast.ts",
+    "test:rpc-failover": "tsx test-rpc-failover.ts"
     "test:renewal-forecast": "tsx test-renewal-forecast.ts"
   },
   "dependencies": {

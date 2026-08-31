@@ -33,6 +33,16 @@ pub fn get_merchant_fee_recipient(env: &Env, merchant: &Address) -> Option<Addre
         .get(&DataKey::MerchantFeeRecipient(merchant.clone()))
 }
 
+/// Clears the custom fee recipient for a merchant if configured, emitting an event.
+pub fn clear_merchant_fee_recipient(env: &Env, merchant: &Address) {
+    let key = DataKey::MerchantFeeRecipient(merchant.clone());
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().remove(&key);
+        crate::events::publish_merchant_fee_recipient_cleared(env, merchant);
+    }
+}
+
+
 /// Proposes a new fee collector and basis points.
 pub fn propose_fee(env: &Env, collector: Address, bps: u32) {
     if bps > 10_000 {
