@@ -48,6 +48,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { Server } from "@stellar/stellar-sdk/rpc";
+import { logger as rootLogger } from "./logger";
 import { fileURLToPath } from "node:url";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { EventDedupCache, type DedupStats } from "./event-dedup.js";
@@ -57,8 +59,6 @@ import { recordIndexerDedupStats } from "./metrics-server.js";
 
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "10000", 10);
-const LOG_LEVEL = (process.env.LOG_LEVEL ?? "info") as
-  "debug" | "info" | "error";
 
 const DATA_DIR = process.env.DATA_DIR ?? "data";
 const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
@@ -66,6 +66,13 @@ const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
 /** Schema version — increment when adding columns or new tables. */
 const SCHEMA_VERSION = 2;
 
+if (!CONTRACT_ID) {
+  // console.error is intentional here — logger child cannot be constructed
+  // before CONTRACT_ID is resolved; this is a fatal pre-init error.
+  console.error("Error: CONTRACT_ID environment variable is required.");
+  console.error("Usage: CONTRACT_ID=<id> tsx indexer.ts");
+  process.exit(1);
+}
 /**
  * Number of unique events processed between periodic dedup-stats log lines
  * and metrics-server snapshots.
@@ -77,22 +84,17 @@ const DEDUP_STATS_LOG_INTERVAL = 100;
 // exiting the process.
 const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
 
-// ── Logging ───────────────────────────────────────────────────────────────────
+// ── Logger ────────────────────────────────────────────────────────────────────
 
-const LEVELS = { debug: 0, info: 1, error: 2 } as const;
-const currentLevel = LEVELS[LOG_LEVEL] ?? LEVELS.info;
-
-function log(level: "debug" | "info" | "error", msg: string): void {
-  if (LEVELS[level] >= currentLevel) {
-    const ts = new Date().toISOString();
-    const out = `${ts} [${level.toUpperCase()}] ${msg}`;
-    if (level === "error") {
-      console.error(out);
-    } else {
-      console.log(out);
-    }
-  }
-}
+/**
+ * Child logger with required context fields bound. Respects LOG_LEVEL env var
+ * (debug|info|warn|error) via the shared logger implementation.
+ */
+const logger = rootLogger.child({
+  script: "indexer",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -175,7 +177,7 @@ export function initSchema(db: DatabaseSync): void {
   const existingVersion = getMeta(db, "schema_version");
   if (existingVersion === null) {
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    log("info", `Database schema initialised at version ${SCHEMA_VERSION}.`);
+    logger.info("Database schema initialised", { schema_version: SCHEMA_VERSION });
   } else if (parseInt(existingVersion, 10) < SCHEMA_VERSION) {
     if (parseInt(existingVersion, 10) === 1) {
       db.exec(`
@@ -187,7 +189,7 @@ export function initSchema(db: DatabaseSync): void {
     }
     // Future migrations would go here, guarded by the version number.
     setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    log("info", `Database schema migrated to version ${SCHEMA_VERSION}.`);
+    logger.info("Database schema migrated", { schema_version: SCHEMA_VERSION });
   }
 }
 
@@ -415,6 +417,8 @@ let eventsSinceLastStatsLog = 0;
  * Log a periodic dedup-stats line and push a snapshot to metrics-server,
  * throttled to roughly every `DEDUP_STATS_LOG_INTERVAL` unique events.
  */
+async function pollOnce(db: DatabaseSync, fromLedger: number): Promise<number> {
+  logger.debug("Polling for events", { from_ledger: fromLedger });
 function maybeReportDedupStats(dedup: EventDedupCache, forceLog = false): void {
   const stats: DedupStats = dedup.stats;
 
@@ -454,10 +458,10 @@ async function pollOnce(
       limit: 200,
     });
   } catch (err) {
-    log(
-      "error",
-      `RPC getEvents failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error("RPC getEvents failed", {
+      from_ledger: fromLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Return the same ledger so we retry next tick rather than skipping ahead.
     return fromLedger;
   }
@@ -475,6 +479,10 @@ async function pollOnce(
     );
   }
 
+  if (parsed.length > 0) {
+    const written = upsertEvents(db, parsed);
+    logger.info("Events upserted", { ledger: fromLedger, count: written });
+  }
   eventsSinceLastStatsLog += written + duplicatesSkipped;
   maybeReportDedupStats(dedup);
 
@@ -500,6 +508,10 @@ async function resolveStartLedger(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  logger.info("FlowPay Event Indexer starting", {
+    db: DB_FILE,
+    poll_interval_ms: POLL_INTERVAL_MS,
+  });
   if (!CONTRACT_ID) {
     console.error("Error: CONTRACT_ID environment variable is required.");
     console.error("Usage: CONTRACT_ID=<id> tsx indexer.ts");
@@ -527,26 +539,23 @@ async function main(): Promise<void> {
   let currentLedger: number;
   if (savedLedger !== null) {
     currentLedger = parseInt(savedLedger, 10);
-    log("info", `Resuming from ledger ${currentLedger} (stored in DB).`);
+    logger.info("Resuming from stored ledger", { last_ledger: currentLedger });
   } else {
     currentLedger = await resolveStartLedger();
-    log("info", `First run — starting from ledger ${currentLedger}.`);
+    logger.info("First run — starting from ledger", { start_ledger: currentLedger });
     setMeta(db, "last_ledger", String(currentLedger));
   }
 
   // Graceful shutdown on SIGINT (Ctrl-C) and SIGTERM.
   let shutdown = false;
   const handleSignal = (): void => {
-    log(
-      "info",
-      "Shutdown signal received. Finishing current poll then exiting.",
-    );
+    logger.info("Shutdown signal received. Finishing current poll then exiting.");
     shutdown = true;
   };
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
-  log("info", "Indexer running. Press Ctrl-C to stop.");
+  logger.info("Indexer running. Press Ctrl-C to stop.");
 
   while (!shutdown) {
     const nextLedger = await pollOnce(db, currentLedger, dedup);
@@ -568,7 +577,7 @@ async function main(): Promise<void> {
   maybeReportDedupStats(dedup, /* forceLog */ true);
 
   db.close();
-  log("info", `Indexer stopped. Last indexed ledger: ${currentLedger}.`);
+  logger.info("Indexer stopped", { last_ledger: currentLedger });
   process.exit(0);
 }
 

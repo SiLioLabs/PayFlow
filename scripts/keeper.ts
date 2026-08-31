@@ -70,6 +70,7 @@ import {
   nativeToScVal,
   xdr,
 } from "@stellar/stellar-sdk";
+import { logger as rootLogger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -116,6 +117,19 @@ const USE_LEGACY_PAGING = process.env.KEEPER_USE_LEGACY_PAGING === "true";
 
 const server = new MultiEndpointServer();
 
+// ── Logger ────────────────────────────────────────────────────────────────────
+
+/**
+ * Child logger with required context fields bound. CONTRACT_ID and RPC_URL are
+ * intentionally included; KEEPER_SECRET is never logged.
+ * The `mode` field is set after DRY_RUN is known.
+ */
+const logger = rootLogger.child({
+  script: "keeper",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 function validateEnv(): void {
@@ -126,6 +140,8 @@ function validateEnv(): void {
     errors.push("KEEPER_SECRET is required in live mode (or set DRY_RUN=true)");
 
   if (errors.length > 0) {
+    // console.error is intentional here — logger may not be initialised yet at
+    // bootstrap, and this is a fatal configuration error.
     console.error("Error: Missing required environment variables:");
     for (const err of errors) console.error(`  - ${err}`);
     console.error(
@@ -162,6 +178,7 @@ Environment Variables:
                         falling back to 50). Always clamped to the live
                         on-chain max and to the 200 hard ceiling.
   INTERVAL_SECONDS      Optional. Seconds between cycles (default: 3600).
+  LOG_LEVEL             Optional. Minimum log level: debug|info|warn|error (default: info).
   REPORT_DIR            Optional. Directory where dry-run reports and the live-cycle
                         pointer file are written (default: <script_dir>/data/benchmarks).
   KEEPER_USE_LEGACY_PAGING  Optional. Set to "true" to use legacy sequential
@@ -186,11 +203,6 @@ function addressVal(addr: string): xdr.ScVal {
 function stroopsToXlm(stroops: bigint | string): string {
   const value = typeof stroops === "bigint" ? Number(stroops) : Number(stroops);
   return (value / 10_000_000).toFixed(7);
-}
-
-function log(dryRun: boolean, message: string): void {
-  const prefix = dryRun ? "[DRY-RUN]" : "[LIVE]";
-  console.log(`${prefix} ${message}`);
 }
 
 /**
@@ -225,6 +237,10 @@ function writeJsonFile(filePath: string, data: unknown): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
   } catch (err) {
+    logger.warn(`Failed to write ${filePath}`, {
+      path: filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
     log(
       DRY_RUN,
       `WARNING: failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
@@ -846,7 +862,7 @@ async function runCycle(): Promise<CycleReport> {
 
   const paused = await isContractPaused();
   if (paused) {
-    log(isDryRun, "Contract is PAUSED — skipping charge cycle");
+    logger.warn("Contract is PAUSED — skipping charge cycle", { mode: isDryRun ? "dry-run" : "live" });
     return report;
   }
 
@@ -927,6 +943,12 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
   }
 
   if (optimized.batches.length === 0) {
+    logger.info("No ready subscribers", {
+      mode: isDryRun ? "dry-run" : "live",
+      ready: optimized.ready_count,
+      deferred: optimized.deferred_count,
+    });
+    // Still write the live pointer so the "latest live" file is fresh.
     log(
       isDryRun,
       `No ready subscribers (ready=${optimized.ready_count} deferred=${optimized.deferred_count})`,
@@ -937,6 +959,12 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
     return;
   }
 
+  logger.info("Optimizer selected batches", {
+    mode: isDryRun ? "dry-run" : "live",
+    ready: optimized.ready_count,
+    batches: optimized.batches.length,
+    deferred: optimized.deferred_count,
+  });
   log(
     isDryRun,
     `Optimizer selected ${optimized.ready_count} ready user(s) in ${optimized.batches.length} batch(es); deferred=${optimized.deferred_count}`,
@@ -953,6 +981,14 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
       report.candidates.push(...pageResult.candidates);
       report.errors.push(...pageResult.errors);
 
+      logger.info("Batch simulated", {
+        mode: "dry-run",
+        batch: offset,
+        checked: pageResult.checked,
+        would_charge: pageResult.wouldCharge,
+        volume_xlm: stroopsToXlm(pageResult.totalVolume),
+        skips: pageResult.skipCounts,
+      });
       // Track grace metrics for optimized path
       for (const c of pageResult.candidates) {
         if (c.result === "Charged") {
@@ -992,6 +1028,14 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
       report.errors.push(...pageResult.errors);
       if (pageResult.txHash) report.txHashes.push(pageResult.txHash);
 
+      logger.info("Batch charged", {
+        mode: "live",
+        batch: offset,
+        charged: pageResult.charged,
+        volume_xlm: stroopsToXlm(pageResult.totalVolume),
+        tx_hash: pageResult.txHash,
+        skips: pageResult.skipCounts,
+      });
       const skipDetails = Object.entries(pageResult.skipCounts)
         .map(([k, v]) => `${k}: ${v}`)
         .join(" | ");
@@ -1005,6 +1049,26 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
   }
 }
 
+  if (isDryRun) {
+    logger.info("Cycle complete", {
+      mode: "dry-run",
+      checked: report.totalChecked,
+      would_charge: report.totalCharged,
+      total_volume_xlm: stroopsToXlm(report.totalVolume),
+    });
+  } else {
+    logger.info("Cycle complete", {
+      mode: "live",
+      charged: report.totalCharged,
+      total_volume_xlm: stroopsToXlm(report.totalVolume),
+      skips: report.totalSkips,
+    });
+  }
+
+  if (report.errors.length > 0) {
+    for (const err of report.errors) {
+      logger.error("Cycle error", { mode: isDryRun ? "dry-run" : "live", error: err });
+    }
 /**
  * Run a charge cycle using legacy sequential offset-based paging.
  * Pages through the subscriber index in insertion order (no urgency sorting).
@@ -1121,7 +1185,7 @@ function writeLatestLive(report: CycleReport): void {
   };
   const dest = path.join(REPORT_DIR, "keeper-latest-live.json");
   writeJsonFile(dest, record);
-  log(false, `Live cycle pointer written to ${dest}`);
+  logger.info("Live cycle pointer written", { path: dest });
 }
 
 /**
@@ -1186,7 +1250,7 @@ function writeDryRunReport(report: CycleReport, useLegacyPaging: boolean): void 
   const filename = `keeper-dryrun-report-${safeTs}.json`;
   const dest = path.join(REPORT_DIR, filename);
   writeJsonFile(dest, dryRunReport);
-  log(true, `Dry-run report written to ${dest}`);
+  logger.info("Dry-run report written", { path: dest });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -1203,12 +1267,13 @@ async function main(): Promise<void> {
   validateEnv();
 
   if (DRY_RUN) {
+    logger.info("Keeper started in DRY-RUN mode — no transactions will be submitted", { mode: "dry-run" });
     log(
       true,
       "Keeper started in DRY-RUN mode — no transactions will be submitted",
     );
   } else {
-    log(false, "Keeper started in LIVE mode");
+    logger.info("Keeper started in LIVE mode", { mode: "live" });
   }
 
   startMetricsServer();
@@ -1226,13 +1291,18 @@ async function main(): Promise<void> {
     const report = await runCycle();
     incrementCycles();
     const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
+    logger.info("Next cycle scheduled", {
+      mode: DRY_RUN ? "dry-run" : "live",
+      next_run: nextRun.toISOString(),
+      interval_seconds: INTERVAL_SECONDS,
+    });
     log(
       DRY_RUN,
       `Next cycle at ${nextRun.toISOString()} (in ${INTERVAL_SECONDS}s)`,
     );
 
     if (report.errors.length > 0 && report.totalCharged === 0) {
-      log(DRY_RUN, "All pages errored — will retry next cycle");
+      logger.warn("All pages errored — will retry next cycle", { mode: DRY_RUN ? "dry-run" : "live" });
     }
 
     await new Promise((r) => setTimeout(r, INTERVAL_SECONDS * 1000));

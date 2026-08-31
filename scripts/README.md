@@ -399,11 +399,11 @@ Or `npm run keeper` after exporting the same variables. Docker: see
 
 ### Expected health / behavior
 
-- Local process: logs `[LIVE] Keeper started in LIVE mode` or
-  `[DRY-RUN] Keeper started in DRY-RUN mode — no transactions will be submitted`.
-  There is **no** SIGINT/SIGTERM handler; loop mode sleeps `INTERVAL_SECONDS`
-  between cycles. `--once` exits 0 unless the cycle had errors and
-  `totalCharged === 0` (then exit 1).
+- Local process: logs `Keeper started in LIVE mode` or
+  `Keeper started in DRY-RUN mode — no transactions will be submitted` at INFO
+  level, with `mode` field in context. There is **no** SIGINT/SIGTERM handler;
+  loop mode sleeps `INTERVAL_SECONDS` between cycles. `--once` exits 0 unless
+  the cycle had errors and `totalCharged === 0` (then exit 1).
 - Docker image `HEALTHCHECK`: `wget` POST `getHealth` to
   `${RPC_URL:-https://soroban-testnet.stellar.org}` and grep
   `"status":"healthy"` (60 s interval). This probes **RPC**, not the keeper
@@ -413,13 +413,20 @@ Or `npm run keeper` after exporting the same variables. Docker: see
 Smoke after Compose:
 
 ```bash
-docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
+docker compose logs keeper | grep '"message":"Keeper started'
 ```
 
 ### Logs and metrics
 
-- Prefix logger: `[DRY-RUN]` or `[LIVE]` on stdout. `keeper.ts` does **not**
-  read `LOG_LEVEL`.
+- Structured logger: keeper uses the shared `logger.ts` with child context
+  `{script, contract, rpc}` bound on every line. `LOG_LEVEL` (default `info`)
+  is respected; set `LOG_FORMAT=json` for JSON lines (required in Docker).
+- A representative JSON log line emitted at startup:
+
+  ```json
+  {"timestamp":"2026-08-30T17:45:00.123Z","level":"INFO","message":"Keeper started in LIVE mode","script":"keeper","contract":"CAAAA...","rpc":"https://soroban-testnet.stellar.org","mode":"live"}
+  ```
+
 - Prometheus metrics are implemented in `metrics-server.ts`. **`keeper.ts` does
   not import that module**, so running the keeper alone does not expose
   `/metrics`. Run the metrics server separately if you need scrape targets.
@@ -441,6 +448,8 @@ docker compose logs keeper | grep -E "Keeper started in (LIVE|DRY-RUN) mode"
 | `BATCH_SIZE`         | on-chain `get_max_batch_size()`, else `50` | Subscribers per `batch_charge` call (legacy paging only); always clamped ≤ live on-chain max and ≤ 200 ceiling — logged at startup |
 | `INTERVAL_SECONDS`   | `3600` (min 1)                   | Seconds between full charge cycles                  |
 | `DRY_RUN`            | unset → live (`=== "true"` only) | Simulate with `get_batch_charge_estimate`           |
+| `LOG_LEVEL`          | `info`                           | Minimum log level: `debug` \| `info` \| `warn` \| `error` |
+| `LOG_FORMAT`         | unset → human text               | Set to `json` for JSON-lines output (recommended in Docker) |
 | `REPORT_DIR`         | `<script_dir>/data/benchmarks`   | Dry-run reports and live-cycle pointer              |
 
 The `keeper.ts` file header still says `get_batch_charge_estimate` does not
@@ -847,6 +856,28 @@ uses `RPC_URL` to probe the Soroban RPC endpoint.
 Variables actually used by keeper, indexer, metrics-server, Compose, or the
 keeper Dockerfile. Defaults are from source or `.env.example`.
 
+| Variable | Default / example | Used by | Purpose | Notes |
+| --- | --- | --- | --- | --- |
+| `CONTRACT_ID` | empty; `.env.example` blank | keeper, indexer | Deployed contract ID | Required (validateEnv / indexer exit 1). Metrics header lists it but does not read it. Compose via `.env`. |
+| `KEEPER_SECRET` | empty | keeper | Sign keeper transactions | Required unless `DRY_RUN=true`. Testnet `S…` only in examples. |
+| `KEEPER_PUBLIC_KEY` | `""` | keeper | Source account pubkey | Required by `validateEnv` (including dry-run). **Not** in `.env.example`. |
+| `DRY_RUN` | unset → live | keeper | Simulation vs live | Only `"true"` enables dry-run. Not in `.env.example`. |
+| `RPC_URL` | `https://soroban-testnet.stellar.org` | keeper, indexer, Dockerfile HEALTHCHECK | Soroban RPC | Compose via `.env`. Metrics header only. |
+| `NETWORK_PASSPHRASE` | `Networks.TESTNET` / `.env.example`: `Test SDF Network ; September 2015` | keeper | Network passphrase | Indexer header only — not read by indexer. |
+| `BATCH_SIZE` | `50` (clamped 1–50) | keeper | Page size for `batch_charge` | Not in `.env.example`. |
+| `INTERVAL_SECONDS` | `3600` (min 1) | keeper | Loop interval | Not in `.env.example`. |
+| `REPORT_DIR` | `<script_dir>/data/benchmarks` | keeper | Dry-run reports / live pointer | Not in `.env.example`. |
+| `CHARGE_INTERVAL_MS` | `3600000` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
+| `PAGE_SIZE` | `100` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
+| `MAX_RETRIES` | `3` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
+| `LOG_LEVEL` | `info` | keeper, indexer | Log verbosity | All four core scripts (keeper, indexer, health-check, alert-failed-charges) now use the shared logger and respect `LOG_LEVEL`. Set `LOG_FORMAT=json` for JSON-lines output. |
+| `DATA_DIR` | `data` | indexer | SQLite directory | Compose volume is `/app/data` if indexer is run there. Not in `.env.example`. |
+| `DB_FILE` | `DATA_DIR/events.db` | indexer | SQLite path override | Not in `.env.example`. |
+| `POLL_INTERVAL_MS` | `10000` | indexer | Event poll interval | Not in `.env.example`. |
+| `START_LEDGER` | unset → latest | indexer | First-run start ledger | Not in `.env.example`. |
+| `METRICS_PORT` | `9090` | metrics-server | HTTP listen port | Not in `.env.example` or Compose. |
+| `NODE_ENV` | `production` (image) | Docker runtime | Node environment | Set in Dockerfile. |
+| `NODE_OPTIONS` | `--unhandled-rejections=throw` | Docker runtime | Crash on unhandled rejections | Set in Dockerfile. |
 | Variable             | Default / example                                                        | Used by                                 | Purpose                       | Notes                                                                                           |
 | -------------------- | ------------------------------------------------------------------------ | --------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
 | `CONTRACT_ID`        | empty; `.env.example` blank                                              | keeper, indexer                         | Deployed contract ID          | Required (exit 1 if missing). Metrics header lists it but does not read it. Compose via `.env`. |
@@ -1135,6 +1166,25 @@ Fixture files in `data/` enable testing without a live RPC connection:
 All scripts read configuration from environment variables. The full set used
 across all scripts:
 
+| Variable               | Used by                                         | Description                                                                          |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                         |
+| `RPC_URL`              | all                                             | Soroban RPC endpoint                                                                 |
+| `NETWORK_PASSPHRASE`   | keeper, check-allowances                        | Stellar network passphrase                                                           |
+| `KEEPER_PUBLIC_KEY`    | keeper                                          | Source account public key (must be funded on the network)                            |
+| `KEEPER_SECRET`        | keeper                                          | Stellar secret key (S…) for signing transactions (required in live mode)             |
+| `DRY_RUN`              | keeper                                          | Set `true` to simulate charges without submitting transactions                       |
+| `BATCH_SIZE`           | keeper                                          | Subscriptions per batch_charge call (default 50, max 50)                             |
+| `INTERVAL_SECONDS`     | keeper                                          | Seconds between charge cycles (default 3600)                                         |
+| `REPORT_DIR`           | keeper                                          | Directory for dry-run reports and live-cycle pointer (default: `data/benchmarks`)    |
+| `WEBHOOK_URL`          | alert-expiring-allowances, alert-failed-charges | Webhook POST target                                                                  |
+| `ALERT_WINDOW_LEDGERS` | alert-expiring-allowances                       | Expiry alert threshold                                                               |
+| `DATA_DIR`             | indexer, query-events                           | SQLite database directory                                                            |
+| `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                        |
+| `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                               |
+| `START_LEDGER`         | indexer                                         | First-run start ledger                                                               |
+| `LOG_LEVEL`            | keeper, indexer, health-check, alert-failed-charges | Log verbosity (`debug` \| `info` \| `warn` \| `error`, default `info`)          |
+| `LOG_FORMAT`           | keeper, indexer, health-check, alert-failed-charges | Set to `json` for JSON-lines output (recommended in Docker)                     |
 | Variable               | Used by                                         | Description                                                                       |
 | ---------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
 | `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                      |

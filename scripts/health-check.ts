@@ -50,7 +50,7 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { MultiEndpointServer } from "./rpc-client.js";
-import { logger } from "./logger";
+import { logger as rootLogger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -69,6 +69,13 @@ const NETWORK_PASSPHRASE =
 const SIMULATION_SOURCE =
   "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
+// ── Logger ────────────────────────────────────────────────────────────────────
+
+const logger = rootLogger.child({
+  script: "health-check",
+  contract: CONTRACT_ID,
+  rpc: RPC_URL,
+});
 // ── CLI argument parsing ─────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -375,6 +382,7 @@ async function probeBatchEstimate(
 async function main(): Promise<void> {
   // Validate configuration
   if (!CONTRACT_ID) {
+    logger.error("CONTRACT_ID environment variable is not set", { status: "unhealthy" });
     log("unhealthy", "CONTRACT_ID environment variable is not set");
     if (JSON_OUTPUT) {
       logJSON({
@@ -396,6 +404,26 @@ async function main(): Promise<void> {
   let overallError: string | undefined;
 
   try {
+    // Call get_schema_version
+    const schemaResult = await simulateCall(server, "get_schema_version");
+    if (schemaResult === undefined || schemaResult === null) {
+      logger.error("get_schema_version returned no data", { status: "unhealthy", check: "get_schema_version" });
+      process.exit(1);
+    }
+
+    // Call get_active_count (active subscription count)
+    const countResult = await simulateCall(server, "get_active_count");
+    if (countResult === undefined || countResult === null) {
+      logger.error("get_active_count returned no data", { status: "unhealthy", check: "get_active_count" });
+      process.exit(1);
+    }
+
+    // Both calls succeeded with valid responses
+    logger.info("Contract health check passed", { status: "healthy" });
+    process.exit(0);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Contract health check failed", { status: "unhealthy", error: message });
     // ── Shallow probes (always run) ───────────────────────────────────
 
     // Probe 1: get_schema_version
