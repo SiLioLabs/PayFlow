@@ -1,0 +1,40 @@
+[
+  {
+    "id": "ch_123",
+    "subscriberId": "sub_1",
+    "amount": 1000,
+    "currency": "usd",
+    "status": "failed",
+    "failureReason": "insufficient_funds",
+    "failureCode": "insufficient_funds",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "ch_456",
+    "subscriberId": "sub_2",
+    "amount": 2000,
+    "currency": "usd",
+    "status": "failed",
+    "failureReason": "card_declined",
+    "failureCode": "card_declined",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "ch_789",
+    "subscriberId": "sub_1",
+    "amount": 1500,
+    "currency": "usd",
+    "status": "failed",
+    "failureReason": "insufficient_funds",
+    "failureCode": "insufficient_funds",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "ch_101",
+    "subscriberId": "sub_3",
+    "amount": 500,
+    "currency": "usd",
+    "status": "succeeded",
+    "createdAt": "2024-01-01T00:00:00Z"
+  }
+]
