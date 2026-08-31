@@ -235,6 +235,27 @@ function readJsonFile<T = unknown>(filePath: string): T | null {
   }
 }
 
+interface DlqEntry {
+  timestamp: string;
+  offset: number;
+  limit: number;
+  users: string[];
+  error: string;
+  tx_xdr: string | null;
+  attempts: number;
+  ledger?: number;
+}
+
+function writeDlqEntry(entry: DlqEntry): void {
+  const dlqFile = path.resolve(process.cwd(), process.env.DLQ_FILE || "dlq/failed-batches.jsonl");
+  try {
+    fs.mkdirSync(path.dirname(dlqFile), { recursive: true });
+    fs.appendFileSync(dlqFile, JSON.stringify(entry) + "\n", "utf8");
+  } catch (err) {
+    log(DRY_RUN, `WARNING: failed to write DLQ: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // ── Report types ─────────────────────────────────────────────────────────────
 
 /** One subscriber's outcome within a cycle, included in both dry-run and live reports. */
@@ -702,7 +723,25 @@ async function processPageLive(
       }
     }
   } catch (err) {
-    result.errors.push(`Page ${pageOffset}: ${err}`);
+    const errorStr = err instanceof Error ? err.message : String(err);
+    result.errors.push(`Page ${pageOffset}: ${errorStr}`);
+    let ledgerSeq: number | undefined;
+    try {
+      const { last_ledger } = await server.getFeeStats();
+      ledgerSeq = last_ledger;
+    } catch {
+      // ignore
+    }
+    writeDlqEntry({
+      timestamp: new Date().toISOString(),
+      offset: pageOffset,
+      limit: users.length,
+      users,
+      error: errorStr,
+      tx_xdr: null,
+      attempts: 0,
+      ledger: ledgerSeq,
+    });
   }
 
   return result;
