@@ -1,10 +1,11 @@
-import React, { useState, useEffect, forwardRef, useMemo } from "react";
+import React, { useState, useEffect, useMemo, forwardRef } from "react";
 import Spinner from "./Spinner";
-import { validateStroopAmount } from "../hooks/useFormValidation";
-import { STROOPS_PER_XLM, MIN_STROOPS, MAX_STROOPS, CONTRACT_LIMITS } from "../constants";
+import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
 import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import { type AmountUnit } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
+import { validateStroopAmount } from "../hooks/useFormValidation";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;
@@ -20,21 +21,46 @@ interface PayPerUseFormProps {
   isLimitLoading?: boolean;
 }
 
-function validate(raw: string): { stroops: bigint | null; error: string | null } {
+function validate(
+  raw: string,
+  unit: AmountUnit,
+  maxStroops: bigint
+): { stroops: bigint | null; error: string | null } {
   if (!raw) return { stroops: null, error: null };
   const num = parseFloat(raw);
   if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
-  const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-  if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-  const stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
+
+  let stroops: bigint;
+  if (unit === "XLM") {
+    const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
+    if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
+    stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
+  } else {
+    if (raw.includes(".")) return { stroops: null, error: "Stroops must be whole numbers" };
+    try {
+      stroops = BigInt(raw);
+    } catch {
+      return { stroops: null, error: "Invalid integer" };
+    }
+  }
+
   if (stroops < MIN_STROOPS) {
     return {
       stroops: null,
-      error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`,
+      error:
+        unit === "XLM"
+          ? `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`
+          : `Must be at least ${MIN_STROOPS} STROOP`,
     };
   }
-  if (stroops > MAX_STROOPS) {
-    return { stroops: null, error: `Must be at most ${Number(MAX_STROOPS) / STROOPS_PER_XLM} XLM` };
+  if (stroops > maxStroops) {
+    return {
+      stroops: null,
+      error:
+        unit === "XLM"
+          ? `Must be at most ${Number(maxStroops) / STROOPS_PER_XLM} XLM`
+          : `Must be at most ${maxStroops} STROOP`,
+    };
   }
   return { stroops, error: null };
 }
@@ -55,12 +81,24 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     },
     ref
   ) => {
+    const { unit } = useAmountDisplay();
     const [amount, setAmount] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [lastValue, setLastValue] = useState(amount);
     const debouncedValue = useDebounce(amount, 300);
     const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
     const { displayCurrentAmount } = useAmountDisplay();
+
+    // Keep input value in sync when the global unit preference changes
+    useEffect(() => {
+      if (convertedStroops !== null) {
+        if (unit === "XLM") {
+          setAmount((Number(convertedStroops) / STROOPS_PER_XLM).toString());
+        } else {
+          setAmount(convertedStroops.toString());
+        }
+      }
+    }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
       if (amount !== lastValue) {
@@ -69,21 +107,35 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     }, [amount, lastValue]);
 
     useEffect(() => {
-      const { stroops, error: err } = validate(debouncedValue);
+      const { stroops, error: err } = validate(
+        debouncedValue,
+        unit,
+        CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT
+      );
       setConvertedStroops(stroops);
       setError(err);
-    }, [debouncedValue]);
+    }, [debouncedValue, unit]);
 
     function handleBlur() {
-      const { stroops, error: err } = validate(amount);
+      const { stroops, error: err } = validate(
+        amount,
+        unit,
+        CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT
+      );
       setConvertedStroops(stroops);
       setError(err);
     }
 
-    const formatXLM = (stroops: bigint): string => {
-      const xlm = Number(stroops) / STROOPS_PER_XLM;
-      return xlm.toFixed(7);
+    const formatAlternate = (stroops: bigint): string => {
+      if (unit === "XLM") {
+        return `${stroops.toLocaleString("en-US")} STROOP`;
+      } else {
+        const xlm = Number(stroops) / STROOPS_PER_XLM;
+        return `${xlm.toFixed(7)} XLM`;
+      }
     };
+
+    const isFormValid = convertedStroops !== null && !error;
 
     const validationResult = useMemo(() => {
       return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
@@ -214,9 +266,9 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             <input
               ref={ref}
               type="number"
-              min="0.0000001"
-              step="0.0000001"
-              placeholder="Amount in XLM"
+              min={unit === "XLM" ? "0.0000001" : "1"}
+              step={unit === "XLM" ? "0.0000001" : "1"}
+              placeholder={`Amount in ${unit}`}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               onBlur={handleBlur}
@@ -225,12 +277,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             />
             {error && <span className="text-error">{error}</span>}
             {convertedStroops !== null && !error && (
-              <span className="text-muted">= {formatXLM(convertedStroops)} XLM</span>
+              <span className="text-muted">= {formatAlternate(convertedStroops)}</span>
             )}
           </div>
           <button
             onClick={handleSubmit}
-            disabled={!validationResult.valid || payDisabled}
+            disabled={!isFormValid || payDisabled}
             className="btn-primary ppu-card__pay-btn"
             aria-label={payAriaLabel}
           >

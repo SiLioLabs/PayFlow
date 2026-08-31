@@ -22,18 +22,18 @@ vi.mock("@stellar/stellar-sdk/rpc", () => {
 });
 
 // Import the implementation AFTER the mock block is securely established
-import { fetchEvents, getChargeHistory, server, getServer } from "../stellar";
 import {
+  fetchEvents,
+  getChargeHistory,
+  server,
+  getServer,
   chargeSimBlocksPay,
   chargeSimIsRisky,
   decodeChargeSimResult,
-  fetchEvents,
-  getChargeHistory,
   isSubscriptionHealthy,
   normalizeSubscriptionHealth,
   payBlockedReason,
   payWarningReason,
-  server,
   subscriptionHasWarnings,
   subscriptionHealthBlocksPay,
 } from "../stellar";
@@ -597,6 +597,9 @@ describe("getServer — URL resolution", () => {
     };
     const s = getServer();
     expect(s).toBe(server);
+  });
+});
+
 describe("subscription health helpers", () => {
   const healthy = {
     active: true,

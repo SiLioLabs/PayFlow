@@ -80,6 +80,13 @@ export interface ContractEvent {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+/** Practical C-prefixed Stellar contract ID shape check */
+export function isValidContractIdShape(id: string): boolean {
+  return (
+    typeof id === "string" && id.startsWith("C") && id.length === 56 && /^[A-Z0-9]+$/i.test(id)
+  );
+}
+
 /** Convert a Stellar public key string to an ScVal Address */
 function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
@@ -91,6 +98,27 @@ async function buildTx(
   method: string,
   args: xdr.ScVal[]
 ): Promise<string> {
+  if (!CONTRACT_ID) {
+    throw new Error("VITE_CONTRACT_ID environment variable is not set");
+  }
+
+  if (!isValidContractIdShape(CONTRACT_ID)) {
+    throw new Error("VITE_CONTRACT_ID is not a valid Soroban contract address");
+  }
+
+  if (typeof window !== "undefined" && window.freighter) {
+    try {
+      const { networkPassphrase } = await window.freighter.getNetwork();
+      if (networkPassphrase !== NETWORK_PASSPHRASE) {
+        throw new Error(
+          "Wallet network passphrase mismatch with configured VITE_NETWORK_PASSPHRASE"
+        );
+      }
+    } catch {
+      // Older Freighter or getNetwork failure
+    }
+  }
+
   const s = getServer();
   const account = await s.getAccount(sourcePublicKey);
   const contract = new Contract(CONTRACT_ID);
@@ -143,6 +171,16 @@ export async function buildPayPerUseTx(user: string, amount: bigint): Promise<st
 
 export async function buildPauseTx(user: string): Promise<string> {
   return buildTx(user, "pause", [addressVal(user)]);
+}
+
+/**
+ * Builds a `pause_until` transaction that pauses the subscription up to a
+ * specific Unix timestamp (seconds). The contract rejects (InvalidPauseExpiry)
+ * any `expiry` that is not strictly in the future, so callers should validate
+ * client-side before building the transaction to avoid a wasted round trip.
+ */
+export async function buildPauseUntilTx(user: string, expiry: bigint): Promise<string> {
+  return buildTx(user, "pause_until", [addressVal(user), nativeToScVal(expiry, { type: "u64" })]);
 }
 
 export async function buildResumeTx(user: string): Promise<string> {
@@ -1159,6 +1197,82 @@ export async function getContractHealth(caller: string): Promise<ContractHealthR
   return report;
 }
 
+// ── Protocol stats / health check (read-only, mirrors contract types) ───────
+
+/** Mirrors contract `ProtocolStats` from `get_protocol_stats`. */
+export interface ProtocolStats {
+  activeCount: bigint;
+  feeBps: number;
+  feeCollector: string | null;
+  gracePeriod: bigint;
+  whitelistEnabled: boolean;
+  schemaVersion: number;
+  contractPaused: boolean;
+}
+
+/** Mirrors contract `HealthReport` from `contract_health_check`. */
+export interface ContractHealthCheckReport {
+  isHealthy: boolean;
+  contractPaused: boolean;
+  tokenConfigured: boolean;
+  adminConfigured: boolean;
+  instanceTtlLedgers: number;
+  activeSubscriptionCount: bigint;
+  schemaVersion: number;
+  feeCollectorSet: boolean;
+  globalVolumeUtilizationPct: number;
+  pendingMerchantRevCount: number;
+}
+
+const decodeU32 = (v: xdr.ScVal): number => Number(v.u32());
+
+/** Reads aggregate protocol stats (active count, fee, grace, pause, schema version). */
+export function getProtocolStats(caller: string): Promise<ProtocolStats | null> {
+  return dedupedCall(`getProtocolStats:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_protocol_stats", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeStruct<ProtocolStats>(retval, {
+        activeCount: (v) => ScValDecoder.decodeU64(v),
+        feeBps: decodeU32,
+        feeCollector: (v) => ScValDecoder.decodeOption(v, ScValDecoder.decodeAddress),
+        gracePeriod: (v) => ScValDecoder.decodeU64(v),
+        whitelistEnabled: ScValDecoder.decodeBool,
+        schemaVersion: decodeU32,
+        contractPaused: ScValDecoder.decodeBool,
+      });
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** Runs the contract's own `contract_health_check` read-only diagnostic. */
+export function getContractHealthCheck(caller: string): Promise<ContractHealthCheckReport | null> {
+  return dedupedCall(`getContractHealthCheck:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "contract_health_check", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeStruct<ContractHealthCheckReport>(retval, {
+        isHealthy: ScValDecoder.decodeBool,
+        contractPaused: ScValDecoder.decodeBool,
+        tokenConfigured: ScValDecoder.decodeBool,
+        adminConfigured: ScValDecoder.decodeBool,
+        instanceTtlLedgers: decodeU32,
+        activeSubscriptionCount: (v) => ScValDecoder.decodeU64(v),
+        schemaVersion: decodeU32,
+        feeCollectorSet: ScValDecoder.decodeBool,
+        globalVolumeUtilizationPct: decodeU32,
+        pendingMerchantRevCount: decodeU32,
+      });
+    } catch {
+      return null;
+    }
+  });
+}
+
 const VALIDATION_TIMEOUT_MS = 30_000;
 
 function parseScString(val: xdr.ScVal): string {
@@ -1494,4 +1608,80 @@ export async function estimateExtendTtlFee(
   } catch {
     return null;
   }
+}
+
+export function getSubscriptionToken(user: string): Promise<string | null> {
+  return dedupedCall(`getSubscriptionToken:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_subscription", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      const decoded = ScValDecoder.decodeStruct(retval, {
+        token: ScValDecoder.decodeAddress,
+      });
+      return decoded.token;
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function getReferral(user: string): Promise<string | null> {
+  return dedupedCall(`getReferral:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_referral", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      return ScValDecoder.decodeAddress(retval);
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function getReferrer(user: string): Promise<string | null> {
+  return dedupedCall(`getReferrer:${user}`, async () => {
+    try {
+      const contract = new Contract(CONTRACT_ID);
+      const account = await server.getAccount(user);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(contract.call("get_referrer", addressVal(user)))
+        .setTimeout(30)
+        .build();
+
+      const result = await server.simulateTransaction(tx);
+      if ("error" in result) return null;
+      const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      return ScValDecoder.decodeAddress(retval);
+    } catch {
+      return null;
+    }
+  });
 }
