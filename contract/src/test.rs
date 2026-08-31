@@ -1,4 +1,4 @@
-﻿#![cfg(test)]
+#![cfg(test)]
 #![allow(
     clippy::bool_assert_comparison,
     unused_variables,
