@@ -24,6 +24,18 @@ vi.mock("../stellar", async (importOriginal) => {
     buildPayPerUseTx: vi.fn(),
     buildPauseTx: vi.fn(),
     buildResumeTx: vi.fn(),
+    getSubscriptionHealth: vi.fn(() =>
+      Promise.resolve({
+        active: true,
+        charge_due: false,
+        within_grace: false,
+        has_sufficient_allowance: true,
+        is_paused: false,
+        trial_active: false,
+        daily_limit_set: false,
+      })
+    ),
+    simulateCharge: vi.fn(() => Promise.resolve("WouldSucceed")),
   };
 });
 

@@ -8,6 +8,11 @@ pub fn require_admin(env: &Env) {
     admin.require_auth();
 }
 
+/// Authorize `admin` and persist it as the sole contract admin.
+///
+/// Called from `initialize` *before* the default token is stored so deploy
+/// scripts cannot observe a token-configured / admin-missing split state.
+/// Auth is required; this does not add a second admin.
 pub fn initialize_admin(env: &Env, admin: &Address) {
     admin.require_auth();
     set_admin(env, admin);

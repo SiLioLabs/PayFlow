@@ -32,6 +32,28 @@ Source: `contract/src/batch.rs`, `batch_charge()`.
 
 ## C
 
+### ChargeResult
+
+Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate()`. A non-`Charged` result for one user **never aborts** the rest of the batch. Variants are append-only in the contract (discriminants 0–6); do not reorder when extending.
+
+| Variant | Meaning |
+| --- | --- |
+| `Charged` | Funds transferred (live) or precheck passed (estimate) |
+| `Skipped` | Billing interval has not elapsed |
+| `NoSubscription` | No subscription record for the address |
+| `Inactive` | Subscription cancelled |
+| `Paused` | Subscription paused (including unexpired `pause_until`) |
+| `GracePeriodElapsed` | Charge window closed after grace period |
+| `AllowanceInsufficient` | Token allowance below gross `sub.amount`; subscription stays active |
+
+Canonical table: [`KEEPER.md`](./KEEPER.md#how-it-works). Type definition: `contract/src/batch.rs`.
+
+### ChargeSimResult
+
+Read-only simulation enum returned only by `simulate_charge()`. Unlike `ChargeResult`, it distinguishes `ContractPaused`, `NotDue`, and `InsufficientAllowance`, and collapses missing/inactive subscriptions into `Inactive`. Never panics for ordinary eligibility outcomes.
+
+Source: `contract/src/charge_exec.rs`, [`API.md`](./API.md#chargesimresult).
+
 ### Contract Paused
 
 A global state flag that blocks most user-facing write operations (subscription write paths) while enabled. Read-only methods generally continue to work. The contract provides `pause_contract()` / `unpause_contract()` and `is_contract_paused()`.
@@ -52,9 +74,17 @@ Source: `contract/src/subscription_history.rs`, `DataKey::ChargeHistory(user)`.
 
 ### Contract Schema Version
 
-An integer representing the current on-chain storage schema version. It is updated by the `migrate()` workflow and exposed via `get_schema_version()`. Client behavior and storage migrations may depend on this value.
+An integer representing the current on-chain storage schema version (`DataKey::SchemaVersion`). Updated by admin `migrate()`; exposed via `get_schema_version()`. **Default when unset: `0` (unmigrated).** **Current target: `3`** (`CURRENT_VERSION` in `contract/src/migration.rs`: v1→v2 adds `paused`; v2→v3 backfills `referrer` on subscriptions).
 
-Source: `contract/src/migration.rs`, `DataKey::SchemaVersion`.
+Do not confuse with marketing “schema v3” shorthand in issues — the on-chain field is a plain `u32` incremented by migration steps.
+
+Source: `contract/src/migration.rs`, [`ARCHITECTURE.md`](./ARCHITECTURE.md#storage-strategy).
+
+### Contract Health Check
+
+On-chain diagnostic via `contract_health_check()` returning [`HealthReport`](#healthreport). Aggregates protocol-level flags (`contract_paused`, token/admin configured, `schema_version`, volume utilization). **`is_healthy`** is `true` when the contract is unpaused, token and admin are set, and `instance_ttl_ledgers > 17_280`. This is **not** the keeper HTTP `/health` endpoint and **not** per-user [`SubscriptionHealth`](#subscription-health).
+
+Source: [`API.md`](./API.md#contract_health_check), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#3-health).
 
 ## D
 
@@ -64,11 +94,23 @@ A temporary per-subscriber cap that restricts total spendable amount via `pay_pe
 
 Source: `contract/src/spending_limit.rs`, `DataKey::DailyLimit(user)`, `DataKey::DailySpent(user)`.
 
+### Daily Limit Window
+
+The rolling ~24-hour TTL window shared by `DailyLimit(user)` and `DailySpent(user)` temporary storage entries. Both keys are extended together on each qualifying `pay_per_use()`; when the window expires, limit and spent counters reset. Distinct from billing **grace period** (recurring charge eligibility).
+
+Source: `contract/src/spending_limit.rs`, [`DAILY-LIMITS.md`](./DAILY-LIMITS.md).
+
 ### Daily Spent
 
 The running total of stroops spent “today” via `pay_per_use()` for a specific subscriber. It is tracked in temporary storage with the same TTL behavior as the daily limit. It’s used to enforce that spend does not exceed the configured daily limit.
 
 Source: `contract/src/spending_limit.rs`, `DataKey::DailySpent(user)`.
+
+### Dead-Letter Queue (DLQ)
+
+Off-chain queue (Redis list, SQS, or JSONL file) where keepers place `batch_charge` pages or addresses that exhausted retries. Operators drain transient failures via replay scripts; permanent failures (e.g. `GracePeriodElapsed`) are archived. Not an on-chain contract type.
+
+Source: [`operations/keeper_runbook.md`](./operations/keeper_runbook.md#dead-letter-queue-recovery), [`KEEPER.md`](./KEEPER.md).
 
 ## E
 
@@ -106,13 +148,21 @@ Two-step workflow for updating the grace period, similar to other admin-configur
 
 Source: `contract/src/grace.rs`, `DataKey::PendingGracePeriod`.
 
+## H
+
+### HealthReport
+
+Struct returned by `contract_health_check()`. Fields include `is_healthy`, `contract_paused`, `schema_version`, `fee_collector_set`, and `global_volume_utilization_pct`. **`instance_ttl_ledgers` is a hardcoded lower-bound estimate (100_000) on-chain** — not a precise remaining TTL. `fee_collector_set` and volume utilization are informational and do **not** affect `is_healthy`.
+
+Source: [`API.md`](./API.md#healthreport), `contract/src/lib.rs`.
+
 ## K
 
 ### Keeper
 
-The off-chain process responsible for triggering scheduled recurring charges. The keeper is the only required runtime piece for billing automation, because the contract does not schedule itself. Keeper workflows call `charge()` or `batch_charge()`.
+The off-chain process responsible for triggering scheduled recurring charges. The keeper is the only required runtime piece for billing automation, because the contract does not schedule itself. Keeper workflows call `charge()` or `batch_charge()`, page the subscriber index, and log each [`ChargeResult`](#chargeresult). Production scripts live under `scripts/` (see [`scripts/README.md`](../scripts/README.md)).
 
-Source: `docs/KEEPER.md`, contract API docs describing permissionless `charge()` usage.
+Source: [`KEEPER.md`](./KEEPER.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md#system-overview).
 
 ## L
 
@@ -156,6 +206,12 @@ A persistent daily bucket for per-day revenue analytics. The contract stores rev
 
 Source: `contract/src/merchant_stats.rs`, `DataKey::MerchantRevenueDay(merchant, day)`.
 
+### MultiEndpointServer
+
+TypeScript RPC wrapper in `scripts/rpc-client.ts` that load-balances and failovers across comma-separated `RPC_URLS`. Used by keeper, indexer, health-check, and other scripts instead of a single `Server` instance. Validates network passphrase against the active endpoint.
+
+Source: [`scripts/rpc-client.ts`](../scripts/rpc-client.ts), [`README.md`](../README.md).
+
 ## P
 
 ### Permissionless Charge
@@ -163,6 +219,12 @@ Source: `contract/src/merchant_stats.rs`, `DataKey::MerchantRevenueDay(merchant,
 A design choice where charging for recurring payments can be invoked without `user.require_auth()`. This enables keepers to call `charge()` and `batch_charge()` for any eligible subscriber. Eligibility is still validated on-chain (interval, pause, grace period, merchant freeze, etc.).
 
 Source: `docs/API.md` (Auth lines), `contract/src/charge_exec.rs`.
+
+### pause_until
+
+Subscriber-initiated bounded pause: `pause_until(user, expiry)` sets `paused = true` with a ledger `expiry`. When `now >= expiry`, the next `charge()` or `batch_charge()` **auto-resumes** the subscription before eligibility checks. Distinct from indefinite `pause()` (expiry stored as `u64::MAX`). Requires `expiry > now` or the contract panics `InvalidPauseExpiry`.
+
+Source: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#bounded-pause--pause_untiluser-expiry), `contract/src/lib.rs`.
 
 ### Protocol Fee
 
@@ -200,9 +262,15 @@ Source: `contract/src/lib.rs` (initialize token docs), `contract/src/token.rs`.
 
 ### Schema Version (Storage Schema Version)
 
-See “Contract Schema Version”; the term is often used interchangeably in docs when referring to `schema_version` fields in health reports and protocol stats.
+See [Contract Schema Version](#contract-schema-version). The `schema_version` field inside `HealthReport` and `ProtocolStats` mirrors `get_schema_version()` at read time.
 
 Source: `contract/src/lib.rs` (`ProtocolStats`, `HealthReport`), `contract/src/migration.rs`.
+
+### Subscription Health
+
+Per-subscriber diagnostic returned by `get_subscription_health(user)` as `SubscriptionHealth` (`active`, `charge_due`, `within_grace`, `has_sufficient_allowance`, `is_paused`, `trial_active`, `daily_limit_set`). Used by the frontend widget and `scripts/subscriber-health-dashboard.ts`. **Not** the same as [`HealthReport`](#healthreport) (protocol-wide) or keeper HTTP health.
+
+Source: `contract/src/lib.rs`, [`API.md`](./API.md).
 
 ### Subscription
 

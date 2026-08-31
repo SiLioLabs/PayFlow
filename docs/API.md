@@ -11,15 +11,18 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [Subscription](#subscription)
   - [ChargeResult](#chargeresult)
   - [ChargeSimResult](#chargesimresult)
+  - [PayPerUseSimResult](#payperusesimresult)
   - [ProtocolStats](#protocolstats)
   - [HealthReport](#healthreport)
   - [DataKey](#datakey)
 - [Functions](#functions)
   - [initialize](#initialize)
+  - [bump_instance_ttl](#bump_instance_ttl)
   - [subscribe](#subscribe)
   - [subscribe\_with\_metadata](#subscribe_with_metadata)
   - [charge](#charge)
   - [simulate\_charge](#simulate_charge)
+  - [simulate\_pay\_per\_use](#simulate_pay_per_use)
   - [extend\_subscription\_ttl](#extend_subscription_ttl)
   - [pay\_per\_use](#pay_per_use)
   - [cancel](#cancel)
@@ -70,6 +73,7 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [get\_subscriber\_at](#get_subscriber_at)
   - [get\_subscriber\_page](#get_subscriber_page)
   - [get\_active\_subscriber\_page](#get_active_subscriber_page)
+  - [clear\_subscriber\_index\_entry](#clear_subscriber_index_entry)
   - [get\_merchant\_revenue](#get_merchant_revenue)
   - [get\_merchant\_revenue\_history](#get_merchant_revenue_history)
   - [clear\_merchant\_revenue\_history](#clear_merchant_revenue_history)
@@ -112,7 +116,7 @@ This revision documents only the following symbols against `contract/src/lib.rs`
 - [x] `HealthReport`
 - [x] `simulate_charge`
 - [x] `get_batch_charge_estimate`
-- [x] `ChargeResult`
+- [x] `ChargeResult` (including `AllowanceInsufficient`; not `ChargeSimResult::InsufficientAllowance`)
 - [x] `ChargeSimResult`
 - [x] `set_fee_bounds`
 - [x] `get_fee_bounds`
@@ -120,7 +124,7 @@ This revision documents only the following symbols against `contract/src/lib.rs`
 - [x] pause-expiry getter — **not exposed** (internal `storage::get_pause_expiry` only; no public contract method)
 - [x] `get_active_subscriber_page`
 
-Related ops: [`EVENTS.md`](./EVENTS.md) (`paused`, `subscription_auto_resumed`, `charged`), [`KEEPER.md`](./KEEPER.md) (`batch_charge`), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md) (fee bounds / health gates).
+Related ops: [`EVENTS.md`](./EVENTS.md) (`paused`, `subscription_auto_resumed`, `charged`, `batch_charge_skips`), [`KEEPER.md`](./KEEPER.md) (`batch_charge`), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md) (fee bounds / health gates).
 
 ---
 
@@ -149,23 +153,35 @@ Returned by live `batch_charge` and by `get_batch_charge_estimate`. Defined in `
 
 ```rust
 pub enum ChargeResult {
-  Charged,            // live: funds transferred; estimate: would charge (see caveats)
-  Skipped,            // interval has not elapsed
-  NoSubscription,     // no subscription record
-  Inactive,           // cancelled / inactive
-  Paused,             // still paused
-  GracePeriodElapsed, // past the grace window
+  Charged,                 // live: funds transferred; estimate: would charge (no transfer)
+  Skipped,                 // interval has not elapsed
+  NoSubscription,          // no subscription record
+  Inactive,                // cancelled / inactive
+  Paused,                  // still paused
+  GracePeriodElapsed,      // past the grace window
+  AllowanceInsufficient,   // SAC allowance < gross `sub.amount`; appended (discriminant 6)
+  Charged,
+  Skipped,
+  NoSubscription,
+  Inactive,
+  Paused,
+  GracePeriodElapsed,
+  AllowanceInsufficient,
 }
 ```
 
+New variants must be **appended** so off-chain parsers keep decoding 0–5. Do not confuse `AllowanceInsufficient` with [`ChargeSimResult::InsufficientAllowance`](#chargesimresult) or `ContractError::InsufficientAllowance` (8) — those are different symbols.
+
 | Variant | Meaning on `batch_charge` | Meaning on `get_batch_charge_estimate` |
 | --- | --- | --- |
-| `Charged` | Transfer succeeded | Precheck passed (or auto-resume short-circuit; **no transfer**) |
+| `Charged` | Transfer succeeded | Precheck + allowance passed (**no transfer**) |
 | `Skipped` | Interval not elapsed | Same (via `precheck_charge`) |
 | `NoSubscription` | No record | Same |
 | `Inactive` | Cancelled / inactive | Same |
 | `Paused` | Still paused | Same |
 | `GracePeriodElapsed` | Past grace window | Same |
+| `AllowanceInsufficient` | Gross allowance too low; rest of batch continues | Same check; **no transfer** |
+| `AllowanceInsufficient` | Allowance below gross amount; no transfer | Same precheck path as live charge |
 
 This type is **not** the dry-run enum. Single-user simulation uses [`ChargeSimResult`](#chargesimresult).
 
@@ -196,6 +212,40 @@ pub enum ChargeSimResult {
 | `SubscriptionPaused` | User pause, including unexpired `pause_until` |
 
 `simulate_charge` never panics with a `ContractError` for these outcomes; they are return values.
+
+### `PayPerUseSimResult`
+
+Returned only by `simulate_pay_per_use` / `simulate_pay_per_use_to`. Defined in `contract/src/charge_exec.rs`.
+
+```rust
+pub enum PayPerUseSimResult {
+  WouldSucceed,
+  Inactive,
+  InsufficientAllowance,
+  ContractPaused,
+  SubscriptionPaused,
+  AmountMustBePositive,
+  AmountExceedsMaximum,
+  DailyLimitExceeded,
+  InvalidRecipient,
+  MerchantNotWhitelisted,
+}
+```
+
+| Variant | Meaning |
+| --- | --- |
+| `WouldSucceed` | Eligible: active, unpaused, within daily limit, allowance sufficient |
+| `Inactive` | Missing subscription **or** inactive (no separate `NoSubscription`) |
+| `InsufficientAllowance` | `allowance(user, contract) < amount` |
+| `ContractPaused` | Protocol paused (`storage::is_contract_paused`) |
+| `SubscriptionPaused` | Subscription is paused |
+| `AmountMustBePositive` | `amount <= 0` |
+| `AmountExceedsMaximum` | `amount > MAX_AMOUNT` (per-call cap) |
+| `DailyLimitExceeded` | `daily_spent + amount > daily_limit` |
+| `InvalidRecipient` | `pay_per_use_to` recipient is the contract's own address |
+| `MerchantNotWhitelisted` | Whitelist enabled and `pay_per_use_to` recipient not whitelisted |
+
+`simulate_pay_per_use` never panics with a `ContractError` for these outcomes; they are return values.
 
 ### `ProtocolStats`
 
@@ -412,9 +462,9 @@ simulate_charge(env: Env, user: Address) -> ChargeSimResult
 | --- | --- | --- | --- |
 | Transfers | Yes | No | No |
 | Storage writes | Yes on success / auto-resume | No (auto-resume is memory-only) | **Yes** if `try_auto_resume` fires |
-| Contract pause | Enforced (panic / skip) | `ContractPaused` | **Ignored** |
-| Allowance | Required for success | Checked | **Not checked** |
-| Return | void / `ChargeResult` | `ChargeSimResult` | `Vec<ChargeResult>` |
+| Contract pause | `charge` and `batch_charge` panic `ContractPaused` (18) | `ContractPaused` | **Ignored** |
+| Allowance | `charge` panics `InsufficientAllowance` (8); `batch_charge` returns `AllowanceInsufficient` | `InsufficientAllowance` | `ChargeResult::AllowanceInsufficient` |
+| Return | void / `Vec<ChargeResult>` | `ChargeSimResult` | `Vec<ChargeResult>` |
 
 Keeper ops still use live `batch_charge`; see [`KEEPER.md`](./KEEPER.md). Events for a real charge are in [`EVENTS.md`](./EVENTS.md).
 
@@ -422,6 +472,49 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- simulate_charge --user <USER_ADDRESS>
+```
+
+### `simulate_pay_per_use`
+
+Dry-run of a single `pay_per_use()` for `user` and `amount`. **No storage writes** and **no token transfer**. Outcomes are [`PayPerUseSimResult`](#payperusesimresult) variants, not panics.
+
+```
+simulate_pay_per_use(env: Env, user: Address, amount: i128) -> PayPerUseSimResult
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | Subscriber to simulate. |
+| `amount` | `i128` | One-time amount to simulate. |
+
+**Auth:** none.
+
+**Returns:** `PayPerUseSimResult`.
+
+**Success behavior:** evaluates contract pause, `amount` bounds, subscription presence, paused/inactive state, the daily spending limit (`get_daily_limit` / `get_daily_spent`), then SAC `allowance(user, contract)` vs `amount`. Returns `WouldSucceed` if all pass. Never writes spend tracking or other storage.
+
+### `simulate_pay_per_use_to`
+
+Dry-run of a single `pay_per_use_to()` for `user`, `amount`, and an explicit `recipient`. Same checks as `simulate_pay_per_use`, plus recipient validation (`InvalidRecipient` if `recipient` is the contract's own address; `MerchantNotWhitelisted` if the whitelist is enabled and `recipient` is not whitelisted). **No storage writes.**
+
+```
+simulate_pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) -> PayPerUseSimResult
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `user` | `Address` | Subscriber to simulate. |
+| `amount` | `i128` | One-time amount to simulate. |
+| `recipient` | `Address` | Recipient that would receive the net payment. |
+
+**Auth:** none.
+
+**Returns:** `PayPerUseSimResult`.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- simulate_pay_per_use --user <USER_ADDRESS> --amount 1000000
 ```
 
 ### `extend_subscription_ttl`
@@ -1324,9 +1417,15 @@ batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 Auth: none.
 
-Returns: `Vec<ChargeResult>`.
+Returns: `Vec<ChargeResult>` — one entry per input address, in order.
 
-Errors: the function returns per-user results instead of aborting on ordinary charge failures.
+A non-`Charged` result for one user never aborts the rest of the batch. Insufficient SAC allowance is `ChargeResult::AllowanceInsufficient` (not a transaction panic). When the batch includes at least one *interesting* non-success (`NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`), the contract emits [`batch_charge_skips`](./EVENTS.md#batch_charge_skips). All-charged or all-not-due (`Skipped`) batches emit no summary.
+
+The public wrapper calls `ensure_contract_not_paused` first: a paused protocol panics `ContractPaused` (18) for the whole invoke (not a per-user result).
+
+Errors: `ContractError::BatchTooLarge` (20) if `users.len()` exceeds `get_max_batch_size` (default 50). Ordinary per-user outcomes are enum values.
+
+Keeper ops: [`KEEPER.md`](./KEEPER.md).
 
 CLI example:
 
@@ -1350,18 +1449,18 @@ get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Returns:** one `ChargeResult` per input address, in order.
 
-**Success behavior:** for each user, missing sub → `NoSubscription`. If paused and `try_auto_resume` returns true → **`Charged` immediately** (skips `precheck_charge`). Otherwise maps `precheck_charge` to `Charged` / skip variants.
+**Success behavior:** for each user, missing sub → `NoSubscription`. If paused, `try_auto_resume` may persist an auto-resume. Then `precheck_charge` runs. If that returns `Ok`, the estimate reads SAC `allowance(user, contract)` against gross `sub.amount` and returns `Charged` or `AllowanceInsufficient`.
 
 **Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics.
 
 **Operational caveats (from `lib.rs`):**
 
 1. Calls real `try_auto_resume`, which **writes** the subscription, clears pause expiry, and emits `subscription_auto_resumed` — **not a pure view**.
-2. Does **not** check contract pause or token allowance (unlike `simulate_charge`).
-3. Auto-resume short-circuit to `Charged` can disagree with live `batch_charge`, which still runs `precheck_charge` after resume (estimate may say `Charged` when live would `Skipped`).
+2. Does **not** check protocol pause (`is_contract_paused`). `simulate_charge` returns `ContractPaused` instead.
+3. Allowance **is** checked (same gross-amount test as live `batch_charge`). A keeper file-header comment that says otherwise is stale.
 4. Cap 200 vs live batch max (default 50 via `MaxBatchSize`).
 
-Use `simulate_charge` for a no-write, allowance-aware single-user dry-run. Keepers that charge should still call `batch_charge` ([`KEEPER.md`](./KEEPER.md)). Auto-resume event: [`EVENTS.md`](./EVENTS.md).
+Use `simulate_charge` when you need a no-write, pause-aware single-user dry-run. Keepers that charge should still call `batch_charge` ([`KEEPER.md`](./KEEPER.md)). Auto-resume event: [`EVENTS.md`](./EVENTS.md).
 
 CLI example:
 
@@ -1460,6 +1559,34 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_active_subscriber_page --offset 0 --limit 50
+```
+
+### `clear_subscriber_index_entry`
+
+Admin repair for a **single** stale subscriber-index slot. Looks up the occupant of `index`, refuses if that subscriber currently has an active subscription, then tombstones the slot so keepers skip it. Does **not** garbage-collect the rest of the index.
+
+```
+clear_subscriber_index_entry(env: Env, index: u64)
+```
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `index` | `u64` | Slot in the append-only `SubscriberIndex`. |
+
+**Auth:** Contract admin only (`require_admin`).
+
+**Errors:** `ContractError::NoSubscriptionFound` if `index` is out of range, empty, or already tombstoned. `ContractError::CannotClearActiveSubscriber` if the occupant still has an active subscription.
+
+**Event emitted**
+
+| Event name | Topic | Data |
+| --- | --- | --- |
+| `subscriber_index_cleared` | `("subscriber_index_cleared", user_address)` | `index: u64` |
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet --source-account <ADMIN> -- clear_subscriber_index_entry --index 0
 ```
 
 ### `get_merchant_revenue`
@@ -2922,6 +3049,7 @@ For a complete reference of all events with detailed schemas and examples, see [
 | `referred` | `("referred", user_address)` | `referrer_address` |
 | `subscription_transferred` | `("subscription_transferred", from_address, to_address)` | `(merchant, amount, interval, token)` |
 | `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
+| `subscriber_index_cleared` | `("subscriber_index_cleared", user_address)` | `index: u64` |
 
 ---
 
@@ -2946,3 +3074,4 @@ All error conditions are returned as `ContractError` values. Client SDKs can dec
 | 33 | `InvalidVolumeCap` | `set_global_volume_cap` was called with a non-positive cap. |
 | 34 | `InvalidFeeBounds` | `set_fee_bounds` min/max is inconsistent or `max_bps > 10000`. |
 | 35 | `FeeOutOfBoundsAtCommit` | `commit_fee` pending bps is outside current fee bounds. |
+| 41 | `CannotClearActiveSubscriber` | `clear_subscriber_index_entry` refused because the slot occupant is still active. |

@@ -1,4 +1,8 @@
 # Security
+<!-- updated -->
+> **Revision date:** 2026-08-27  
+> Auth matrix audited against `contract/src/lib.rs`, `admin.rs`, `migration.rs`, and `upgrade.rs`.  
+> Rows for `migrate` and `upgrade` corrected to admin‑only. `set_initial_admin` remains permissionless by design.
 
 This document describes the current security model, threat model, known limitations, and responsible disclosure process for FlowPay.
 
@@ -66,7 +70,7 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 | `resume()`                                | `user`                                                          |
 | `transfer_admin()`                        | current admin                                                   |
 | `accept_admin()`                          | pending admin                                                   |
-| `upgrade()`                               | current implementation does not enforce a signer in the wrapper |
+| `upgrade()`                               | Admin (production uses two-step propose/commit, both admin‑gated) |
 | `set_subscription_amount()`               | admin                                                           |
 | `set_subscription_interval()`             | admin                                                           |
 | `set_min_interval()`                      | admin                                                           |
@@ -91,7 +95,7 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 | `clear_merchant_revenue_history()`        | admin                                                           |
 | `reset_merchant_revenue()`                | admin                                                           |
 | `set_initial_admin()`                     | none                                                            |
-| `migrate()`                               | none                                                            |
+| `migrate()`                               | Admin                                                           |
 
 The current contract uses a mix of direct `require_auth()` checks and admin helper enforcement. That is intentional, but the auth path should be reviewed whenever a new public function is added.
 

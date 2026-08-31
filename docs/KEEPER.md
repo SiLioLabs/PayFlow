@@ -45,6 +45,11 @@ The keeper must page through the full subscriber index using `get_subscriber_ind
 
 ---
 
+
+>  **Panic warning**  
+> While `batch_charge` returns a `ChargeResult` for normal skips, it **panics** (aborts the entire batch) if any user’s token allowance or balance is insufficient to cover the **gross** subscription amount (including protocol fees). The same happens if the token address is invalid.  
+> Therefore, before calling `batch_charge`, always run `simulate_charge` (or `get_batch_charge_estimate`) on the candidate list, and use `check-allowances.ts` to verify that each user has enough allowance. See [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md#batch_charge-failure-semantics) for the full failure‑modes table.
+
 ## Running the Reference Keeper
 
 ### Prerequisites
@@ -397,6 +402,7 @@ Renew the lease before it expires. If a leader crashes, the lock expires and a f
 ## Related
 
 - `batch_charge(users)` — contract function reference: [`docs/API.md`](API.md)
+- **Admin ceremonies (upgrade / fee rotation):** pause keepers during WASM commits — [`docs/operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md)
 - Full operations runbook (pagination deep-dive, Terraform IaC, **DLQ recovery, multi-instance coordination, RPC failover, incident pause**): [`docs/operations/keeper_runbook.md`](operations/keeper_runbook.md)
 - Full operations runbook (pagination deep-dive, Terraform IaC): [`docs/operations/keeper_runbook.md`](operations/keeper_runbook.md)
 - Event-driven charge tracking / gap detection: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md)

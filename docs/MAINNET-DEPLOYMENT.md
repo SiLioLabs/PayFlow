@@ -378,6 +378,8 @@ VITE_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015
 
 ## Rollback / upgrade
 
+> **Operator playbooks:** Step-by-step timing budgets, verification reads, and abort paths for upgrade and fee rotation ceremonies are in [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md).
+
 FlowPay does **not** auto-rollback. Production WASM replacement is the two-step admin flow in [`contract/src/upgrade.rs`](../contract/src/upgrade.rs):
 
 1. `propose_upgrade(new_wasm_hash)` — admin; stores `PendingUpgrade` in temporary storage (TTL 17,280 ledgers).
@@ -422,7 +424,7 @@ Do not deposit or route real Mainnet funds until every item is checked.
 - [ ] **Configuration / snapshot verification** — schema version matches release; subscription snapshot retained if migrating or upgrading
 - [ ] **Upgrade safety checks** — `pre-upgrade-check` if a WASM swap is planned; propose/commit understood; no assumption of automatic rollback
 - [ ] **Mainnet authorization controls** — admin/deployer keys as planned; deployer secret not reused as long-term admin; config.json not left on testnet values
-- [ ] **Monitoring / keeper / indexer readiness** — keeper funded and running; indexer `events.db` persistence planned; metrics/Grafana optional but RPC and pause alerts live ([`scripts/README.md`](../scripts/README.md))
+- [ ] **Monitoring / keeper / indexer readiness** — keeper funded and running with `CONTRACT_ID`, `KEEPER_PUBLIC_KEY`, and live `KEEPER_SECRET`; indexer `events.db` persistence planned; metrics/Grafana optional but RPC and pause alerts live ([`scripts/README.md`](../scripts/README.md))
 
 ---
 

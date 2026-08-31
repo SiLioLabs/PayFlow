@@ -1,0 +1,38 @@
+name: Scripts
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+defaults:
+  run:
+    working-directory: scripts
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: |
+          npx tsc --noEmit \
+            --target ES2020 --module ESNext --moduleResolution bundler \
+            --esModuleInterop --skipLibCheck --lib ES2020 --types node \
+            validate-config.ts
+      - name: Lint
+        run: |
+          npx tsc --noEmit \
+            --target ES2020 --module ESNext --moduleResolution bundler \
+            --esModuleInterop --skipLibCheck --lib ES2020 --types node \
+            --strict --noUnusedLocals --noUnusedParameters \
+            validate-config.ts

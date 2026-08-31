@@ -4,7 +4,9 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ContractError {
-    /// Returned when attempting to initialize a contract that has already been initialized
+    /// Returned when `initialize` is called after the default token is already stored.
+    /// Deploy scripts (`deploy-pipeline.ts`, `testnet-setup.ts`) map this typed
+    /// code rather than a host string panic.
     AlreadyInitialized = 1,
     /// Returned when a payment or subscription amount is not positive
     AmountMustBePositive = 2,
@@ -68,6 +70,9 @@ pub enum ContractError {
     InvalidVolumeCap = 33,
     /// Returned when configured fee bounds are inconsistent (min > max, or max > 10000)
     InvalidFeeBounds = 34,
+    /// Returned when resume is called on a subscription whose grace period has elapsed.
+    /// Cancel is still allowed; re-subscribe outside this flow to reactivate.
+    ResumeGraceLapsed = 100,
     /// Returned when a pending fee proposal violates the current fee bounds at commit time
     FeeOutOfBoundsAtCommit = 35,
     /// Returned when a checked arithmetic operation overflows (trial extension,
@@ -79,10 +84,12 @@ pub enum ContractError {
     RefundAmountMustBePositive = 39,
     /// Returned when the merchant cannot fund the requested refund
     InsufficientMerchantBalance = 40,
-    /// Returned when the merchant revenue day-index has reached its maximum allowed size.
-    /// Operators must call `prune_merchant_revenue_days` to free capacity before new
-    /// revenue days can be appended.
-    MerchantDayIndexFull = 41,
-    /// Returned when `accept_admin` is called but no admin transfer has been proposed.
-    NoPendingAdmin = 42,
+    /// Returned when admin repair would tombstone an index slot whose
+    /// subscriber still has an active subscription
+    CannotClearActiveSubscriber = 41,
+    /// Returned when `set_initial_admin` is called after an admin has already
+    /// been stored. Distinct from `AlreadyInitialized` (code 1), which guards
+    /// `initialize` (token + admin together); this variant covers the narrow
+    /// bootstrap path where only the admin slot is being set.
+    AdminAlreadySet = 42,
 }
