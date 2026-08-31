@@ -41,6 +41,7 @@ import {
   BASE_FEE,
   nativeToScVal,
   xdr,
+  Address,
 } from "@stellar/stellar-sdk";
 import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import {
@@ -51,6 +52,7 @@ import {
   mkdirSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { isChargeDue } from "./batch-optimizer";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -101,9 +103,11 @@ interface DlqEntry {
   timestamp: string;
   offset: number;
   limit: number;
+  users?: string[]; // Make it optional for backward compatibility
   error: string;
   tx_xdr: string | null;
   attempts: number;
+  ledger?: number;
 }
 
 // ── Permanent-failure detection ───────────────────────────────────────────────
@@ -188,18 +192,40 @@ async function replayEntry(
   keypair: Keypair,
   entry: DlqEntry,
 ): Promise<{ charged: number; skipped: number }> {
+  if (!entry.users || entry.users.length === 0) {
+    throw new Error("No users provided in DLQ entry for batch_charge");
+  }
+
   const account = await server.getAccount(keypair.publicKey());
+  
+  // Precheck: skip users that are not due
+  const dueUsers: string[] = [];
+  for (const user of entry.users) {
+    try {
+      if (await isChargeDue(user)) {
+        dueUsers.push(user);
+      }
+    } catch (err) {
+      log("warn", `Precheck failed for user ${user}`, { error: String(err) });
+      dueUsers.push(user); // Assume due on failure to not falsely skip
+    }
+  }
+
+  if (dueUsers.length === 0) {
+    log("info", "All users in batch skipped by precheck (not due)");
+    return { charged: 0, skipped: entry.users.length };
+  }
+
+  const usersVec = xdr.ScVal.scvVec(
+    dueUsers.map((u) => nativeToScVal(Address.fromString(u), { type: "address" }))
+  );
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(
-      contract.call(
-        "batch_charge",
-        nativeToScVal(entry.offset, { type: "u32" }),
-        nativeToScVal(entry.limit, { type: "u32" }),
-      ),
+      contract.call("batch_charge", usersVec)
     )
     .setTimeout(60)
     .build();

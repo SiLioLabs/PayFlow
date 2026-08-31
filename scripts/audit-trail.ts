@@ -14,18 +14,31 @@
  *     [--format markdown|csv|json]    # default: json
  *     [--out <file>]                  # write output to file instead of stdout
  *
+ * Reconciliation mode (--reconcile):
+ *   npx ts-node scripts/audit-trail.ts \
+ *     --reconcile \
+ *     --export <audit-export.json>    # previously produced audit trail JSON
+ *     --db     <indexer.db>           # SQLite indexer database path
+ *     [--format json|csv]             # default: json
+ *     [--out <file>]
+ *
+ *   Compares per-day aggregates from the export against the indexer DB sums for
+ *   charged volume and fees. Exits 0 when everything matches, 1 on any mismatch
+ *   or argument/DB error.
+ *
  * Environment variables:
- *   CONTRACT_ID  — Deployed FlowPay contract ID (required)
+ *   CONTRACT_ID  — Deployed FlowPay contract ID (required for trail mode)
  *   RPC_URL      — Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
  *
  * Exit codes:
- *   0 — audit trail produced successfully
- *   1 — invalid arguments or RPC failure
+ *   0 — audit trail produced (or reconciliation passed) successfully
+ *   1 — invalid arguments, RPC failure, or reconciliation mismatch
  */
 
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { DatabaseSync } from "node:sqlite";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -51,6 +64,14 @@ interface CliArgs {
   subscriber: string | null;
   merchant: string | null;
   format: OutputFormat;
+  outFile: string | null;
+}
+
+/** Arguments for --reconcile mode. */
+export interface ReconcileArgs {
+  exportFile: string;
+  dbPath: string;
+  format: "json" | "csv";
   outFile: string | null;
 }
 
@@ -94,6 +115,49 @@ interface AuditSummary {
 interface AuditReport {
   entries: AuditEntry[];
   summary: AuditSummary;
+}
+
+// ── Reconciliation types ──────────────────────────────────────────────────────
+
+/**
+ * Per-day aggregates from either the audit export or the indexer DB.
+ * All amounts are expressed as BigInt-serialised strings to avoid precision loss.
+ */
+export interface DayAggregate {
+  /** UTC calendar date, YYYY-MM-DD. */
+  date: string;
+  /** Total number of charge/pay_per_use events. */
+  charge_count: number;
+  /** Sum of amount_stroops across charge/pay_per_use events. */
+  volume_stroops: string;
+  /** Sum of fee_stroops across charge/pay_per_use events. */
+  fees_stroops: string;
+}
+
+/**
+ * Comparison result for a single calendar day.
+ * `matched` is true only when all three numeric fields agree exactly.
+ */
+export interface DayReconcileResult {
+  date: string;
+  matched: boolean;
+  export: DayAggregate;
+  indexer: DayAggregate;
+  /** Human-readable list of field-level differences, empty when matched. */
+  diffs: string[];
+}
+
+/**
+ * Top-level result of a full reconciliation run.
+ */
+export interface ReconcileReport {
+  generated_at: string;
+  export_file: string;
+  db_path: string;
+  overall_matched: boolean;
+  days_checked: number;
+  days_mismatched: number;
+  results: DayReconcileResult[];
 }
 
 // ── Fee tracking: track fee_set events so we can reconstruct fee_bps per event ─
@@ -153,6 +217,37 @@ function parseArgs(): CliArgs {
     toLedger,
     subscriber: getArg("--subscriber") ?? null,
     merchant: getArg("--merchant") ?? null,
+    format,
+    outFile: getArg("--out") ?? null,
+  };
+}
+
+function parseReconcileArgs(): ReconcileArgs {
+  const exportFile = getArg("--export");
+  const dbPath = getArg("--db");
+
+  if (!exportFile) {
+    console.error("ERROR: --reconcile mode requires --export <audit-export.json>.");
+    process.exit(1);
+  }
+  if (!dbPath) {
+    console.error("ERROR: --reconcile mode requires --db <indexer.db>.");
+    process.exit(1);
+  }
+
+  const formatArg = getArg("--format") as "json" | "csv" | undefined;
+  const validFormats: ("json" | "csv")[] = ["json", "csv"];
+  const format: "json" | "csv" =
+    formatArg !== undefined
+      ? validFormats.includes(formatArg)
+        ? formatArg
+        : (console.error("ERROR: --format must be json or csv in reconcile mode."),
+          process.exit(1))
+      : "json";
+
+  return {
+    exportFile,
+    dbPath,
     format,
     outFile: getArg("--out") ?? null,
   };
@@ -482,9 +577,288 @@ function renderMarkdown(report: AuditReport): string {
   ].join("\n");
 }
 
+// ── Reconciliation ────────────────────────────────────────────────────────────
+
+/**
+ * Derive a UTC date string (YYYY-MM-DD) from an ISO-8601 timestamp string.
+ * Returns "unknown" when the timestamp is missing or unparseable.
+ */
+function utcDateFromIso(isoTimestamp: string): string {
+  if (!isoTimestamp) return "unknown";
+  const d = new Date(isoTimestamp);
+  if (isNaN(d.getTime())) return "unknown";
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Aggregate audit-export entries by UTC calendar day.
+ * Only `charged` and `pay_per_use` entries contribute to volume and fee sums;
+ * this matches the same filter in `buildSummary`.
+ */
+export function aggregateExportByDay(entries: AuditEntry[]): Map<string, DayAggregate> {
+  const map = new Map<string, DayAggregate>();
+
+  for (const e of entries) {
+    if (e.event_type !== "charged" && e.event_type !== "pay_per_use") continue;
+
+    const date = utcDateFromIso(e.timestamp);
+    let agg = map.get(date);
+    if (!agg) {
+      agg = { date, charge_count: 0, volume_stroops: "0", fees_stroops: "0" };
+      map.set(date, agg);
+    }
+    agg.charge_count += 1;
+    agg.volume_stroops = (BigInt(agg.volume_stroops) + BigInt(e.amount_stroops)).toString();
+    agg.fees_stroops = (BigInt(agg.fees_stroops) + BigInt(e.fee_stroops)).toString();
+  }
+
+  return map;
+}
+
+/**
+ * Query the indexer SQLite DB for per-day charged/pay_per_use aggregates.
+ *
+ * The indexer schema (see indexer.ts) stores:
+ *   events.event_name  — "charged" | "pay_per_use" | …
+ *   events.amount      — gross amount in stroops (TEXT)
+ *   events.fee_amount  — fee in stroops (TEXT, may be NULL)
+ *   events.timestamp   — Unix seconds (INTEGER)
+ *
+ * Only rows with event_name IN ('charged', 'pay_per_use') are included.
+ */
+export function aggregateIndexerByDay(db: DatabaseSync): Map<string, DayAggregate> {
+  // Compute YYYY-MM-DD from Unix-seconds timestamp using SQLite's date() function.
+  const rows = db
+    .prepare(
+      `SELECT
+         date(timestamp, 'unixepoch') AS day,
+         COUNT(*)                     AS charge_count,
+         COALESCE(SUM(CAST(amount AS INTEGER)), 0)     AS volume_stroops,
+         COALESCE(SUM(CAST(fee_amount AS INTEGER)), 0) AS fees_stroops
+       FROM events
+       WHERE event_name IN ('charged', 'pay_per_use')
+         AND amount IS NOT NULL
+       GROUP BY day
+       ORDER BY day`,
+    )
+    .all() as Array<{
+      day: string;
+      charge_count: number;
+      volume_stroops: number;
+      fees_stroops: number;
+    }>;
+
+  const map = new Map<string, DayAggregate>();
+  for (const row of rows) {
+    map.set(row.day, {
+      date: row.day,
+      charge_count: row.charge_count,
+      volume_stroops: String(row.volume_stroops),
+      fees_stroops: String(row.fees_stroops),
+    });
+  }
+  return map;
+}
+
+/**
+ * Compare export aggregates against indexer aggregates for every day present
+ * in either source and return a `ReconcileReport`.
+ *
+ * A day with no data in one source is treated as all-zeros for that source,
+ * so a day present only in the export (or only in the indexer) is flagged as a
+ * mismatch.
+ */
+export function reconcileAggregates(
+  exportByDay: Map<string, DayAggregate>,
+  indexerByDay: Map<string, DayAggregate>,
+  exportFile: string,
+  dbPath: string,
+): ReconcileReport {
+  const allDates = new Set([...exportByDay.keys(), ...indexerByDay.keys()]);
+  const sortedDates = [...allDates].sort();
+
+  const ZERO_AGG = (date: string): DayAggregate => ({
+    date,
+    charge_count: 0,
+    volume_stroops: "0",
+    fees_stroops: "0",
+  });
+
+  const results: DayReconcileResult[] = [];
+
+  for (const date of sortedDates) {
+    const exp = exportByDay.get(date) ?? ZERO_AGG(date);
+    const idx = indexerByDay.get(date) ?? ZERO_AGG(date);
+
+    const diffs: string[] = [];
+
+    if (exp.charge_count !== idx.charge_count) {
+      diffs.push(
+        `charge_count: export=${exp.charge_count} indexer=${idx.charge_count}`,
+      );
+    }
+    if (exp.volume_stroops !== idx.volume_stroops) {
+      diffs.push(
+        `volume_stroops: export=${exp.volume_stroops} indexer=${idx.volume_stroops}`,
+      );
+    }
+    if (exp.fees_stroops !== idx.fees_stroops) {
+      diffs.push(
+        `fees_stroops: export=${exp.fees_stroops} indexer=${idx.fees_stroops}`,
+      );
+    }
+
+    results.push({
+      date,
+      matched: diffs.length === 0,
+      export: exp,
+      indexer: idx,
+      diffs,
+    });
+  }
+
+  const daysMismatched = results.filter((r) => !r.matched).length;
+
+  return {
+    generated_at: new Date().toISOString(),
+    export_file: exportFile,
+    db_path: dbPath,
+    overall_matched: daysMismatched === 0,
+    days_checked: results.length,
+    days_mismatched: daysMismatched,
+    results,
+  };
+}
+
+/** Render a ReconcileReport as JSON. */
+function renderReconcileJson(report: ReconcileReport): string {
+  return JSON.stringify(report, null, 2);
+}
+
+/** Render a ReconcileReport as CSV. */
+function renderReconcileCsv(report: ReconcileReport): string {
+  const header = [
+    "# PayFlow Audit-Trail Reconciliation Report",
+    `# Generated: ${report.generated_at}`,
+    `# Export: ${report.export_file}`,
+    `# DB: ${report.db_path}`,
+    `# Overall: ${report.overall_matched ? "PASS" : "FAIL"} (${report.days_mismatched}/${report.days_checked} days mismatched)`,
+    "",
+    "date,matched,export_charge_count,export_volume_stroops,export_fees_stroops,indexer_charge_count,indexer_volume_stroops,indexer_fees_stroops,diffs",
+  ];
+
+  const escape = (v: unknown): string =>
+    `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+  const rows = report.results.map((r) =>
+    [
+      escape(r.date),
+      escape(r.matched ? "true" : "false"),
+      escape(r.export.charge_count),
+      escape(r.export.volume_stroops),
+      escape(r.export.fees_stroops),
+      escape(r.indexer.charge_count),
+      escape(r.indexer.volume_stroops),
+      escape(r.indexer.fees_stroops),
+      escape(r.diffs.join("; ")),
+    ].join(","),
+  );
+
+  return [...header, ...rows].join("\n");
+}
+
+/**
+ * Run the full reconciliation pipeline: load export, open DB, compare,
+ * emit report, and return whether all days matched.
+ *
+ * Exported for testing without going through process.argv.
+ */
+export function runReconcile(args: ReconcileArgs): ReconcileReport {
+  // Load the audit export JSON
+  let rawExport: string;
+  try {
+    rawExport = readFileSync(args.exportFile, "utf8");
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`ERROR: Cannot read export file '${args.exportFile}': ${msg}`);
+    process.exit(1);
+  }
+
+  let report: AuditReport;
+  try {
+    report = JSON.parse(rawExport) as AuditReport;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`ERROR: Export file is not valid JSON: ${msg}`);
+    process.exit(1);
+  }
+
+  if (!Array.isArray(report.entries)) {
+    console.error("ERROR: Export JSON must have an 'entries' array.");
+    process.exit(1);
+  }
+
+  // Open the indexer DB (read-only via normal open, no writes needed)
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(args.dbPath);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`ERROR: Cannot open indexer DB '${args.dbPath}': ${msg}`);
+    process.exit(1);
+  }
+
+  const exportByDay = aggregateExportByDay(report.entries);
+  const indexerByDay = aggregateIndexerByDay(db);
+  db.close();
+
+  return reconcileAggregates(exportByDay, indexerByDay, args.exportFile, args.dbPath);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Detect reconciliation mode
+  if (process.argv.includes("--reconcile")) {
+    const args = parseReconcileArgs();
+    const reconcileReport = runReconcile(args);
+
+    const output =
+      args.format === "csv"
+        ? renderReconcileCsv(reconcileReport)
+        : renderReconcileJson(reconcileReport);
+
+    if (args.outFile) {
+      try {
+        writeFileSync(args.outFile, output);
+        console.error(`Wrote reconciliation report to ${args.outFile}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`ERROR: Failed to write output file: ${msg}`);
+        process.exit(1);
+      }
+    } else {
+      process.stdout.write(output + "\n");
+    }
+
+    console.error("");
+    console.error(`Reconciliation: ${reconcileReport.overall_matched ? "PASS ✓" : "FAIL ✗"}`);
+    console.error(`  Days checked   : ${reconcileReport.days_checked}`);
+    console.error(`  Days mismatched: ${reconcileReport.days_mismatched}`);
+
+    if (!reconcileReport.overall_matched) {
+      console.error("");
+      console.error("Mismatched days:");
+      for (const r of reconcileReport.results.filter((x) => !x.matched)) {
+        console.error(`  ${r.date}: ${r.diffs.join(" | ")}`);
+      }
+      process.exit(1);
+    }
+
+    process.exit(0);
+  }
+
+  // Normal audit-trail mode
   const args = parseArgs();
 
   if (!CONTRACT_ID) {

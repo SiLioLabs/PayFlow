@@ -1,4 +1,9 @@
 export const CONTRACT_ERRORS: Record<string, string> = {
+  // Numeric Soroban codes are stable; keep legacy code 30 as a compatibility alias.
+  "error(Contract, #18)": "Payments are temporarily paused by the contract administrator.",
+  "error(Contract, #30)": "Payments are temporarily paused by the contract administrator.",
+  "#18": "Payments are temporarily paused by the contract administrator.",
+  "#30": "Payments are temporarily paused by the contract administrator.",
   // Legacy / string variants
   "interval not elapsed yet": "Your next charge date hasn't arrived yet.",
   "subscription is not active": "This subscription has been cancelled.",
@@ -6,6 +11,8 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "already initialized": "Contract is already set up.",
   "amount must be positive": "Amount must be greater than zero.",
   "interval must be positive": "Billing interval must be greater than zero.",
+  "contract paused": "Payments are temporarily paused by the contract administrator.",
+  "contractpaused": "Payments are temporarily paused by the contract administrator.",
   "admin not set": "Contract admin is not configured.",
   require_auth: "Wallet authorization required. Connect as the contract admin.",
   entryexpired:

@@ -63,6 +63,7 @@ function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
     validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
     validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
     referrerValid &&
+    referrerValid
     validateAddress(fields.tokenAddress).valid
   );
 }
@@ -97,6 +98,9 @@ export default function SubscribeForm({
   const amountString =
     amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
   const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
+  const fields: FormFields = { merchant, amount: amountString, interval };
+  const fields: FormFields = { merchant, amount, interval };
+  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
   const referrerValidation = validateReferrer(referrer, userKey);
   const canSubmit =
     fieldsAreValid(fields, referrerValidation.valid) &&
@@ -117,6 +121,11 @@ export default function SubscribeForm({
     touched.merchant,
     touched.amount,
     touched.interval,
+    amount,
+    interval,
+    touched.merchant,
+    touched.amount,
+    touched.interval,
     tokenAddress,
     touched.tokenAddress,
     validate,
@@ -129,6 +138,14 @@ export default function SubscribeForm({
 
   function handleMerchantChange(e: React.ChangeEvent<HTMLInputElement>) {
     setMerchant(e.target.value);
+  }
+
+  function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setReferrer(e.target.value);
+  }
+
+  function handleReferrerBlur() {
+    setTouched((prev) => ({ ...prev, referrer: true }));
   }
 
   function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
