@@ -18,7 +18,7 @@ export interface Config {
 /**
  * Loads configuration from environment variables with defaults.
  */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export function loadAlertConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     webhookUrl: env.WEBHOOK_URL || '',
     dedupWindowMs: Number(env.DEDUP_WINDOW_MS || 3600000),
@@ -83,4 +83,27 @@ export function redactSecret(value: string): string {
 export function formatConfig(config: KeeperConfig): string {
   const redacted = { ...config, secret: redactSecret(config.secret) };
   return JSON.stringify(redacted, null, 2);
+}
+
+export interface BackfillConfig {
+  /** Starting ledger sequence number for backfill. 0 means from the last checkpoint. */
+  startLedger: number;
+  /** Ending ledger sequence number for backfill (inclusive). 0 means to the latest. */
+  endLedger: number;
+  /** Path to the checkpoint file for progressive checkpointing. */
+  checkpointFile: string;
+  /** Maximum number of ledger fetch requests per second. 0 means no limit. */
+  rateLimit: number;
+}
+
+/**
+ * Loads backfill configuration from environment variables with defaults.
+ */
+export function loadBackfillConfig(env: NodeJS.ProcessEnv = process.env): BackfillConfig {
+  return {
+    startLedger: Number(env.BACKFILL_START_LEDGER || 0),
+    endLedger: Number(env.BACKFILL_END_LEDGER || 0),
+    checkpointFile: env.BACKFILL_CHECKPOINT_FILE || '',
+    rateLimit: Number(env.BACKFILL_RATE_LIMIT || 0),
+  };
 }
