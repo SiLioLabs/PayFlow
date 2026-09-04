@@ -1,4 +1,4 @@
-import { loadConfig, formatConfig } from './config';
+import { loadConfig, formatConfig } from './keeper-config';
 
 export function run(): void {
   const config = loadConfig();

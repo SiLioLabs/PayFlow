@@ -125,8 +125,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Contract pause banner — shown at root level so it's always visible */}
-      <ContractPauseBanner paused={isPaused} />
       {/* RPC Failure Banner */}
       {isRpcFailing && (
         <div

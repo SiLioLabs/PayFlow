@@ -62,9 +62,7 @@ function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
     validateAddress(fields.merchant).valid &&
     validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
     validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
-    referrerValid &&
     referrerValid
-    validateAddress(fields.tokenAddress).valid
   );
 }
 
@@ -98,15 +96,13 @@ export default function SubscribeForm({
   const amountString =
     amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
   const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
-  const fields: FormFields = { merchant, amount: amountString, interval };
-  const fields: FormFields = { merchant, amount, interval };
-  const canSubmit = fieldsAreValid(fields) && !pending && !validating && !isPaused && !isOffline;
   const referrerValidation = validateReferrer(referrer, userKey);
   const canSubmit =
     fieldsAreValid(fields, referrerValidation.valid) &&
     !pending &&
     !validating &&
-    !isPaused;
+    !isPaused &&
+    !isOffline;
 
   // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {
@@ -117,11 +113,6 @@ export default function SubscribeForm({
   }, [
     merchant,
     amountStroops,
-    interval,
-    touched.merchant,
-    touched.amount,
-    touched.interval,
-    amount,
     interval,
     touched.merchant,
     touched.amount,
@@ -148,17 +139,9 @@ export default function SubscribeForm({
     setTouched((prev) => ({ ...prev, referrer: true }));
   }
 
-  function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setReferrer(e.target.value);
-  }
-
-  function handleReferrerBlur() {
-    setTouched((prev) => ({ ...prev, referrer: true }));
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setTouched({ merchant: true, amount: true, interval: true, tokenAddress: true });
+    setTouched({ merchant: true, amount: true, interval: true, referrer: true, tokenAddress: true });
     setStatus(null);
 
     const ok = validate(fields);

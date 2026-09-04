@@ -92,6 +92,7 @@ vi.mock("../components/ReferralPanel", () => ({
 // ---------------------------------------------------------------------------
 const VALID_MERCHANT = "GARWT7ZMBP23JGTISGFVDSX55SC3LMAAD5PSFBYTS3EDTMDNY4XHW3SZ";
 const VALID_USER = "GB5RRJJAWEZVPYO2RW5FGYP5M2YGI3T4Q53CAA3FPIJJG4ZOFMJYGMDM";
+const VALID_REFERRER = "GDBD3A73O4IRLQMJTPFBPRHTR5T4S6B4XPCPAEKY4LHWE7U7NSBH3ODR";
 
 // ---------------------------------------------------------------------------
 // Constants verification
@@ -643,7 +644,7 @@ describe("SubscribeForm component — inline validation on blur", () => {
 // ---------------------------------------------------------------------------
 
 describe("Referral field validation", () => {
-  it("allows empty referrer (optional field)", () => {
+  it("allows empty referrer (optional field)", async () => {
     renderForm();
     // Form should be submittable with all required fields filled but no referrer
     const merchantInput = screen.getByTestId("merchant-input");
@@ -653,7 +654,9 @@ describe("Referral field validation", () => {
     fireEvent.change(amountInput, { target: { value: "5" } });
 
     const submitBtn = screen.getByRole("button", { name: /subscribe/i });
-    expect(submitBtn).not.toBeDisabled();
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
   });
 
   it("allows valid referrer address", async () => {
@@ -664,11 +667,13 @@ describe("Referral field validation", () => {
 
     await userEvent.type(merchantInput, VALID_MERCHANT);
     await userEvent.type(amountInput, "5");
-    await userEvent.type(referrerInput, VALID_USER);
+    await userEvent.type(referrerInput, VALID_REFERRER);
     fireEvent.blur(referrerInput);
 
     const submitBtn = screen.getByRole("button", { name: /subscribe/i });
-    expect(submitBtn).not.toBeDisabled();
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
 
     // No error message should appear for valid referrer
     expect(screen.queryByTestId("referrer-error")).not.toBeInTheDocument();
@@ -719,7 +724,7 @@ describe("Referral field validation", () => {
 
     // Clear and type valid address
     await userEvent.clear(referrerInput);
-    await userEvent.type(referrerInput, VALID_USER);
+    await userEvent.type(referrerInput, VALID_REFERRER);
     fireEvent.blur(referrerInput);
 
     // Error should be gone
@@ -747,7 +752,15 @@ describe("Referral field validation", () => {
 
     await userEvent.type(merchantInput, VALID_MERCHANT);
     await userEvent.type(amountInput, "5");
-    await userEvent.type(referrerInput, VALID_USER);
+    await userEvent.type(referrerInput, VALID_REFERRER);
+
+    // Wait for debounce on amount input to propagate to parent state
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
+    });
+
+    // Extra wait to ensure amountStroops state is fully settled
+    await new Promise((r) => setTimeout(r, 400));
 
     const submitBtn = screen.getByRole("button", { name: /subscribe/i });
     await userEvent.click(submitBtn);
@@ -756,7 +769,7 @@ describe("Referral field validation", () => {
       expect(mockBuildSubscribeTx).toHaveBeenCalled();
       const call = mockBuildSubscribeTx.mock.calls[0];
       // buildSubscribeTx(userKey, merchant, stroops, interval, token, referrer, metadata)
-      expect(call[5]).toBe(VALID_USER); // referrer should be passed
+      expect(call[5]).toBe(VALID_REFERRER); // referrer should be passed
     });
   });
 
@@ -793,13 +806,20 @@ describe("Referral field validation", () => {
 
   it("trims whitespace from referrer before validation", async () => {
     renderForm();
+    const merchantInput = screen.getByTestId("merchant-input");
+    const amountInput = screen.getByTestId("amount-input");
     const referrerInput = screen.getByTestId("referrer-input");
 
-    await userEvent.type(referrerInput, `  ${VALID_USER}  `);
+    await userEvent.type(merchantInput, VALID_MERCHANT);
+    await userEvent.type(amountInput, "5");
+    await userEvent.type(referrerInput, `  ${VALID_REFERRER}  `);
     fireEvent.blur(referrerInput);
 
-    const submitBtn = screen.getByRole("button", { name: /subscribe/i });
-    expect(submitBtn).not.toBeDisabled();
+    // Wait for debounce and verify no referrer error and button enabled
+    await waitFor(() => {
+      expect(screen.queryByTestId("referrer-error")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /subscribe/i })).not.toBeDisabled();
+    });
   });
 });
 

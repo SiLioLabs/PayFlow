@@ -7,6 +7,11 @@
   "scripts": {
     "test": "NODE_OPTIONS='--experimental-sqlite' vitest run",
     "test:merchant": "NODE_OPTIONS='--experimental-sqlite' tsx --test __tests__/merchant-queries.test.ts __tests__/merchant-analytics.test.ts",
+    "test:event-dedup": "tsx test-event-dedup-integration.ts",
+    "test:renewal-forecast": "tsx test-renewal-forecast.ts",
+    "test:rpc-failover": "tsx test-rpc-failover.ts",
+    "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts",
+    "test:allowance-utils": "tsx test-allowance-utils.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
     "build": "tsc -p tsconfig.build.json",
@@ -19,18 +24,7 @@
     "batch-optimizer": "tsx batch-optimizer.ts",
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
-    "typecheck": "tsc --noEmit",
-    "validate-config": "tsx validate-config.ts",
-    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters"
-    "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
-    "test:event-dedup": "tsx test-event-dedup-integration.ts",
-    "test:renewal-forecast": "tsx test-renewal-forecast.ts",
-    "test:rpc-failover": "tsx test-rpc-failover.ts",
-    "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts",
-    "test:allowance-utils": "tsx test-allowance-utils.ts"
-    "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts"
-    "test": "tsx test-churn-analysis.ts"
-    "test:rpc-failover": "tsx test-rpc-failover.ts"
+    "validate-config": "tsx validate-config.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

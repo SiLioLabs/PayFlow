@@ -46,10 +46,6 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
         <ProtocolStatsPanel callerKey={publicKey} />
       </div>
 
-      <div className="card admin-dashboard__section mb-4">
-        <SubscriptionRepairPanel adminKey={publicKey} onSign={onSign} />
-      </div>
-
       <div
         className="card admin-dashboard__section mb-4"
         style={{ opacity: effectiveAdmin ? 1 : 0.6 }}

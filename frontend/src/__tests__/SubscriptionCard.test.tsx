@@ -658,7 +658,7 @@ describe("SubscriptionCard", () => {
           onRefresh={mockOnRefresh}
         />
       );
-      expect(screen.getByRole("button", { name: /^pause$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /pause subscription/i })).toBeInTheDocument();
     });
 
     it("renders resume button when subscription is paused", () => {
@@ -682,7 +682,7 @@ describe("SubscriptionCard", () => {
           onRefresh={mockOnRefresh}
         />
       );
-      expect(screen.queryByRole("button", { name: /^pause$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /pause subscription/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
     });
   });
@@ -698,9 +698,9 @@ describe("SubscriptionCard", () => {
         />
       );
 
-      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
       await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
-      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
 
       expect(screen.getByTestId("pause-until-error")).toBeInTheDocument();
       expect(mockPauseUntil).not.toHaveBeenCalled();
@@ -716,7 +716,7 @@ describe("SubscriptionCard", () => {
         />
       );
 
-      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
       await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
 
       const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
@@ -724,7 +724,7 @@ describe("SubscriptionCard", () => {
       const input = screen.getByTestId("pause-until-input");
       await userEvent.type(input, localValue);
 
-      await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
 
       expect(mockPauseUntil).toHaveBeenCalledTimes(1);
       const expiryArg = mockPauseUntil.mock.calls[0][0] as bigint;
@@ -783,7 +783,7 @@ describe("SubscriptionCard", () => {
       await waitFor(() => {
         expect(screen.getByTestId("health-action-warning")).toBeInTheDocument();
       });
-      expect(screen.getByRole("button", { name: /^pause$/i })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: /pause subscription/i })).not.toBeDisabled();
       expect(screen.getByRole("button", { name: /cancel subscription/i })).not.toBeDisabled();
     });
 

@@ -470,6 +470,7 @@ export default function SubscriptionCard({
             <button
               onClick={() => setShowPauseConfirm(true)}
               className="btn-secondary pause-btn"
+              aria-label="Pause subscription"
               title={healthUnhealthy ? "Subscription needs attention" : undefined}
             >
               Pause

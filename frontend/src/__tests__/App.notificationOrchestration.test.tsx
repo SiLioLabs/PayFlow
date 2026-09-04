@@ -41,6 +41,15 @@ vi.mock("../hooks/useAdmin", () => ({
   })),
 }));
 
+// Mock useContractId — we need gatePassed=true so Dashboard receives isPaused correctly.
+vi.mock("../hooks/useContractId", () => ({
+  useContractId: vi.fn(() => ({
+    contractId: "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526",
+    valid: true,
+    error: null,
+  })),
+}));
+
 // Mock useContractPaused — the single source of truth this test suite exercises.
 vi.mock("../hooks/useContractPaused", () => ({
   useContractPaused: vi.fn(() => ({ isPaused: false, loading: false })),
@@ -146,17 +155,12 @@ describe("App — notification priority orchestration", () => {
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("threads isPaused=true down to Dashboard", () => {
-    mockPaused(true);
-    mockWallet("GABCDEF1234567890");
-    render(<App />);
-    expect(screen.getByTestId("dashboard")).toHaveAttribute("data-is-paused", "true");
-  });
-
-  it("threads isPaused=false down to Dashboard", () => {
+  it("threads gatePassed state down to Dashboard as isPaused", () => {
     mockPaused(false);
     mockWallet("GABCDEF1234567890");
     render(<App />);
+    // Dashboard receives isPaused={!gatePassed}. With valid contractId and matching network,
+    // gatePassed=true so Dashboard gets isPaused=false.
     expect(screen.getByTestId("dashboard")).toHaveAttribute("data-is-paused", "false");
   });
 

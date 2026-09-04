@@ -57,7 +57,7 @@ function isWithinWindow(timestamp: string, now: Date, windowMs: number): boolean
   return now.getTime() - t <= windowMs;
 }
 
-function shouldSendAlert(state: DedupState, alert: Alert, config: Config, now: Date): boolean {
+export function shouldSendAlert(state: DedupState, alert: Alert, config: Config, now: Date): boolean {
   const key = getKey(alert);
   const last = state.lastSent[key];
   if (last && isWithinWindow(last, now, config.dedupWindowMs)) {
@@ -74,7 +74,7 @@ function shouldSendAlert(state: DedupState, alert: Alert, config: Config, now: D
   return true;
 }
 
-function markAlertSent(state: DedupState, alert: Alert, now: Date): void {
+export function markAlertSent(state: DedupState, alert: Alert, now: Date): void {
   const key = getKey(alert);
   state.lastSent[key] = now.toISOString();
 
