@@ -103,10 +103,5 @@ pub enum ContractError {
     /// been stored. Distinct from `AlreadyInitialized` (code 1), which guards
     /// `initialize` (token + admin together); this variant covers the narrow
     /// bootstrap path where only the admin slot is being set.
-    AdminAlreadySet = 42,
-    /// Returned when `subscribe` or `subscribe_with_metadata` is called while
-    /// `schema_version < CURRENT_VERSION`. The operator must call `migrate`
-    /// for all users before new subscription writes are accepted post-upgrade.
-    /// This prevents mixed-version blobs from being created after a WASM upgrade.
-    SchemaMigrationRequired = 43,
+    AdminAlreadySet = 44,
 }
