@@ -12,7 +12,8 @@
  * |-------------------|-----------------|------------------------------------------------|
  * | CONTRACT_ID       | string          | Non-empty; starts with 'C'; 56-char base32     |
  * | RPC_URL           | string          | Valid http/https URL                           |
- * | SECRET_KEY        | string          | Stellar secret key: starts with 'S', 56 chars  |
+ * | KEEPER_SECRET     | string          | Stellar secret key: starts with 'S', 56 chars  |
+ * |                   |                 | (`SECRET_KEY` accepted as legacy alias)        |
  * | BATCH_SIZE        | number (coerce) | Integer 1–200                                  |
  * | INTERVAL_SECONDS  | number (coerce) | Integer ≥ 60                                   |
  * | WEBHOOK_URL       | string?         | Optional valid http/https URL                  |
@@ -65,17 +66,30 @@ export const ConfigSchema = z.object({
     .string({ required_error: "RPC_URL is required" })
     .url("RPC_URL must be a valid URL with http:// or https:// protocol"),
 
-  /** Stellar secret key for the keeper (starts with 'S', 56-char base32) */
+  /**
+   * Stellar secret key for the keeper (starts with 'S', 56-char base32).
+   * Canonical env name is `KEEPER_SECRET` (see `scripts/.env.example`);
+   * `SECRET_KEY` is accepted as a legacy alias. Either may be provided —
+   * when both are set they must match.
+   */
   SECRET_KEY: z
     .string({ required_error: "SECRET_KEY is required" })
     .min(1, "SECRET_KEY must not be empty")
     .regex(
       secretKeyRegex,
       "SECRET_KEY must be a valid Stellar secret key (starts with 'S', 56-char base32)",
-    ),
+    )
+    .optional(),
+  /** Preferred alias for `SECRET_KEY` (see `scripts/.env.example`). */
+  KEEPER_SECRET: z
+    .string()
+    .min(1, "KEEPER_SECRET must not be empty")
+    .regex(
+      secretKeyRegex,
+      "KEEPER_SECRET must be a valid Stellar secret key (starts with 'S', 56-char base32)",
+    )
+    .optional(),
 
-  /** Maximum number of subscriptions to charge in a single transaction (1–200) */
-  BATCH_SIZE: z.coerce
   /**
    * Maximum number of subscriptions to charge in a single transaction (1–200).
    * The upper bound of 200 mirrors the contract's `MAX_BATCH_SIZE_CEILING` —
@@ -118,7 +132,32 @@ export const ConfigSchema = z.object({
 
   /** Optional network passphrase for Stellar network identification */
   NETWORK_PASSPHRASE: z.string().optional(),
-});
+})
+  .superRefine((val, ctx) => {
+    if (!val.SECRET_KEY && !val.KEEPER_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["SECRET_KEY"],
+        message:
+          "SECRET_KEY or KEEPER_SECRET is required (set KEEPER_SECRET per scripts/.env.example)",
+      });
+    }
+    if (val.SECRET_KEY && val.KEEPER_SECRET && val.SECRET_KEY !== val.KEEPER_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["KEEPER_SECRET"],
+        message: "SECRET_KEY and KEEPER_SECRET must match when both are set",
+      });
+    }
+  })
+  .transform((val) => {
+    const resolved = val.SECRET_KEY ?? val.KEEPER_SECRET ?? "";
+    return {
+      ...val,
+      SECRET_KEY: resolved,
+      KEEPER_SECRET: resolved,
+    };
+  });
 
 /** Inferred TypeScript type from ConfigSchema */
 export type KeeperConfig = z.infer<typeof ConfigSchema>;

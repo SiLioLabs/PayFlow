@@ -1,7 +1,6 @@
 {
   "//": "Scripts that already fail lint-duplicates and are tracked by their own issues. Remove an entry once its file passes; never add new ones.",
   "files": [
-    "config.ts",
     "deploy-pipeline.ts",
     "grace-period-monitor.ts",
     "health-check.ts",
