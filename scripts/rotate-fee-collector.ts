@@ -26,6 +26,25 @@ export const defaultContext: RotateContext = {
   createServer,
 };
 
+/**
+ * Two-step fee-collector rotation (simulation-first).
+ *
+ * Contract flow (`contract/src/fee.rs`):
+ *   1. `propose_fee(collector, bps)` — stages a pending proposal
+ *      (the "set" / propose step).
+ *   2. `commit_fee()` — validates bounds and commits the pending proposal
+ *      (the "accept" / commit step).
+ *
+ * Workflow:
+ *   - `--propose <address> [--bps <n>] [--dry-run|--simulate]` simulates or
+ *     submits the propose step.
+ *   - `--commit [--dry-run|--simulate]` verifies a pending proposal via
+ *     `commit_fee` simulation, then submits only when not simulating.
+ *   - Simulation is the default safe path: pass `--dry-run` (or `--simulate`)
+ *     to report the exact operation without submitting. Live submission
+ *     requires omitting the simulate flag; the commit step additionally
+ *     requires the explicit `--commit` gate.
+ */
 export async function rotateFeeCollector(argv: string[], ctx: RotateContext = defaultContext) {
   const { values } = parseArgs({
     args: argv,
@@ -34,6 +53,7 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
       commit: { type: "boolean" },
       bps: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      simulate: { type: "boolean", default: false },
     },
   });
 
@@ -42,7 +62,7 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
 
   const isPropose = !!values.propose;
   const isCommit = !!values.commit;
-  const dryRun = !!values["dry-run"];
+  const dryRun = !!values["dry-run"] || !!(values as { simulate?: boolean }).simulate;
 
   if (isPropose && isCommit) {
     logger.error("Error: Cannot specify both --propose and --commit");
@@ -96,23 +116,6 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
     }
   }
 
-  // Acceptance Criteria: Calls set_fee preserving existing fee_bps
-  logger.info("\nInitiating rotation...");
-  await set_fee(newCollector, currentFee.fee_bps);
-  logger.info("Transaction successfully confirmed on-chain.");
-
-  // Acceptance Criteria: Verifies change by reading get_fee after update
-  logger.info("\n=== Verifying On-Chain Update ===");
-  const updatedFee = await get_fee();
-
-  if (updatedFee.collector === newCollector) {
-    console.log("✅ Success: Fee collector rotated correctly!");
-    console.log(
-    logger.info("✅ Success: Fee collector rotated correctly!");
-    logger.info(`New Verification -> Collector: ${updatedFee.collector}, BPS: ${updatedFee.fee_bps}`);
-  } else {
-    logger.error("❌ Error: Verification failed. Collector address does not match expected update.");
-    process.exit(1);
   if (isCommit) {
     logger.info("Committing pending fee proposal...");
 
