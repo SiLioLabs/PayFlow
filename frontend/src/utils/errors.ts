@@ -64,7 +64,13 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #34)": "Invalid fee bounds.",
   "error(contract, #35)": "Fee out of bounds at commit.",
   "error(contract, #36)": "Arithmetic overflow.",
+  "error(contract, #38)": "Refund can only be issued by the subscription's merchant.",
+  "error(contract, #39)": "Prorated refund amount is zero; nothing to refund.",
+  "error(contract, #40)": "Merchant has insufficient balance to fund this refund.",
   "error(contract, #41)": "Cannot clear active subscriber.",
+  "error(contract, #42)": "Contract storage must be migrated before this operation.",
+  "error(contract, #43)": "Subscription grace period has lapsed; please re-subscribe.",
+  "error(contract, #44)": "Contract admin is already set.",
 };
 
 export function friendlyError(raw: string): string {
