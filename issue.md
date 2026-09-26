@@ -1,4 +1,6 @@
-# PayFlow Open-Source Contribution Wave 9 Issues
+.,
+.k=op
+h8umikol;/'# PayFlow Open-Source Contribution Wave 9 Issues
 
 This file lists the **120** GitHub issues created for the PayFlow/FlowPay Wave 9 contribution round. Each issue is grounded in the current repository architecture (Soroban contract under `contract/`, React app under `frontend/`, operational TypeScript under `scripts/`, and docs under `docs/`).
 

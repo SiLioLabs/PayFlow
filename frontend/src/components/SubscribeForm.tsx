@@ -91,7 +91,7 @@ export default function SubscribeForm({
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const { errors, validate, validating } = useFormValidation();
+  const { errors, validate, validateAsync, isValidating, cancelValidation } = useFormValidation();
   const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
 
   const amountString =
@@ -101,7 +101,7 @@ export default function SubscribeForm({
   const canSubmit =
     fieldsAreValid(fields, referrerValidation.valid) &&
     !pending &&
-    !validating &&
+    !isValidating &&
     !isPaused &&
     !isOffline;
 
@@ -132,6 +132,12 @@ export default function SubscribeForm({
     validate,
   ]);
 
+  // Any edit makes an in-flight server check stale: abort it so a submit that awaited it
+  // bails out instead of sending the values captured before the edit.
+  useEffect(() => {
+    cancelValidation();
+  }, [merchant, amountStroops, interval, tokenAddress, referrer, cancelValidation]);
+
   function handleBlur(field: keyof TouchedFields) {
     setTouched((prev) => ({ ...prev, [field]: true }));
     validate(fields);
@@ -151,11 +157,19 @@ export default function SubscribeForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setTouched({ merchant: true, amount: true, interval: true, referrer: true, tokenAddress: true });
+    // Implicit (Enter-key) submission can bypass the disabled button; never race a running check.
+    if (pending || isValidating) return;
+    setTouched({
+      merchant: true,
+      amount: true,
+      interval: true,
+      referrer: true,
+      tokenAddress: true,
+    });
     setStatus(null);
 
-    const ok = validate(fields);
-    if (!ok || amountStroops === null) return;
+    if (!validate(fields) || amountStroops === null) return;
+    if (!(await validateAsync(fields))) return;
 
     setPending(true);
     announce?.("Transaction submitted");
@@ -341,7 +355,7 @@ export default function SubscribeForm({
         type="submit"
         disabled={!canSubmit}
         className="btn-primary subscribe-form__submit"
-        aria-busy={pending || validating}
+        aria-busy={pending || isValidating}
         aria-label={
           isOffline
             ? "Subscribe (unavailable while offline)"
@@ -351,7 +365,7 @@ export default function SubscribeForm({
         }
         title={isOffline ? "You're offline — wallet actions are unavailable" : undefined}
       >
-        {pending ? "Confirming…" : validating ? "Validating…" : "Subscribe"}
+        {pending ? "Confirming…" : isValidating ? "Validating…" : "Subscribe"}
       </button>
 
       {status && (

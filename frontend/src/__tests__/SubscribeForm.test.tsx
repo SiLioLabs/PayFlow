@@ -638,6 +638,94 @@ describe("SubscribeForm component — inline validation on blur", () => {
   });
 });
 
+describe("SubscribeForm component — async validation gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBuildSubscribeTx.mockResolvedValue("mock-xdr");
+  });
+
+  function deferredAccount() {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    mockServer.getAccount.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      })
+    );
+    return { resolve: () => resolve({}), reject: () => reject(new Error("Not found")) };
+  }
+
+  async function fillValidForm() {
+    await userEvent.type(screen.getByTestId("merchant-input"), VALID_MERCHANT);
+    await userEvent.type(screen.getByTestId("amount-input"), "5");
+    await waitFor(() => expect(screen.getByRole("button", { name: /subscribe/i })).toBeEnabled());
+  }
+
+  it("disables submit while the account check is in flight, then submits once it resolves", async () => {
+    const account = deferredAccount();
+    const { onSign } = renderForm();
+    await fillValidForm();
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+
+    const button = await screen.findByRole("button", { name: /validating/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(mockServer.getAccount).toHaveBeenCalledWith(VALID_MERCHANT);
+    expect(mockBuildSubscribeTx).not.toHaveBeenCalled();
+
+    // A second submit mid-flight is ignored rather than racing the check.
+    fireEvent.submit(document.querySelector("form")!);
+    expect(mockServer.getAccount).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      account.resolve();
+    });
+
+    await waitFor(() => expect(onSign).toHaveBeenCalledWith("mock-xdr"));
+    expect(mockBuildSubscribeTx).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not submit and shows an error when the merchant account is missing", async () => {
+    const account = deferredAccount();
+    const { onSign } = renderForm();
+    await fillValidForm();
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+    await act(async () => {
+      account.reject();
+    });
+
+    expect(await screen.findByTestId("merchant-error")).toHaveTextContent(
+      "Account not found on network."
+    );
+    expect(mockBuildSubscribeTx).not.toHaveBeenCalled();
+    expect(onSign).not.toHaveBeenCalled();
+  });
+
+  it("aborts the stale check when a field changes mid-flight and does not submit", async () => {
+    const account = deferredAccount();
+    const { onSign } = renderForm();
+    await fillValidForm();
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+    await screen.findByRole("button", { name: /validating/i });
+
+    fireEvent.change(screen.getByTestId("merchant-input"), {
+      target: { value: VALID_REFERRER },
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /subscribe/i })).toBeEnabled());
+
+    await act(async () => {
+      account.resolve();
+    });
+
+    expect(mockBuildSubscribeTx).not.toHaveBeenCalled();
+    expect(onSign).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Referral validation tests
@@ -738,13 +826,7 @@ describe("Referral field validation", () => {
     const onSign = vi.fn().mockResolvedValue("mock-hash");
     const onSuccess = vi.fn();
 
-    render(
-      <SubscribeForm
-        userKey={VALID_USER}
-        onSign={onSign}
-        onSuccess={onSuccess}
-      />
-    );
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={onSuccess} />);
 
     const merchantInput = screen.getByTestId("merchant-input");
     const amountInput = screen.getByTestId("amount-input");
@@ -778,13 +860,7 @@ describe("Referral field validation", () => {
     const onSign = vi.fn().mockResolvedValue("mock-hash");
     const onSuccess = vi.fn();
 
-    render(
-      <SubscribeForm
-        userKey={VALID_USER}
-        onSign={onSign}
-        onSuccess={onSuccess}
-      />
-    );
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={onSuccess} />);
 
     const merchantInput = screen.getByTestId("merchant-input");
     const amountInput = screen.getByTestId("amount-input");
