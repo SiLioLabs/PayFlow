@@ -91,7 +91,7 @@ export default function SubscribeForm({
   const [status, setStatus] = useState<string | null>(null);
 
   const { errors, validate, validating } = useFormValidation();
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
 
   const amountString =
     amountStroops !== null ? (Number(amountStroops) / 10_000_000).toString() : "";
@@ -358,7 +358,12 @@ export default function SubscribeForm({
         />
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
     </form>
   );
 }

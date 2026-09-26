@@ -60,7 +60,7 @@ export default function Dashboard({
   isOffline = false,
 }: Props) {
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const ppuTx = useTransaction();
@@ -305,7 +305,13 @@ export default function Dashboard({
         </>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} isPaused={isPaused} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+        isPaused={isPaused}
+      />
 
       {showDailyLimit && sub?.active && (
         <DailyLimitModal
