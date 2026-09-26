@@ -30,3 +30,34 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
         working-directory: contract
+
+  # ── Instruction-budget gate ──────────────────────────────────────────────
+  # Runs the bench_* tests in src/bench.rs in isolation so that instruction-
+  # count output is always visible in the log and budget violations surface as
+  # a named CI failure rather than a silent on-chain regression.
+  #
+  # Pinned budgets (Soroban SDK 21, recorded 2026-06-01) live in
+  # contract/src/bench.rs as MAX_*_INSTRUCTIONS constants.  Each constant
+  # includes ~10 % headroom above the measured baseline.  When a deliberate
+  # change shifts a baseline by more than ~5 %, re-pin the constant in
+  # bench.rs and update the baseline table in the same file with the new date
+  # and cost.
+  #
+  # The job runs `cargo test bench` which matches all test functions whose
+  # names contain "bench" (bench_subscribe, bench_charge, bench_pay_per_use,
+  # bench_batch_charge_10_users, bench_charge_vs_subscribe_ratio).
+  # `-- --nocapture` ensures instruction counts are printed even on a passing
+  # run, making the cost curve visible in every CI log.
+  bench:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Run instruction-budget benchmarks
+        # Filter to bench_* tests only; --nocapture prints CPU/memory numbers
+        # so the cost curve is visible on every run, not just on failure.
+        run: cargo test bench -- --nocapture
+        working-directory: contract
