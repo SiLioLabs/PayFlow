@@ -32,6 +32,14 @@ export function useSubscription(userKey: string, refreshTrigger?: number) {
   const [error, setError] = useState<string | null>(null);
   const { circuitOpen } = useRpcHealthContext();
 
+  const [prevUserKey, setPrevUserKey] = useState(userKey);
+  if (userKey !== prevUserKey) {
+    setPrevUserKey(userKey);
+    setSubscription(null);
+    setLoading(true);
+    setError(null);
+  }
+
   const refresh = useCallback(async () => {
     if (circuitOpen) {
       setError("RPC unavailable");

@@ -22,7 +22,7 @@ interface PayPerUseFormProps {
   isLimitLoading?: boolean;
 }
 
-function validate(
+export function validatePayPerUseInput(
   raw: string,
   unit: AmountUnit,
   maxStroops: bigint
@@ -126,7 +126,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     }, [amount, lastValue]);
 
     useEffect(() => {
-      const { stroops, error: err } = validate(
+      const { stroops, error: err } = validatePayPerUseInput(
         debouncedValue,
         unit,
         CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT
@@ -136,7 +136,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     }, [debouncedValue, unit]);
 
     function handleBlur() {
-      const { stroops, error: err } = validate(
+      const { stroops, error: err } = validatePayPerUseInput(
         amount,
         unit,
         CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT

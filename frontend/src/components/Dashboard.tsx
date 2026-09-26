@@ -29,6 +29,8 @@ import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
 import EventFeed from "./EventFeed";
 import SubscriptionExport from "./SubscriptionExport";
+import LastUpdated from "./LastUpdated";
+import { getCacheUpdatedAt } from "../services/rpcCache";
 import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
 import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
@@ -173,6 +175,16 @@ export default function Dashboard({
 
   return (
     <div className={`dashboard${isMobile ? " dashboard--mobile" : ""}`}>
+      <div className="flex-between mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Subscriber Dashboard</h2>
+        </div>
+        <LastUpdated 
+          timestamp={getCacheUpdatedAt(`getSubscription:${userKey}`)} 
+          onRefresh={refresh} 
+        />
+      </div>
+
       {rpcStatus === "degraded" && (
         <div className="network-warning network-warning--degraded" role="alert">
           <span>⚠️</span>

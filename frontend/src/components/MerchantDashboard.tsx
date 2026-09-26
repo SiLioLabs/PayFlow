@@ -12,6 +12,7 @@ import {
 import { formatAddress } from "../utils/format";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { usePolling } from "../hooks/usePolling";
+import { getCacheUpdatedAt } from "../services/rpcCache";
 import { useTransaction } from "../hooks/useTransaction";
 import { useVirtualList } from "../hooks/useVirtualList";
 import { useResponsive } from "../hooks/useResponsive";
@@ -22,6 +23,7 @@ import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
 import ConfirmModal from "./ConfirmModal";
+import LastUpdated from "./LastUpdated";
 
 const SUBSCRIBER_ROW_HEIGHT = 72;
 const SUBSCRIBER_LIST_HEIGHT = 400;
@@ -162,11 +164,10 @@ export default function MerchantDashboard({
           <h2 className="text-xl font-bold">Merchant Dashboard</h2>
           <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary" onClick={refresh}>
-            Refresh
-          </button>
-        </div>
+        <LastUpdated 
+          timestamp={getCacheUpdatedAt(`getMerchantSubscribers:${merchantKey}`)} 
+          onRefresh={refresh} 
+        />
       </div>
 
       <div

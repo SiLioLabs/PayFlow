@@ -71,6 +71,29 @@ export function useStellarBalance(
     };
   });
 
+  const [prevCacheKey, setPrevCacheKey] = useState(cacheKey);
+  if (cacheKey !== prevCacheKey) {
+    setPrevCacheKey(cacheKey);
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      lastKnownBalance.current = cached.balance;
+      const isStale = Date.now() - cached.timestamp > staleAfterMs;
+      setState({
+        balance: cached.balance,
+        loading: isStale,
+        stale: isStale,
+        error: null,
+      });
+    } else {
+      setState({
+        balance: "0",
+        loading: true,
+        stale: false,
+        error: null,
+      });
+    }
+  }
+
   useEffect(() => {
     if (!address) return;
 
