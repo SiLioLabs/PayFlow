@@ -43,7 +43,7 @@ function ViolationList({ items, prefix }: { items: string[]; prefix: string }) {
 
 export default function SubscriptionRepairPanel({ adminKey, onSign, gatePassed = true }: Props) {
   const { isAdmin, adminAddress, loading: adminLoading, error: adminError } = useAdmin(adminKey);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const repairTx = useTransaction();
 
   const [userAddress, setUserAddress] = useState("");
@@ -124,7 +124,12 @@ export default function SubscriptionRepairPanel({ adminKey, onSign, gatePassed =
 
   return (
     <section className="subscription-repair-panel" aria-labelledby="subscription-repair-heading">
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
 
       <header className="mb-4">
         <h3 id="subscription-repair-heading" className="text-lg font-semibold">

@@ -78,7 +78,7 @@ export default function SubscriptionRepairPanel({
   const archived = isArchivedProp ?? archivedFromError;
 
   const tx = useTransaction();
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
 
   const [estimatedFee, setEstimatedFee] = useState<bigint | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
@@ -139,7 +139,12 @@ export default function SubscriptionRepairPanel({
       aria-labelledby="ttl-repair-heading"
       aria-live="polite"
     >
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
 
       {/* ── Header ── */}
       <div className="subscription-repair-panel__icon" aria-hidden="true">

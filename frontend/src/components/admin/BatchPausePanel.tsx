@@ -29,7 +29,7 @@ interface Props {
  * multiple transactions (the contract limit is MAX_BATCH_PAUSE_SUBSCRIPTIONS = 25).
  */
 export default function BatchPausePanel({ adminKey, onSign, isAdmin }: Props) {
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const tx = useTransaction();
 
   const [rawInput, setRawInput] = useState("");
@@ -75,7 +75,12 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin }: Props) {
       aria-labelledby="batch-pause-heading"
       style={{ opacity: isAdmin ? 1 : 0.5 }}
     >
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
 
       <header className="mb-3">
         <h4 id="batch-pause-heading" className="text-base font-semibold">

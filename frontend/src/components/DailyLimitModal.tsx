@@ -19,7 +19,7 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
   const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const { displayCurrentAmount } = useAmountDisplay();
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -103,7 +103,12 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
           </button>
         </div>
 
-        <ToastContainer toasts={toasts} onRemove={removeToast} />
+        <ToastContainer
+          toasts={toasts}
+          onRemove={removeToast}
+          onPause={pauseToast}
+          onResume={resumeToast}
+        />
       </div>
     </div>
   );
