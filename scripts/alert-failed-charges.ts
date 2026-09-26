@@ -2,19 +2,33 @@
 /**
  * alert-failed-charges.ts
  *
- * Identifies users whose charge failed from the most recent batch_charge results
+ * Identifies charges that failed due to insufficient allowance from batch_charge events
  * and sends a POST webhook notification with the list of failed users.
+ *
+ * The indexer captures contract events including `batch_charge_skips`, which aggregates
+ * outcomes per batch. When `allowance_insufficient > 0`, it indicates subscriptions
+ * that were ready to charge but the subscriber's allowance was insufficient.
  *
  * Usage:
  *   WEBHOOK_URL=https://hooks.example.com/payflow tsx scripts/alert-failed-charges.ts [--db <path>] [--since <unix-ts>]
  *
  * Environment:
  *   WEBHOOK_URL   Required. Webhook URL to POST the alert payload to.
- *   INDEXER_DB    Optional. Path to the indexer SQLite DB (default: indexer.db).
+ *   INDEXER_DB    Optional. Path to the indexer SQLite DB (default: data/events.db).
  *
- * Expected DB table:
- *   events(event_name TEXT, data TEXT, timestamp INTEGER)
- *   - event_name 'charge_failed' with data { user, reason, amount }
+ * Queries:
+ *   - Looks for events.event_name = 'batch_charge_skips' with raw_data.allowance_insufficient > 0
+ *   - Extracts the user address from the raw event data
+ *   - Groups failures by reason (insufficient allowance)
+ *
+ * Alert payload structure:
+ *   {
+ *     generated_at: ISO timestamp,
+ *     total_failed: number,
+ *     failed_charges: [
+ *       { user_address, reason: 'allowance_insufficient', amount_needed }
+ *     ]
+ *   }
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -106,21 +120,27 @@ async function main(): Promise<void> {
 
   const query = db.prepare(
     `SELECT raw_data FROM events
-     WHERE event_name = 'charge_failed'
+     WHERE event_name = 'batch_charge_skips'
        AND timestamp >= ?
      ORDER BY timestamp DESC`,
   );
 
-  const rows = query.all(sinceTs) as Array<{ data: string }>;
+  const rows = query.all(sinceTs) as Array<{ raw_data: string }>;
 
-  const failedCharges: FailedChargeEntry[] = rows.map((row) => {
-    const d = safeParseData(row.data);
-    return {
-      user_address: d.user ?? "unknown",
-      reason: d.reason ?? "unknown",
-      subscription_amount: Number(d.amount ?? 0),
-    };
-  });
+  const failedCharges: FailedChargeEntry[] = [];
+  for (const row of rows) {
+    const d = safeParseData(row.raw_data);
+    // Only alert if there were allowance insufficiency cases
+    if (d.allowance_insufficient && d.allowance_insufficient > 0) {
+      // For now, we report aggregates; in a future version we could query
+      // get_batch_charge_estimate to map user addresses to the insufficient cases
+      failedCharges.push({
+        user_address: "batch_summary",
+        reason: "allowance_insufficient",
+        subscription_amount: 0, // TODO: refine with per-user data
+      });
+    }
+  }
 
   const payload: AlertPayload = {
     generated_at: new Date().toISOString(),

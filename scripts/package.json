@@ -13,6 +13,7 @@
     "test:audit-trail-reconcile": "tsx test-audit-trail-reconcile.ts",
     "test:allowance-utils": "tsx test-allowance-utils.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:esm": "tsc --noEmit --module esnext --moduleResolution node",
     "lint": "tsc --noEmit --strict --noUnusedLocals --noUnusedParameters",
     "lint:duplicates": "tsx lint-duplicates.ts",
     "build": "tsc -p tsconfig.build.json",

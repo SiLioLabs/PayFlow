@@ -43,7 +43,13 @@ import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
-import { ConfigSchema, formatConfigErrors, type KeeperConfig } from "./config";
+import {
+  ConfigSchema,
+  formatConfigErrors,
+  normalizeEnv,
+  logDeprecationWarnings,
+  type KeeperConfig,
+} from "./config.js";
 import { logger } from "./logger";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -145,16 +151,20 @@ export function loadConfig(strict = false): KeeperConfig {
     envObject[key] = value;
   }
 
+  // Normalize deprecated aliases to canonical names
+  const normalizedEnv = normalizeEnv(envObject);
+
   let result;
   if (strict) {
-    result = ConfigSchema.safeParse(envObject);
+    result = ConfigSchema.safeParse(normalizedEnv);
   } else {
     // Normal mode: parse with Zod (same as strict for required fields,
     // but we only surface required-field errors to the user).
-    result = ConfigSchema.safeParse(envObject);
+    result = ConfigSchema.safeParse(normalizedEnv);
   }
 
   if (result.success) {
+    logDeprecationWarnings();
     return result.data;
   }
 

@@ -6,7 +6,7 @@
  * validate a set of environment variables and receive structured, human-
  * readable error messages.
  *
- * ## Schema
+ * ## Canonical Environment Variables
  *
  * | Variable          | Type            | Constraints                                    |
  * |-------------------|-----------------|------------------------------------------------|
@@ -16,23 +16,83 @@
  * | BATCH_SIZE        | number (coerce) | Integer 1–200                                  |
  * | INTERVAL_SECONDS  | number (coerce) | Integer ≥ 60                                   |
  * | WEBHOOK_URL       | string?         | Optional valid http/https URL                  |
+ * | NETWORK_PASSPHRASE| string?         | Optional network passphrase (testnet default)  |
+ *
+ * ## Deprecated Aliases (with fallback + warning)
+ *
+ * - `KEEPER_SECRET` → `SECRET_KEY` (emits deprecation warning)
+ * - `NETWORK_PASSTHRASE` → `NETWORK_PASSPHRASE` (emits deprecation warning)
  *
  * ## Usage
  *
  * ```ts
- * import { ConfigSchema } from "./config";
+ * import { loadConfig } from "./config";
  *
- * const result = ConfigSchema.safeParse(process.env);
- * if (!result.success) {
- *   console.error(result.error.format());
- *   process.exit(1);
- * }
- * const config = result.data;
- * // config is fully typed with CONTRACT_ID, RPC_URL, etc.
+ * const config = loadConfig();
+ * // config.SECRET_KEY is populated from either SECRET_KEY or KEEPER_SECRET (with warning)
+ * // Warnings logged if deprecated aliases were used.
  * ```
  */
 
 import { z } from "zod";
+
+// ── Environment Variable Normalization ───────────────────────────────────────
+//
+// Handles deprecated alias names for backwards compatibility. Logs warnings
+// when old names are used.
+
+const DEPRECATION_WARNINGS: string[] = [];
+
+export function getDeprecationWarnings(): string[] {
+  return DEPRECATION_WARNINGS;
+}
+
+export function logDeprecationWarnings(): void {
+  if (DEPRECATION_WARNINGS.length > 0) {
+    console.warn("\n⚠ Deprecated environment variables detected:\n");
+    for (const warning of DEPRECATION_WARNINGS) {
+      console.warn(`  ${warning}`);
+    }
+    console.warn(
+      "\n  Please update your .env file to use the canonical names above.\n",
+    );
+  }
+}
+
+/**
+ * Normalize env object by resolving deprecated aliases.
+ * If both canonical and alias are set, canonical takes precedence.
+ * Logs a warning if alias is used.
+ */
+export function normalizeEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const normalized = { ...env };
+
+  // KEEPER_SECRET → SECRET_KEY
+  if (
+    !normalized.SECRET_KEY &&
+    env.KEEPER_SECRET
+  ) {
+    normalized.SECRET_KEY = env.KEEPER_SECRET;
+    DEPRECATION_WARNINGS.push(
+      "KEEPER_SECRET is deprecated — use SECRET_KEY instead",
+    );
+  }
+
+  // NETWORK_PASSTHRASE (typo) → NETWORK_PASSPHRASE (correct)
+  if (
+    !normalized.NETWORK_PASSPHRASE &&
+    env.NETWORK_PASSTHRASE
+  ) {
+    normalized.NETWORK_PASSPHRASE = env.NETWORK_PASSTHRASE;
+    DEPRECATION_WARNINGS.push(
+      "NETWORK_PASSTHRASE is deprecated (typo) — use NETWORK_PASSPHRASE instead",
+    );
+  }
+
+  return normalized;
+}
 
 // ── Primitive validators ─────────────────────────────────────────────────────
 

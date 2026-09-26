@@ -14,6 +14,17 @@
  *   events     — one row per event occurrence (upsert on tx_hash + op/event index)
  *   meta       — key/value store for indexer state (last_ledger, schema_version)
  *
+ * Event Topics (mapped from contract/src/events.rs)
+ * ───────────────────────────────────────────────
+ *   - batch_charge_skips: Aggregated outcomes of a single batch_charge call.
+ *     When allowance_insufficient > 0, it indicates subscriptions that failed
+ *     to charge due to insufficient subscriber allowance. This is the primary
+ *     signal for charge failures that should trigger alerts (see
+ *     scripts/alert-failed-charges.ts).
+ *   - charged: Successful charge (topic[0]='charged', topic[1]=user_address)
+ *   - subscribed, cancelled, paused, resumed: Subscription lifecycle events
+ *   - trial_extended, grace_period_*: Policy management events
+ *
  * Usage:
  *   CONTRACT_ID=<id> tsx indexer.ts
  *

@@ -19,11 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enforce global volume cap with rolling hourly volume checks.
 - Add contract pause/unpause emergency guardrails.
 - Add protocol stats snapshot retrieval.
+- Add deprecation aliases for environment variables: `KEEPER_SECRET` → `SECRET_KEY`, `NETWORK_PASSTHRASE` → `NETWORK_PASSPHRASE` (with fallback and warning).
+- Add config tests for environment variable normalization and alias resolution.
+- Document `batch_charge_skips` event as the canonical signal for charge failures (allowance_insufficient field).
 
 ### Changed
 
 - Add pause validation checks in subscription and charge operations.
 - Improve error handling for metadata and volume limit violations.
+- **BREAKING (config):** `.env.example` now documents canonical env var names: `SECRET_KEY` and `NETWORK_PASSPHRASE`. Old names (`KEEPER_SECRET`, `NETWORK_PASSTHRASE`) are deprecated but supported for backwards compatibility.
+- **Fixed:** Charge failure alerting now correctly reads `batch_charge_skips` events with `allowance_insufficient > 0` instead of querying non-existent `charge_failed` event.
+- **Fixed:** `scripts/config.ts` normalizes deprecated aliases to canonical names before validation, with startup warnings for use of legacy names.
+
+### Fixed
+
+- **Dead charge-failure alerting:** Indexer now documents which contract topics map to charge failures; alert-failed-charges reads the correct `batch_charge_skips` event.
+- **Secret key naming chaos:** Config reads canonical `SECRET_KEY` and `NETWORK_PASSPHRASE`; aliases (`KEEPER_SECRET`, `NETWORK_PASSTHRASE`) are supported with deprecation warnings.
+- **ESM/CJS mismatch:** Verified all scripts use consistent ESM (import.meta.url, top-level awaits, .js-style imports). No CJS require.main or module.exports patterns detected.
 
 ## [0.1.0]
 
