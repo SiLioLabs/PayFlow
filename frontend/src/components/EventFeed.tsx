@@ -8,7 +8,7 @@
  * Intended for embedding in the subscriber Dashboard and MerchantDashboard.
  */
 import React, { useCallback } from "react";
-import { useContractEvents } from "../hooks/useContractEvents";
+import { useContractEvents, contractEventKey } from "../hooks/useContractEvents";
 import type { ContractEvent } from "../stellar";
 import { explorerTxUrl } from "../stellar";
 
@@ -173,9 +173,13 @@ export default function EventFeed({
 
       {events.length > 0 && (
         <div className="event-feed__list" role="list" aria-label="Contract events">
-          {events.map((event, i) => (
+          {events.map((event) => (
             <EventRow
-              key={`${event.txHash || event.ledger}-${event.eventName}-${i}`}
+              // Keyed by event identity, not by list position. `events` is
+              // already de-duplicated by this key, so it is guaranteed unique,
+              // and a new event arriving no longer re-keys (and remounts) every
+              // row after it.
+              key={contractEventKey(event)}
               event={event}
             />
           ))}
