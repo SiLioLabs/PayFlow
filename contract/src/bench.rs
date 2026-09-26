@@ -378,3 +378,40 @@ fn bench_charge_vs_subscribe_ratio() {
         subscribe_cpu
     );
 }
+
+#[test]
+fn bench_get_top_merchants_by_subs_large_index() {
+    let (env, contract_id, token_addr, _, _) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        crate::whitelist::set_whitelist_enabled(&env, false);
+    });
+
+    // Seed 15 merchants with varying subscriber counts
+    for i in 0..15 {
+        let merchant = Address::generate(&env);
+        let user = add_funded_user(&env, &contract_id, &token_addr);
+        client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        if i % 2 == 0 {
+            let u2 = add_funded_user(&env, &contract_id, &token_addr);
+            client.subscribe(&u2, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+        }
+    }
+
+    env.budget().reset_unlimited();
+
+    let top = client.get_top_merchants_by_subs(&10);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_get_top_merchants_by_subs_large_index]");
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+
+    assert_eq!(top.len(), 10);
+    assert!(cpu > 0, "get_top_merchants_by_subs must consume CPU instructions");
+    assert!(mem > 0, "get_top_merchants_by_subs must consume memory");
+}

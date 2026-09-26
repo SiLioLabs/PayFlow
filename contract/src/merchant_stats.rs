@@ -146,9 +146,12 @@ pub fn get_top_merchants_by_subs(env: &Env, limit: u32) -> Vec<(Address, u32)> {
     if limit > 20 {
         env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
     }
+    if limit == 0 {
+        return Vec::new(env);
+    }
 
     let total = get_merchant_index_size(env);
-    let mut list: Vec<(Address, u32)> = Vec::new(env);
+    let mut sorted: Vec<(Address, u32)> = Vec::new(env);
 
     for i in 0..total {
         if let Some(merchant) = env
@@ -157,46 +160,34 @@ pub fn get_top_merchants_by_subs(env: &Env, limit: u32) -> Vec<(Address, u32)> {
             .get::<_, Address>(&DataKey::MerchantIndex(i))
         {
             let count = get_merchant_subscriber_count(env, &merchant) as u32;
-            list.push_back((merchant, count));
-        }
-    }
+            let item = (merchant, count);
 
-    let len = list.len();
-    let mut sorted: Vec<(Address, u32)> = Vec::new(env);
-    if len > 0 {
-        for i in 0..len {
-            let item = list.get(i).unwrap();
-            let mut inserted = false;
-            let mut new_sorted: Vec<(Address, u32)> = Vec::new(env);
             let s_len = sorted.len();
+            if s_len < limit || (s_len > 0 && count > sorted.get(s_len - 1).unwrap().1) {
+                let mut new_sorted: Vec<(Address, u32)> = Vec::new(env);
+                let mut inserted = false;
 
-            for j in 0..s_len {
-                let existing: (Address, u32) = sorted.get(j).unwrap();
-                if !inserted && item.1 > existing.1 {
-                    new_sorted.push_back(item.clone());
-                    inserted = true;
+                for j in 0..s_len {
+                    let existing: (Address, u32) = sorted.get(j).unwrap();
+                    if !inserted && count > existing.1 {
+                        new_sorted.push_back(item.clone());
+                        inserted = true;
+                    }
+                    new_sorted.push_back(existing);
                 }
-                new_sorted.push_back(existing);
+                if !inserted {
+                    new_sorted.push_back(item);
+                }
+
+                if new_sorted.len() > limit {
+                    new_sorted.pop_back();
+                }
+                sorted = new_sorted;
             }
-            if !inserted {
-                new_sorted.push_back(item);
-            }
-            sorted = new_sorted;
         }
     }
 
-    let effective_limit = if limit < sorted.len() {
-        limit
-    } else {
-        sorted.len()
-    };
-
-    let mut result = Vec::new(env);
-    for i in 0..effective_limit {
-        result.push_back(sorted.get(i).unwrap());
-    }
-
-    result
+    sorted
 }
 
 /// Increments the per-merchant subscriber count by 1.
