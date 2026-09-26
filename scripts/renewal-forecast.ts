@@ -101,7 +101,13 @@ function hasFlag(flag: string): boolean {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  if (hasFlag("--help") || hasFlag("-h")) {
+    console.log("Usage: npx tsx scripts/renewal-forecast.ts [--db <path>] [--stdin] [--json] [--out <file>] [--dry-run]");
+    process.exit(0);
+  }
+
   const stdinMode = hasFlag("--stdin");
+  const dryRunMode = hasFlag("--dry-run");
   const jsonMode = hasFlag("--json");
   const outFile = getArg("--out");
 
@@ -112,9 +118,9 @@ async function main(): Promise<void> {
     if (existsSync(defaultDb)) dbPath = defaultDb;
   }
 
-  if (!stdinMode && !dbPath) {
+  if (!stdinMode && !dbPath && !dryRunMode) {
     console.error("Error: No input specified. Use --db <path> or --stdin.");
-    console.error("Usage: npx tsx scripts/renewal-forecast.ts [--db <path>] [--stdin] [--json] [--out <file>]");
+    console.error("Usage: npx tsx scripts/renewal-forecast.ts [--db <path>] [--stdin] [--json] [--out <file>] [--dry-run]");
     process.exit(1);
   }
 
@@ -128,13 +134,29 @@ async function main(): Promise<void> {
       console.error(`Error: Failed to parse JSON from stdin: ${err}`);
       process.exit(1);
     }
-  } else {
+  } else if (dbPath && existsSync(dbPath)) {
     try {
-      snapshots = await loadSnapshotsFromDb(dbPath!);
+      snapshots = await loadSnapshotsFromDb(dbPath);
     } catch (err) {
       console.error(`Error: Failed to read subscriptions from ${dbPath}: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
     }
+  } else if (dryRunMode) {
+    const now = Math.floor(Date.now() / 1000);
+    snapshots = [
+      {
+        user: "GUSER1111111111111111111111111111111111111111111111111111111",
+        amount: 1000,
+        interval: 86400,
+        last_charged: now - 86400,
+        active: true,
+        paused: false,
+        charge_history: [now - 3 * 86400, now - 2 * 86400, now - 86400],
+      },
+    ];
+  } else {
+    console.error(`Error: Failed to read subscriptions from ${dbPath}`);
+    process.exit(1);
   }
 
   if (!Array.isArray(snapshots)) {

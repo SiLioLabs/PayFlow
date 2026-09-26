@@ -36,6 +36,7 @@ import {
   BASE_FEE,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { fileURLToPath } from "url";
 import { computeWasmHash, type GateResult } from "./deploy-pipeline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -304,6 +305,20 @@ function printCheck(gate: GateResult): void {
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(`Usage: npx tsx scripts/pre-upgrade-check.ts [options]
+
+Options:
+  --wasm <path>      Path to compiled .wasm file
+  --contract <id>    Deployed contract ID
+  --rpc-url <url>    Soroban RPC URL
+  --network <pass>   Network passphrase
+  --source <addr>    Source account (for read-only RPC queries)
+  --dry-run          Skip network calls, print config only
+  --help, -h         Show help`);
+    process.exit(0);
+  }
+
   const get = (flag: string) => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
@@ -337,9 +352,11 @@ async function main() {
   process.exit(report.passed ? 0 : 1);
 }
 
-if (require.main === module) {
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain || process.argv[1]?.includes("pre-upgrade-check")) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
   });
 }
+

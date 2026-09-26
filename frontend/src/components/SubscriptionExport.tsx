@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { getSubscriptionToken, getReferral, getReferrer, getSubscriptionHealth } from "../stellar";
 import Spinner from "./Spinner";
+import { useToast } from "../hooks/useToast";
 
 type ExportFormat = "csv" | "json";
 
@@ -98,11 +99,19 @@ export default function SubscriptionExport({
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [droppedRows, setDroppedRows] = useState<number>(0);
+
+  const { addToast } = useToast();
 
   const handleExport = useCallback(async () => {
     if (data.length === 0 || exporting) return;
 
     setExporting(true);
+    setLastError(null);
+    setDroppedRows(0);
+    let failedEnrichmentCount = 0;
+
     try {
       // Enrich each record with on-chain data
       const enrichedRecords = await Promise.all(
@@ -117,20 +126,25 @@ export default function SubscriptionExport({
           let healthSufficientAllowance: boolean | null = null;
 
           if (subscriber) {
-            const [tokenRes, referralRes, referrerRes, healthRes] = await Promise.all([
-              getSubscriptionToken(subscriber),
-              getReferral(subscriber),
-              getReferrer(subscriber),
-              getSubscriptionHealth(subscriber),
-            ]);
-            token = tokenRes;
-            referral = referralRes;
-            referrer = referrerRes;
-            if (healthRes) {
-              healthActive = healthRes.active;
-              healthPaused = healthRes.is_paused;
-              healthChargeDue = healthRes.charge_due;
-              healthSufficientAllowance = healthRes.has_sufficient_allowance;
+            try {
+              const [tokenRes, referralRes, referrerRes, healthRes] = await Promise.all([
+                getSubscriptionToken(subscriber),
+                getReferral(subscriber),
+                getReferrer(subscriber),
+                getSubscriptionHealth(subscriber),
+              ]);
+              token = tokenRes;
+              referral = referralRes;
+              referrer = referrerRes;
+              if (healthRes) {
+                healthActive = healthRes.active;
+                healthPaused = healthRes.is_paused;
+                healthChargeDue = healthRes.charge_due;
+                healthSufficientAllowance = healthRes.has_sufficient_allowance;
+              }
+            } catch (enrichErr) {
+              failedEnrichmentCount++;
+              console.error("Export enrichment failed for subscriber", subscriber, enrichErr);
             }
           }
 
@@ -162,6 +176,14 @@ export default function SubscriptionExport({
         })
       );
 
+      if (failedEnrichmentCount > 0) {
+        setDroppedRows(failedEnrichmentCount);
+        addToast(
+          `Export completed with ${failedEnrichmentCount} dropped/failed enrichment row(s)`,
+          "error"
+        );
+      }
+
       const timestamp = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       const fullFilename = `${filename}-${timestamp}.${format}`;
 
@@ -173,12 +195,15 @@ export default function SubscriptionExport({
 
       setExported(true);
       setTimeout(() => setExported(false), 2000);
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLastError(msg);
+      addToast(`Export failed: ${msg}`, "error");
       console.error("Export enrichment failed:", err);
     } finally {
       setExporting(false);
     }
-  }, [data, filename, format, exporting]);
+  }, [data, filename, format, exporting, addToast]);
 
   const isEmpty = data.length === 0;
 
@@ -240,6 +265,24 @@ export default function SubscriptionExport({
           )}
         </button>
       </div>
+
+      {(lastError || droppedRows > 0) && (
+        <div className="subscription-export__error flex items-center gap-2 mt-2" data-testid="export-error-container">
+          <span className="text-xs text-danger" data-testid="export-error-message">
+            {lastError
+              ? `Export failed: ${lastError}`
+              : `Warning: ${droppedRows} row(s) failed enrichment`}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={handleExport}
+            data-testid="export-retry-btn"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {isEmpty && (
         <p className="text-xs text-muted subscription-export__empty">

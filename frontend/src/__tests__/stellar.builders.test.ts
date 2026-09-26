@@ -61,10 +61,8 @@ beforeAll(async () => {
   stellar = await import("../stellar");
 });
 
-let callSpy: MockInstance<
-  Parameters<typeof Contract.prototype.call>,
-  ReturnType<typeof Contract.prototype.call>
->;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let callSpy: any;
 
 beforeAll(() => {
   callSpy = vi.spyOn(Contract.prototype, "call");

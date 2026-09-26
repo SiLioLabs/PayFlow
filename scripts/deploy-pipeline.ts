@@ -42,6 +42,7 @@ import {
   nativeToScVal,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { fileURLToPath } from "url";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -480,15 +481,32 @@ function printGates(gates: GateResult[]): void {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main() {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(`Usage: npx tsx scripts/deploy-pipeline.ts [options]
+
+Options:
+  --wasm <path>         Path to compiled .wasm file (required unless --dry-run)
+  --contract <id>       Deployed contract ID
+  --rpc-url <url>       Soroban RPC URL
+  --network <pass>      Network passphrase
+  --source <keypair>    Source Stellar address for simulated queries
+  --summary-out <path>  Where to write the JSON summary (default: deploy-summary.json)
+  --dry-run             Validate config and print what would happen without calling RPC
+  --help, -h            Show help`);
+    process.exit(0);
+  }
+
   const args = parseArgs(process.argv.slice(2));
   const summary = await runPipeline(args);
   process.exit(summary.passed ? 0 : 1);
 }
 
-if (require.main === module) {
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain || process.argv[1]?.includes("deploy-pipeline")) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
   });
 }
+
 
