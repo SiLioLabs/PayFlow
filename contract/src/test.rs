@@ -8695,6 +8695,21 @@ fn test_merchant_sub_count_resubscribe_different_merchant() {
 }
 
 #[test]
+fn test_get_merchant_sub_count_u64_boundary() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let large_count: u64 = (u32::MAX as u64) + 1000;
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::MerchantSubCount(merchant.clone()), &large_count);
+    });
+
+    assert_eq!(client.get_merchant_sub_count(&merchant), large_count);
+}
+
+#[test]
 fn test_merchant_sub_count_never_subscribed_returns_zero() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);

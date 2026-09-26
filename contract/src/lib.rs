@@ -1677,7 +1677,7 @@ impl FlowPay {
     }
 
     /// Returns the number of active subscribers for a given merchant (as u32).
-    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u32 {
+    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u64 {
         subscription_count::get_merchant_sub_count(&env, &merchant)
     }
 
@@ -1685,7 +1685,7 @@ impl FlowPay {
     /// Capped at 50 merchants; panics with `BatchTooLarge` above that.
     /// Returns `(addr, 0)` for merchants with no recorded count.
     /// No auth required.
-    pub fn get_merchant_sub_counts(env: Env, merchants: Vec<Address>) -> Vec<(Address, u32)> {
+    pub fn get_merchant_sub_counts(env: Env, merchants: Vec<Address>) -> Vec<(Address, u64)> {
         merchant_stats::get_merchant_sub_counts(&env, &merchants)
     }
 
