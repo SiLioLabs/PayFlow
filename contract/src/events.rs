@@ -209,6 +209,23 @@ pub fn publish_paused(env: &Env, user: &Address) {
         .publish((Symbol::new(env, "paused"), user.clone()), ());
 }
 
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseUntilEventData {
+    pub expiry_timestamp: u64,
+    pub ledger_sequence: u32,
+}
+
+pub fn publish_pause_until(env: &Env, user: &Address, expiry_timestamp: u64) {
+    env.events().publish(
+        (Symbol::new(env, "pause_until"), user.clone()),
+        PauseUntilEventData {
+            expiry_timestamp,
+            ledger_sequence: env.ledger().sequence(),
+        },
+    );
+}
+
 pub fn publish_resumed(env: &Env, user: &Address) {
     env.events()
         .publish((Symbol::new(env, "resumed"), user.clone()), ());

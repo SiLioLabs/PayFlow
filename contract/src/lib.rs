@@ -815,7 +815,7 @@ impl FlowPay {
         env.storage().persistent().set(&key, &sub);
         storage::set_pause_expiry(&env, &user, expiry);
 
-        events::publish_paused(&env, &user);
+        events::publish_pause_until(&env, &user, expiry);
     }
 
     /// Resumes `user`'s paused subscription.

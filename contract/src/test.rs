@@ -10819,6 +10819,33 @@ fn test_pause_until_auto_resume_on_batch_charge_and_clears_expiry() {
     });
 }
 
+#[test]
+fn test_pause_until_emits_distinct_event_with_expiry() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    let expiry = 90000u64;
+    client.pause_until(&user, &expiry);
+
+    let events = env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+
+    assert_eq!(topic_symbol, Symbol::new(&env, "pause_until"));
+    assert_eq!(topic_user, user);
+
+    let event_data: crate::events::PauseUntilEventData = data.try_into_val(&env).unwrap();
+    assert_eq!(event_data.expiry_timestamp, expiry);
+
+    // Also assert pause() still emits "paused"
+    client.resume(&user);
+    client.pause(&user);
+    assert_last_user_event(&env, "paused", &user);
+}
+
 // ─────────────────────────────────────────────────────────────
 // Issue #5: get_referral Read Function Tests
 // ─────────────────────────────────────────────────────────────
