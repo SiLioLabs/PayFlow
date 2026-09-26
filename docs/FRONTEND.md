@@ -119,7 +119,7 @@ For example, `App.tsx` combines hooks including:
 - useResponsive()
 - useAccessibility()
 - useFreighterAvailable()
-- useNetworkCheck()
+- useNetworkStatus()
 - useContractId()
 
 Each hook owns one responsibility.

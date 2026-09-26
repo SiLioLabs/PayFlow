@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-describe("useNetworkCheck mainnet confirmation (testnet unaffected, mainnet requires confirm)", () => {
+describe("useNetworkStatus mainnet confirmation (testnet unaffected, mainnet requires confirm)", () => {
   beforeEach(() => {
     sessionStorage.clear();
     vi.restoreAllMocks();
@@ -22,9 +22,9 @@ describe("useNetworkCheck mainnet confirmation (testnet unaffected, mainnet requ
     });
     // need to re-import after mock — use dynamic import inside test
     vi.resetModules();
-    const { useNetworkCheck: useNetworkCheckFresh } = await import("../hooks/useNetworkCheck");
+    const { useNetworkStatus: useNetworkStatusFresh } = await import("../hooks/useNetworkStatus");
     function FreshHarness() {
-      const v = useNetworkCheckFresh();
+      const v = useNetworkStatusFresh();
       return (
         <div>
           <span data-testid="isMainnet">{String(v.isMainnet)}</span>
@@ -45,9 +45,9 @@ describe("useNetworkCheck mainnet confirmation (testnet unaffected, mainnet requ
       const actual = (await vi.importActual("../stellar")) as Record<string, unknown>;
       return { ...actual, NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015" };
     });
-    const { useNetworkCheck: useNetworkCheckMainnet } = await import("../hooks/useNetworkCheck");
+    const { useNetworkStatus: useNetworkStatusMainnet } = await import("../hooks/useNetworkStatus");
     function Harness() {
-      const v = useNetworkCheckMainnet();
+      const v = useNetworkStatusMainnet();
       return (
         <div>
           <span data-testid="isMainnet">{String(v.isMainnet)}</span>
@@ -71,7 +71,7 @@ describe("useNetworkCheck mainnet confirmation (testnet unaffected, mainnet requ
     expect(sessionStorage.getItem("flowpay_mainnet_confirmed")).toBe("true");
 
     // Remount should stay confirmed (session persistence)
-    const { useNetworkCheck: secondImport } = await import("../hooks/useNetworkCheck");
+    const { useNetworkStatus: secondImport } = await import("../hooks/useNetworkStatus");
     function SecondHarness() {
       const v = secondImport();
       return <span data-testid="second-requires">{String(v.requiresMainnetConfirm)}</span>;
@@ -94,8 +94,11 @@ describe("useNetworkCheck mainnet confirmation (testnet unaffected, mainnet requ
       }),
       AVAILABLE_WALLETS: [],
     }));
-    vi.doMock("../hooks/useNetworkCheck", async () => {
-      const actual = (await vi.importActual("../hooks/useNetworkCheck")) as Record<string, unknown>;
+    vi.doMock("../hooks/useNetworkStatus", async () => {
+      const actual = (await vi.importActual("../hooks/useNetworkStatus")) as Record<
+        string,
+        unknown
+      >;
       return actual;
     });
     vi.doMock("../stellar", async () => {

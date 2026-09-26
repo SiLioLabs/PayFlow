@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import NotificationCenter from "../components/NotificationCenter";
 import type { Notification } from "../hooks/useToast";
 
-// Mock Stellar BEFORE importing App — useNetworkCheck imports NETWORK_PASSPHRASE
+// Mock Stellar BEFORE importing App — useNetworkStatus imports NETWORK_PASSPHRASE
 // from here at module load time, so the real @stellar/stellar-sdk must not load.
 vi.mock("../stellar", () => ({
   NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",

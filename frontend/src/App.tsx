@@ -5,7 +5,6 @@ import { useRpcHealthContext } from "./context/RpcHealthContext";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import RpcSettings from "./components/RpcSettings";
-import { useNetworkCheck } from "./hooks/useNetworkCheck";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { useAdmin } from "./hooks/useAdmin";
 import { useContractId } from "./hooks/useContractId";
@@ -33,10 +32,15 @@ export default function App() {
   const [showRpcSettings, setShowRpcSettings] = useState(false);
 
   const isRpcFailing = !healthy || circuitOpen;
-  const { networkMatch, walletNetwork, isMainnet, requiresMainnetConfirm, confirmMainnet } =
-    useNetworkCheck();
+  const {
+    isOnline,
+    networkMatch,
+    walletNetwork,
+    isMainnet,
+    requiresMainnetConfirm,
+    confirmMainnet,
+  } = useNetworkStatus();
   const { valid: isContractIdValid, error: contractIdError } = useContractId();
-  const isOnline = useNetworkStatus();
   const { isAdmin } = useAdmin(publicKey);
   const { isPaused } = useContractPaused();
   // Dashboard/SubscribeForm/MerchantDashboard/admin panels each keep their own
