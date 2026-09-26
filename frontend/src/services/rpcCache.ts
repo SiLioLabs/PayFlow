@@ -20,6 +20,7 @@ const MAX_CACHE_SIZE = 100;
 interface CacheEntry<T> {
   value: T;
   expiresAt: number; // Date.now() + ttlMs
+  updatedAt: number; // Date.now()
 }
 
 /**
@@ -105,7 +106,7 @@ export function dedupedCall<T>(
   const promise: Promise<T> = fn().then(
     (value) => {
       inFlight.delete(key);
-      lruSet<T>(key, { value, expiresAt: Date.now() + ttlMs });
+      lruSet<T>(key, { value, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
       return value;
     },
     (err: unknown) => {
@@ -116,6 +117,15 @@ export function dedupedCall<T>(
 
   inFlight.set(key, promise as Promise<unknown>);
   return promise;
+}
+
+/**
+ * Returns the timestamp (ms) of the last successful fetch for a given key,
+ * or null if the key is not in the cache.
+ */
+export function getCacheUpdatedAt(key: string): number | null {
+  const entry = cache.get(key);
+  return entry ? entry.updatedAt : null;
 }
 
 // ── Test helpers (not part of the public API surface) ────────────────────────

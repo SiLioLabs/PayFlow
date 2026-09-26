@@ -18,6 +18,13 @@ export default function AllowanceDisplay({
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [prevUserKey, setPrevUserKey] = useState(userKey);
+  if (userKey !== prevUserKey) {
+    setPrevUserKey(userKey);
+    setAllowance(null);
+    setLoading(true);
+  }
+
   useEffect(() => {
     setLoading(true);
     getAllowance(userKey, tokenId)

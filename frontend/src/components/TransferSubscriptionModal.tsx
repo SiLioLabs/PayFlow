@@ -3,6 +3,7 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { buildTransferSubscriptionTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useDirtyPreroute } from "../hooks/useDirtyPreroute";
 import AddressBook from "./AddressBook";
 
 interface Props {
@@ -26,7 +27,15 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
   const [error, setError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  useFocusTrap(modalRef, true, onClose);
+  const isDirty = targetAddress.trim() !== "" || checklist.some(Boolean);
+  const confirmLeave = useDirtyPreroute(isDirty && !submitting);
+
+  const handleClose = () => {
+    if (!confirmLeave()) return;
+    onClose();
+  };
+
+  useFocusTrap(modalRef, true, handleClose);
 
   const trimmedTarget = targetAddress.trim();
   const trimmedSelf = userKey.trim();
@@ -64,7 +73,7 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div
         ref={modalRef}
         className="modal-card card"
@@ -136,7 +145,7 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
         <div className="modal-actions">
           <button
             className="btn-secondary"
-            onClick={onClose}
+            onClick={handleClose}
             disabled={submitting}
             data-testid="transfer-cancel-button"
           >

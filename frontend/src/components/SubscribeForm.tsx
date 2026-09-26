@@ -16,6 +16,7 @@ import AddressBook from "./AddressBook";
 import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
 import { useToast } from "../hooks/useToast";
+import { useDirtyPreroute } from "../hooks/useDirtyPreroute";
 import StroopInput from "./StroopInput";
 
 interface Props {
@@ -103,6 +104,15 @@ export default function SubscribeForm({
     !validating &&
     !isPaused &&
     !isOffline;
+
+  const isDirty =
+    merchant.trim() !== "" ||
+    amountStroops !== null ||
+    referrer.trim() !== "" ||
+    interval !== BILLING_INTERVALS[2].value ||
+    tokenAddress !== DEFAULT_TOKEN;
+
+  useDirtyPreroute(isDirty && !pending);
 
   // Re-validate when touched fields change so errors clear as the user corrects them.
   useEffect(() => {

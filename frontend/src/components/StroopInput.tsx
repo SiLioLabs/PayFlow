@@ -14,7 +14,7 @@ interface Props {
   testId?: string;
 }
 
-function validate(
+export function validateStroopInput(
   raw: string,
   unit: AmountUnit,
   maxStroops: bigint = MAX_STROOPS
@@ -105,7 +105,7 @@ export default function StroopInput({
   }, [value, lastValue]);
 
   useEffect(() => {
-    const { stroops, error: err } = validate(debouncedValue, unit);
+    const { stroops, error: err } = validateStroopInput(debouncedValue, unit);
     setConvertedStroops(stroops);
     setError(err);
     onChange(stroops);
@@ -117,7 +117,7 @@ export default function StroopInput({
   }
 
   function handleBlur() {
-    const { stroops, error: err } = validate(value, unit);
+    const { stroops, error: err } = validateStroopInput(value, unit);
     setConvertedStroops(stroops);
     setError(err);
     onChange(stroops);
