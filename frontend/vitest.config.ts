@@ -7,6 +7,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/setupTests.ts"],
+    environmentMatchGlobs: [
+      // Conformance tests that read the filesystem run in Node, not jsdom.
+      ["src/utils/*.test.ts", "node"],
+    ],
     poolOptions: {
       threads: {
         maxThreads: process.env.CI ? 2 : undefined,

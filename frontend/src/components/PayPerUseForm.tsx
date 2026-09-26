@@ -4,7 +4,7 @@ import Spinner from "./Spinner";
 import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
 import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
-import { type AmountUnit } from "../utils/format";
+import { type AmountUnit, stroopsToXlm } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
 import { validateStroopAmount } from "../hooks/useFormValidation";
 
@@ -50,7 +50,7 @@ function validate(
       stroops: null,
       error:
         unit === "XLM"
-          ? `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM`
+          ? `Must be at least ${stroopsToXlm(MIN_STROOPS)} XLM`
           : `Must be at least ${MIN_STROOPS} STROOP`,
     };
   }
@@ -59,7 +59,7 @@ function validate(
       stroops: null,
       error:
         unit === "XLM"
-          ? `Must be at most ${Number(maxStroops) / STROOPS_PER_XLM} XLM`
+          ? `Must be at most ${stroopsToXlm(maxStroops)} XLM`
           : `Must be at most ${maxStroops} STROOP`,
     };
   }
@@ -112,7 +112,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     useEffect(() => {
       if (convertedStroops !== null) {
         if (unit === "XLM") {
-          setAmount((Number(convertedStroops) / STROOPS_PER_XLM).toString());
+          setAmount(stroopsToXlm(convertedStroops));
         } else {
           setAmount(convertedStroops.toString());
         }
@@ -149,8 +149,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       if (unit === "XLM") {
         return `${stroops.toLocaleString("en-US")} STROOP`;
       } else {
-        const xlm = Number(stroops) / STROOPS_PER_XLM;
-        return `${xlm.toFixed(7)} XLM`;
+        return `${stroopsToXlm(stroops)} XLM`;
       }
     };
 

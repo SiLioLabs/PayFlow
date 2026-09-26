@@ -20,6 +20,7 @@ import { useTransaction } from "../hooks/useTransaction";
 import { useToast } from "../hooks/useToast";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM } from "../constants";
+import { stroopsToXlm } from "../utils/format";
 import Spinner from "./Spinner";
 import ConfirmModal from "./ConfirmModal";
 import ToastContainer from "./Toast";
@@ -58,8 +59,6 @@ const FALLBACK_RESTORE_FEE_STROOPS = 500_000n; // ~0.05 XLM — conservative est
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function stroopsToXlm(stroops: bigint): string {
-  return (Number(stroops) / STROOPS_PER_XLM).toFixed(7).replace(/\.?0+$/, "");
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
