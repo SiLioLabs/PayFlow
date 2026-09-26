@@ -1677,7 +1677,7 @@ impl FlowPay {
     }
 
     /// Returns the number of active subscribers for a given merchant (as u32).
-    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u32 {
+    pub fn get_merchant_sub_count(env: Env, merchant: Address) -> u64 {
         subscription_count::get_merchant_sub_count(&env, &merchant)
     }
 
@@ -1685,7 +1685,7 @@ impl FlowPay {
     /// Capped at 50 merchants; panics with `BatchTooLarge` above that.
     /// Returns `(addr, 0)` for merchants with no recorded count.
     /// No auth required.
-    pub fn get_merchant_sub_counts(env: Env, merchants: Vec<Address>) -> Vec<(Address, u32)> {
+    pub fn get_merchant_sub_counts(env: Env, merchants: Vec<Address>) -> Vec<(Address, u64)> {
         merchant_stats::get_merchant_sub_counts(&env, &merchants)
     }
 
@@ -2453,41 +2453,3 @@ fn ensure_contract_not_paused(env: &Env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
-
-
-fn check_and_update_global_volume(env: &Env, amount: i128) {
-    let now = env.ledger().timestamp();
-    let key = DataKey::GlobalVolumeWindow;
-
-    let mut window: GlobalVolumeWindow = env
-        .storage()
-        .instance()
-        .get(&key)
-        .unwrap_or(GlobalVolumeWindow {
-            current_window_start: now,
-            accumulated_volume: 0,
-        });
-
-    // Reset window if hour boundary crossed
-    if now >= window.current_window_start + HOUR_IN_SECONDS {
-        window.current_window_start = now;
-        window.accumulated_volume = 0;
-    }
-
-    // Check if adding this amount would exceed the cap
-    let new_volume = window
-        .accumulated_volume
-        .checked_add(amount)
-        .unwrap_or_else(|| env.panic_with_error(ContractError::GlobalVolumeExceeded));
-
-    if new_volume > GLOBAL_MAX_VOLUME_PER_HOUR {
-        env.panic_with_error(ContractError::GlobalVolumeExceeded);
-    }
-
-    // Update and persist the new volume
-    window.accumulated_volume = new_volume;
-    env.storage()
-        .instance()
-        .set(&key, &window);
-}
-

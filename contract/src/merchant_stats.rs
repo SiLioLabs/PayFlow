@@ -261,7 +261,7 @@ const MAX_MERCHANT_SUB_COUNT_BATCH: u32 = 50;
 /// Returns active subscriber counts for multiple merchants in a single call.
 /// Capped at 50 merchants; panics with `BatchTooLarge` above that.
 /// Returns `(addr, 0)` for merchants with no recorded count.
-pub fn get_merchant_sub_counts(env: &Env, merchants: &Vec<Address>) -> Vec<(Address, u32)> {
+pub fn get_merchant_sub_counts(env: &Env, merchants: &Vec<Address>) -> Vec<(Address, u64)> {
     if merchants.len() > MAX_MERCHANT_SUB_COUNT_BATCH {
         env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
     }
