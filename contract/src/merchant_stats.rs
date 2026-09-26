@@ -10,9 +10,36 @@ pub fn get_merchant_revenue(env: &Env, merchant: &Address) -> i128 {
         .unwrap_or(0i128)
 }
 
+/// Returns the number of merchants with pending (unwithdrawn) revenue > 0.
+pub fn get_pending_merchant_rev_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingMerchantRevCount)
+        .unwrap_or(0u32)
+}
+
+fn increment_pending_merchant_rev_count(env: &Env) {
+    let count = get_pending_merchant_rev_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingMerchantRevCount, &(count + 1));
+}
+
+fn decrement_pending_merchant_rev_count(env: &Env) {
+    let count = get_pending_merchant_rev_count(env);
+    if count > 0 {
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingMerchantRevCount, &(count - 1));
+    }
+}
+
 /// Adds `amount` to the merchant's running revenue total.
 pub fn increment_revenue(env: &Env, merchant: &Address, amount: i128) {
     let current = get_merchant_revenue(env, merchant);
+    if current == 0 && amount > 0 {
+        increment_pending_merchant_rev_count(env);
+    }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &(current + amount));
     env.storage()
@@ -224,6 +251,10 @@ pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
 
 /// Resets a merchant's cumulative revenue counter to zero.
 pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
+    let current = get_merchant_revenue(env, merchant);
+    if current > 0 {
+        decrement_pending_merchant_rev_count(env);
+    }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &0i128);
     env.storage()

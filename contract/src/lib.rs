@@ -126,6 +126,8 @@ pub enum DataKey {
     MaxFeeBps,
     // Feature: configurable whitelist batch size limit override
     MaxWhitelistBatchSize,
+    // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
+    PendingMerchantRevCount,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1959,15 +1961,7 @@ impl FlowPay {
         };
         let global_volume_utilization_pct = if pct > 100 { 100 } else { pct };
 
-        let total_merchants = merchant_stats::get_merchant_index_size(&env);
-        let mut pending_merchant_rev_count = 0;
-        for i in 0..total_merchants {
-            if let Some(merchant) = env.storage().persistent().get(&DataKey::MerchantIndex(i)) {
-                if merchant_stats::get_merchant_revenue(&env, &merchant) > 0 {
-                    pending_merchant_rev_count += 1;
-                }
-            }
-        }
+        let pending_merchant_rev_count = merchant_stats::get_pending_merchant_rev_count(&env);
 
         // Healthy when not paused, fully configured, and at least 1 day of TTL remaining (17_280 ledgers at ~5 s/ledger)
         let is_healthy = !contract_paused
@@ -2453,41 +2447,3 @@ fn ensure_contract_not_paused(env: &Env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
-
-
-fn check_and_update_global_volume(env: &Env, amount: i128) {
-    let now = env.ledger().timestamp();
-    let key = DataKey::GlobalVolumeWindow;
-
-    let mut window: GlobalVolumeWindow = env
-        .storage()
-        .instance()
-        .get(&key)
-        .unwrap_or(GlobalVolumeWindow {
-            current_window_start: now,
-            accumulated_volume: 0,
-        });
-
-    // Reset window if hour boundary crossed
-    if now >= window.current_window_start + HOUR_IN_SECONDS {
-        window.current_window_start = now;
-        window.accumulated_volume = 0;
-    }
-
-    // Check if adding this amount would exceed the cap
-    let new_volume = window
-        .accumulated_volume
-        .checked_add(amount)
-        .unwrap_or_else(|| env.panic_with_error(ContractError::GlobalVolumeExceeded));
-
-    if new_volume > GLOBAL_MAX_VOLUME_PER_HOUR {
-        env.panic_with_error(ContractError::GlobalVolumeExceeded);
-    }
-
-    // Update and persist the new volume
-    window.accumulated_volume = new_volume;
-    env.storage()
-        .instance()
-        .set(&key, &window);
-}
-
