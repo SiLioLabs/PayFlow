@@ -67,6 +67,28 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### pause_until
+
+- **Trigger**: `pause_until()` (bounded pause with auto-resume expiry)
+- **Topic keys**: `["pause_until", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    expiry_timestamp: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["pause_until", "GABC...XYZ"],
+    "data": {
+      "expiry_timestamp": 1720000000,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### resumed
 
 - **Trigger**: `resume()`
