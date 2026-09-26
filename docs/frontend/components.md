@@ -89,7 +89,7 @@ There is **no** knip / unimported / ts-prune / CI dead-code job in this reposito
 | StroopInput | `components/StroopInput.tsx` | Amount field (XLM/stroops) | Shared | Canonical where used; has **its own** amount parse rules |
 | SubscribeForm | `components/SubscribeForm.tsx` | Create subscription | Subscriber | Canonical (`App`) |
 | SubscriptionCard | `components/SubscriptionCard.tsx` | Active sub card | Subscriber | Canonical (`Dashboard`) |
-| SubscriptionExport | `components/SubscriptionExport.tsx` | CSV export | Shared | Canonical |
+| SubscriptionExport | `components/SubscriptionExport.tsx` | CSV/JSON export; formula-like CSV text is apostrophe-prefixed for spreadsheet safety | Shared | Canonical |
 | SubscriptionHealthWidget | `components/SubscriptionHealthWidget.tsx` | Health badge | Subscriber | Canonical (`SubscriptionCard`) |
 | SubscriptionHistory | `components/SubscriptionHistory.tsx` | Charge history | Subscriber | Canonical (lazy from `Dashboard`) |
 | **SubscriptionRepairPanel** | `components/SubscriptionRepairPanel.tsx` | TTL restore UI | Subscriber | **Orphan (duplicate)** — see above |

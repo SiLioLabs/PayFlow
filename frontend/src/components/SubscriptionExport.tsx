@@ -33,15 +33,28 @@ export const EXPORT_HEADERS = [
 
 // ── Serialisation helpers ─────────────────────────────────────────────────────
 
-/** Escape a CSV cell: wrap in quotes when it contains a comma, quote, or newline. */
+const SPREADSHEET_FORMULA_PREFIX = /^\s*[=+\-@]/;
+const NUMERIC_LITERAL = /^\s*[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/;
+
+/** Prefix formula-like text with an apostrophe, then apply standard CSV quoting. */
 function csvEscape(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
+  const safeValue =
+    SPREADSHEET_FORMULA_PREFIX.test(value) && !NUMERIC_LITERAL.test(value)
+      ? `'${value}`
+      : value;
+
+  if (
+    safeValue.includes(",") ||
+    safeValue.includes('"') ||
+    safeValue.includes("\r") ||
+    safeValue.includes("\n")
+  ) {
+    return `"${safeValue.replace(/"/g, '""')}"`;
   }
-  return value;
+  return safeValue;
 }
 
-function toCSV(records: Record<string, unknown>[]): string {
+export function toCSV(records: Record<string, unknown>[]): string {
   if (records.length === 0) return "";
 
   const rows = records.map((row) =>
