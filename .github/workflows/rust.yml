@@ -31,6 +31,53 @@ jobs:
         run: cargo test --verbose
         working-directory: contract
 
+  # ── Snapshot freshness gate ──────────────────────────────────────────────
+  # Verifies that no orphaned snapshot files remain in test_snapshots/ after
+  # a full test run.  The Soroban testutils framework writes/updates snapshots
+  # in-place when tests execute; any file that stays behind with no owning
+  # test — or any new snapshot that was never committed — produces a dirty
+  # working tree.
+  #
+  # How it works:
+  #   1. `cargo test` runs all tests; Soroban testutils regenerates snapshots
+  #      for every active test function and validates their contents.
+  #   2. `git diff --exit-code` fails if any tracked snapshot was modified
+  #      (content drift — the stored snapshot no longer matches the test).
+  #   3. `git ls-files --others --exclude-standard` fails if any untracked
+  #      snapshot file exists (new tests that have never had their snapshot
+  #      committed, or orphan files left from deleted/renamed tests).
+  #
+  # To fix a failure: delete the orphaned file, or run `cargo test` locally
+  # and commit the freshly generated snapshot.
+  snapshot-check:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Regenerate snapshots via cargo test
+        run: cargo test --verbose
+        working-directory: contract
+      - name: Fail if any snapshot was modified (content drift)
+        run: |
+          if ! git diff --exit-code contract/test_snapshots/; then
+            echo "::error::Snapshot content drift detected — run 'cargo test' locally and commit the updated files."
+            exit 1
+          fi
+        working-directory: contract
+      - name: Fail if any snapshot is untracked (orphan or uncommitted new file)
+        run: |
+          UNTRACKED=$(git ls-files --others --exclude-standard contract/test_snapshots/)
+          if [ -n "$UNTRACKED" ]; then
+            echo "::error::Untracked snapshot files found (orphaned or never committed):"
+            echo "$UNTRACKED"
+            echo "Delete orphaned files or commit newly generated snapshots."
+            exit 1
+          fi
+        working-directory: contract
+
   # ── Instruction-budget gate ──────────────────────────────────────────────
   # Runs the bench_* tests in src/bench.rs in isolation so that instruction-
   # count output is always visible in the log and budget violations surface as
