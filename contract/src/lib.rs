@@ -126,6 +126,8 @@ pub enum DataKey {
     MaxFeeBps,
     // Feature: configurable whitelist batch size limit override
     MaxWhitelistBatchSize,
+    // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
+    PendingMerchantRevCount,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1959,15 +1961,7 @@ impl FlowPay {
         };
         let global_volume_utilization_pct = if pct > 100 { 100 } else { pct };
 
-        let total_merchants = merchant_stats::get_merchant_index_size(&env);
-        let mut pending_merchant_rev_count = 0;
-        for i in 0..total_merchants {
-            if let Some(merchant) = env.storage().persistent().get(&DataKey::MerchantIndex(i)) {
-                if merchant_stats::get_merchant_revenue(&env, &merchant) > 0 {
-                    pending_merchant_rev_count += 1;
-                }
-            }
-        }
+        let pending_merchant_rev_count = merchant_stats::get_pending_merchant_rev_count(&env);
 
         // Healthy when not paused, fully configured, and at least 1 day of TTL remaining (17_280 ledgers at ~5 s/ledger)
         let is_healthy = !contract_paused

@@ -1370,6 +1370,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "PendingMerchantRevCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "WhitelistEnabled"
                             }
                           ]

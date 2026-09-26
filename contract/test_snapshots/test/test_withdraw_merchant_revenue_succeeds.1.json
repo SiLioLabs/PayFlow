@@ -1100,6 +1100,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "PendingMerchantRevCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Token"
                             }
                           ]
