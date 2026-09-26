@@ -322,7 +322,7 @@ If this returns a value (true or false), the contract is deployed on testnet.
 
 ### Prevention
 
-- Hard-code network passphrase validation in the frontend (`useNetworkCheck` hook).
+- Hard-code network passphrase validation in the frontend (`useNetworkStatus` hook).
 - Display the active network badge (`NetworkBadge` component) prominently.
 
 ---

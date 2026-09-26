@@ -26,9 +26,16 @@ interface UseFormValidationResult {
   errors: FormErrors;
   validate: (fields: FormFields) => boolean;
   isValid: boolean;
+  /** True while the async server check (`server.getAccount`) is in flight. */
+  isValidating: boolean;
+  /** @deprecated Alias of `isValidating`. */
   validating: boolean;
   validateAsync: (fields: FormFields) => Promise<boolean>;
+  /** Aborts any in-flight async check and clears `isValidating`. */
+  cancelValidation: () => void;
 }
+
+const ACCOUNT_NOT_FOUND_ERROR = "Account not found on network.";
 
 /**
  * validateStroopAmount - Validates a subscription amount entered as a decimal string.
@@ -116,21 +123,24 @@ export function validateAddress(addr: string): ValidationResult {
  * @returns {FormErrors} returns.errors - Field-level error messages
  * @returns {(fields: FormFields) => boolean} returns.validate - Synchronously validate and populate `errors`
  * @returns {boolean} returns.isValid - True when there are no validation errors
- * @returns {boolean} returns.validating - True while `validateAsync` is in-flight
- * @returns {(fields: FormFields) => Promise<boolean>} returns.validateAsync - Async validation including RPC check
+ * @returns {boolean} returns.isValidating - True while the `validateAsync` server check is in flight
+ * @returns {boolean} returns.validating - Deprecated alias of `isValidating`
+ * @returns {(fields: FormFields) => Promise<boolean>} returns.validateAsync - Async validation including RPC check;
+ *   resolves `false` if superseded by a newer call, cancelled, or the component unmounts
+ * @returns {() => void} returns.cancelValidation - Abort a stale in-flight check (e.g. when field values change)
  *
  * @example
- * const { errors, validate, isValid, validateAsync, validating } = useFormValidation();
+ * const { validateAsync, isValidating } = useFormValidation();
  *
  * async function onSubmit() {
- *   if (!validate(fields)) return;
- *   await validateAsync(fields);
- *   if (isValid) submit();
+ *   if (isValidating) return;
+ *   if (!(await validateAsync(fields))) return;
+ *   submit();
  * }
  */
 export function useFormValidation(): UseFormValidationResult {
   const [errors, setErrors] = useState<FormErrors>({});
-  const [validating, setValidating] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const validate = useCallback((fields: FormFields): boolean => {
@@ -163,21 +173,32 @@ export function useFormValidation(): UseFormValidationResult {
     return Object.keys(next).length === 0;
   }, []);
 
+  const cancelValidation = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsValidating(false);
+  }, []);
+
   const validateAsync = useCallback(
     async (fields: FormFields): Promise<boolean> => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+
+      if (!validate(fields)) {
+        setIsValidating(false);
+        return false;
       }
 
-      const syncPassed = validate(fields);
-      if (!syncPassed) {
-        return false;
+      // Contract IDs (C…) have no classic account entry, so there is nothing to look up.
+      if (!StrKey.isValidEd25519PublicKey(fields.merchant)) {
+        setIsValidating(false);
+        return true;
       }
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      setIsValidating(true);
 
-      setValidating(true);
       try {
         await server.getAccount(fields.merchant);
 
@@ -187,7 +208,7 @@ export function useFormValidation(): UseFormValidationResult {
 
         // Clear merchant error if we previously set it.
         setErrors((prev: FormErrors) => {
-          if (prev.merchant === "Account not found on network.") {
+          if (prev.merchant === ACCOUNT_NOT_FOUND_ERROR) {
             const rest = { ...prev };
             delete rest.merchant;
             return rest;
@@ -203,13 +224,16 @@ export function useFormValidation(): UseFormValidationResult {
 
         setErrors((prev: FormErrors) => ({
           ...prev,
-          merchant: "Account not found on network.",
+          merchant: ACCOUNT_NOT_FOUND_ERROR,
         }));
 
         return false;
       } finally {
-        if (!controller.signal.aborted) {
-          setValidating(false);
+        // Only the latest, non-aborted check may settle the flag; a superseding call or
+        // cancelValidation() owns it otherwise, and nothing may be set after unmount.
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+          setIsValidating(false);
         }
       }
     },
@@ -218,9 +242,8 @@ export function useFormValidation(): UseFormValidationResult {
 
   useEffect(() => {
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
     };
   }, []);
 
@@ -228,7 +251,9 @@ export function useFormValidation(): UseFormValidationResult {
     errors,
     validate,
     isValid: Object.keys(errors).length === 0,
-    validating,
+    isValidating,
+    validating: isValidating,
     validateAsync,
+    cancelValidation,
   };
 }

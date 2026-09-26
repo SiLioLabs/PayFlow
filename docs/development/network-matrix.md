@@ -40,7 +40,7 @@ All three packages must agree on:
 
 ## Freighter Network Matching
 
-The frontend's `useNetworkCheck` hook (in `frontend/src/hooks/useNetworkCheck.ts`) compares the Freighter wallet's `networkPassphrase` against the app's `NETWORK_PASSPHRASE`. If they differ, the UI displays a warning.
+The frontend's `useNetworkStatus` hook (in `frontend/src/hooks/useNetworkStatus.ts`) compares the Freighter wallet's `networkPassphrase` against the app's `NETWORK_PASSPHRASE`. If they differ, the UI displays a warning.
 
 **To avoid warnings:** Ensure Freighter is set to the same network as `VITE_NETWORK_PASSPHRASE`:
 
@@ -95,7 +95,7 @@ Contract tests are fully offline and deterministic — no RPC, passphrase, or co
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Frontend targets testnet, scripts target mainnet (or vice versa) | Transaction simulation succeeds but submission fails with `NOT_FOUND` or `PASSPHRASE_MISMATCH` | Set `VITE_NETWORK_PASSPHRASE` and `NETWORK_PASSPHRASE` to the same value |
 | Contract ID differs between frontend and scripts                 | Frontend shows no subscriptions; keeper charges nothing                                        | Set `VITE_CONTRACT_ID` and `CONTRACT_ID` to the same value               |
-| Freighter wallet set to wrong network                            | `useNetworkCheck` shows a network mismatch warning                                             | Switch Freighter to match `VITE_NETWORK_PASSPHRASE`                      |
+| Freighter wallet set to wrong network                            | `useNetworkStatus` shows a network mismatch warning                                            | Switch Freighter to match `VITE_NETWORK_PASSPHRASE`                      |
 | RPC URL is unreachable or wrong network                          | `useRpcHealth` reports unhealthy; scripts fail to connect                                      | Verify the RPC URL returns a valid Soroban response: `curl <RPC_URL>`    |
 
 ---
