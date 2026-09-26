@@ -1,6 +1,8 @@
 export const STROOPS_PER_XLM = 10_000_000;
 export const MIN_STROOPS = 1n;
-export const MAX_STROOPS = 9_000_000_000_000_0000n;
+// Generic UI ceiling: 9e15 stays within Number.MAX_SAFE_INTEGER for XLM conversion.
+// Contract actions also enforce the lower caps below, mirrored from contract/src/lib.rs.
+export const MAX_STROOPS = 9_000_000_000_000_000n;
 
 export const BILLING_INTERVALS = [
   { label: "Daily", value: 86_400 },
