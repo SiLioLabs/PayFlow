@@ -372,7 +372,7 @@ function renderTable(rows: MerchantRow[], compareDays: number | null): string {
   const body = rows
     .map((r) =>
       cols
-        .map((c) => String((r as Record<string, unknown>)[c.key] ?? "").padEnd(c.width))
+        .map((c) => String((r as unknown as Record<string, unknown>)[c.key] ?? "").padEnd(c.width))
         .join(" | ")
     )
     .join("\n");

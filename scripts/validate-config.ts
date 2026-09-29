@@ -92,6 +92,14 @@ function loadEnv(projectRoot: string): Map<string, string> {
 
 // ── Validation Helpers ───────────────────────────────────────────────────────
 
+type Validator = (value: string) => { valid: boolean; reason?: string };
+
+interface ValidationResult {
+  variable: string;
+  passed: boolean;
+  reason?: string;
+}
+
 /**
  * Validate that a value is a Stellar contract ID.
  * Contract IDs begin with 'C' and are exactly 56 characters (base32-encoded).

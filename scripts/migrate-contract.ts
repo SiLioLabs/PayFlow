@@ -12,12 +12,6 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-
-const RPC_URL =
-  process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-  process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
-import { Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
 import { logger } from "./logger";
 
 const RPC_URL = process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";

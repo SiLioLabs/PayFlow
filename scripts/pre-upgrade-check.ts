@@ -68,10 +68,6 @@ interface UpgradeConfig {
 
 // ── Config / CLI ─────────────────────────────────────────────────────────────
 
-const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
-const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET;
-
 // Dummy source account used solely for simulation (no auth needed)
 const CONTRACT_ID = process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const RPC_URL =
@@ -113,10 +109,6 @@ Environment:
 
 const server = new Server(RPC_URL);
 
-async function simulateReadOnly(
-  method: string,
-  ...args: xdr.ScVal[]
-): Promise<xdr.ScVal> {
 async function simulate(
   method: string,
   args: xdr.ScVal[] = [],

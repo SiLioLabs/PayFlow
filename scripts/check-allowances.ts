@@ -258,7 +258,7 @@ function printHumanReadable(results: AuditResult[]): void {
     for (const r of noSub) {
       logger.info(`  ${r.address}`);
     }
-    logger.info();
+    logger.info("");
   }
 
   if (atRisk.length > 0) {
@@ -279,7 +279,7 @@ function printHumanReadable(results: AuditResult[]): void {
         r.token.padStart(56);
       logger.info(`  ${line}`);
     }
-    logger.info();
+    logger.info("");
   }
 
   if (healthy.length > 0) {
@@ -289,7 +289,7 @@ function printHumanReadable(results: AuditResult[]): void {
         `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscriptionAmount).padStart(10)} ${stroopsToXlm(r.allowance).padStart(10)}`
       );
     }
-    logger.info();
+    logger.info("");
   }
 
   logger.info(

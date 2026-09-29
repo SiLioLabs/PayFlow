@@ -19,24 +19,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { writeFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { Keypair } from "@stellar/stellar-sdk";
 import { MultiEndpointServer } from "./rpc-client.js";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
-import { join } from "node:path";
 import { Keypair, Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
 import { logger } from "./logger";
 
 // ── Configuration ────────────────────────────────────────────────────────────
-
-const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
-const FRIENDBOT_URL =
-  process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
-
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── Argument parsing ─────────────────────────────────────────────────────────
 
@@ -44,12 +34,14 @@ interface SetupArgs {
   seed: number;
   users: number;
   merchants: number;
+  reset: boolean;
 }
 
 function parseArgs(argv: string[]): SetupArgs {
   let seed = 1;
   let users = 3;
   let merchants = 1;
+  let reset = false;
 
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
@@ -62,10 +54,13 @@ function parseArgs(argv: string[]): SetupArgs {
       case "--merchants":
         merchants = parseInt(argv[++i], 10);
         break;
+      case "--reset":
+        reset = true;
+        break;
       default:
         console.error(`Unknown argument: ${argv[i]}`);
         console.error(
-          "Usage: testnet-setup.ts --seed <n> --users <n> --merchants <n>",
+          "Usage: testnet-setup.ts [--reset] [--seed <n>] [--users <n>] [--merchants <n>]",
         );
         process.exit(1);
     }
@@ -85,7 +80,7 @@ function parseArgs(argv: string[]): SetupArgs {
     process.exit(1);
   }
 
-  return { seed, users, merchants };
+  return { seed, users, merchants, reset };
 }
 
 // ── Deterministic identity derivation ────────────────────────────────────────
@@ -117,10 +112,6 @@ interface AccountMeta {
   };
 }
 
-/**
- * Derives a stable ed25519 keypair from (seed, role, index) so the same
- * --seed always reproduces the same set of testnet identities.
- */
 function deriveKeypair(
   seed: number,
   role: "user" | "merchant",
@@ -130,6 +121,8 @@ function deriveKeypair(
     .update(`payflow-testnet-setup:${seed}:${role}:${index}`)
     .digest();
   return Keypair.fromRawEd25519Seed(hash);
+}
+
 interface TestnetManifest {
   createdAt: string;
   updatedAt: string;
@@ -158,53 +151,16 @@ async function fundViaFriendbot(publicKey: string, retries = 3): Promise<void> {
     }
     await delay(1500 * attempt);
   }
-
-  const identities: Identity[] = [];
-  for (let i = 0; i < args.users; i++) {
-    const kp = deriveKeypair(args.seed, "user", i);
-    identities.push({
-      role: "user",
-      index: i,
-      publicKey: kp.publicKey(),
-      secretKey: kp.secret(),
-    });
-  }
-  for (let i = 0; i < args.merchants; i++) {
-    const kp = deriveKeypair(args.seed, "merchant", i);
-    identities.push({
-      role: "merchant",
-      index: i,
-      publicKey: kp.publicKey(),
-      secretKey: kp.secret(),
-    });
-  }
-
-  writeFileSync(path, JSON.stringify(identities, null, 2));
-  console.log(`Wrote manifest: ${path}`);
-  return identities;
 }
 
 // ── Funding ───────────────────────────────────────────────────────────────────
 
-async function isFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
-async function isAccountFunded(server: Server, publicKey: string): Promise<boolean> {
+async function isAccountFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
   try {
     await server.getAccount(publicKey);
     return true;
   } catch {
     return false;
-  }
-}
-
-async function fundViaFriendbot(publicKey: string): Promise<void> {
-  const response = await fetch(
-    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`,
-  );
-  if (!response.ok && response.status !== 400) {
-    // Friendbot returns 400 if the account is already funded — treat that as success.
-    throw new Error(
-      `Friendbot funding failed for ${publicKey}: HTTP ${response.status}`,
-    );
   }
 }
 
@@ -224,23 +180,24 @@ function addressVal(addr: string): xdr.ScVal {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
-  const reset = args.includes ? false : false; // reset flag handled via parseArgs
+  const reset = args.reset;
   const server = new MultiEndpointServer(RPC_URL);
 
   logger.info(`====================================================`);
   logger.info(`FlowPay Testnet Faucet & Environment Setup`);
+  logger.info(`Reset Mode: ${reset ? "YES (--reset)" : "NO"}`);
   logger.info(`RPC Endpoint: ${RPC_URL}`);
   logger.info(`====================================================\n`);
 
   mkdirSync(join(process.cwd(), "data"), { recursive: true });
 
-  if (existsSync(MANIFEST_PATH)) {
+  if (reset && existsSync(MANIFEST_PATH)) {
     logger.info(`Backing up existing manifest to: ${BACKUP_MANIFEST_PATH}`);
     copyFileSync(MANIFEST_PATH, BACKUP_MANIFEST_PATH);
   }
 
   let manifest: TestnetManifest | null = null;
-  if (existsSync(MANIFEST_PATH)) {
+  if (!reset && existsSync(MANIFEST_PATH)) {
     try {
       manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
       logger.info(`Loaded existing testnet manifest from ${MANIFEST_PATH}`);
@@ -315,6 +272,8 @@ async function main(): Promise<void> {
   logger.info(`Testnet setup complete!`);
   logger.info(`Manifest written to: ${MANIFEST_PATH}`);
   logger.info(`====================================================`);
+  logger.info(`\nNext step: use the Soroban CLI with these identities to call subscribe()/charge()`);
+  logger.info(`against your deployed contract — see docs/TESTING.md, Integration Testing section.`);
 }
 
 main().catch((err) => {

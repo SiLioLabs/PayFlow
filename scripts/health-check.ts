@@ -29,7 +29,6 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
-import { Contract, Networks, TransactionBuilder, BASE_FEE, Address } from "@stellar/stellar-sdk";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger";
 

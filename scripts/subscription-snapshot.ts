@@ -129,16 +129,6 @@ function readAddresses(): string[] {
 }
 
 async function main() {
-  if (!CONTRACT_ID) {
-    console.error("CONTRACT_ID required");
-    process.exit(1);
-  }
-
-  const addresses = readAddresses();
-  if (addresses.length === 0) {
-    console.error("No addresses provided");
-    process.exit(1);
-  }
   if (!CONTRACT_ID) { logger.error("CONTRACT_ID required"); process.exit(1); }
 
   const addresses = readAddresses();
