@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -65,6 +65,10 @@ describe("deriveStatus", () => {
 describe("MerchantSubscriberTable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ── Empty state ──────────────────────────────────────────────────────────
@@ -248,8 +252,10 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show active/i }));
 
-      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
-      expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+        expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+      });
     });
 
     it("filters to only overdue subscribers when Overdue is clicked", async () => {
@@ -257,8 +263,10 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
-      expect(screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).not.toBeInTheDocument();
-      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).not.toBeInTheDocument();
+        expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+      });
     });
 
     it("shows 'no results' message when filter yields empty set", async () => {
@@ -267,10 +275,12 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
-      expect(screen.getByTestId("mst-no-results")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId("mst-no-results")).toBeInTheDocument();
+      });
     });
 
-    it("marks the active filter button as aria-pressed", async () => {
+    it("marks the active filter button as aria-pressed immediately on click", async () => {
       render(<MerchantSubscriberTable subscribers={subs} />);
 
       const activeBtn = screen.getByRole("button", { name: /show active/i });
@@ -286,6 +296,102 @@ describe("MerchantSubscriberTable", () => {
       expect(screen.getByRole("button", { name: /show all \(2\)/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /show active \(1\)/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /show overdue \(1\)/i })).toBeInTheDocument();
+    });
+
+    it("debounces rapid burst filter changes into a single settled update", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      render(<MerchantSubscriberTable subscribers={subs} debounceMs={200} />);
+
+      const allBtn = screen.getByRole("button", { name: /show all/i });
+      const activeBtn = screen.getByRole("button", { name: /show active/i });
+      const overdueBtn = screen.getByRole("button", { name: /show overdue/i });
+
+      // Initially both rows are displayed
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+
+      // Burst of rapid filter clicks
+      act(() => {
+        overdueBtn.click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(50);
+        allBtn.click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(50);
+        activeBtn.click();
+      });
+
+      // At time = 100ms (0ms after active click), the debounce has not elapsed
+      // Both rows should still be visible (no intermediate thrashing)
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+
+      // Advance through the remaining debounce window
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Now settled into the active-only filter
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+  });
+
+  // ── Scroll position reset ──────────────────────────────────────────────────
+
+  describe("scroll position reset", () => {
+    const subs = [LOW_AMOUNT_SUB, HIGH_AMOUNT_SUB, ACTIVE_SUB, OVERDUE_SUB];
+
+    it("resets scroll position to top when sort field or direction changes", async () => {
+      const { container } = render(<MerchantSubscriberTable subscribers={subs} />);
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+      expect(scrollContainer).toBeInTheDocument();
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 350;
+      expect(scrollContainer.scrollTop).toBe(350);
+
+      // Toggle sort
+      const amountHeader = screen.getByRole("columnheader", { name: /amount/i });
+      await userEvent.click(amountHeader);
+
+      // Scroll position must be reset to 0
+      expect(scrollContainer.scrollTop).toBe(0);
+    });
+
+    it("resets scroll position to top when subscribers prop changes", () => {
+      const { container, rerender } = render(<MerchantSubscriberTable subscribers={subs} />);
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 420;
+      expect(scrollContainer.scrollTop).toBe(420);
+
+      // Update subscribers prop (e.g. newly fetched or filtered list from parent)
+      rerender(<MerchantSubscriberTable subscribers={[LOW_AMOUNT_SUB, HIGH_AMOUNT_SUB]} />);
+
+      // Scroll position must be reset to 0
+      expect(scrollContainer.scrollTop).toBe(0);
+    });
+
+    it("resets scroll position to top when filter changes", async () => {
+      const { container } = render(
+        <MerchantSubscriberTable subscribers={subs} debounceMs={0} />
+      );
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 280;
+      expect(scrollContainer.scrollTop).toBe(280);
+
+      // Apply filter
+      await userEvent.click(screen.getByRole("button", { name: /show active/i }));
+
+      expect(scrollContainer.scrollTop).toBe(0);
     });
   });
 });
