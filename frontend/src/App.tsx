@@ -23,7 +23,7 @@ import type { WalletAdapter } from "./services/wallets/WalletAdapter";
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
 export default function App() {
-  const { publicKey, connect, disconnect, signAndSubmit, error, connecting, activeAdapter } =
+  const { publicKey, connect, disconnect, signAndSubmit, error, connecting, connectionStatus, activeAdapter } =
     useWallet();
   const { announcement, announce } = useAccessibility();
   const { healthy, circuitOpen } = useRpcHealthContext();
@@ -274,6 +274,8 @@ export default function App() {
           adapters={AVAILABLE_WALLETS}
           onSelect={handleSelectWallet}
           onClose={() => setShowWalletModal(false)}
+          connectionStatus={connectionStatus}
+          error={error}
         />
       )}
     </div>
