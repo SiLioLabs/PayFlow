@@ -241,7 +241,7 @@ A successful integration pass looks like: the UI reflects the subscription state
 
 ## End-to-End Testing
 
-End-to-end (E2E) testing here means manually walking the **entire** subscriber → keeper → charge → merchant withdraw lifecycle across both halves of the system, rather than testing any one function or component in isolation. There is no automated E2E harness in this repo today (no Playwright/Cypress suite) — this is a manual checklist to run before merging a change that could affect the full flow, and before any deployment promotion.
+End-to-end (E2E) testing here means manually walking the **entire** subscriber → keeper → charge → direct settlement lifecycle across both halves of the system, rather than testing any one function or component in isolation. There is no automated E2E harness in this repo today (no Playwright/Cypress suite) — this is a manual checklist to run before merging a change that could affect the full flow, and before any deployment promotion.
 
 ### Prerequisites
 
@@ -265,10 +265,9 @@ End-to-end (E2E) testing here means manually walking the **entire** subscriber �
    - [ ] Confirm a `charged` event appears via `watch-events.ts` with the expected `gross`/`fee`/`net` split.
    - [ ] Confirm the frontend UI (refresh or re-fetch) shows the updated `last_charged` timestamp and any charge-history view.
 
-4. **Merchant withdraws**
-   - [ ] As the merchant address, call `withdraw_merchant_revenue` (via the frontend if there's a merchant UI for it, or via CLI).
-   - [ ] Confirm the merchant's token balance increases by the expected net amount.
-   - [ ] Confirm a `merchant_withdrawal` event appears via `watch-events.ts`.
+4. **Merchant receives funds (non-custodial)**
+   - [ ] Confirm the merchant's token balance increases by the expected net amount immediately upon charge (without any withdrawal step).
+   - [ ] Confirm `get_merchant_revenue` increments by the net charge amount.
 
 5. **Cancel (cleanup / negative path)**
    - [ ] Cancel the subscription as the test user.
@@ -280,7 +279,7 @@ If every checkbox passes, the full flow is verified end-to-end. Any failure here
 
 ## Keeper Testing
 
-The reference keeper implementation in [`docs/KEEPER.md`](KEEPER.md#running-the-reference-keeper) is Python and illustrative — the `invoke_read`, `invoke_batch_charge`, and `check_balance` functions are left as stubs for you to fill in with your chosen Soroban SDK bindings. Whether you're testing that reference pattern or your own keeper implementation, the same two-mode approach applies.
+The reference keeper implementation in [`docs/KEEPER.md`](KEEPER.md#running-the-keeper) is Python and illustrative — the `invoke_read`, `invoke_batch_charge`, and `check_balance` functions are left as stubs for you to fill in with your chosen Soroban SDK bindings. Whether you're testing that reference pattern or your own keeper implementation, the same two-mode approach applies.
 
 ### Dry-run mode
 
@@ -309,7 +308,7 @@ Run this against your testnet deployment (populated via [`scripts/testnet-setup.
 
 ### Live mode with monitoring
 
-Once dry-run output looks correct, run the keeper against testnet in live mode (`dry_run=False`) with the monitoring described in [`docs/KEEPER.md`](KEEPER.md#monitoring-and-alerting) active:
+Once dry-run output looks correct, run the keeper against testnet in live mode (`dry_run=False`) with the monitoring described in [`docs/KEEPER.md`](KEEPER.md#metrics-and-monitoring) active:
 
 - Watch the keeper's own logs for per-address `ChargeResult`s (`Charged`, `Skipped`, `GracePeriodElapsed`, etc.).
 - Independently confirm charges landed by running [`scripts/watch-events.ts`](../scripts/watch-events.ts) against the same contract and cross-checking `charged` event counts against the keeper's own "charged" tally for the cycle.
@@ -323,35 +322,37 @@ A live-mode testnet run is considered validated when the keeper's self-reported 
 
 Integration, E2E, and keeper testing all need funded testnet accounts with known subscription state — and re-creating that by hand (generate a keypair, fund it, remember which one is "the merchant") does not scale past a couple of manual runs and is not reproducible between contributors.
 
-[`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) solves this by deterministically deriving accounts from a `--seed`: the same seed always produces the same set of public/secret keypairs, and the script funds any of them that aren't already funded via Friendbot.
+[`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) solves this by initializing accounts and subscriptions based on the `deployments/manifest.json` parameters:
 
 ```bash
 cd scripts
 npm install
-npx tsx testnet-setup.ts --seed 1 --users 3 --merchants 1
+npx tsx testnet-setup.ts
 ```
 
 Expected output:
 
 ```text
-Setting up testnet fixtures: seed=1 users=3 merchants=1
+====================================================
+FlowPay Testnet Faucet & Environment Setup
+Reset Mode: NO
+RPC Endpoint: https://soroban-testnet.stellar.org
+====================================================
 
-Wrote manifest: /path/to/scripts/.testnet-manifest.1.json
-  user[0] GA5N...WTX — funding via Friendbot...
-  user[0] GA5N...WTX — funded
-  user[1] GBKM...U54 — funding via Friendbot...
-  user[1] GBKM...U54 — funded
-  merchant[0] GBWQ...DJIT — funding via Friendbot...
-  merchant[0] GBWQ...DJIT — funded
+Setting up testnet fixtures...
 
-Manifest: /path/to/scripts/.testnet-manifest.1.json
+Step 1: Funding test accounts via Friendbot...
+  [OK] Admin Account (GB...) is already funded.
+  ...
+
+Manifest: data/testnet-accounts.json
 Next step: use the Soroban CLI with these identities to call subscribe()/charge()
 against your deployed contract — see docs/TESTING.md, Integration Testing section.
 ```
 
-Re-running the same command reuses the existing manifest and reports each identity as `already funded` instead of re-funding it — safe to run repeatedly, including in CI or a setup script other contributors share.
+Re-running the script reuses the existing accounts and reports each identity as `already funded` instead of re-funding it.
 
-The generated manifest (`scripts/.testnet-manifest.<seed>.json`, gitignored) contains each identity's public **and secret** key and its role (`user` or `merchant`). Feed the secret keys to the Soroban CLI to actually invoke contract functions on their behalf, e.g.:
+The generated accounts manifest (`data/testnet-accounts.json`, gitignored) contains each identity's public **and secret** key and its role (`admin`, `merchant`, or `subscriber`). Feed the secret keys to the Soroban CLI to actually invoke contract functions on their behalf, e.g.:
 
 ```bash
 soroban contract invoke \
@@ -393,15 +394,22 @@ This runs `tsc -p tsconfig.build.json` to produce compiled JavaScript output.
 
 ### Fixture workflow
 
- [`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) creates deterministic test accounts from a `--seed` value, funds them via Friendbot, and writes a manifest file for use in integration/E2E testing.
+[`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) creates deterministic test accounts from a `--seed` value, funds them via Friendbot, and writes a manifest file for use in integration/E2E testing.
+ [`scripts/testnet-setup.ts`](../scripts/testnet-setup.ts) initializes the testnet fixture accounts (Admin, Merchant, and 5 Subscribers) using the values in `deployments/manifest.json` as the source of truth for defaults.
 
 ```bash
 cd scripts
 npm install
-npx tsx testnet-setup.ts --seed 1 --users 3 --merchants 1
+npx tsx testnet-setup.ts [--reset] [--contractId <contractId>] [--tokenAddress <tokenAddress>] [--rpcUrl <rpcUrl>]
 ```
 
-The manifest (`scripts/.testnet-manifest.<seed>.json`) contains public/secret keypairs for each identity. Re-running the same command reuses existing accounts and reports `already funded` status. Use distinct `--seed` values per scenario to avoid state interference.
+By default, the script reads configuration from `deployments/manifest.json`. You can supply optional CLI override flags that will take precedence:
+* `--reset`: Re-creates the testnet manifest from scratch, backing up any existing one.
+* `--contractId <id>`: Overrides the default manifest contract ID.
+* `--tokenAddress <address>`: Overrides the default manifest token address.
+* `--rpcUrl <url>`: Overrides the default manifest RPC URL.
+
+The generated credentials and subscription metadata are written to `data/testnet-accounts.json`. Re-running the script without `--reset` reuses the existing accounts.
 
 ### Running individual scripts
 
@@ -433,14 +441,14 @@ npx tsx watch-events.ts
 | Workflow                                          | Steps                                                                | Covers                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`Backend (Rust)`](../.github/workflows/rust.yml) | `cargo clippy -- -D warnings`, `cargo build`, `cargo test --verbose` | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md#ci-integration) for adding a dedicated `--nocapture` reporting step) |
-| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                          |
+| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                        |
 
 ### What requires manual testing
 
 Nothing in CI touches a real network — there is no testnet RPC access from GitHub Actions today. That means the following are **manual-only**, run by a contributor or reviewer before merging changes that could affect them:
 
 - [Integration Testing](#integration-testing) — frontend against a live testnet contract
-- [End-to-End Testing](#end-to-end-testing) — the full subscriber → keeper → charge → withdraw checklist
+- [End-to-End Testing](#end-to-end-testing) — the full subscriber → keeper → charge → direct settlement checklist
 - [Keeper Testing](#keeper-testing) — dry-run and live-mode keeper validation
 
 ### Adding a new CI test

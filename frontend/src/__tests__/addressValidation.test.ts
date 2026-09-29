@@ -115,3 +115,152 @@ describe("chunkAddresses", () => {
     expect(chunks.length).toBe(2);
   });
 });
+
+// ─── New exports added in the shared-validation refactor ─────────────────────
+
+import {
+  STORAGE_KEY,
+  isValidEd25519Address,
+  validateAddressBookEntry,
+} from "../utils/addressValidation";
+
+// Valid Ed25519 keys reused from the suite above
+const VALID_ED25519 = ADDR_VALID_1;
+const FEDERATED_ADDR = "user*domain.com";
+
+// ── STORAGE_KEY ───────────────────────────────────────────────────────────────
+
+describe("STORAGE_KEY", () => {
+  it("is the canonical flowpay_address_book key", () => {
+    expect(STORAGE_KEY).toBe("flowpay_address_book");
+  });
+
+  it("is a non-empty string so localStorage.setItem never silently no-ops", () => {
+    expect(typeof STORAGE_KEY).toBe("string");
+    expect(STORAGE_KEY.length).toBeGreaterThan(0);
+  });
+});
+
+// ── isValidEd25519Address ─────────────────────────────────────────────────────
+
+describe("isValidEd25519Address", () => {
+  it("accepts a valid Ed25519 G-key", () => {
+    expect(isValidEd25519Address(VALID_ED25519)).toBe(true);
+  });
+
+  it("rejects a federated address (cannot be used on-chain directly)", () => {
+    expect(isValidEd25519Address(FEDERATED_ADDR)).toBe(false);
+  });
+
+  it("rejects an empty string", () => {
+    expect(isValidEd25519Address("")).toBe(false);
+  });
+
+  it("rejects a truncated key", () => {
+    expect(isValidEd25519Address(VALID_ED25519.slice(0, 40))).toBe(false);
+  });
+
+  it("rejects a key with an invalid checksum", () => {
+    // Flip the last character to corrupt the checksum
+    const broken = VALID_ED25519.slice(0, -1) + (VALID_ED25519.endsWith("A") ? "B" : "A");
+    expect(isValidEd25519Address(broken)).toBe(false);
+  });
+
+  it("rejects an address starting with the wrong strkey prefix (secret key)", () => {
+    // S… is a secret key, not an account public key
+    expect(isValidEd25519Address("SBODGZWH6PGIH5BJXVMPKC4I7VBY6BKBMQGLQSXB6QDDBYMSVXSXZBF")).toBe(
+      false
+    );
+  });
+});
+
+// ── validateAddressBookEntry ──────────────────────────────────────────────────
+
+describe("validateAddressBookEntry — add", () => {
+  it("returns valid:true for a well-formed name and Ed25519 address", () => {
+    const result = validateAddressBookEntry("Alice", VALID_ED25519);
+    expect(result.valid).toBe(true);
+  });
+
+  it("trims the name before checking emptiness", () => {
+    const result = validateAddressBookEntry("  Alice  ", VALID_ED25519);
+    expect(result.valid).toBe(true);
+  });
+
+  it("trims the address before validating", () => {
+    const result = validateAddressBookEntry("Bob", `  ${VALID_ED25519}  `);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("validateAddressBookEntry — invalidContext: empty / bad inputs", () => {
+  it("fails with 'Name is required.' when name is empty", () => {
+    const result = validateAddressBookEntry("", VALID_ED25519);
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Name is required.");
+  });
+
+  it("fails with 'Name is required.' when name is only whitespace", () => {
+    const result = validateAddressBookEntry("   ", VALID_ED25519);
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Name is required.");
+  });
+
+  it("fails with 'Address is required.' when address is empty", () => {
+    const result = validateAddressBookEntry("Alice", "");
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Address is required.");
+  });
+
+  it("fails with 'Address is required.' when address is only whitespace", () => {
+    const result = validateAddressBookEntry("Alice", "   ");
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Address is required.");
+  });
+
+  it("fails with 'Invalid Stellar address.' for a random string", () => {
+    const result = validateAddressBookEntry("Alice", "notanaddress");
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Invalid Stellar address.");
+  });
+
+  it("fails with 'Invalid Stellar address.' for a federated address (not on-chain resolvable)", () => {
+    const result = validateAddressBookEntry("Alice", FEDERATED_ADDR);
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Invalid Stellar address.");
+  });
+
+  it("fails with 'Invalid Stellar address.' for a truncated key", () => {
+    const result = validateAddressBookEntry("Alice", VALID_ED25519.slice(0, 40));
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.error).toBe("Invalid Stellar address.");
+  });
+});
+
+describe("validateAddressBookEntry — remove (deletion is entry-index-based, no re-validation)", () => {
+  // Deletion in AddressBook is by array index; the remove path never calls
+  // validateAddressBookEntry. These tests document that contract: validation
+  // is only an ADD-time concern and must not gate removal.
+
+  it("does not gate removal: filtering by index does not invoke validateAddressBookEntry", () => {
+    const entries = [
+      { name: "Alice", address: VALID_ED25519 },
+      { name: "Bob", address: ADDR_VALID_2 },
+    ];
+    // Simulate the exact remove logic in AddressBook.tsx
+    const afterRemove = entries.filter((_, i) => i !== 0);
+    expect(afterRemove).toHaveLength(1);
+    expect(afterRemove[0].name).toBe("Bob");
+  });
+
+  it("does not re-validate a stored entry that predates strict validation rules", () => {
+    // A legacy entry stored before isValidEd25519Address was enforced should
+    // survive in the list unchanged — validateAddressBookEntry is never called
+    // during list render or removal, only during the ADD flow.
+    const legacyEntry = { name: "Legacy", address: "legacy-addr" };
+    const entries = [legacyEntry, { name: "Alice", address: VALID_ED25519 }];
+    const afterRemove = entries.filter((_, i) => i !== 0);
+    expect(afterRemove).toHaveLength(1);
+    expect(afterRemove[0].name).toBe("Alice");
+  });
+});

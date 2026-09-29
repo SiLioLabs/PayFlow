@@ -7,24 +7,14 @@ interface UseContractIdResult {
   error: string | null;
 }
 
+function isValidContractIdShape(id: string): boolean {
+  return (
+    typeof id === "string" && id.startsWith("C") && id.length === 56 && /^[A-Z0-9]+$/i.test(id)
+  );
+}
+
 /**
  * useContractId - Reads and validates the configured Soroban contract id.
- *
- * Reads `import.meta.env.VITE_CONTRACT_ID` on mount and validates it using
- * `StrKey.isValidContract`.
- *
- * @returns {Object} Contract id state
- * @returns {string} returns.contractId - The validated contract id (empty string if invalid/unset)
- * @returns {boolean} returns.valid - True when the env var exists and is a valid contract id
- * @returns {string|null} returns.error - Validation error message (or null)
- *
- * @sideEffects
- * - Reads environment config.
- * - Updates React state.
- *
- * @example
- * const { contractId, valid, error } = useContractId();
- * if (!valid) return <div>{error}</div>;
  */
 export function useContractId(): UseContractIdResult {
   const [contractId, setContractId] = useState<string>("");
@@ -40,7 +30,7 @@ export function useContractId(): UseContractIdResult {
       return;
     }
 
-    if (!StrKey.isValidContract(id)) {
+    if (!isValidContractIdShape(id) || !StrKey.isValidContract(id)) {
       setError("VITE_CONTRACT_ID is not a valid Soroban contract address");
       setValid(false);
       return;

@@ -34,7 +34,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 18   | `ContractPaused`            | State        | Op while protocol paused           |
 | 19   | `IntervalTooShort`          | Validation   | Interval below min floor           |
 | 20   | `BatchTooLarge`             | Limit        | Batch size above max               |
-| 21   | `ZeroBalanceAvailable`      | State        | Merchant withdraw with 0           |
+| 21   | `ZeroBalanceAvailable`              | Compatibility | Legacy withdraw path; never emitted by current WASM |
 | 22   | `MerchantFrozen`            | Auth         | Subscribe to frozen merchant       |
 | 23   | `NoPendingProposal`         | State        | Commit without proposal            |
 | 24   | `SubscriptionAlreadyActive` | State        | Transfer target already subscribed |
@@ -43,15 +43,25 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 27   | `InvalidPauseExpiry`        | Validation   | Pause expiry not in future         |
 | 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
 | 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
-| 30   | `ContractPausedError`       | State        | Subscribe while paused             |
-| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid          |
+| 30   | `ContractPausedError` (deprecated) | Compatibility | Deprecated alias; never emitted by current WASM |
+| 31   | *(reserved)*                | Reserved     | Historical gap; never emitted      |
+| 32   | `InvalidRecipient`          | Validation   | Recipient address invalid           |
 | 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| 37   | *(unassigned)*              | Reserved     | Gap in the sequence; never emitted |
+| 38   | `RefundMerchantMismatch`    | Validation   | Refund caller is not merchant     |
+| 39   | `RefundAmountMustBePositive`| Validation   | Prorated refund is zero           |
+| 40   | `InsufficientMerchantBalance`| Limit       | Merchant cannot fund refund       |
 | 41   | `CannotClearActiveSubscriber` | State      | Admin index repair of an active subscriber |
+| 42   | `SchemaMigrationRequired`   | State        | Stale schema — subscription writes denied until migrate |
+| 43   | `ResumeGraceLapsed`         | State        | Resume after grace period elapsed |
+| 44   | `AdminAlreadySet`           | State        | `set_initial_admin` after admin already stored |
+| 45   | `NoPendingAdmin`            | State        | `accept_admin` with no staged transfer |
+| 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
 
-> **Note:** Code `31` is intentionally unused. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 is intentionally reserved and has no enum variant in the published map. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
 ---
 
@@ -95,7 +105,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 | Field               | Detail                                                      |
 | ------------------- | ----------------------------------------------------------- |
-| **When it occurs**  | `subscribe()` (or interval setters) receive `interval <= 0` |
+| **When it occurs**  | `subscribe()` (or interval setters) receive `interval <= 0`; also `set_min_interval(0)` |
 | **Immediate cause** | Interval failed the positive check                          |
 
 **Recovery steps**
@@ -166,10 +176,12 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | **When it occurs**  | Any operational call before successful `initialize()`         |
 | **Immediate cause** | Admin/token (or related) config missing from instance storage |
 
+This is also the code every admin-gated entrypoint (`set_min_interval`, `set_max_batch_size`, `pause_contract`, whitelist and fee admin functions, …) returns when it is invoked before an admin has been stored, so clients can branch on `7` instead of matching a host panic string.
+
 **Recovery steps**
 
 1. Verify deployment completed and `initialize(token, admin, …)` succeeded.
-2. Run post-deploy verification (`scripts/verify-contract.sh` or health reads).
+2. Run post-deploy verification (`contract_health_check` and `npx tsx scripts/health-check.ts`; see [`DEPLOYMENT.md`](DEPLOYMENT.md#post-deployment-health-gates)).
 3. Only then open the contract to users/keepers.
 
 **Prevention:** Gate frontend and keeper startup on a successful health/schema check.
@@ -178,10 +190,10 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 
 ### 8 — `InsufficientAllowance`
 
-| Field               | Detail                                                               |
-| ------------------- | -------------------------------------------------------------------- |
+| Field               | Detail                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------- |
 | **When it occurs**  | Charge, subscribe, or pay-per-use path finds token allowance below required amount |
-| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down             |
+| **Immediate cause** | SAC `allowance(user → FlowPay)` is too low or spent down                           |
 
 `charge()` and `pay_per_use*()` preflight the allowance against the **gross**
 amount before any transfer runs. When a protocol fee is configured the charge
@@ -404,20 +416,16 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 21 — `ZeroBalanceAvailable`
+### 21 — `ZeroBalanceAvailable` (legacy)
 
 | Field               | Detail                                                  |
 | ------------------- | ------------------------------------------------------- |
-| **When it occurs**  | `withdraw_merchant_revenue()` with zero accrued balance |
-| **Immediate cause** | Merchant revenue storage is empty/zero                  |
+| **When it occurs**  | Legacy / unused error variant (formerly emitted by `withdraw_merchant_revenue` before migration to non-custodial direct payouts). Kept for discriminant compatibility. |
+| **Immediate cause** | N/A — merchant revenue is non-custodial and settles directly on charge. |
 
 **Recovery steps**
 
-1. Confirm accrued revenue via merchant balance getters.
-2. Wait until successful charges have credited the merchant.
-3. Retry withdraw when balance > 0.
-
-**Prevention:** Disable withdraw CTA when displayed balance is zero.
+1. No action needed; charges settle directly into merchant wallets without withdrawal.
 
 ---
 
@@ -552,20 +560,20 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 30 — `ContractPausedError`
+### 30 — `ContractPausedError` (deprecated)
 
-| Field               | Detail                                                                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| **When it occurs**  | New `subscribe()` (and similar entry paths) while the contract is paused                        |
-| **Immediate cause** | Pause flag blocks new subscriptions (`ContractPausedError` distinct from code 18 on some paths) |
+| Field               | Detail                                                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **When it occurs**  | **Never emitted by the current WASM.** Retained as a deprecated Rust enum variant (code 30) only for source/wire compatibility with clients that published this discriminant before `ContractPaused` (code 18) was standardised as the sole canonical contract-paused error. |
+| **Immediate cause** | N/A — all current pause-guarded paths emit `ContractPaused` (code 18).                                                             |
 
 **Recovery steps**
 
-1. Treat like a protocol pause: wait for admin `unpause_contract()`.
-2. Do not prompt users to “try again” in a tight loop — show maintenance messaging.
-3. Keepers should halt subscribe-related automation.
+1. If you receive code 30 in production, the WASM being executed is old — upgrade the contract.
+2. Update frontend and keeper error maps to treat code 30 as equivalent to `ContractPaused` (18) for backward compatibility.
+3. Use code 18 in all new integrations.
 
-**Prevention:** Same as code 18 — coordinated pause/unpause communications.
+**Prevention:** Always use `ContractPaused` (code 18) in integrations; never introduce new callers of code 30.
 
 ---
 
@@ -587,10 +595,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 33 — `InvalidVolumeCap`
 
-| Field               | Detail                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_global_volume_cap` with `new_cap <= 0`              |
-| **Immediate cause** | Configured hourly volume cap must be strictly positive         |
+| Field               | Detail                                                 |
+| ------------------- | ------------------------------------------------------ |
+| **When it occurs**  | Admin `set_global_volume_cap` with `new_cap <= 0`      |
+| **Immediate cause** | Configured hourly volume cap must be strictly positive |
 
 **Recovery steps**
 
@@ -603,10 +611,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 34 — `InvalidFeeBounds`
 
-| Field               | Detail                                                                      |
-| ------------------- | --------------------------------------------------------------------------- |
-| **When it occurs**  | Admin `set_fee_bounds` with `min_bps > max_bps` or `max_bps > 10_000`      |
-| **Immediate cause** | Fee bound range is empty or exceeds 100% (10_000 bps)                       |
+| Field               | Detail                                                                |
+| ------------------- | --------------------------------------------------------------------- |
+| **When it occurs**  | Admin `set_fee_bounds` with `min_bps > max_bps` or `max_bps > 10_000` |
+| **Immediate cause** | Fee bound range is empty or exceeds 100% (10_000 bps)                 |
 
 **Recovery steps**
 
@@ -619,10 +627,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 35 — `FeeOutOfBoundsAtCommit`
 
-| Field               | Detail                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| **When it occurs**  | `commit_fee` when pending bps is outside current `[MinFeeBps, MaxFeeBps]`              |
-| **Immediate cause** | Bounds were tightened (or never matched) between `propose_fee` and `commit_fee`        |
+| Field               | Detail                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| **When it occurs**  | `commit_fee` when pending bps is outside current `[MinFeeBps, MaxFeeBps]`       |
+| **Immediate cause** | Bounds were tightened (or never matched) between `propose_fee` and `commit_fee` |
 
 **Recovery steps**
 
@@ -635,10 +643,10 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ### 36 — `ArithmeticOverflow`
 
-| Field               | Detail                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Field               | Detail                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **When it occurs**  | A checked operation would leave range: trial extension, fee multiplication, protocol-fee accrual, or global volume accumulation |
-| **Immediate cause** | Inputs or accumulated state near the type's limit (`u64::MAX`, `i128::MAX`)                                  |
+| **Immediate cause** | Inputs or accumulated state near the type's limit (`u64::MAX`, `i128::MAX`)                                                     |
 
 **Recovery steps**
 
@@ -652,6 +660,62 @@ hourly volume cap (a policy decision, retry next window); #36 means the value
 is not representable at all.
 
 **Prevention:** Bound amounts and durations client-side against the documented caps.
+
+---
+
+
+### 37 — *(unassigned)*
+
+Code 37 is an intentional gap in the sequence. No error variant is defined for this discriminant. Do not use code 37 in clients or fork-contracts; new errors must take the next available code after 46. If you see code 37 from a contract, it is from a custom fork, not the canonical PayFlow WASM.
+
+---
+
+### 38 — `RefundMerchantMismatch`
+
+| Field               | Detail                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `refund_subscription` called by an address that is not the subscription's merchant              |
+| **Immediate cause** | The caller's address does not match `sub.merchant`                                              |
+
+**Recovery steps**
+
+1. Confirm the calling address — only the merchant who received the original subscription payment can issue a refund.
+2. Retry with the correct merchant account.
+
+**Prevention:** Validate `caller == sub.merchant` in merchant tooling before signing the tx.
+
+---
+
+### 39 — `RefundAmountMustBePositive`
+
+| Field               | Detail                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| **When it occurs**  | A prorated refund calculation produces a zero or negative amount                     |
+| **Immediate cause** | The remaining unused portion of the billing interval rounds down to zero stroops      |
+
+**Recovery steps**
+
+1. Check how much time has elapsed since the last charge — if nearly the full interval has passed, a prorated refund may legitimately be zero.
+2. Issue a manual goodwill payment instead if a refund is owed for business reasons.
+
+**Prevention:** Compute the prorated amount off-chain before calling the contract; skip refund calls when the result would be zero.
+
+---
+
+### 40 — `InsufficientMerchantBalance`
+
+| Field               | Detail                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| **When it occurs**  | Prorated refund amount exceeds the merchant's accrued revenue balance on-chain  |
+| **Immediate cause** | `merchant_revenue < refund_amount`                                              |
+
+**Recovery steps**
+
+1. Read `get_merchant_revenue` to see the available balance.
+2. If insufficient, the merchant should arrange a direct transfer for the difference; the contract refund path cannot pull from outside the accrued balance.
+3. Alternatively, wait for additional charges to accumulate revenue before issuing the refund.
+
+**Prevention:** Ensure the merchant has sufficient on-chain accrued revenue before calling the refund entrypoint.
 
 ---
 
@@ -672,14 +736,108 @@ is not representable at all.
 
 ---
 
+### 42 — `SchemaMigrationRequired`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `migration::require_current_version` panics because `get_schema_version() < CURRENT_VERSION` (3). Intended on **new subscription-blob writes** (`subscribe` / `subscribe_with_metadata` via `subscribe_inner`). |
+| **Immediate cause** | On-chain schema has not finished catch-up after a WASM upgrade (or a fresh instance that has never been migrated). This is the **write-denial safety rail**, not a client validation bug. |
+| **Invariant**       | Documented on `require_current_version` in [`contract/src/migration.rs`](../contract/src/migration.rs): mixed-version `Subscription` blobs must not be created while operators are still paging `migrate()`. |
+
+**Recovery steps**
+
+Follow the canonical operator procedure in [`DEPLOYMENT.md` — SchemaMigrationRequired (error 42)](DEPLOYMENT.md#schemamigrationrequired-error-42). In short:
+
+1. Read `get_schema_version` (expect 0, 1, or 2 while blocked).
+2. As **admin**, page `get_subscriber_page` and call `migrate --users '[...]'` until version is **3**.
+3. Retry the subscribe call.
+
+`migrate` itself is **not** blocked by this error (`require_admin` only). Other admin paths (pause, whitelist, two-step upgrade, fee propose/commit) also do not call `require_current_version`.
+
+**Prevention:** After every layout-changing WASM commit, finish paged `migrate` and confirm `get_schema_version() == 3` before opening subscribe to users. See [`DEPLOYMENT.md` — State Migration](DEPLOYMENT.md#state-migration).
+
+---
+
+
+### 43 — `ResumeGraceLapsed`
+
+| Field               | Detail                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `resume()` is called after the subscription's grace window has already closed                           |
+| **Immediate cause** | The time elapsed since `last_charged + interval` exceeds the configured grace period                    |
+
+If the grace window closes while a subscription is paused, the subscription is no longer chargeable. `resume()` is rejected to prevent false recoverability signals — the only valid exit is `cancel()` followed by a fresh `subscribe()`.
+
+**Recovery steps**
+
+1. Confirm grace period config via `get_grace_period()`.
+2. Inform the user: the subscription has lapsed and cannot be resumed; they must re-subscribe.
+3. Remove the address from keeper charge queues.
+
+**Prevention:** Notify users before a paused subscription's grace window closes (use indexer events + `get_next_charge_at`).
+
+---
+
+### 44 — `AdminAlreadySet`
+
+| Field               | Detail                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `set_initial_admin` is called after an admin address is already stored                        |
+| **Immediate cause** | Instance storage already holds the `Admin` key                                                |
+
+This is distinct from `AlreadyInitialized` (code 1), which guards the full `initialize()` entrypoint (token + admin together). Code 44 covers only the narrow `set_initial_admin` bootstrap path.
+
+**Recovery steps**
+
+1. Use `transfer_admin` / `accept_admin` to change admin after the contract is live.
+2. Do not retry `set_initial_admin` on a live instance.
+
+**Prevention:** Call `set_initial_admin` only once during bootstrapping; persist the admin address before calling.
+
+---
+
+### 45 — `NoPendingAdmin`
+
+| Field               | Detail                                                                            |
+| ------------------- | --------------------------------------------------------------------------------- |
+| **When it occurs**  | `accept_admin` is called when no staged admin transfer is pending                 |
+| **Immediate cause** | `PendingAdmin` instance key is absent — either expired or never set               |
+
+**Recovery steps**
+
+1. Re-run `transfer_admin(new_admin)` to stage a new transfer.
+2. Call `accept_admin()` from the new admin address before the proposal TTL expires (~24 hours).
+
+**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/two-step-auth.md](architecture/two-step-auth.md).
+
+---
+
+### 46 — `IntervalExceedsMaximum`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `subscribe()` or `subscribe_with_metadata()` is called with an `interval` > `MAX_SUBSCRIPTION_INTERVAL` (12 623 040 000 s ≈ 400 years). |
+| **Immediate cause** | `validate_interval` rejects the value before any state is written. |
+| **Why it exists**   | Soroban timestamps are `u64` Unix seconds. Adding a near-`u64::MAX` interval to `last_charged` overflows, causing every charge call for that subscription to abort — and inside `batch_charge` that abort can skip the entire batch (a self-inflicted DoS / keeper hazard). The cap keeps all timestamp arithmetic safe. |
+
+**Recovery steps**
+
+1. Reduce the interval to at most `12_623_040_000` (about 400 years).
+2. If you truly need a longer billing cycle (unusual), discuss protocol governance — the constant is a compile-time value in `lib.rs`.
+3. For **legacy subscriptions** created before this cap was enforced (e.g. via direct storage injection in tests), the subscription can still be cancelled via `cancel(user)`; it cannot be charged. Re-subscribe with a valid interval to restore chargeability.
+
+**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/limits.md`](limits.md).
+
+---
+
 ## Error Categories
 
-| Category       | Codes                                    | Typical owners                |
-| -------------- | ---------------------------------------- | ----------------------------- |
-| Auth / access  | 8, 10, 22                                | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35 | Client / admin tooling        |
-| Limit / timing | 6, 9, 15, 20, 25, 28                     | Keeper + user                 |
+| Category       | Codes                                                        | Typical owners                |
+| -------------- | ------------------------------------------------------------ | ----------------------------- |
+| Auth / access  | 8, 10, 22                                                    | User + admin                  |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40                                     | Keeper + user                 |
 
 ---
 
@@ -710,6 +868,7 @@ is not representable at all.
 
 1. Check code:
    - `2` / `3` / `19` → fix amount/interval inputs.
+   - `46` → interval above the 400-year cap; reduce interval.
    - `8` → approve token allowance first (and fund balance).
    - `10` / `22` → merchant not allowed / frozen.
    - `11` → bad referrer.
@@ -771,7 +930,7 @@ is not representable at all.
 
 | Codes     | Guidance                                                  |
 | --------- | --------------------------------------------------------- |
-| 7, 18, 30 | “Service temporarily unavailable.”                        |
+| 7, 18, 42 | “Service temporarily unavailable.” (42 = schema migration in progress — operators: [`DEPLOYMENT.md`](DEPLOYMENT.md#schemamigrationrequired-error-42)) |
 | 10        | “Merchant pending approval.”                              |
 | 28        | “Protocol capacity reached; try later.”                   |
 | 20, 29    | Operator/config bugs — log to telemetry, don’t blame user |
@@ -783,6 +942,7 @@ Always map numeric Soroban contract errors to this document before inventing new
 ## Related
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
+- Schema write-denial invariant: [`docs/DEPLOYMENT.md` — SchemaMigrationRequired](DEPLOYMENT.md#schemamigrationrequired-error-42) (`contract/src/migration.rs`)
 - Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)

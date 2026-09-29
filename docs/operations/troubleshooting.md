@@ -219,7 +219,7 @@ soroban contract invoke \
 
 ### Likely cause
 
-The admin has activated the circuit breaker (`pause_contract`). This blocks all state-changing operations (subscribe, charge, pay_per_use, withdraw) as an emergency measure.
+The admin has activated the circuit breaker (`pause_contract`). This blocks all state-changing operations (subscribe, charge, pay_per_use) as an emergency measure.
 
 ### Diagnosis steps
 
@@ -293,6 +293,7 @@ cat frontend/.env.local
 ```
 
 Verify:
+
 - `VITE_RPC_URL` matches the target network (testnet: `https://soroban-testnet.stellar.org`)
 - `VITE_NETWORK_PASSPHRASE` matches (testnet: `Test SDF Network ; September 2015`)
 - `VITE_CONTRACT_ID` is deployed on that network
@@ -321,7 +322,7 @@ If this returns a value (true or false), the contract is deployed on testnet.
 
 ### Prevention
 
-- Hard-code network passphrase validation in the frontend (`useNetworkCheck` hook).
+- Hard-code network passphrase validation in the frontend (`useNetworkStatus` hook).
 - Display the active network badge (`NetworkBadge` component) prominently.
 
 ---
@@ -462,14 +463,14 @@ Wallet integration issues (Freighter not installed, wrong network, stale session
 
    The `ChargeResult` enum has 6 variants. Map them as follows:
 
-   | Variant | Meaning | Frontend action |
-   |---------|---------|-----------------|
-   | `Charged` | Success | Show success toast |
-   | `Skipped` | Interval not elapsed | Show "Next charge at..." |
-   | `NoSubscription` | No sub found | Prompt to subscribe |
-   | `Inactive` | Cancelled | Show "Subscription cancelled" |
-   | `Paused` | User-paused | Show "Resume to continue" |
-   | `GracePeriodElapsed` | Lapsed | Show "Re-subscribe required" |
+   | Variant              | Meaning              | Frontend action               |
+   | -------------------- | -------------------- | ----------------------------- |
+   | `Charged`            | Success              | Show success toast            |
+   | `Skipped`            | Interval not elapsed | Show "Next charge at..."      |
+   | `NoSubscription`     | No sub found         | Prompt to subscribe           |
+   | `Inactive`           | Cancelled            | Show "Subscription cancelled" |
+   | `Paused`             | User-paused          | Show "Resume to continue"     |
+   | `GracePeriodElapsed` | Lapsed               | Show "Re-subscribe required"  |
 
 4. **Error message mapping:**
 
@@ -510,11 +511,11 @@ Wallet integration issues (Freighter not installed, wrong network, stale session
 
 ## Related Documentation
 
-| Document | Purpose |
-| --- | --- |
-| [`docs/ERROR-CODES.md`](../ERROR-CODES.md) | Full error code reference and recovery playbook |
-| [`docs/TESTING.md`](../TESTING.md) | Test suite execution and CI |
-| [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md) | Merchant-specific troubleshooting |
-| [`docs/KEEPER.md`](../KEEPER.md) | Keeper setup and monitoring |
-| [`docs/operations/keeper_runbook.md`](keeper_runbook.md) | Keeper incident response |
-| [`docs/INTEGRATION-GUIDE.md`](../INTEGRATION-GUIDE.md) | Integration troubleshooting |
+| Document                                                     | Purpose                                         |
+| ------------------------------------------------------------ | ----------------------------------------------- |
+| [`docs/ERROR-CODES.md`](../ERROR-CODES.md)                   | Full error code reference and recovery playbook |
+| [`docs/TESTING.md`](../TESTING.md)                           | Test suite execution and CI                     |
+| [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md) | Merchant-specific troubleshooting               |
+| [`docs/KEEPER.md`](../KEEPER.md)                             | Keeper setup and monitoring                     |
+| [`docs/operations/keeper_runbook.md`](keeper_runbook.md)     | Keeper incident response                        |
+| [`docs/INTEGRATION-GUIDE.md`](../INTEGRATION-GUIDE.md)       | Integration troubleshooting                     |

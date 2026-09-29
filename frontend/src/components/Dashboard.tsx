@@ -1,6 +1,10 @@
-import React, { useState, useRef, useCallback, lazy, Suspense } from "react";
+import React, { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import {
   buildPayPerUseTx,
+  buildPayPerUseToTx,
+  getDailyLimit,
+  getDailySpent,
+  getDayStart,
   ChargeSimResult,
   chargeSimBlocksPay,
   payBlockedReason,
@@ -25,6 +29,8 @@ import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
 import EventFeed from "./EventFeed";
 import SubscriptionExport from "./SubscriptionExport";
+import LastUpdated from "./LastUpdated";
+import { getCacheUpdatedAt } from "../services/rpcCache";
 import { useSubscriptionSync } from "../hooks/useSubscriptionSync";
 import { usePolling } from "../hooks/usePolling";
 import { useToast } from "../hooks/useToast";
@@ -41,6 +47,8 @@ interface Props {
   onCancelled?: () => void;
   onPayPerUse?: (amount: bigint) => void;
   isPaused?: boolean;
+  /** When true, wallet mutations are disabled because the browser is offline. */
+  isOffline?: boolean;
 }
 
 export default function Dashboard({
@@ -51,9 +59,10 @@ export default function Dashboard({
   onCancelled,
   onPayPerUse,
   isPaused = false,
+  isOffline = false,
 }: Props) {
   const { subscription: sub, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const { status: rpcStatus, latencyMs: rpcLatency, error: rpcError } = useRpcHealth();
   const { isMobile } = useResponsive();
   const ppuTx = useTransaction();
@@ -64,6 +73,42 @@ export default function Dashboard({
   const [allowanceRefresh, setAllowanceRefresh] = useState(0);
   const [dailyLimitRefresh, setDailyLimitRefresh] = useState(0);
   const ppuInputRef = useRef<HTMLInputElement>(null);
+  const [dailyLimit, setDailyLimit] = useState<bigint | null>(null);
+  const [dailySpent, setDailySpent] = useState<bigint | null>(null);
+  const [dayStart, setDayStart] = useState<bigint | null>(null);
+  const [dailyLimitLoading, setDailyLimitLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLimitForForm() {
+      if (!sub?.active) return;
+      setDailyLimitLoading(true);
+      try {
+        const [limit, spent, start] = await Promise.all([
+          getDailyLimit(userKey),
+          getDailySpent(userKey),
+          getDayStart(userKey),
+        ]);
+        if (!cancelled) {
+          setDailyLimit(limit);
+          setDailySpent(spent);
+          setDayStart(start);
+        }
+      } catch {
+        if (!cancelled) {
+          setDailyLimit(null);
+          setDailySpent(null);
+          setDayStart(null);
+        }
+      } finally {
+        if (!cancelled) setDailyLimitLoading(false);
+      }
+    }
+    loadLimitForForm();
+    return () => {
+      cancelled = true;
+    };
+  }, [userKey, sub?.active, dailyLimitRefresh, ppuTx.status]);
 
   usePolling({ callback: refresh, interval: 30000, enabled: !!sub?.active });
 
@@ -82,11 +127,17 @@ export default function Dashboard({
   );
 
   const handlePayPerUse = useCallback(
-    async (stroops: bigint) => {
+    async (stroops: bigint, recipient?: string) => {
+      if (isOffline) {
+        announce("You're offline. Wallet actions are unavailable.");
+        return;
+      }
       announce("Transaction submitted");
       try {
         const hash = await ppuTx.submit(async () => {
-          const xdr = await buildPayPerUseTx(userKey, stroops);
+          const xdr = recipient
+            ? await buildPayPerUseToTx(userKey, stroops, recipient)
+            : await buildPayPerUseTx(userKey, stroops);
           return onSign(xdr);
         });
         addToast("Paid!", "success", hash);
@@ -98,7 +149,7 @@ export default function Dashboard({
         announce(msg);
       }
     },
-    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx]
+    [userKey, onSign, announce, addToast, onPayPerUse, ppuTx, isOffline]
   );
 
   if (loading)
@@ -124,6 +175,16 @@ export default function Dashboard({
 
   return (
     <div className={`dashboard${isMobile ? " dashboard--mobile" : ""}`}>
+      <div className="flex-between mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Subscriber Dashboard</h2>
+        </div>
+        <LastUpdated 
+          timestamp={getCacheUpdatedAt(`getSubscription:${userKey}`)} 
+          onRefresh={refresh} 
+        />
+      </div>
+
       {rpcStatus === "degraded" && (
         <div className="network-warning network-warning--degraded" role="alert">
           <span>⚠️</span>
@@ -201,6 +262,7 @@ export default function Dashboard({
                   <SubscriptionExport
                     data={[
                       {
+                        subscriber: userKey,
                         merchant: sub.merchant,
                         amount_stroops: sub.amount,
                         interval_seconds: sub.interval,
@@ -222,9 +284,21 @@ export default function Dashboard({
                 onPay={handlePayPerUse}
                 loading={ppuPending}
                 isPaused={isPaused}
-                disabled={subscriptionHealthBlocksPay(subHealth) || chargeSimBlocksPay(simResult)}
-                disabledReason={payBlockedReason(subHealth, simResult) ?? undefined}
+                disabled={
+                  isOffline ||
+                  subscriptionHealthBlocksPay(subHealth) ||
+                  chargeSimBlocksPay(simResult)
+                }
+                disabledReason={
+                  isOffline
+                    ? "You're offline. Wallet actions are unavailable."
+                    : (payBlockedReason(subHealth, simResult) ?? undefined)
+                }
                 warningReason={payWarningReason(subHealth, simResult) ?? undefined}
+                dailyLimit={dailyLimit}
+                dailySpent={dailySpent}
+                dayActive={dayStart !== null}
+                isLimitLoading={dailyLimitLoading}
               />
               {ppuPending && (
                 <p className="status-text status-text--pending">Confirming payment…</p>
@@ -243,7 +317,13 @@ export default function Dashboard({
         </>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+        isPaused={isPaused}
+      />
 
       {showDailyLimit && sub?.active && (
         <DailyLimitModal

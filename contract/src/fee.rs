@@ -1,7 +1,7 @@
 use soroban_sdk::{token, Address, Env};
 
 use crate::validation;
-use crate::{errors::ContractError, DataKey, Subscription};
+use crate::{errors::ContractError, DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS};
 
 /// Retrieves the fee collector address from instance storage.
 pub fn get_fee_collector(env: &Env) -> Option<Address> {
@@ -15,23 +15,48 @@ pub fn get_fee_bps(env: &Env) -> u32 {
 }
 
 /// Stores a custom fee recipient address for a specific merchant.
+/// Immediately bumps the TTL to ~1 year so the entry survives long-running
+/// deployments without manual extension.
 pub fn set_merchant_fee_recipient(env: &Env, merchant: &Address, recipient: &Address) {
     merchant.require_auth();
     if recipient == &env.current_contract_address() {
         env.panic_with_error(ContractError::InvalidRecipient);
     }
-    env.storage()
-        .persistent()
-        .set(&DataKey::MerchantFeeRecipient(merchant.clone()), recipient);
+    let key = DataKey::MerchantFeeRecipient(merchant.clone());
+    env.storage().persistent().set(&key, recipient);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
     crate::events::publish_merchant_fee_recipient_set(env, merchant, recipient);
 }
 
 /// Reads the custom fee recipient for a merchant if set.
+/// Re-bumps the TTL to ~1 year on every read so that an actively-used
+/// recipient cannot lapse during steady-state charging operations.
 pub fn get_merchant_fee_recipient(env: &Env, merchant: &Address) -> Option<Address> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::MerchantFeeRecipient(merchant.clone()))
+    let key = DataKey::MerchantFeeRecipient(merchant.clone());
+    let recipient: Option<Address> = env.storage().persistent().get(&key);
+    if recipient.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+    recipient
 }
+
+/// Clears the custom fee recipient for a merchant if configured, emitting an event.
+pub fn clear_merchant_fee_recipient(env: &Env, merchant: &Address) {
+    let key = DataKey::MerchantFeeRecipient(merchant.clone());
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().remove(&key);
+        crate::events::publish_merchant_fee_recipient_cleared(env, merchant);
+    }
+}
+
 
 /// Proposes a new fee collector and basis points.
 pub fn propose_fee(env: &Env, collector: Address, bps: u32) {

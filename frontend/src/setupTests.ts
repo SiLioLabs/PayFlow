@@ -16,7 +16,9 @@ const matchMediaMock = vi.fn().mockImplementation((query: string) => ({
   dispatchEvent: vi.fn(),
 }));
 
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: matchMediaMock,
-});
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: matchMediaMock,
+  });
+}

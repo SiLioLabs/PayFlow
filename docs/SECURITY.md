@@ -83,7 +83,6 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 | `commit_fee()`                            | admin                                                           |
 | `propose_grace_period()`                  | admin                                                           |
 | `commit_grace_period()`                   | admin                                                           |
-| `withdraw_merchant_revenue()`             | merchant                                                        |
 | `set_daily_limit()`                       | `user`                                                          |
 | `remove_daily_limit()`                    | `user`                                                          |
 | `set_metadata()`                          | `user`                                                          |

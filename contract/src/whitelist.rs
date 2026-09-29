@@ -93,9 +93,6 @@ pub fn add_merchant(env: &Env, merchant: &Address) {
         .persistent()
         .extend_ttl(&size_key, 1555200, 1555200);
 
-        env.storage()
-        .persistent()
-        .set(&DataKey::MerchantWhitelist(merchant.clone()), &true);
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_added(env, merchant);
 }
@@ -142,6 +139,7 @@ pub fn remove_merchant(env: &Env, merchant: &Address) {
     }
 
     events::publish_merchant_removed(env, merchant);
+    crate::fee::clear_merchant_fee_recipient(env, merchant);
 }
 
 /// Returns a paginated vector of whitelisted merchants.
@@ -189,25 +187,59 @@ pub fn is_frozen(env: &Env, merchant: &Address) -> bool {
 }
 
 /// Freezes a merchant, blocking new subscriptions. Idempotent.
+///
+/// # Idempotency (Issue #820)
+///
+/// If the merchant is already frozen, this is a no-op: no storage is
+/// written and no event is emitted. This prevents event spam when
+/// keepers or admin scripts retry freeze calls.
+///
+/// # TTL (Issue #821)
+///
+/// Both `MerchantFrozen` and `MerchantFreezeReason` are extended to the same
+/// 1 555 200-ledger window used by `add_merchant` for whitelist entries (~90
+/// days at 5 s/ledger). Without this extension the keys archive at the SDK
+/// default live-until, which silently allows a banned merchant to subscribe
+/// again without any operator action — a security-relevant state lapse.
 pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>) {
+    if is_frozen(env, merchant) {
+        return;
+    }
+
     if let Some(r) = &reason {
         if r.len() > 128 {
             env.panic_with_error(crate::errors::ContractError::MetadataLabelTooLong);
         }
+        let reason_key = DataKey::MerchantFreezeReason(merchant.clone());
+        env.storage().persistent().set(&reason_key, r);
         env.storage()
             .persistent()
-            .set(&DataKey::MerchantFreezeReason(merchant.clone()), r);
+            .extend_ttl(&reason_key, 1555200, 1555200);
     }
 
+    let frozen_key = DataKey::MerchantFrozen(merchant.clone());
+    env.storage().persistent().set(&frozen_key, &true);
     env.storage()
         .persistent()
-        .set(&DataKey::MerchantFrozen(merchant.clone()), &true);
+        .extend_ttl(&frozen_key, 1555200, 1555200);
+
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_frozen(env, merchant);
+    crate::fee::clear_merchant_fee_recipient(env, merchant);
 }
 
 /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
+///
+/// # Idempotency (Issue #820)
+///
+/// If the merchant is not currently frozen, this is a no-op: no storage is
+/// modified and no event is emitted. This prevents event spam when
+/// keepers or admin scripts retry unfreeze calls.
 pub fn unfreeze(env: &Env, merchant: &Address) {
+    if !is_frozen(env, merchant) {
+        return;
+    }
+
     env.storage()
         .persistent()
         .remove(&DataKey::MerchantFrozen(merchant.clone()));

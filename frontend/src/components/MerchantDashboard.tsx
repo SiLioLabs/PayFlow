@@ -11,6 +11,7 @@ import {
 import { formatAddress } from "../utils/format";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { usePolling } from "../hooks/usePolling";
+import { getCacheUpdatedAt } from "../services/rpcCache";
 import { useTransaction } from "../hooks/useTransaction";
 import { useVirtualList } from "../hooks/useVirtualList";
 import { useResponsive } from "../hooks/useResponsive";
@@ -20,6 +21,8 @@ import EventFeed from "./EventFeed";
 import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
+import ConfirmModal from "./ConfirmModal";
+import LastUpdated from "./LastUpdated";
 
 const SUBSCRIBER_ROW_HEIGHT = 72;
 const SUBSCRIBER_LIST_HEIGHT = 400;
@@ -143,19 +146,21 @@ export default function MerchantDashboard({
           <h2 className="text-xl font-bold">Merchant Dashboard</h2>
           <p className="text-sm text-muted">Manage your subscribers and track your revenue.</p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary" onClick={refresh}>
-            Refresh
-          </button>
-        </div>
+        <LastUpdated 
+          timestamp={getCacheUpdatedAt(`getMerchantSubscribers:${merchantKey}`)} 
+          onRefresh={refresh} 
+        />
       </div>
 
       <div
         className={`merchant-stats-grid grid gap-4 mb-6${isMobile ? " grid-cols-1" : " grid-cols-2"}`}
       >
         <div className="card">
-          <span className="text-sm text-muted block mb-1">Total Revenue</span>
-          <span className="text-2xl font-bold">{displayCurrentAmount(revenue)}</span>
+          <span className="text-sm text-muted block mb-1">Total Revenue Earned</span>
+          <span className="text-2xl font-bold" data-testid="merchant-total-revenue">{displayCurrentAmount(revenue)}</span>
+          <p className="text-xs text-muted mt-2">
+            Non-custodial: Revenue is transferred directly to your wallet upon each charge.
+          </p>
         </div>
         <div className="card">
           <span className="text-sm text-muted block mb-2">Last 7 Days Revenue</span>

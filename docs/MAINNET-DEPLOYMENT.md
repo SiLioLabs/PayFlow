@@ -54,10 +54,10 @@ There is no in-repo override that weakens this requirement.
 
 Configured fee bounds are admin-set guardrails on future protocol-fee commits. They must be verified **before any Mainnet funds** (user allowances or merchant revenue) are allowed into the contract.
 
-| Method | Auth | Role |
-| --- | --- | --- |
-| `set_fee_bounds(min_bps: u32, max_bps: u32)` | admin (`require_admin`) | Writes instance keys `MinFeeBps` / `MaxFeeBps` |
-| `get_fee_bounds() -> (u32, u32)` | none | Returns configured bounds; defaults to `(0, 10000)` if unset |
+| Method                                       | Auth                    | Role                                                         |
+| -------------------------------------------- | ----------------------- | ------------------------------------------------------------ |
+| `set_fee_bounds(min_bps: u32, max_bps: u32)` | admin (`require_admin`) | Writes instance keys `MinFeeBps` / `MaxFeeBps`               |
+| `get_fee_bounds() -> (u32, u32)`             | none                    | Returns configured bounds; defaults to `(0, 10000)` if unset |
 
 **Semantics (from `contract/src/lib.rs` and `contract/src/fee.rs`):**
 
@@ -89,11 +89,11 @@ GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000  // 50 trillion stroops
 HOUR_IN_SECONDS            = 3600
 ```
 
-| Method | Auth | Role |
-| --- | --- | --- |
-| `get_global_volume_cap() -> i128` | none | Effective cap: instance override `GlobalVolumeCapOverride`, or the compile-time default |
-| `get_global_volume_window() -> (i128, u64)` | none | `(accumulated_volume, window_start_timestamp)`; `(0, 0)` if no window yet |
-| `set_global_volume_cap(new_cap: i128)` | admin | Stores a positive override; panics `InvalidVolumeCap` (33) if `new_cap <= 0` |
+| Method                                      | Auth  | Role                                                                                    |
+| ------------------------------------------- | ----- | --------------------------------------------------------------------------------------- |
+| `get_global_volume_cap() -> i128`           | none  | Effective cap: instance override `GlobalVolumeCapOverride`, or the compile-time default |
+| `get_global_volume_window() -> (i128, u64)` | none  | `(accumulated_volume, window_start_timestamp)`; `(0, 0)` if no window yet               |
+| `set_global_volume_cap(new_cap: i128)`      | admin | Stores a positive override; panics `InvalidVolumeCap` (33) if `new_cap <= 0`            |
 
 **Operational purpose:** limit protocol-wide transfer volume per rolling hour. Exceeding the cap during charge accounting panics with `GlobalVolumeExceeded` (28).
 
@@ -143,20 +143,21 @@ soroban contract invoke --id <CONTRACT_ID> --network mainnet -- is_contract_paus
 
 Fields and interpretation: [`API.md` — `HealthReport`](API.md#healthreport).
 
-### Off-chain: `scripts/health-check.ts` (shallow)
+### Off-chain: `scripts/health-check.ts`
 
-This script simulates `get_schema_version` and `get_active_count`. It does **not** call `contract_health_check` and has **no** `--deep` mode.
+Shallow mode (default) simulates `get_schema_version` and `get_active_count`. Deep mode (`--deep` or `HEALTH_DEEP=true`) also simulates `contract_health_check` and `get_batch_charge_estimate`.
 
 ```bash
-cd scripts
-CONTRACT_ID=<CONTRACT_ID> npx tsx health-check.ts
-# exit 0 = both calls returned valid responses; exit 1 = unhealthy
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/health-check.ts
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/health-check.ts --deep
+# From scripts/: CONTRACT_ID=<CONTRACT_ID> npx tsx health-check.ts
+# exit 0 = healthy; exit 1 = unhealthy
 ```
 
 Env: `CONTRACT_ID` (required; `VITE_CONTRACT_ID` accepted), `RPC_URL` / `VITE_RPC_URL`, `NETWORK=mainnet` to select `Networks.PUBLIC`.
 
 - [ ] `contract_health_check` reports `is_healthy: true`, token + admin configured, not paused
-- [ ] `scripts/health-check.ts` exits 0 against the Mainnet contract ID and Mainnet RPC
+- [ ] `scripts/health-check.ts` exits 0 against the Mainnet contract ID and Mainnet RPC (use `--deep` for the on-chain health report)
 - [ ] Schema version matches the release notes / [`DEPLOYMENT.md` migration history](DEPLOYMENT.md#migration-history)
 
 ---
@@ -235,7 +236,8 @@ Get-FileHash contract\target\wasm32-unknown-unknown\release\flow_pay.wasm -Algor
 - [ ] **Testnet smoke test on the same commit**
   - [ ] Deploy/upgrade testnet with this WASM
   - [ ] `subscribe` → wait/advance interval → `charge` / keeper `batch_charge`
-  - [ ] `pause` / `pause_until` / `resume`, merchant withdraw (if applicable)
+  - [ ] `pause` / `pause_until` / `resume`
+  - [ ] Verify direct settlement to merchant wallet on charge
   - [ ] `CONTRACT_ID=<TESTNET_CONTRACT_ID> npx tsx scripts/health-check.ts` exits 0
   - [ ] `soroban contract invoke ... -- contract_health_check` is healthy
 - [ ] **Mainnet SAC address confirmed** — use the Mainnet Stellar Asset Contract for the chosen asset (not Testnet SAC).
@@ -246,7 +248,7 @@ Get-FileHash contract\target\wasm32-unknown-unknown\release\flow_pay.wasm -Algor
 
 ## Phase 2 — Deploy
 
-> Prefer `scripts/deploy-pipeline.ts` when you intend a scripted deploy. There is **no** `scripts/deploy.sh` in this repository. The pipeline reads [`deployments/config.json`](../deployments/config.json); the checked-in file is **testnet**. Do not point it at Mainnet until the [audit gate](#audit-gate-mandatory--do-not-skip) is complete.
+> Prefer `scripts/deploy-pipeline.ts` when you intend a scripted deploy. The pipeline reads [`deployments/config.json`](../deployments/config.json); the checked-in file is **testnet**. Do not point it at Mainnet until the [audit gate](#audit-gate-mandatory--do-not-skip) is complete. Day-to-day steps: [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ### Option A — Deploy pipeline
 
@@ -314,7 +316,7 @@ soroban contract invoke \
 
 ## Phase 3 — Post-deploy verification
 
-There is **no** `scripts/verify-contract.sh`. Verify with the health APIs and admin reads:
+Verify with the health APIs and admin reads (see [`DEPLOYMENT.md`](DEPLOYMENT.md#post-deployment-health-gates)):
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network mainnet -- contract_health_check

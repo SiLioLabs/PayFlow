@@ -170,7 +170,6 @@ describe("AddressBook", () => {
 
     await user.click(screen.getByRole("button", { name: /delete alice/i }));
 
-    // Both AddressBook dialog and ConfirmModal dialog are present
     const dialogs = screen.getAllByRole("dialog");
     expect(dialogs.length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/delete "alice"/i)).toBeInTheDocument();
@@ -249,7 +248,6 @@ describe("AddressBook", () => {
     const user = userEvent.setup();
     render(<AddressBook {...makeProps()} />);
 
-    // Search by a unique fragment of VALID_ADDRESS_1
     await user.type(
       screen.getByPlaceholderText(/search by name or address/i),
       VALID_ADDRESS_1.slice(0, 6)
@@ -276,7 +274,6 @@ describe("AddressBook", () => {
     const user = userEvent.setup();
     render(<AddressBook {...makeProps({ onClose })} />);
 
-    // The overlay is the outermost div with role="presentation"
     const overlay = screen.getByRole("presentation");
     await user.click(overlay);
 
@@ -340,11 +337,9 @@ describe("AddressBook", () => {
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(fileInput, file);
 
-    // The "Bad" entry should not appear in list; "Good" should
     expect(await screen.findByText("Good")).toBeInTheDocument();
     expect(screen.queryByText("Bad")).not.toBeInTheDocument();
 
-    // Partial import warning shown
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent(/skipped/i);
   });
@@ -361,6 +356,74 @@ describe("AddressBook", () => {
     await user.upload(fileInput, file);
 
     expect(await screen.findByRole("status")).toHaveTextContent(/expected a json array/i);
+  });
+
+  // ── Storage cap (#1068) ────────────────────────────────────────────────────
+
+  it("blocks add when the address book is at the cap", async () => {
+    const { MAX_ADDRESS_BOOK_ENTRIES } = await import("../constants");
+    const seeded = Array.from({ length: MAX_ADDRESS_BOOK_ENTRIES }, (_, i) => ({
+      name: `Entry ${i}`,
+      address: VALID_ADDRESS_1,
+    }));
+    seedStorage(seeded);
+
+    const user = userEvent.setup();
+    render(<AddressBook {...makeProps()} />);
+
+    await user.type(screen.getByLabelText(/new entry name/i), "Overflow");
+    await user.type(screen.getByLabelText(/new entry stellar address/i), VALID_ADDRESS_2);
+    await user.click(screen.getByRole("button", { name: /add address book entry/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/address book is full/i);
+    const stored = JSON.parse(window.localStorage.getItem("flowpay_address_book") ?? "[]");
+    expect(stored).toHaveLength(MAX_ADDRESS_BOOK_ENTRIES);
+  });
+
+  it("rejects an oversized import atomically", async () => {
+    const { MAX_ADDRESS_BOOK_ENTRIES } = await import("../constants");
+    seedStorage(
+      Array.from({ length: MAX_ADDRESS_BOOK_ENTRIES - 5 }, (_, i) => ({
+        name: `Entry ${i}`,
+        address: VALID_ADDRESS_1,
+      }))
+    );
+
+    const user = userEvent.setup();
+    render(<AddressBook {...makeProps()} />);
+
+    // Import 10 — would push us 5 over the cap.
+    const importData = JSON.stringify(
+      Array.from({ length: 10 }, (_, i) => ({ name: `New ${i}`, address: VALID_ADDRESS_2 }))
+    );
+    const file = new File([importData], "big.json", { type: "application/json" });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, file);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/import rejected/i);
+
+    const stored = JSON.parse(window.localStorage.getItem("flowpay_address_book") ?? "[]");
+    expect(stored).toHaveLength(MAX_ADDRESS_BOOK_ENTRIES - 5);
+  });
+
+  it("does not update state when the underlying storage write throws", async () => {
+    const user = userEvent.setup();
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      });
+
+    render(<AddressBook {...makeProps()} />);
+
+    await user.type(screen.getByLabelText(/new entry name/i), "Blocked");
+    await user.type(screen.getByLabelText(/new entry stellar address/i), VALID_ADDRESS_1);
+    await user.click(screen.getByRole("button", { name: /add address book entry/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/storage is full/i);
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+
+    setItemSpy.mockRestore();
   });
 
   // ── Accessibility ──────────────────────────────────────────────────────────
@@ -432,7 +495,6 @@ describe("SubscribeForm address book integration", () => {
     await user.click(screen.getByRole("button", { name: /select.*address book/i }));
     await user.click(screen.getByRole("button", { name: /select alice/i }));
 
-    // The merchant input should now contain the selected address
     const merchantInput = screen.getByTestId("merchant-input");
     expect(merchantInput).toHaveValue(VALID_ADDRESS_1);
   });

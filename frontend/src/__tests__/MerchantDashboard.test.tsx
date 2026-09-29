@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,6 +46,29 @@ const SAMPLE_SUBSCRIBER = {
   lastCharged: NOW - 2592000,
   nextChargeAt: NOW + 2592000, // future → active
 };
+
+interface MockTxState {
+  status: "idle" | "pending" | "success" | "failed";
+  submit: (fn: () => Promise<string>) => Promise<string>;
+  error: string | null;
+  hash: string | null;
+}
+
+const idleTx = (): MockTxState => ({
+  status: "idle",
+  submit: vi.fn(async (fn) => fn()),
+  error: null,
+  hash: null,
+});
+
+// MerchantDashboard calls useTransaction() for the batch-charge flow.
+function mockUseTransaction(overrides: {
+  batch?: Partial<MockTxState>;
+}) {
+  const batchState: MockTxState = { ...idleTx(), ...overrides.batch };
+  vi.mocked(useTransaction).mockReturnValue(batchState as any);
+  return { batchState };
+}
 
 describe("MerchantDashboard", () => {
   beforeEach(() => {
@@ -154,5 +177,19 @@ describe("MerchantDashboard", () => {
     expect(screen.getByText("Charged")).toBeTruthy();
     expect(stellar.simulateBatchCharge).toHaveBeenCalled();
     expect(stellar.buildBatchChargeTx).toHaveBeenCalled();
+  });
+
+  // ── Revenue Display (Non-custodial) ──────────────────────────────────
+
+  it("displays total earned revenue and non-custodial settlement note", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n); // 5 XLM
+    mockUseTransaction({});
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    const revenueElement = await screen.findByTestId("merchant-total-revenue");
+    expect(revenueElement.textContent).toContain("5.0000000 XLM");
+    expect(screen.getByText(/Non-custodial: Revenue is transferred directly to your wallet/i)).toBeTruthy();
   });
 });

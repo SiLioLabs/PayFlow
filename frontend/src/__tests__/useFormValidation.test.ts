@@ -15,6 +15,7 @@ import {
   validateAddress,
 } from "../hooks/useFormValidation";
 import { server } from "../stellar";
+import type { Account } from "@stellar/stellar-sdk";
 import { CONTRACT_LIMITS } from "../constants";
 
 const mockedServer = vi.mocked(server);
@@ -23,6 +24,7 @@ const validFields: FormFields = {
   merchant: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
   amount: "10",
   interval: 3600,
+  tokenAddress: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
 };
 
 function validateFields(fields: FormFields) {
@@ -58,7 +60,7 @@ describe("useFormValidation", () => {
     });
 
     expect(isValid).toBe(false);
-    expect(result.current.errors.merchant).toBe("Invalid Stellar address.");
+    expect(result.current.errors.merchant).toBe("Invalid Stellar address or contract ID.");
   });
 
   it("returns an amount error when amount is zero", () => {
@@ -156,7 +158,7 @@ describe("useFormValidation", () => {
 
       expect(isValid).toBe(false);
       expect(mockedServer.getAccount).not.toHaveBeenCalled();
-      expect(hook.result.current.errors.merchant).toBe("Invalid Stellar address.");
+      expect(hook.result.current.errors.merchant).toBe("Invalid Stellar address or contract ID.");
     });
 
     it("aborts previous validation request when a new validation starts", async () => {
@@ -205,6 +207,148 @@ describe("useFormValidation", () => {
       expect(res1).toBe(false); // Aborted call returns false
       expect(res2).toBe(true);
       expect(hook.result.current.validating).toBe(false);
+    });
+  });
+
+  describe("isValidating", () => {
+    const fields = { ...validFields, interval: CONTRACT_LIMITS.MIN_INTERVAL_SECONDS };
+
+    function deferred<T>() {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it("is true only while the server check is in flight", async () => {
+      const d = deferred<Account>();
+      mockedServer.getAccount.mockReturnValueOnce(d.promise);
+      const hook = renderHook(() => useFormValidation());
+
+      expect(hook.result.current.isValidating).toBe(false);
+
+      let promise!: Promise<boolean>;
+      act(() => {
+        promise = hook.result.current.validateAsync(fields);
+      });
+      expect(hook.result.current.isValidating).toBe(true);
+      expect(hook.result.current.validating).toBe(true);
+
+      await act(async () => {
+        d.resolve({} as Account);
+        await promise;
+      });
+      expect(hook.result.current.isValidating).toBe(false);
+    });
+
+    it("resets when a newer call fails sync validation after aborting a pending check", async () => {
+      const d = deferred<Account>();
+      mockedServer.getAccount.mockReturnValueOnce(d.promise);
+      const hook = renderHook(() => useFormValidation());
+
+      let first!: Promise<boolean>;
+      act(() => {
+        first = hook.result.current.validateAsync(fields);
+      });
+      expect(hook.result.current.isValidating).toBe(true);
+
+      let second!: Promise<boolean>;
+      act(() => {
+        second = hook.result.current.validateAsync({ ...fields, merchant: "bad" });
+      });
+      expect(hook.result.current.isValidating).toBe(false);
+
+      await act(async () => {
+        d.resolve({} as Account);
+        expect(await first).toBe(false);
+        expect(await second).toBe(false);
+      });
+      expect(hook.result.current.isValidating).toBe(false);
+    });
+
+    it("stays true while a superseding check is still in flight", async () => {
+      const d1 = deferred<Account>();
+      const d2 = deferred<Account>();
+      mockedServer.getAccount.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+      const hook = renderHook(() => useFormValidation());
+
+      let first!: Promise<boolean>;
+      let second!: Promise<boolean>;
+      act(() => {
+        first = hook.result.current.validateAsync(fields);
+      });
+      act(() => {
+        second = hook.result.current.validateAsync(fields);
+      });
+
+      // The stale check settling must not clear the flag owned by the newer one.
+      await act(async () => {
+        d1.resolve({} as Account);
+        expect(await first).toBe(false);
+      });
+      expect(hook.result.current.isValidating).toBe(true);
+
+      await act(async () => {
+        d2.resolve({} as Account);
+        expect(await second).toBe(true);
+      });
+      expect(hook.result.current.isValidating).toBe(false);
+    });
+
+    it("cancelValidation aborts the stale check and ignores its failure", async () => {
+      const d = deferred<Account>();
+      mockedServer.getAccount.mockReturnValueOnce(d.promise);
+      const hook = renderHook(() => useFormValidation());
+
+      let promise!: Promise<boolean>;
+      act(() => {
+        promise = hook.result.current.validateAsync(fields);
+      });
+      act(() => {
+        hook.result.current.cancelValidation();
+      });
+      expect(hook.result.current.isValidating).toBe(false);
+
+      await act(async () => {
+        d.reject(new Error("Account not found"));
+        expect(await promise).toBe(false);
+      });
+      expect(hook.result.current.errors.merchant).toBeUndefined();
+      expect(hook.result.current.isValidating).toBe(false);
+    });
+
+    it("aborts the in-flight check on unmount", async () => {
+      const d = deferred<Account>();
+      mockedServer.getAccount.mockReturnValueOnce(d.promise);
+      const hook = renderHook(() => useFormValidation());
+
+      let promise!: Promise<boolean>;
+      act(() => {
+        promise = hook.result.current.validateAsync(fields);
+      });
+      hook.unmount();
+
+      d.resolve({} as Account);
+      await expect(promise).resolves.toBe(false);
+    });
+
+    it("skips the account lookup for contract-ID merchants", async () => {
+      const hook = renderHook(() => useFormValidation());
+
+      let ok = false;
+      await act(async () => {
+        ok = await hook.result.current.validateAsync({
+          ...fields,
+          merchant: validFields.tokenAddress,
+        });
+      });
+
+      expect(ok).toBe(true);
+      expect(mockedServer.getAccount).not.toHaveBeenCalled();
+      expect(hook.result.current.isValidating).toBe(false);
     });
   });
 });

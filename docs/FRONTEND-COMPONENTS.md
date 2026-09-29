@@ -1,6 +1,6 @@
 # Frontend Component Reference
 
-Component-by-component reference for PayFlow’s React UI. For architecture and contribution workflow, see [FRONTEND.md](./FRONTEND.md) and [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md).
+Component-by-component reference for PayFlow’s React UI (props and signatures). For **canonical vs orphan** status, validation-rule owners, and `stellarBatchCharge.ts`, see [`frontend/components.md`](./frontend/components.md). Architecture and contribution workflow: [FRONTEND.md](./FRONTEND.md) and [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md).
 
 Props and signatures below are taken from TypeScript sources under `frontend/src/`. Amounts are generally in **stroops** unless noted.
 
@@ -520,7 +520,7 @@ Admin tool to validate subscription integrity and submit repair transactions.
 | `useWallet`             | Freighter connect / persist / sign            | `() => { publicKey, connect, signAndSubmit, disconnect, error, connecting, ready }`           | Polls Freighter 3×300ms on restore                             |
 | `useVirtualList`        | Windowed list (3-row overscan)                | `<T>(items, itemHeight, containerHeight) => { visibleItems, totalHeight, offsetY, onScroll }` | Empty / non-positive heights → empty visible set               |
 | `useAnalytics`          | Opt-in event track + batch flush              | `() => { isOptedIn, setOptIn, track }`                                                        | No-op if opted out; flush at 10 events / 5s / hidden           |
-| `useNetworkCheck`       | Compare Freighter vs app passphrase           | `() => { networkMatch, walletNetwork }`                                                       | Optimistic `true` before check                                 |
+| `useNetworkStatus`      | Connectivity + Freighter vs app passphrase    | `() => { status, isOnline, networkMatch, walletNetwork, … }`                                  | `status`: online/offline/unknown/checking                      |
 | `usePauseResume`        | Pause/resume txs                              | `(userKey, onSign, onRefresh) => { pause, resume, pauseTx, resumeTx }`                        | Calls `onRefresh` after success                                |
 | `useSubscriberCount`    | Active count from subscribed−cancelled events | `() => { count, loading, stale }`                                                             | Caps pages (`MAX_PAGES=50`)                                    |
 | `useSubscriptionSync`   | Fetch + optimistic `mutate` with rollback     | `(userKey, refreshTrigger?) => { subscription, loading, status, error, mutate, refresh }`     | Failed cancel rolls optimistic `active: false` back            |
@@ -591,65 +591,67 @@ Serialize wallet/tx submissions so only one build/sign runs at a time.
 
 These components are imported and rendered via `App.tsx` → `Dashboard` or `SubscribeForm`:
 
-| Component | Mount path |
-| --- | --- |
-| `Dashboard` | App.tsx → tab "dashboard" |
-| `SubscribeForm` | App.tsx → tab "subscribe" |
-| `ErrorBoundary` | main.tsx (provider wrapper) |
-| `SubscriptionCard` | Dashboard |
-| `SubscriptionCardSkeleton` (Skeleton) | Dashboard |
-| `ErrorRecovery` | Dashboard |
-| `AllowanceDisplay` | Dashboard, SubscribeForm |
-| `IncreaseAllowanceModal` | Dashboard |
-| `DailyLimitCard` | Dashboard |
-| `DailyLimitModal` | Dashboard |
-| `PayPerUseForm` | Dashboard |
-| `ReferralPanel` | Dashboard |
-| `SubscriptionHistory` | Dashboard (lazy) |
-| `EventFeed` | Dashboard |
-| `SubscriptionExport` | Dashboard |
-| `ToastContainer` (Toast) | Dashboard, SubscribeForm |
-| `IntervalSelector` | SubscribeForm |
-| `BalanceDisplay` | SubscribeForm |
-| `AddressBook` | SubscribeForm |
+| Component                             | Mount path                  |
+| ------------------------------------- | --------------------------- |
+| `Dashboard`                           | App.tsx → tab "dashboard"   |
+| `SubscribeForm`                       | App.tsx → tab "subscribe"   |
+| `ErrorBoundary`                       | main.tsx (provider wrapper) |
+| `SubscriptionCard`                    | Dashboard                   |
+| `SubscriptionCardSkeleton` (Skeleton) | Dashboard                   |
+| `ErrorRecovery`                       | Dashboard                   |
+| `AllowanceDisplay`                    | Dashboard, SubscribeForm    |
+| `IncreaseAllowanceModal`              | Dashboard                   |
+| `DailyLimitCard`                      | Dashboard                   |
+| `DailyLimitModal`                     | Dashboard                   |
+| `PayPerUseForm`                       | Dashboard                   |
+| `ReferralPanel`                       | Dashboard                   |
+| `SubscriptionHistory`                 | Dashboard (lazy)            |
+| `EventFeed`                           | Dashboard                   |
+| `SubscriptionExport`                  | Dashboard                   |
+| `ToastContainer` (Toast)              | Dashboard, SubscribeForm    |
+| `IntervalSelector`                    | SubscribeForm               |
+| `BalanceDisplay`                      | SubscribeForm               |
+| `AddressBook`                         | SubscribeForm               |
 
 ### Orphaned (available but not mounted)
 
 These components exist in `frontend/src/components/` but are not currently wired into the application tree. See [FRONTEND.md — Orphaned / Ready-to-Wire Components](./FRONTEND.md#orphaned--ready-to-wire-components) for wiring instructions:
 
-| Component | Purpose |
-| --- | --- |
-| `MerchantDashboard` | Merchant revenue & subscribers view |
-| `MerchantSubscriberTable` | Sortable subscriber table (used by MerchantDashboard) |
-| `ConnectWallet` | Freighter connect CTA with install link |
-| `WalletBar` | Connected wallet strip with balance/network |
-| `WalletSelectModal` | Multi-wallet selection modal |
-| `TabBar` | Main navigation tabs |
-| `ThemeToggle` | Dark/light mode toggle |
-| `NetworkBadge` | Testnet/Mainnet badge |
-| `ContractPauseBanner` | Maintenance banner when contract paused |
-| `OfflineBanner` | Full-width offline warning |
-| `SystemHealthCard` | Contract health status card |
-| `SubscriptionHealthWidget` | Health indicator widget |
-| `TxQueuePanel` | Transaction queue panel |
-| `NotificationCenter` | Bell icon + notification dropdown |
-| `StroopInput` | XLM amount input debounced to stroops |
-| `AmountUnitToggle` | Toggle XLM/STROOP display |
-| `ShortcutHelpOverlay` | Keyboard shortcuts overlay (triggered via ShortcutRegistry) |
-| `ConfirmModal` | Accessible confirm/cancel dialog (used by sub-components) |
-| `CopyButton` | Clipboard copy with feedback (used by sub-components) |
-| `NextChargeCountdown` | Live countdown to next charge (used by SubscriptionCard) |
-| `Spinner` | CSS spinner (used by sub-components) |
-| `AddressInput` | Debounced Stellar address field (used by admin panels) |
-| `admin/SubscriptionRepairPanel` | Admin subscription repair tool |
-| `admin/BatchPausePanel` | Batch pause subscriptions |
-| `admin/BatchWhitelistPanel` | Batch whitelist add/remove |
-| `admin/AddressListInput` | Multiline address textarea |
+| Component                       | Purpose                                                     |
+| ------------------------------- | ----------------------------------------------------------- |
+| `MerchantDashboard`             | Merchant revenue & subscribers view                         |
+| `MerchantSubscriberTable`       | Sortable subscriber table (used by MerchantDashboard)       |
+| `ConnectWallet`                 | Freighter connect CTA with install link                     |
+| `WalletBar`                     | Connected wallet strip with balance/network                 |
+| `WalletSelectModal`             | Multi-wallet selection modal                                |
+| `TabBar`                        | Main navigation tabs                                        |
+| `ThemeToggle`                   | Dark/light mode toggle                                      |
+| `NetworkBadge`                  | Testnet/Mainnet badge                                       |
+| `ContractPauseBanner`           | Maintenance banner when contract paused                     |
+| `OfflineBanner`                 | Full-width offline warning                                  |
+| `SystemHealthCard`              | Contract health status card                                 |
+| `SubscriptionHealthWidget`      | Health indicator widget                                     |
+| `TxQueuePanel`                  | Transaction queue panel                                     |
+| `NotificationCenter`            | Bell icon + notification dropdown                           |
+| `StroopInput`                   | XLM amount input debounced to stroops                       |
+| `AmountUnitToggle`              | Toggle XLM/STROOP display                                   |
+| `ShortcutHelpOverlay`           | Keyboard shortcuts overlay (triggered via ShortcutRegistry) |
+| `ConfirmModal`                  | Accessible confirm/cancel dialog (used by sub-components)   |
+| `CopyButton`                    | Clipboard copy with feedback (used by sub-components)       |
+| `NextChargeCountdown`           | Live countdown to next charge (used by SubscriptionCard)    |
+| `Spinner`                       | CSS spinner (used by sub-components)                        |
+| `AddressInput`                  | Debounced Stellar address field (used by admin panels)      |
+| `admin/SubscriptionRepairPanel` | Admin subscription repair tool                              |
+| `admin/BatchPausePanel`         | Batch pause subscriptions                                   |
+| `admin/BatchWhitelistPanel`     | Batch whitelist add/remove                                  |
+| `admin/AddressListInput`        | Multiline address textarea                                  |
+
+Batch size caps (pause 25, whitelist 50, charge/cancel contract defaults) are tabulated in [`limits.md`](limits.md). Do not change those numbers in the UI without updating the table and the contract constants together.
 
 ### Pages
 
-| File | Purpose | Mount path |
-| --- | --- | --- |
+| File                       | Purpose                                | Mount path                                              |
+| -------------------------- | -------------------------------------- | ------------------------------------------------------- |
 | `pages/AdminDashboard.tsx` | Admin dashboard (imports admin panels) | Not currently mounted — wire via "admin" tab in App.tsx |
 
 ---

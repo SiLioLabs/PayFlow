@@ -1,6 +1,13 @@
 use soroban_sdk::{Address, Env, Vec};
 
+use crate::caps::{
+    MAX_MERCHANT_SUB_COUNT_BATCH, REVENUE_DAY_PAGE_SIZE, TOP_MERCHANTS_PAGE_SIZE,
+};
 use crate::DataKey;
+
+/// Maximum number of day-index entries retained per merchant after a prune or reset.
+/// Entries beyond this cap are dropped from the oldest end so the index stays bounded.
+pub const MAX_RETAINED_REVENUE_DAYS: u32 = 90;
 
 /// Returns the total revenue accumulated for a merchant.
 pub fn get_merchant_revenue(env: &Env, merchant: &Address) -> i128 {
@@ -10,9 +17,36 @@ pub fn get_merchant_revenue(env: &Env, merchant: &Address) -> i128 {
         .unwrap_or(0i128)
 }
 
+/// Returns the number of merchants with pending (unwithdrawn) revenue > 0.
+pub fn get_pending_merchant_rev_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingMerchantRevCount)
+        .unwrap_or(0u32)
+}
+
+fn increment_pending_merchant_rev_count(env: &Env) {
+    let count = get_pending_merchant_rev_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingMerchantRevCount, &(count + 1));
+}
+
+fn decrement_pending_merchant_rev_count(env: &Env) {
+    let count = get_pending_merchant_rev_count(env);
+    if count > 0 {
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingMerchantRevCount, &(count - 1));
+    }
+}
+
 /// Adds `amount` to the merchant's running revenue total.
 pub fn increment_revenue(env: &Env, merchant: &Address, amount: i128) {
     let current = get_merchant_revenue(env, merchant);
+    if current == 0 && amount > 0 {
+        increment_pending_merchant_rev_count(env);
+    }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &(current + amount));
     env.storage()
@@ -143,12 +177,15 @@ pub fn index_merchant(env: &Env, merchant: &Address) {
 /// Returns top N merchants ranked by active subscriber count in descending order.
 /// `limit` is capped at 20; panics with `BatchTooLarge` if exceeded.
 pub fn get_top_merchants_by_subs(env: &Env, limit: u32) -> Vec<(Address, u32)> {
-    if limit > 20 {
+    if limit > TOP_MERCHANTS_PAGE_SIZE {
         env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
+    }
+    if limit == 0 {
+        return Vec::new(env);
     }
 
     let total = get_merchant_index_size(env);
-    let mut list: Vec<(Address, u32)> = Vec::new(env);
+    let mut sorted: Vec<(Address, u32)> = Vec::new(env);
 
     for i in 0..total {
         if let Some(merchant) = env
@@ -157,46 +194,34 @@ pub fn get_top_merchants_by_subs(env: &Env, limit: u32) -> Vec<(Address, u32)> {
             .get::<_, Address>(&DataKey::MerchantIndex(i))
         {
             let count = get_merchant_subscriber_count(env, &merchant) as u32;
-            list.push_back((merchant, count));
-        }
-    }
+            let item = (merchant, count);
 
-    let len = list.len();
-    let mut sorted: Vec<(Address, u32)> = Vec::new(env);
-    if len > 0 {
-        for i in 0..len {
-            let item = list.get(i).unwrap();
-            let mut inserted = false;
-            let mut new_sorted: Vec<(Address, u32)> = Vec::new(env);
             let s_len = sorted.len();
+            if s_len < limit || (s_len > 0 && count > sorted.get(s_len - 1).unwrap().1) {
+                let mut new_sorted: Vec<(Address, u32)> = Vec::new(env);
+                let mut inserted = false;
 
-            for j in 0..s_len {
-                let existing: (Address, u32) = sorted.get(j).unwrap();
-                if !inserted && item.1 > existing.1 {
-                    new_sorted.push_back(item.clone());
-                    inserted = true;
+                for j in 0..s_len {
+                    let existing: (Address, u32) = sorted.get(j).unwrap();
+                    if !inserted && count > existing.1 {
+                        new_sorted.push_back(item.clone());
+                        inserted = true;
+                    }
+                    new_sorted.push_back(existing);
                 }
-                new_sorted.push_back(existing);
+                if !inserted {
+                    new_sorted.push_back(item);
+                }
+
+                if new_sorted.len() > limit {
+                    new_sorted.pop_back();
+                }
+                sorted = new_sorted;
             }
-            if !inserted {
-                new_sorted.push_back(item);
-            }
-            sorted = new_sorted;
         }
     }
 
-    let effective_limit = if limit < sorted.len() {
-        limit
-    } else {
-        sorted.len()
-    };
-
-    let mut result = Vec::new(env);
-    for i in 0..effective_limit {
-        result.push_back(sorted.get(i).unwrap());
-    }
-
-    result
+    sorted
 }
 
 /// Increments the per-merchant subscriber count by 1.
@@ -222,13 +247,26 @@ pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
     }
 }
 
-/// Resets a merchant's cumulative revenue counter to zero.
+/// Resets a merchant's cumulative revenue counter to zero and clears the
+/// day-index so stale entries don't accumulate across reset cycles.
 pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
+    let current = get_merchant_revenue(env, merchant);
+    if current > 0 {
+        decrement_pending_merchant_rev_count(env);
+    }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &0i128);
     env.storage()
         .persistent()
         .extend_ttl(&key, 1555200, 1555200);
+
+    // Clear the day-index so repeated reset/prune cycles don't grow it unboundedly.
+    let index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
+    let empty: Vec<u64> = Vec::new(env);
+    env.storage().persistent().set(&index_key, &empty);
+    env.storage()
+        .persistent()
+        .extend_ttl(&index_key, 1555200, 1555200);
 }
 
 /// Extends the TTL of a specific merchant daily revenue bucket.
@@ -242,12 +280,60 @@ pub fn bump_merchant_revenue_day(env: &Env, merchant: &Address, day: u64) {
 }
 
 /// Prunes missing or expired daily revenue buckets safely.
+/// Removes each requested day's storage entry and compacts the day-index so
+/// stale slots are never returned by readers. Retains at most
+/// `MAX_RETAINED_REVENUE_DAYS` entries (newest) after compaction.
 pub fn prune_merchant_revenue_days(env: &Env, merchant: &Address, days: Vec<u64>) {
     crate::admin::require_admin(env);
+
+    // Build a set of days being removed for O(n) index walk.
+    // Soroban has no HashSet in no_std, so we collect into a Vec and scan.
+    let mut removed_set: Vec<u64> = Vec::new(env);
     for day in days.into_iter() {
         let key = DataKey::MerchantRevenueDay(merchant.clone(), day);
         env.storage().persistent().remove(&key);
+        removed_set.push_back(day);
     }
+
+    // Compact the day-index: keep entries whose day is not in removed_set.
+    let index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
+    let index: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&index_key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    let mut compacted: Vec<u64> = Vec::new(env);
+    for day in index.iter() {
+        let mut pruned = false;
+        for r in removed_set.iter() {
+            if day == r {
+                pruned = true;
+                break;
+            }
+        }
+        if !pruned {
+            compacted.push_back(day);
+        }
+    }
+
+    // Enforce the retention cap: keep only the newest MAX_RETAINED_REVENUE_DAYS entries.
+    let cap = MAX_RETAINED_REVENUE_DAYS;
+    let final_index = if compacted.len() > cap {
+        let start = compacted.len() - cap;
+        let mut capped: Vec<u64> = Vec::new(env);
+        for i in start..compacted.len() {
+            capped.push_back(compacted.get(i).unwrap());
+        }
+        capped
+    } else {
+        compacted
+    };
+
+    env.storage().persistent().set(&index_key, &final_index);
+    env.storage()
+        .persistent()
+        .extend_ttl(&index_key, 1555200, 1555200);
 }
 
 /// Retrieves a specific daily revenue bucket.
@@ -256,12 +342,10 @@ pub fn get_merchant_revenue_day(env: &Env, merchant: &Address, day: u64) -> i128
     env.storage().persistent().get(&key).unwrap_or(0i128)
 }
 
-const MAX_MERCHANT_SUB_COUNT_BATCH: u32 = 50;
-
 /// Returns active subscriber counts for multiple merchants in a single call.
 /// Capped at 50 merchants; panics with `BatchTooLarge` above that.
 /// Returns `(addr, 0)` for merchants with no recorded count.
-pub fn get_merchant_sub_counts(env: &Env, merchants: &Vec<Address>) -> Vec<(Address, u32)> {
+pub fn get_merchant_sub_counts(env: &Env, merchants: &Vec<Address>) -> Vec<(Address, u64)> {
     if merchants.len() > MAX_MERCHANT_SUB_COUNT_BATCH {
         env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
     }
@@ -313,7 +397,7 @@ pub fn get_merchant_revenue_day_page(
     offset: u32,
     limit: u32,
 ) -> Vec<(u64, i128)> {
-    if limit > 30 {
+    if limit > REVENUE_DAY_PAGE_SIZE {
         env.panic_with_error(crate::errors::ContractError::BatchTooLarge);
     }
 

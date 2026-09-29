@@ -69,6 +69,9 @@ pub fn validate_interval(env: &Env, interval: u64) {
     if interval < crate::min_interval::get_min_interval(env) {
         env.panic_with_error(ContractError::IntervalTooShort);
     }
+    if interval > crate::MAX_SUBSCRIPTION_INTERVAL {
+        env.panic_with_error(ContractError::IntervalExceedsMaximum);
+    }
 }
 
 #[allow(dead_code)]
@@ -87,7 +90,29 @@ pub fn require_active_subscription(env: &Env, active: bool) {
 
 #[allow(dead_code)]
 pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, interval: u64) {
-    if now < last_charged + interval {
+    let next = last_charged
+        .checked_add(interval)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+    if now < next {
         env.panic_with_error(ContractError::IntervalNotElapsed);
     }
 }
+
+pub fn require_valid_transfer_targets(env: &Env, user: &Address, new_user: &Address) {
+    if user == new_user {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+    if user == &env.current_contract_address() || new_user == &env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+}
+
+pub fn require_valid_subscribe_addresses(env: &Env, user: &Address, merchant: &Address) {
+    if user == merchant {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+    if user == &env.current_contract_address() || merchant == &env.current_contract_address() {
+        env.panic_with_error(ContractError::InvalidRecipient);
+    }
+}
+

@@ -39,13 +39,11 @@ pub fn get_subscriber_index_size(env: &Env) -> u64 {
 }
 
 /// Returns the number of active subscribers for a given merchant.
-pub fn get_merchant_sub_count(env: &Env, merchant: &Address) -> u32 {
-    let count: u64 = env
-        .storage()
+pub fn get_merchant_sub_count(env: &Env, merchant: &Address) -> u64 {
+    env.storage()
         .persistent()
         .get(&DataKey::MerchantSubCount(merchant.clone()))
-        .unwrap_or(0u64);
-    count as u32
+        .unwrap_or(0u64)
 }
 
 /// Appends `user` to the next available slot in the subscriber index and increments the size.

@@ -30,6 +30,15 @@ vi.mock("../components/IncreaseAllowanceModal", () => ({
   ),
 }));
 
+// Mock TransferSubscriptionModal so we can assert it opens, in isolation from its own logic
+vi.mock("../components/TransferSubscriptionModal", () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="transfer-subscription-modal">
+      <button onClick={onClose}>Close Modal</button>
+    </div>
+  ),
+}));
+
 // Mock the stellar module — getAllowance and getTrialEnd are used by SubscriptionCard
 const mockGetAllowance = vi.fn();
 const mockGetTrialEnd = vi.fn();
@@ -54,11 +63,18 @@ vi.mock("../hooks/useSubscriptionSync", () => ({
   }),
 }));
 
+const { mockPause, mockPauseUntil } = vi.hoisted(() => ({
+  mockPause: vi.fn(),
+  mockPauseUntil: vi.fn(),
+}));
+
 vi.mock("../hooks/usePauseResume", () => ({
   usePauseResume: () => ({
-    pause: vi.fn(),
+    pause: mockPause,
+    pauseUntil: mockPauseUntil,
     resume: vi.fn(),
     pauseTx: { state: "idle", error: null },
+    pauseUntilTx: { state: "idle", error: null },
     resumeTx: { state: "idle", error: null },
   }),
 }));
@@ -642,7 +658,7 @@ describe("SubscriptionCard", () => {
           onRefresh={mockOnRefresh}
         />
       );
-      expect(screen.getByRole("button", { name: /^pause$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /pause subscription/i })).toBeInTheDocument();
     });
 
     it("renders resume button when subscription is paused", () => {
@@ -666,8 +682,54 @@ describe("SubscriptionCard", () => {
           onRefresh={mockOnRefresh}
         />
       );
-      expect(screen.queryByRole("button", { name: /^pause$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /pause subscription/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Bounded pause (pause_until)", () => {
+    it("shows a validation error and does not call pauseUntil when no date is chosen", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
+
+      expect(screen.getByTestId("pause-until-error")).toBeInTheDocument();
+      expect(mockPauseUntil).not.toHaveBeenCalled();
+    });
+
+    it("calls pauseUntil with the chosen future expiry (Unix seconds)", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+
+      const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const localValue = future.toISOString().slice(0, 16);
+      const input = screen.getByTestId("pause-until-input");
+      await userEvent.type(input, localValue);
+
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
+
+      expect(mockPauseUntil).toHaveBeenCalledTimes(1);
+      const expiryArg = mockPauseUntil.mock.calls[0][0] as bigint;
+      expect(typeof expiryArg).toBe("bigint");
+      expect(expiryArg).toBeGreaterThan(BigInt(Math.floor(Date.now() / 1000)));
     });
   });
 
@@ -721,7 +783,7 @@ describe("SubscriptionCard", () => {
       await waitFor(() => {
         expect(screen.getByTestId("health-action-warning")).toBeInTheDocument();
       });
-      expect(screen.getByRole("button", { name: /^pause$/i })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: /pause subscription/i })).not.toBeDisabled();
       expect(screen.getByRole("button", { name: /cancel subscription/i })).not.toBeDisabled();
     });
 
@@ -801,6 +863,59 @@ describe("SubscriptionCard", () => {
         />
       );
       expect(screen.queryAllByRole("button", { name: /cancel subscription/i })).toHaveLength(0);
+    });
+  });
+
+  describe("Transfer subscription", () => {
+    it("renders the transfer trigger button for an active subscription", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.getByTestId("transfer-subscription-button")).toBeInTheDocument();
+    });
+
+    it("renders the transfer trigger button when the subscription is paused", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.getByTestId("transfer-subscription-button")).toBeInTheDocument();
+    });
+
+    it("does not render the transfer trigger button when subscription is inactive", () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+      expect(screen.queryByTestId("transfer-subscription-button")).not.toBeInTheDocument();
+    });
+
+    it("opens TransferSubscriptionModal when the transfer button is clicked", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      expect(screen.queryByTestId("transfer-subscription-modal")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByTestId("transfer-subscription-button"));
+      expect(screen.getByTestId("transfer-subscription-modal")).toBeInTheDocument();
     });
   });
 });

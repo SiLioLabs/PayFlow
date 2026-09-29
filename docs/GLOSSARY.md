@@ -34,7 +34,11 @@ Source: `contract/src/batch.rs`, `batch_charge()`.
 
 ### ChargeResult
 
-Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate()`. A non-`Charged` result for one user **never aborts** the rest of the batch. Variants are append-only in the contract (discriminants 0–6); do not reorder when extending.
+Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate()`. A non-`Charged` result for one user **never aborts** the rest of the batch. Variants are append-only in the contract (discriminants 0-6); do not reorder when extending.
+
+On the wire each variant is an `scvU32` carrying its discriminant, **not** an `scvSymbol` or a string. See [`charge-results.md`](./charge-results.md) for the byte-level encoding, worked hex examples, and decoders.
+
+Source: `contract/src/batch.rs`, [`charge-results.md`](./charge-results.md).
 
 | Variant | Meaning |
 | --- | --- |
@@ -46,7 +50,7 @@ Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate(
 | `GracePeriodElapsed` | Charge window closed after grace period |
 | `AllowanceInsufficient` | Token allowance below gross `sub.amount`; subscription stays active |
 
-Canonical table: [`KEEPER.md`](./KEEPER.md#how-it-works). Type definition: `contract/src/batch.rs`.
+Canonical table: [`KEEPER.md`](./KEEPER.md#how-a-cycle-works). Type definition: `contract/src/batch.rs`.
 
 ### ChargeSimResult
 

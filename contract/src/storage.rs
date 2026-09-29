@@ -1,13 +1,7 @@
 use soroban_sdk::{Address, Env};
 
+use crate::errors::ContractError;
 use crate::{DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS};
-
-#[allow(dead_code)]
-pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Subscription(user.clone()), sub);
-}
 
 pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
     env.storage()
@@ -15,7 +9,17 @@ pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
         .get(&DataKey::Subscription(user.clone()))
 }
 
-#[allow(dead_code)]
+/// Overwrites the stored subscription entry for `user`.
+///
+/// Callers that mutate a subscription in place (e.g. trial extension) write the
+/// whole struct back through here so the storage key layout stays owned by this
+/// module.
+pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Subscription(user.clone()), sub);
+}
+
 /// Extends the TTL of a subscription entry and, when present, its
 /// associated `PauseExpiry` key. Keeping both entries alive is
 /// critical: if PauseExpiry archives while the subscription survives,
@@ -41,7 +45,6 @@ pub fn extend_subscription_ttl(env: &Env, user: &Address) {
     }
 }
 
-#[allow(dead_code)]
 pub fn set_token(env: &Env, token: &Address) {
     env.storage().instance().set(&DataKey::Token, token);
 }
@@ -50,11 +53,20 @@ pub fn get_token(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::Token)
 }
 
+/// Returns the stored contract admin.
+///
+/// # Errors
+///
+/// Aborts with the typed `ContractError::NotInitialized` (code 7) when no
+/// admin has been stored yet. Every admin-gated entrypoint reaches this
+/// helper through `require_admin`, so a pre-`initialize` call surfaces a
+/// stable wire code that clients can branch on instead of a host panic
+/// string. Use [`get_admin_optional`] when absence is a normal outcome.
 pub fn get_admin(env: &Env) -> Address {
     env.storage()
         .instance()
         .get(&DataKey::Admin)
-        .expect("admin not set")
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NotInitialized))
 }
 
 pub fn get_admin_optional(env: &Env) -> Option<Address> {

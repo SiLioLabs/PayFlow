@@ -2,7 +2,7 @@
 
 This guide is designed for third-party applications (such as SaaS billing dashboards, merchants, and mobile apps) that want to integrate the PayFlow recurring billing and `pay_per_use` microtransaction protocol on the Stellar network.
 
-> **Merchants:** This document focuses on the subscriber path (approve, subscribe, charge). For accepting revenue, monitoring subscribers, handling merchant events, and withdrawing balances, see the **[Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md)**.
+> **Merchants:** This document focuses on the subscriber path (approve, subscribe, charge). For accepting revenue, monitoring subscribers, handling merchant events, and tracking earnings, see the **[Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md)**.
 
 ---
 
@@ -228,13 +228,13 @@ The `pay_per_use` event is emitted with `recipient` in place of the subscription
 
 ### Error reference
 
-| Error | Code | When |
-| --- | --- | --- |
-| `InvalidRecipient` | 32 | `recipient` is the contract address |
-| `MerchantNotWhitelisted` | 10 | Whitelist enabled and `recipient` not whitelisted |
-| `SubscriptionPaused` | 17 | User's subscription is paused |
-| `SubscriptionInactive` | 5 | User's subscription is cancelled |
-| `DailyLimitExceeded` | 25 | Pay-per-use would exceed daily spending cap |
+| Error                    | Code | When                                              |
+| ------------------------ | ---- | ------------------------------------------------- |
+| `InvalidRecipient`       | 32   | `recipient` is the contract address               |
+| `MerchantNotWhitelisted` | 10   | Whitelist enabled and `recipient` not whitelisted |
+| `SubscriptionPaused`     | 17   | User's subscription is paused                     |
+| `SubscriptionInactive`   | 5    | User's subscription is cancelled                  |
+| `DailyLimitExceeded`     | 25   | Pay-per-use would exceed daily spending cap       |
 
 For full error details, see [ERROR-CODES.md](ERROR-CODES.md).
 

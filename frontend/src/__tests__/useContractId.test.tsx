@@ -23,7 +23,7 @@ describe("useContractId", () => {
 
   it("valid contract ID -> valid = true", async () => {
     // set env
-    import.meta.env.VITE_CONTRACT_ID = "VALID_ID";
+    import.meta.env.VITE_CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
     vi.spyOn(stellar.StrKey, "isValidContract").mockReturnValue(true);
 
     const Test = makeTestComponent();

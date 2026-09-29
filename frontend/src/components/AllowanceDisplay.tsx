@@ -6,19 +6,32 @@ interface Props {
   userKey: string;
   subscriptionAmount: bigint;
   refreshTrigger: number;
+  tokenId?: string;
 }
 
-export default function AllowanceDisplay({ userKey, subscriptionAmount, refreshTrigger }: Props) {
+export default function AllowanceDisplay({
+  userKey,
+  subscriptionAmount,
+  refreshTrigger,
+  tokenId,
+}: Props) {
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [prevUserKey, setPrevUserKey] = useState(userKey);
+  if (userKey !== prevUserKey) {
+    setPrevUserKey(userKey);
+    setAllowance(null);
+    setLoading(true);
+  }
+
   useEffect(() => {
     setLoading(true);
-    getAllowance(userKey)
+    getAllowance(userKey, tokenId)
       .then(setAllowance)
       .catch(() => setAllowance(null))
       .finally(() => setLoading(false));
-  }, [userKey, refreshTrigger]);
+  }, [userKey, refreshTrigger, tokenId]);
 
   if (loading) {
     return (

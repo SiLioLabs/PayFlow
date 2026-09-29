@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2027/schema",
+  "title": "Churn Analysis Golden Fixtures",
+  "description": "Canonical input events and expected outputs for churn-analysis.ts deterministic tests. Each fixture is a self-contained scenario covering a specific metric or edge case.",
+  "fixtures": [
+    {
+      "name": "cohort-retention-new-logic",
+      "description": "Tests cohort retention (30d/90d) with 'new' resubscription logic. Covers multiple cohorts, resubscriptions, and insufficient data guards.",
+      "referenceTime": 1781481600,
+      "events": [
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchA", "timestamp": 1768003200 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "merchA", "timestamp": 1768435200 },
+        { "eventName": "cancelled", "user": "user2", "timestamp": 1768867200 },
+        { "eventName": "subscribed", "user": "user3", "merchant": "merchB", "timestamp": 1768867200 },
+        { "eventName": "cancelled", "user": "user3", "timestamp": 1773532800 },
+        { "eventName": "subscribed", "user": "user5", "merchant": "merchC", "timestamp": 1767571200 },
+        { "eventName": "cancelled", "user": "user5", "timestamp": 1768435200 },
+        { "eventName": "subscribed", "user": "user5", "merchant": "merchC", "timestamp": 1769300000 },
+        { "eventName": "cancelled", "user": "user5", "timestamp": 1772236800 },
+        { "eventName": "subscribed", "user": "user4", "merchant": "merchB", "timestamp": 1775433600 }
+      ],
+      "expected": {
+        "cohorts": [
+          { "cohort": "2026-01", "initial_size": 5, "active_30_days": 3, "active_90_days": 1, "retention_rate_30d": "60.00%", "retention_rate_90d": "20.00%" },
+          { "cohort": "2026-04", "initial_size": 1, "active_30_days": 1, "active_90_days": "insufficient data", "retention_rate_30d": "100.00%", "retention_rate_90d": "insufficient data" }
+        ],
+        "projection": { "average_monthly_churn_rate": "20.00%", "current_active_subscribers": 2, "projected_churn_count": "0.40" }
+      }
+    },
+    {
+      "name": "cohort-retention-retention-logic",
+      "description": "Tests cohort retention with 'retention' resubscription logic (first-subscribe user tracking). Resubscriptions do not create new lifespans.",
+      "referenceTime": 1781481600,
+      "events": [
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchA", "timestamp": 1768003200 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "merchA", "timestamp": 1768435200 },
+        { "eventName": "cancelled", "user": "user2", "timestamp": 1768867200 },
+        { "eventName": "subscribed", "user": "user3", "merchant": "merchB", "timestamp": 1768867200 },
+        { "eventName": "cancelled", "user": "user3", "timestamp": 1773532800 },
+        { "eventName": "subscribed", "user": "user5", "merchant": "merchC", "timestamp": 1767571200 },
+        { "eventName": "cancelled", "user": "user5", "timestamp": 1768435200 },
+        { "eventName": "subscribed", "user": "user5", "merchant": "merchC", "timestamp": 1769300000 },
+        { "eventName": "cancelled", "user": "user5", "timestamp": 1772236800 },
+        { "eventName": "subscribed", "user": "user4", "merchant": "merchB", "timestamp": 1775433600 }
+      ],
+      "expected": {
+        "cohorts": [
+          { "cohort": "2026-01", "initial_size": 4, "active_30_days": 3, "active_90_days": 1, "retention_rate_30d": "75.00%", "retention_rate_90d": "25.00%" },
+          { "cohort": "2026-04", "initial_size": 1, "active_30_days": 1, "active_90_days": "insufficient data", "retention_rate_30d": "100.00%", "retention_rate_90d": "insufficient data" }
+        ],
+        "projection": { "average_monthly_churn_rate": "12.50%", "current_active_subscribers": 2, "projected_churn_count": "0.25" }
+      }
+    },
+    {
+      "name": "merchant-churn-breakdown",
+      "description": "Tests merchant-level churn breakdown. Filters out single-subscriber merchants. Sorts top 5 by churn rate descending.",
+      "referenceTime": 500,
+      "events": [
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchA", "timestamp": 100 },
+        { "eventName": "cancelled", "user": "user1", "timestamp": 150 },
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchB", "timestamp": 200 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "merchB", "timestamp": 210 },
+        { "eventName": "subscribed", "user": "user3", "merchant": "merchB", "timestamp": 220 },
+        { "eventName": "cancelled", "user": "user2", "timestamp": 250 },
+        { "eventName": "cancelled", "user": "user3", "timestamp": 260 },
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchC", "timestamp": 300 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "merchC", "timestamp": 310 },
+        { "eventName": "subscribed", "user": "user4", "merchant": "merchD", "timestamp": 400 },
+        { "eventName": "cancelled", "user": "user4", "timestamp": 450 }
+      ],
+      "expected": {
+        "top_merchants_churn": [
+          { "merchant_id": "merchB", "subscribers": 3, "cancellations": 2, "churn_rate": "66.67%" },
+          { "merchant_id": "merchC", "subscribers": 2, "cancellations": 0, "churn_rate": "0.00%" }
+        ]
+      }
+    },
+    {
+      "name": "churn-projection-multiple-completed-cohorts",
+      "description": "Tests historical churn projection across multiple completed cohorts with varying churn rates. Validates average churn rate calculation and projection formula.",
+      "referenceTime": 1781481600,
+      "events": [
+        { "eventName": "subscribed", "user": "user1", "merchant": "merchM", "timestamp": 1767571200 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "merchM", "timestamp": 1767571210 },
+        { "eventName": "subscribed", "user": "user3", "merchant": "merchM", "timestamp": 1767571220 },
+        { "eventName": "subscribed", "user": "user4", "merchant": "merchM", "timestamp": 1767571230 },
+        { "eventName": "cancelled", "user": "user1", "timestamp": 1768435200 },
+        { "eventName": "cancelled", "user": "user2", "timestamp": 1768867200 },
+        { "eventName": "subscribed", "user": "feb_user_0", "merchant": "merchM", "timestamp": 1770249600 },
+        { "eventName": "subscribed", "user": "feb_user_1", "merchant": "merchM", "timestamp": 1770249601 },
+        { "eventName": "subscribed", "user": "feb_user_2", "merchant": "merchM", "timestamp": 1770249602 },
+        { "eventName": "subscribed", "user": "feb_user_3", "merchant": "merchM", "timestamp": 1770249603 },
+        { "eventName": "subscribed", "user": "feb_user_4", "merchant": "merchM", "timestamp": 1770249604 },
+        { "eventName": "subscribed", "user": "feb_user_5", "merchant": "merchM", "timestamp": 1770249605 },
+        { "eventName": "subscribed", "user": "feb_user_6", "merchant": "merchM", "timestamp": 1770249606 },
+        { "eventName": "subscribed", "user": "feb_user_7", "merchant": "merchM", "timestamp": 1770249607 },
+        { "eventName": "subscribed", "user": "feb_user_8", "merchant": "merchM", "timestamp": 1770249608 },
+        { "eventName": "subscribed", "user": "feb_user_9", "merchant": "merchM", "timestamp": 1770249609 },
+        { "eventName": "cancelled", "user": "feb_user_0", "timestamp": 1770681600 },
+        { "eventName": "cancelled", "user": "feb_user_1", "timestamp": 1771113600 }
+      ],
+      "expected": {
+        "projection": { "average_monthly_churn_rate": "35.00%", "current_active_subscribers": 10, "projected_churn_count": "3.50" }
+      }
+    },
+    {
+      "name": "grace-period-cancelled-with-refund",
+      "description": "Tests that 'cancelled_with_refund' events are treated identically to 'cancelled' for churn metrics (grace lapses).",
+      "referenceTime": 1781481600,
+      "events": [
+        { "eventName": "subscribed", "user": "userA", "merchant": "merchX", "timestamp": 1768003200 },
+        { "eventName": "cancelled_with_refund", "user": "userA", "timestamp": 1768867200 },
+        { "eventName": "subscribed", "user": "userB", "merchant": "merchX", "timestamp": 1768003210 },
+        { "eventName": "cancelled", "user": "userB", "timestamp": 1768867210 }
+      ],
+      "expected": {
+        "cohorts": [
+          { "cohort": "2026-01", "initial_size": 2, "active_30_days": 0, "active_90_days": 0, "retention_rate_30d": "0.00%", "retention_rate_90d": "0.00%" }
+        ],
+        "projection": { "average_monthly_churn_rate": "100.00%", "current_active_subscribers": 0, "projected_churn_count": "0.00" }
+      }
+    },
+    {
+      "name": "empty-and-single-event-edge-cases",
+      "description": "Tests empty event list and single event edge cases produce valid reports with zero/insufficient data.",
+      "referenceTime": 1781481600,
+      "events": [],
+      "expected": {
+        "cohorts": [],
+        "top_merchants_churn": [],
+        "projection": { "average_monthly_churn_rate": "0.00%", "current_active_subscribers": 0, "projected_churn_count": "0.00" }
+      }
+    },
+    {
+      "name": "single-subscriber-merchant-filtered",
+      "description": "Verifies merchants with <= 1 unique subscriber are excluded from top_merchants_churn to avoid statistical skew.",
+      "referenceTime": 1000,
+      "events": [
+        { "eventName": "subscribed", "user": "user1", "merchant": "singleSub", "timestamp": 100 },
+        { "eventName": "subscribed", "user": "user2", "merchant": "twoSubs", "timestamp": 110 },
+        { "eventName": "subscribed", "user": "user3", "merchant": "twoSubs", "timestamp": 120 },
+        { "eventName": "cancelled", "user": "user3", "timestamp": 130 }
+      ],
+      "expected": {
+        "top_merchants_churn": [
+          { "merchant_id": "twoSubs", "subscribers": 2, "cancellations": 1, "churn_rate": "50.00%" }
+        ]
+      }
+    }
+  ]
+}

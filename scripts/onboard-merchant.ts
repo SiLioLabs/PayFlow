@@ -3,19 +3,23 @@
  * onboard-merchant.ts — Admin merchant onboarding automation for FlowPay.
  *
  * Usage:
- *   npx tsx scripts/onboard-merchant.ts G...
- *   npx tsx scripts/onboard-merchant.ts --batch merchants.csv
+ *   npx tsx scripts/onboard-merchant.ts G... [--contractId <contractId>] [--rpcUrl <rpcUrl>] [--dry-run]
+ *   npx tsx scripts/onboard-merchant.ts --batch merchants.csv [--contractId <contractId>] [--rpcUrl <rpcUrl>] [--dry-run]
+ *
+ * CLI Overrides:
+ *   --contractId <contractId>               Optional. Override the default manifest contractId.
+ *   --rpcUrl <rpcUrl>                       Optional. Override the default manifest rpcUrl.
+ *   --dry-run                               Optional. Simulate whitelist checks and report the
+ *                                           exact `whitelist_batch_add` operation without submitting.
  *
  * Environment:
- *   CONTRACT_ID or VITE_CONTRACT_ID          Required. FlowPay contract ID.
  *   ADMIN_SECRET_KEY                         Required. Admin secret for signed whitelist txs.
- *   RPC_URL or VITE_RPC_URL                  Optional. Soroban RPC URL.
- *   NETWORK_PASSPHRASE or VITE_NETWORK_PASSPHRASE
- *                                            Optional. Stellar network passphrase.
  *   MERCHANT_ONBOARD_WEBHOOK_URL             Optional. Webhook to notify after onboarding.
  */
 
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { Server } from "@stellar/stellar-sdk/rpc";
 import {
   appendJsonLine,
   addressToScVal,
@@ -25,12 +29,23 @@ import {
   loadSorobanConfig,
   projectPath,
   readContractValue,
+  simulateRead,
   vecAddressToScVal,
+  readJsonFile,
+  SorobanConfig,
 } from "./soroban-admin.js";
+import { ManifestSchema } from "./config.js";
 
 interface CliArgs {
   address?: string;
   batchFile?: string;
+  contractId?: string;
+  rpcUrl?: string;
+  dryRun?: boolean;
+}
+
+export interface OnboardOptions {
+  dryRun?: boolean;
 }
 
 interface MerchantOutcome {
@@ -42,18 +57,24 @@ interface MerchantOutcome {
 
 const LOG_PATH = projectPath("data", "merchants.jsonl");
 
-const config = loadSorobanConfig();
-const server = createServer(config);
-
-function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[]): CliArgs {
   let address: string | undefined;
   let batchFile: string | undefined;
+  let contractId: string | undefined;
+  let rpcUrl: string | undefined;
+  let dryRun = false;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--batch") {
       batchFile = argv[++i];
-    } else if (!address) {
+    } else if (arg === "--contractId") {
+      contractId = argv[++i];
+    } else if (arg === "--rpcUrl") {
+      rpcUrl = argv[++i];
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (!arg.startsWith("--") && !address) {
       address = arg;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -64,7 +85,7 @@ function parseArgs(argv: string[]): CliArgs {
     throw new Error("Provide a merchant address or --batch merchants.csv.");
   }
 
-  return { address, batchFile };
+  return { address, batchFile, contractId, rpcUrl, dryRun };
 }
 
 async function loadBatchAddresses(csvPath: string): Promise<string[]> {
@@ -80,27 +101,31 @@ async function loadBatchAddresses(csvPath: string): Promise<string[]> {
     .filter((value) => value.toLowerCase() !== "address");
 }
 
-async function isMerchantFrozen(address: string): Promise<boolean> {
+async function isMerchantFrozen(config: SorobanConfig, server: Server, address: string): Promise<boolean> {
   return readContractValue<boolean>(
     config,
     server,
     "is_merchant_frozen",
     [addressToScVal(address)],
-    (value) => (value ? Boolean(value.b()) : false)
+    (value) => (value ? Boolean(value.b()) : false),
   );
 }
 
-async function isMerchantWhitelisted(address: string): Promise<boolean> {
+async function isMerchantWhitelisted(config: SorobanConfig, server: Server, address: string): Promise<boolean> {
   return readContractValue<boolean>(
     config,
     server,
     "is_merchant_whitelisted",
     [addressToScVal(address)],
-    (value) => (value ? Boolean(value.b()) : false)
+    (value) => (value ? Boolean(value.b()) : false),
   );
 }
 
-async function notifyWebhook(address: string, txHash: string | null, status: MerchantOutcome["status"]): Promise<void> {
+async function notifyWebhook(
+  address: string,
+  txHash: string | null,
+  status: MerchantOutcome["status"],
+): Promise<void> {
   const url = process.env.MERCHANT_ONBOARD_WEBHOOK_URL;
   if (!url) {
     return;
@@ -122,7 +147,10 @@ async function notifyWebhook(address: string, txHash: string | null, status: Mer
   }
 }
 
-async function logMerchant(address: string, txHash: string | null): Promise<void> {
+async function logMerchant(
+  address: string,
+  txHash: string | null,
+): Promise<void> {
   await appendJsonLine(LOG_PATH, {
     address,
     onboarded_at: new Date().toISOString(),
@@ -130,7 +158,25 @@ async function logMerchant(address: string, txHash: string | null): Promise<void
   });
 }
 
-async function onboardMerchant(address: string): Promise<MerchantOutcome> {
+/**
+ * Build the exact contract-call arguments for `whitelist_batch_add`.
+ *
+ * Contract interface (`contract/src/lib.rs`):
+ *   `whitelist_batch_add(merchants: Vec<Address>) -> u32`
+ * takes a single `Vec<Address>` param, so the call arity is exactly one
+ * ScVal (a vec of addresses). Used by `--dry-run` reporting and tests to
+ * pin the arity against the compiled interface.
+ */
+export function buildWhitelistBatchArgs(address: string) {
+  return [vecAddressToScVal([address])];
+}
+
+export async function onboardMerchant(
+  config: SorobanConfig,
+  server: Server,
+  address: string,
+  options: OnboardOptions = {},
+): Promise<MerchantOutcome> {
   if (!isValidStellarAddress(address)) {
     return {
       address,
@@ -140,7 +186,7 @@ async function onboardMerchant(address: string): Promise<MerchantOutcome> {
     };
   }
 
-  const frozen = await isMerchantFrozen(address);
+  const frozen = await isMerchantFrozen(config, server, address);
   if (frozen) {
     return {
       address,
@@ -150,7 +196,7 @@ async function onboardMerchant(address: string): Promise<MerchantOutcome> {
     };
   }
 
-  const alreadyWhitelisted = await isMerchantWhitelisted(address);
+  const alreadyWhitelisted = await isMerchantWhitelisted(config, server, address);
   if (alreadyWhitelisted) {
     await logMerchant(address, null);
     await notifyWebhook(address, null, "already_whitelisted");
@@ -162,8 +208,22 @@ async function onboardMerchant(address: string): Promise<MerchantOutcome> {
     };
   }
 
+  const args = buildWhitelistBatchArgs(address);
+
+  if (options.dryRun) {
+    await simulateRead(config, server, "whitelist_batch_add", args);
+    return {
+      address,
+      status: "onboarded",
+      txHash: null,
+      message:
+        "Dry-run: merchant would be whitelisted via whitelist_batch_add([address]) (1 arg).",
+    };
+  }
+
+  const tx = await invokeContract(config, server, "whitelist_batch_add", args);
   const tx = await invokeContract(config, server, "whitelist_batch_add", [vecAddressToScVal([address])]);
-  const verified = await isMerchantWhitelisted(address);
+  const verified = await isMerchantWhitelisted(config, server, address);
   if (!verified) {
     throw new Error(`Whitelist verification failed after tx ${tx.hash}`);
   }
@@ -181,13 +241,52 @@ async function onboardMerchant(address: string): Promise<MerchantOutcome> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
-  const addresses = args.batchFile ? await loadBatchAddresses(args.batchFile) : [args.address as string];
+  const addresses = args.batchFile
+    ? await loadBatchAddresses(args.batchFile)
+    : [args.address as string];
+
+  const rawManifest = await readJsonFile(projectPath("deployments", "manifest.json"), null);
+  if (!rawManifest) {
+    throw new Error("Missing deployment manifest at deployments/manifest.json");
+  }
+
+  const manifestResult = ManifestSchema.safeParse(rawManifest);
+  if (!manifestResult.success) {
+    throw new Error(`Deployment manifest is invalid: ${manifestResult.error.errors[0].message}`);
+  }
+  const manifest = manifestResult.data;
+
+  const finalContractId = args.contractId ?? manifest.contractId;
+  const finalRpcUrl = args.rpcUrl ?? manifest.rpcUrl;
+
+  if (!finalContractId || finalContractId.trim() === "") {
+    throw new Error("Resolved contractId is empty. Please provide a valid --contractId or ensure it exists in deployments/manifest.json");
+  }
+  if (!finalRpcUrl || finalRpcUrl.trim() === "") {
+    throw new Error("Resolved rpcUrl is empty. Please provide a valid --rpcUrl or ensure it exists in deployments/manifest.json");
+  }
+
+  const config = loadSorobanConfig({
+    contractId: finalContractId,
+    rpcUrl: finalRpcUrl,
+    networkPassphrase: manifest.networkPassphrase,
+  });
+  const server = createServer(config);
+
   const outcomes: MerchantOutcome[] = [];
   let hadExecutionError = false;
 
+  if (args.dryRun) {
+    console.log(
+      "Dry-run: reporting exact whitelist_batch_add operations without submitting.",
+    );
+  }
+
   for (const address of addresses) {
     try {
-      const outcome = await onboardMerchant(address);
+      const outcome = await onboardMerchant(config, server, address, {
+        dryRun: args.dryRun,
+      });
       outcomes.push(outcome);
       console.log(`${address}: ${outcome.message}`);
     } catch (error) {
@@ -197,16 +296,27 @@ async function main(): Promise<void> {
     }
   }
 
-  const failures = outcomes.filter((outcome) => outcome.status === "invalid" || outcome.status === "frozen");
+  const failures = outcomes.filter(
+    (outcome) => outcome.status === "invalid" || outcome.status === "frozen",
+  );
   if (failures.length > 0) {
-    console.error(`Completed with ${failures.length} blocked or invalid merchant(s).`);
+    console.error(
+      `Completed with ${failures.length} blocked or invalid merchant(s).`,
+    );
   }
   if (hadExecutionError) {
     process.exitCode = 1;
   }
 }
 
-main().catch((error) => {
-  console.error("onboard-merchant failed:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isEntry = process.argv[1] && (
+  process.argv[1] === fileURLToPath(import.meta.url) ||
+  process.argv[1].replace(/\\/g, "/").endsWith("scripts/onboard-merchant.ts")
+);
+
+if (isEntry) {
+  main().catch((error) => {
+    console.error("onboard-merchant failed:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

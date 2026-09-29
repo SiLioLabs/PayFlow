@@ -1,0 +1,82 @@
+name: Contract Tests
+
+# Runs the contract test suite and keeps the generated test snapshots honest.
+#
+# `contract/test_snapshots/` is written by soroban-sdk when a test's `Env` is
+# dropped, so the committed tree is a record of what every test wrote to the
+# ledger and emitted as events. The SDK never deletes files, so a renamed or
+# removed test leaves an orphan behind that no test reads again — which is how
+# stale output survives as "expected" and how real behaviour changes hide in
+# review noise. This job runs the suite and then fails on any orphaned,
+# missing, corrupt, gapped or uncommitted snapshot file.
+#
+# Order matters: the static audit runs first because it needs no build and so
+# still reports orphaned fixtures when the crate does not compile; the
+# post-run check then catches snapshots that the run rewrote or added.
+#
+# The suite step is `continue-on-error` so the freshness gate always runs and
+# reports which fixture is out of date, rather than the job stopping at the
+# first compile or test error.
+
+on:
+  push:
+    branches: ["master"]
+    paths: ["contract/**", ".github/workflows/contract-tests.yml"]
+  pull_request:
+    branches: ["master"]
+    paths: ["contract/**", ".github/workflows/contract-tests.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test + snapshot freshness
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contract
+
+      - name: Audit committed snapshot files
+        run: node scripts/snapshot-check.mjs
+
+      - name: Run contract test suite
+        id: tests
+        continue-on-error: true
+        run: cargo test
+
+      - name: Verify snapshots are fresh after the run
+        if: always()
+        run: node scripts/snapshot-check.mjs --after-test
+
+      - name: Fail on suite failure
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "cargo test failed — see the step log above." >&2
+          exit 1
+
+      - name: Upload regenerated snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-test-snapshots
+          path: contract/test_snapshots
+          if-no-files-found: ignore
