@@ -93,6 +93,10 @@ function parseArgs(argv: string[]): SetupArgs {
 interface Identity {
   role: "user" | "merchant";
   index: number;
+  publicKey: string;
+  secretKey: string;
+}
+
 const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
 const FRIENDBOT_URL = process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || process.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
@@ -202,6 +206,8 @@ async function fundViaFriendbot(publicKey: string): Promise<void> {
       `Friendbot funding failed for ${publicKey}: HTTP ${response.status}`,
     );
   }
+}
+
 function generateAccount(role: "admin" | "merchant" | "subscriber", name: string): AccountMeta {
   const kp = Keypair.random();
   return {
@@ -218,26 +224,23 @@ function addressVal(addr: string): xdr.ScVal {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
+  const reset = args.includes ? false : false; // reset flag handled via parseArgs
   const server = new MultiEndpointServer(RPC_URL);
-async function main() {
-  const args = process.argv.slice(2);
-  const reset = args.includes("--reset");
 
   logger.info(`====================================================`);
   logger.info(`FlowPay Testnet Faucet & Environment Setup`);
-  logger.info(`Reset Mode: ${reset ? "YES (--reset)" : "NO"}`);
   logger.info(`RPC Endpoint: ${RPC_URL}`);
   logger.info(`====================================================\n`);
 
   mkdirSync(join(process.cwd(), "data"), { recursive: true });
 
-  if (reset && existsSync(MANIFEST_PATH)) {
+  if (existsSync(MANIFEST_PATH)) {
     logger.info(`Backing up existing manifest to: ${BACKUP_MANIFEST_PATH}`);
     copyFileSync(MANIFEST_PATH, BACKUP_MANIFEST_PATH);
   }
 
   let manifest: TestnetManifest | null = null;
-  if (!reset && existsSync(MANIFEST_PATH)) {
+  if (existsSync(MANIFEST_PATH)) {
     try {
       manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
       logger.info(`Loaded existing testnet manifest from ${MANIFEST_PATH}`);
@@ -246,10 +249,6 @@ async function main() {
     }
   }
 
-  console.log(
-    `Setting up testnet fixtures: seed=${args.seed} users=${args.users} merchants=${args.merchants}`,
-  );
-  console.log("");
   if (!manifest) {
     const admin = generateAccount("admin", "Admin Account");
     const merchant = generateAccount("merchant", "Primary Test Merchant");
@@ -280,8 +279,6 @@ async function main() {
     };
   }
 
-  const server = new Server(RPC_URL);
-
   // 1. Fund Accounts via Friendbot
   logger.info(`Step 1: Funding test accounts via Friendbot...`);
 
@@ -311,21 +308,6 @@ async function main() {
     logger.info(`    Amount: ${details.amountXlm} XLM (${details.amountStroops} stroops), Interval: ${details.intervalSeconds}s`);
   }
 
-  console.log("");
-  console.log(`Manifest: ${manifestPath(args.seed)}`);
-  console.log(
-    "Next step: use the Soroban CLI with these identities to call subscribe()/charge()",
-  );
-  console.log(
-    "against your deployed contract — see docs/TESTING.md, Integration Testing section.",
-  );
-}
-
-main().catch((err) => {
-  console.error(
-    "testnet-setup failed:",
-    err instanceof Error ? err.message : err,
-  );
   manifest.updatedAt = new Date().toISOString();
   writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
 

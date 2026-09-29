@@ -191,8 +191,6 @@ function printEvent(event: ParsedEvent): void {
   const merchant = event.merchant ? shortenAddress(event.merchant) : "N/A";
   const amount = event.amount ? `${stroopsToXlm(event.amount)} XLM` : "N/A";
 
-  console.log(
-  
   logger.info(
     `${colors.dim}${timestamp}${colors.reset} ` +
       `${color}${colors.bright}${event.type}${colors.reset} ` +
@@ -218,9 +216,8 @@ function debugLog(...args: unknown[]): void {
   }
 }
 
-const server = new Server(RPC_URL);
-const dedupCache = new EventDedupCache();
 const server = new MultiEndpointServer(RPC_URL);
+const dedupCache = new EventDedupCache();
 const seenEvents = new Set<string>();
 let currentLedger = 0;
 let totalEventsSeen = 0;
@@ -250,7 +247,8 @@ async function fetchAndPrintEvents(): Promise<void> {
 
       if (!seenEvents.has(parsed.id)) {
         seenEvents.add(parsed.id);
-      
+      }
+
       // Deduplication check
       if (!dedupCache.checkAndRecord(parsed.txHash, parsed.type, parsed.ledger)) {
         newEvents.push(parsed);
@@ -259,7 +257,6 @@ async function fetchAndPrintEvents(): Promise<void> {
       }
     }
 
-    
     // Periodic stats logging (every 100 events processed)
     totalEventsSeen += response.events.length;
     if (totalEventsSeen >= 100) {
@@ -272,7 +269,7 @@ async function fetchAndPrintEvents(): Promise<void> {
       );
       totalEventsSeen = 0;
     }
-    
+
     // Sort by timestamp and print new events
     newEvents.sort((a, b) => a.timestamp - b.timestamp);
     for (const event of newEvents) {
@@ -280,16 +277,6 @@ async function fetchAndPrintEvents(): Promise<void> {
     }
 
     if (newEvents.length > 0) {
-      console.log(
-        colors.dim + `─ ${newEvents.length} new event(s) ─` + colors.reset,
-      );
-    }
-  } catch (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : JSON.stringify(error);
-    console.error(
-      colors.red + `Error fetching events: ${errorMsg}` + colors.reset,
-    );
       logger.info(colors.dim + `─ ${newEvents.length} new event(s) ─` + colors.reset);
     }
   } catch (error) {

@@ -505,33 +505,6 @@ async function runChecks(): Promise<ReadinessReport> {
       "migrate",
       [emptyUsers],
       SKIP_KEY_CHECK ? undefined : ADMIN_SECRET || undefined
-async function main(): Promise<void> {
-  if (!CONTRACT_ID) {
-    logger.error("Error: CONTRACT_ID environment variable is required.");
-    process.exit(1);
-  }
-
-  logger.info("=== FlowPay Pre-Upgrade Check ===");
-  logger.info(`Contract : ${CONTRACT_ID}`);
-  logger.info(`RPC URL  : ${RPC_URL}`);
-  logger.info(`Network  : ${NETWORK_PASSPHRASE}`);
-  logger.info("");
-
-  // 1. Admin address
-  const adminVal = await simulateReadOnly("get_admin");
-  const admin = scValToString(adminVal);
-  logger.info(`Admin address      : ${admin}`);
-
-  // 2. Active subscription count
-  const countVal = await simulateReadOnly("get_active_count");
-  const activeCount = scValToString(countVal);
-  logger.info(`Active subscriptions: ${activeCount}`);
-
-  if (Number(activeCount) > 0) {
-    console.warn(
-      `  ⚠  ${activeCount} active subscription(s) will be affected by a storage migration.`,
-    logger.warn(
-      `  ⚠  ${activeCount} active subscription(s) will be affected by a storage migration.`
     );
     if (error) {
       // Auth failures on empty migrate with dummy source are expected without admin key.
@@ -586,57 +559,26 @@ async function main(): Promise<void> {
   }
 
   if (!CONTRACT_ID) {
-    console.error("Error: CONTRACT_ID environment variable is required.");
+    logger.error("Error: CONTRACT_ID environment variable is required.");
     process.exit(1);
   }
-
-  console.log(`RPC URL  : ${RPC_URL}`);
-  console.log(`Network  : ${NETWORK_PASSPHRASE}`);
-  console.log("");
 
   const report = await runChecks();
   printReport(report);
 
   if (!report.ready) {
-    console.error("Pre-upgrade check FAILED — resolve blocking issues before upgrading.");
+    logger.error("Pre-upgrade check FAILED — resolve blocking issues before upgrading.");
     process.exit(1);
   }
 
   if (CONFIRM) {
-    console.log("✔  --confirm flag present. All checks passed — safe to proceed with upgrade.");
+    logger.info("✔  --confirm flag present. All checks passed — safe to proceed with upgrade.");
   } else {
-    console.log("All checks passed. Re-run with --confirm when you are ready to upgrade.");
+    logger.info("All checks passed. Re-run with --confirm when you are ready to upgrade.");
   }
-  // 3. Schema version
-  const versionVal = await simulateReadOnly("get_schema_version");
-  const schemaVersion = scValToString(versionVal);
-  logger.info(`Schema version     : ${schemaVersion}`);
-  if (Number(schemaVersion) < 2) {
-    console.warn(
-      "  ⚠  Schema is below current version 2 — run migrate() after upgrading.",
-    );
-    logger.warn("  ⚠  Schema is below current version 2 — run migrate() after upgrading.");
-  }
-
-  logger.info("");
-
-  // 4. Confirmation gate
-  if (!CONFIRM) {
-    console.log(
-      "Checks complete. Re-run with --confirm to proceed with the upgrade.",
-    );
-    logger.info("Checks complete. Re-run with --confirm to proceed with the upgrade.");
-    process.exit(0);
-  }
-
-  logger.info("✔  --confirm flag present. Safe to proceed with upgrade.");
 }
 
 main().catch((err) => {
-  console.error(
-    "Pre-upgrade check failed:",
-    err instanceof Error ? err.message : err,
-  );
   logger.error("Pre-upgrade check failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 });

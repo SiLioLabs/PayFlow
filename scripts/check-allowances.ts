@@ -7,8 +7,8 @@
  */
 
 import { MultiEndpointServer } from "./rpc-client.js";
-import {
 import { logger } from "./logger";
+import {
   Contract,
   Networks,
   TransactionBuilder,
@@ -26,9 +26,6 @@ const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
   Networks.TESTNET) as string;
 
 if (!CONTRACT_ID) {
-  console.error("Error: CONTRACT_ID environment variable is required");
-  console.error(
-    "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]",
   logger.error("Error: CONTRACT_ID environment variable is required");
   logger.error(
     "Usage: CONTRACT_ID=your_contract_id tsx check-allowances.ts [--file subscribers.txt] [--json] [address1 address2 ...]"
@@ -288,8 +285,6 @@ function printHumanReadable(results: AuditResult[]): void {
   if (healthy.length > 0) {
     logger.info(`${healthy.length} healthy:`);
     for (const r of healthy) {
-      console.log(
-        `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscriptionAmount).padStart(10)} ${stroopsToXlm(r.allowance).padStart(10)}`,
       logger.info(
         `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscriptionAmount).padStart(10)} ${stroopsToXlm(r.allowance).padStart(10)}`
       );
@@ -297,8 +292,6 @@ function printHumanReadable(results: AuditResult[]): void {
     logger.info();
   }
 
-  console.log(
-    `Summary: healthy=${healthy.length}, atRisk=${atRisk.length}, noSubscription=${noSub.length}`,
   logger.info(
     `Summary: healthy=${healthy.length}, atRisk=${atRisk.length}, noSubscription=${noSub.length}`
   );

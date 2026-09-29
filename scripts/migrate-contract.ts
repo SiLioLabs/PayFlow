@@ -109,15 +109,6 @@ async function main() {
 
   // Verify version incremented
   if (postVersion <= preVersion) {
-    console.error(
-      `\nERROR: Schema version did not increment! (${preVersion} -> ${postVersion})`,
-    );
-    process.exit(1);
-  }
-
-  console.log(
-    `\nMigration successful! Version incremented from ${preVersion} to ${postVersion}`,
-  );
     logger.error(`\nERROR: Schema version did not increment! (${preVersion} -> ${postVersion})`);
     process.exit(1);
   }

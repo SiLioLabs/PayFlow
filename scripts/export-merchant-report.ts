@@ -19,12 +19,6 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-
-const RPC_URL =
-  process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-  process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
-import { Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { logger } from "./logger";
 
@@ -55,9 +49,6 @@ function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
 }
 
-async function getMerchantRevenue(merchant: string): Promise<bigint> {
-  const { MultiEndpointServer } = await import("./rpc-client.js");
-  const server = new MultiEndpointServer(RPC_URL);
 /** Convert stroops (bigint) to XLM string */
 function stroopsToXlm(stroops: bigint): string {
   const isNegative = stroops < 0n;
@@ -99,10 +90,6 @@ async function getMerchantRevenue(server: Server, merchant: string): Promise<big
   return BigInt(retval.i128().toString());
 }
 
-async function getMerchantSubscriberCount(merchant: string): Promise<number> {
-  const { MultiEndpointServer } = await import("./rpc-client.js");
-  const server = new MultiEndpointServer(RPC_URL);
-
 async function getMerchantSubscriberCount(server: Server, merchant: string): Promise<number> {
   if (!CONTRACT_ID) return 0;
   const response = await server.getEvents({
@@ -123,7 +110,6 @@ async function getMerchantSubscriberCount(server: Server, merchant: string): Pro
     const userAddress = topic[1]?.toString();
     if (!userAddress) continue;
 
-    const eventTime = Date.parse(event.ledgerClosedAt) || 0;
     const eventTime = Number(
       (event as { ledgerCloseTime?: number }).ledgerCloseTime ??
         (event.ledgerClosedAt ? Date.parse(event.ledgerClosedAt) / 1000 : 0)
@@ -160,15 +146,6 @@ async function getMerchantSubscriberCount(server: Server, merchant: string): Pro
   return count;
 }
 
-async function getMerchantRevenueHistory(
-  merchant: string,
-  days: number,
-): Promise<bigint[]> {
-  const { Server } = await import("@stellar/stellar-sdk/rpc");
-  const server = new Server(RPC_URL);
-async function getMerchantRevenueHistory(merchant: string, days: number): Promise<bigint[]> {
-  const { MultiEndpointServer } = await import("./rpc-client.js");
-  const server = new MultiEndpointServer(RPC_URL);
 async function getMerchantRevenueHistory(server: Server, merchant: string, days: number): Promise<bigint[]> {
   if (!CONTRACT_ID) return [];
   const contract = new Contract(CONTRACT_ID);
@@ -267,9 +244,11 @@ async function main() {
   }
 
   if (!merchant || !output) {
-    console.error(
+    logger.error(
       "Usage: npx tsx scripts/export-merchant-report.ts --merchant GXXXX... --output report.json",
     );
+    process.exit(1);
+  }
   if (!["csv", "json", "ndjson"].includes(format)) {
     logger.error(`ERROR: Invalid format '${format}'. Supported formats: csv, json, ndjson`);
     process.exit(1);
@@ -325,7 +304,6 @@ async function main() {
   }
 }
 
-main().catch(console.error);
 main().catch((err) => {
   logger.error("Export report failed:", err instanceof Error ? err.message : err);
   process.exit(1);
