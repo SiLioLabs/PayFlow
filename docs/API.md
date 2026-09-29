@@ -1482,6 +1482,8 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_batch_charge_estimate --users '["<USER_A>","<USER_B>"]'
 ```
 
+For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, batch size cap differences, and result-enum mapping) see [architecture/batch-estimate-vs-live.md](./architecture/batch-estimate-vs-live.md).
+
 ### `get_active_count`
 
 ```
