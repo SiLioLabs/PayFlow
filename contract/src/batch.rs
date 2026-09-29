@@ -1,27 +1,32 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::charge_exec;
+use crate::charge_exec::{self, ChargeSimResult};
 use crate::events;
 use crate::events::BatchChargeSkipsEventData;
 use crate::grace;
 use crate::validation;
 use crate::{DataKey, Subscription};
-// sync trigger
-pub const MAX_BATCH_SIZE: u32 = 50;
+
+pub use crate::caps::DEFAULT_BATCH_SIZE as MAX_BATCH_SIZE;
 
 // ─────────────────────────────────────────────────────────────
 // Decode-compatibility note
 // ─────────────────────────────────────────────────────────────
 // `ChargeResult` is decoded off-chain by keepers, alert scripts
-// (alert-failed-charges.ts), and indexers.  Its discriminant
-// layout is:
+// (alert-failed-charges.ts), and indexers.  It is a Soroban
+// `#[contracttype]` unit-only enum, so on the wire each variant is
+// an `scvU32` carrying this discriminant — NOT an `scvSymbol`.
+// Its layout is:
 //
-//   Charged            = 0
-//   Skipped            = 1
-//   NoSubscription     = 2
-//   Inactive           = 3
-//   Paused             = 4
-//   GracePeriodElapsed = 5
+//   Charged             = 0
+//   Skipped             = 1
+//   NoSubscription      = 2
+//   Inactive            = 3
+//   Paused              = 4
+//   GracePeriodElapsed  = 5
+//   AllowanceInsufficient = 6
+//
+// The full wire-format description lives in `docs/charge-results.md`.
 //
 // When adding new variants ALWAYS append at the end so existing
 // off-chain parsers continue to recognise the original codes.
@@ -63,6 +68,25 @@ pub enum ChargeResult {
     /// The keeper should prompt the subscriber to increase their allowance and
     /// retry on the next cycle; the subscription remains active.
     AllowanceInsufficient,
+}
+
+impl ChargeResult {
+    /// Maps a `ChargeResult` onto the keeper-facing `ChargeSimResult`.
+    ///
+    /// `NoSubscription` collapses into `Inactive`, preserving the
+    /// long-standing `simulate_charge` semantics in which a missing
+    /// subscription is reported to keepers as `Inactive`.
+    pub(crate) fn into_sim_result(self) -> ChargeSimResult {
+        match self {
+            ChargeResult::Charged => ChargeSimResult::WouldSucceed,
+            ChargeResult::Skipped => ChargeSimResult::NotDue,
+            ChargeResult::NoSubscription => ChargeSimResult::Inactive,
+            ChargeResult::Inactive => ChargeSimResult::Inactive,
+            ChargeResult::Paused => ChargeSimResult::SubscriptionPaused,
+            ChargeResult::GracePeriodElapsed => ChargeSimResult::GracePeriodElapsed,
+            ChargeResult::AllowanceInsufficient => ChargeSimResult::InsufficientAllowance,
+        }
+    }
 }
 
 pub(crate) fn get_max_batch_size(env: &Env) -> u32 {

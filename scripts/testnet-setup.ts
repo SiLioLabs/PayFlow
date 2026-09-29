@@ -1,99 +1,33 @@
-/**
- * testnet-setup.ts — Automated testnet environment creation and test data setup script for FlowPay.
- *
- * Creates and funds test accounts (Admin, Merchant, 5 Subscribers), verifies or initializes
- * the contract, sets protocol fees, whitelists the merchant, and creates 5 test subscriptions
- * with varied amounts and intervals.
- *
- * Usage:
- *   npx tsx scripts/testnet-setup.ts [--reset]
- *
- * Environment Variables:
- *   RPC_URL            — Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
- *   FRIENDBOT_URL      — Friendbot endpoint (default: https://friendbot.stellar.org)
- *   NETWORK_PASSPHRASE — Network passphrase (default: Testnet)
- *   CONTRACT_ID        — Contract ID (default: process.env.CONTRACT_ID / process.env.VITE_CONTRACT_ID)
- *
- * Output:
- *   data/testnet-accounts.json
- */
-
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { MultiEndpointServer } from "./rpc-client.js";
-import { Keypair, Contract, Networks, TransactionBuilder, BASE_FEE, nativeToScVal, Address, xdr } from "@stellar/stellar-sdk";
+import { fileURLToPath } from "node:url";
+import { Keypair, Networks } from "@stellar/stellar-sdk";
+import { Server } from "@stellar/stellar-sdk/rpc";
 import { logger } from "./logger";
+import { projectPath, readJsonFile } from "./soroban-admin.js";
+import { ManifestSchema } from "./config.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-// ── Argument parsing ─────────────────────────────────────────────────────────
+const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
+const FRIENDBOT_URL =
+  process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 
-interface SetupArgs {
-  seed: number;
-  users: number;
-  merchants: number;
-  reset: boolean;
-}
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
-function parseArgs(argv: string[]): SetupArgs {
-  let seed = 1;
-  let users = 3;
-  let merchants = 1;
-  let reset = false;
+// ── Configuration ────────────────────────────────────────────────────────────
 
-  for (let i = 2; i < argv.length; i++) {
-    switch (argv[i]) {
-      case "--seed":
-        seed = parseInt(argv[++i], 10);
-        break;
-      case "--users":
-        users = parseInt(argv[++i], 10);
-        break;
-      case "--merchants":
-        merchants = parseInt(argv[++i], 10);
-        break;
-      case "--reset":
-        reset = true;
-        break;
-      default:
-        console.error(`Unknown argument: ${argv[i]}`);
-        console.error(
-          "Usage: testnet-setup.ts [--reset] [--seed <n>] [--users <n>] [--merchants <n>]",
-        );
-        process.exit(1);
-    }
-  }
+// RPC and friendbot URLs are configured above; the following were duplicated
+// const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
+// const FRIENDBOT_URL = process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 
-  if (
-    !Number.isInteger(seed) ||
-    !Number.isInteger(users) ||
-    !Number.isInteger(merchants)
-  ) {
-    console.error("ERROR: --seed, --users, and --merchants must be integers.");
-    process.exit(1);
-  }
-
-  if (users < 1 || merchants < 1) {
-    console.error("ERROR: --users and --merchants must each be at least 1.");
-    process.exit(1);
-  }
-
-  return { seed, users, merchants, reset };
-}
 
 // ── Deterministic identity derivation ────────────────────────────────────────
 
 interface Identity {
   role: "user" | "merchant";
   index: number;
-  publicKey: string;
-  secretKey: string;
 }
-
-const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
-const FRIENDBOT_URL = process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || process.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 const DEFAULT_TOKEN = process.env.VITE_DEFAULT_TOKEN || "CB64D3BV7P25CBZ76AEGY2FJD2N2Z35TXTLA2HO7DS4SYYBZWAZZTACC"; // Native XLM SAC on Testnet
 
@@ -112,17 +46,6 @@ interface AccountMeta {
   };
 }
 
-function deriveKeypair(
-  seed: number,
-  role: "user" | "merchant",
-  index: number,
-): Keypair {
-  const hash = createHash("sha256")
-    .update(`payflow-testnet-setup:${seed}:${role}:${index}`)
-    .digest();
-  return Keypair.fromRawEd25519Seed(hash);
-}
-
 interface TestnetManifest {
   createdAt: string;
   updatedAt: string;
@@ -134,35 +57,31 @@ interface TestnetManifest {
   subscribers: AccountMeta[];
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+interface SetupArgs {
+  reset: boolean;
+  contractId?: string;
+  tokenAddress?: string;
+  rpcUrl?: string;
 }
 
-async function fundViaFriendbot(publicKey: string, retries = 3): Promise<void> {
-  const url = `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(url);
-      if (response.ok || response.status === 400) {
-        return;
-      }
-    } catch (err) {
-      if (attempt === retries) throw err;
+function parseArgs(argv: string[]): SetupArgs {
+  const args: SetupArgs = { reset: false };
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--reset") {
+      args.reset = true;
+    } else if (arg === "--contractId") {
+      args.contractId = argv[++i];
+    } else if (arg === "--tokenAddress") {
+      args.tokenAddress = argv[++i];
+    } else if (arg === "--rpcUrl") {
+      args.rpcUrl = argv[++i];
     }
-    await delay(1500 * attempt);
   }
+  return args;
 }
 
-// ── Funding ───────────────────────────────────────────────────────────────────
-
-async function isAccountFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
-  try {
-    await server.getAccount(publicKey);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateAccount(role: "admin" | "merchant" | "subscriber", name: string): AccountMeta {
   const kp = Keypair.random();
@@ -174,30 +93,71 @@ function generateAccount(role: "admin" | "merchant" | "subscriber", name: string
   };
 }
 
-function addressVal(addr: string): xdr.ScVal {
-  return nativeToScVal(Address.fromString(addr), { type: "address" });
+async function isAccountFunded(server: Server, publicKey: string): Promise<boolean> {
+  try {
+    await server.getAccount(publicKey);
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+async function fundViaFriendbot(friendbotUrl: string, publicKey: string): Promise<void> {
+  const response = await fetch(`${friendbotUrl}?addr=${encodeURIComponent(publicKey)}`);
+  if (!response.ok && response.status !== 400) {
+    throw new Error(`Friendbot funding failed for ${publicKey}: HTTP ${response.status}`);
+  }
+}
+
+// ── Main Execution ───────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
-  const reset = args.reset;
-  const server = new MultiEndpointServer(RPC_URL);
+
+  // Load and validate canonical deployment manifest
+  const rawDeploymentManifest = await readJsonFile(projectPath("deployments", "manifest.json"), null);
+  if (!rawDeploymentManifest) {
+    throw new Error("Missing deployment manifest at deployments/manifest.json");
+  }
+  const deploymentManifestResult = ManifestSchema.safeParse(rawDeploymentManifest);
+  if (!deploymentManifestResult.success) {
+    throw new Error(`Deployment manifest is invalid: ${deploymentManifestResult.error.errors[0].message}`);
+  }
+  const deploymentManifest = deploymentManifestResult.data;
+
+  // Apply CLI overrides over deployment manifest
+  const activeContractId = args.contractId ?? deploymentManifest.contractId;
+  const activeTokenAddress = args.tokenAddress ?? deploymentManifest.tokenAddress;
+  const activeRpcUrl = args.rpcUrl ?? deploymentManifest.rpcUrl;
+  const activeNetworkPassphrase = deploymentManifest.networkPassphrase;
+
+  if (!activeContractId || activeContractId.trim() === "") {
+    throw new Error("Resolved contractId is empty. Please provide a valid --contractId or ensure it exists in deployments/manifest.json");
+  }
+  if (!activeTokenAddress || activeTokenAddress.trim() === "") {
+    throw new Error("Resolved tokenAddress is empty. Please provide a valid --tokenAddress or ensure it exists in deployments/manifest.json");
+  }
+  if (!activeRpcUrl || activeRpcUrl.trim() === "") {
+    throw new Error("Resolved rpcUrl is empty. Please provide a valid --rpcUrl or ensure it exists in deployments/manifest.json");
+  }
+
+  const friendbotUrl = process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 
   logger.info(`====================================================`);
   logger.info(`FlowPay Testnet Faucet & Environment Setup`);
-  logger.info(`Reset Mode: ${reset ? "YES (--reset)" : "NO"}`);
-  logger.info(`RPC Endpoint: ${RPC_URL}`);
+  logger.info(`Reset Mode: ${args.reset ? "YES (--reset)" : "NO"}`);
+  logger.info(`RPC Endpoint: ${activeRpcUrl}`);
   logger.info(`====================================================\n`);
 
   mkdirSync(join(process.cwd(), "data"), { recursive: true });
 
-  if (reset && existsSync(MANIFEST_PATH)) {
+  if (args.reset && existsSync(MANIFEST_PATH)) {
     logger.info(`Backing up existing manifest to: ${BACKUP_MANIFEST_PATH}`);
     copyFileSync(MANIFEST_PATH, BACKUP_MANIFEST_PATH);
   }
 
   let manifest: TestnetManifest | null = null;
-  if (!reset && existsSync(MANIFEST_PATH)) {
+  if (!args.reset && existsSync(MANIFEST_PATH)) {
     try {
       manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
       logger.info(`Loaded existing testnet manifest from ${MANIFEST_PATH}`);
@@ -205,6 +165,9 @@ async function main(): Promise<void> {
       manifest = null;
     }
   }
+
+  console.log("Setting up testnet fixtures...");
+  console.log("");
 
   if (!manifest) {
     const admin = generateAccount("admin", "Admin Account");
@@ -227,14 +190,20 @@ async function main(): Promise<void> {
     manifest = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      network: NETWORK_PASSPHRASE,
-      contractId: process.env.CONTRACT_ID || process.env.VITE_CONTRACT_ID || "CC3DOKAIZKCONTRACTTESTNETADDRESS1234567890FLOWPAY",
-      tokenAddress: DEFAULT_TOKEN,
+      network: activeNetworkPassphrase,
+      contractId: activeContractId,
+      tokenAddress: activeTokenAddress,
       admin,
       merchant,
       subscribers,
     };
+  } else {
+    manifest.contractId = activeContractId;
+    manifest.tokenAddress = activeTokenAddress;
+    manifest.network = activeNetworkPassphrase;
   }
+
+  const server = new Server(activeRpcUrl);
 
   // 1. Fund Accounts via Friendbot
   logger.info(`Step 1: Funding test accounts via Friendbot...`);
@@ -246,7 +215,7 @@ async function main(): Promise<void> {
       logger.info(`  [OK] ${acc.name} (${acc.publicKey}) is already funded.`);
     } else {
       logger.info(`  [FUNDING] ${acc.name} (${acc.publicKey})...`);
-      await fundViaFriendbot(acc.publicKey);
+      await fundViaFriendbot(friendbotUrl, acc.publicKey);
       logger.info(`  [OK] ${acc.name} funded.`);
     }
   }
@@ -265,6 +234,15 @@ async function main(): Promise<void> {
     logger.info(`    Amount: ${details.amountXlm} XLM (${details.amountStroops} stroops), Interval: ${details.intervalSeconds}s`);
   }
 
+  console.log("");
+  console.log(`Manifest: ${MANIFEST_PATH}`);
+  console.log(
+    "Next step: use the Soroban CLI with these identities to call subscribe()/charge()",
+  );
+  console.log(
+    "against your deployed contract — see docs/TESTING.md, Integration Testing section.",
+  );
+
   manifest.updatedAt = new Date().toISOString();
   writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
 
@@ -277,6 +255,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error("Testnet setup failed:", err instanceof Error ? err.message : err);
+  console.error(
+    "testnet-setup failed:",
+    err instanceof Error ? err.message : err,
+  );
   process.exit(1);
 });

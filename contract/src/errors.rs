@@ -1,5 +1,11 @@
 use soroban_sdk::contracterror;
 
+/// Canonical contract error catalog: the numeric codes below are the wire
+/// contract, and `frontend/src/utils/errors.ts` maps each one to a
+/// customer-facing message. `frontend/src/utils/errors.test.ts` parses this file
+/// and fails if a code is missing from that map, duplicated in it, or mapped to
+/// two different messages, so a new or retired variant has to be carried over to
+/// the frontend in the same change.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -60,20 +66,25 @@ pub enum ContractError {
     InvalidFeeCollector = 26,
     /// Returned when pause_until expiry_timestamp is not strictly in the future
     InvalidPauseExpiry = 27,
+    /// Returned when the configured global volume cap is exceeded.
     GlobalVolumeExceeded = 28,
-    /// Returned when a configured batch limit is invalid
+    /// Returned when a configured batch limit is invalid.
     InvalidBatchSize = 29,
+    /// Deprecated alias retained for clients that published code 30.
+    /// New contract pause checks use `ContractPaused` (code 18).
+    #[deprecated(note = "use ContractPaused; code 30 is retained for wire compatibility")]
     ContractPausedError = 30,
-    /// Returned when a provided recipient address is invalid (e.g., contract address)
+    /// Reserved for the historical error-code gap. It is intentionally not
+    /// emitted by the current contract; retaining it documents the stable wire map.
+    #[deprecated(note = "code 31 is reserved and must not be emitted")]
+    Reserved31 = 31,
+    /// Returned when a provided recipient address is invalid (e.g., contract address).
     InvalidRecipient = 32,
     /// Returned when a configured global volume cap is not positive
     InvalidVolumeCap = 33,
     /// Returned when configured fee bounds are inconsistent (min > max, or max > 10000)
     InvalidFeeBounds = 34,
-    /// Returned when resume is called on a subscription whose grace period has elapsed.
-    /// Cancel is still allowed; re-subscribe outside this flow to reactivate.
-    ResumeGraceLapsed = 100,
-    /// Returned when a pending fee proposal violates the current fee bounds at commit time
+    /// Returned when a pending fee proposal violates the current fee bounds at commit time.
     FeeOutOfBoundsAtCommit = 35,
     /// Returned when a checked arithmetic operation overflows (trial extension,
     /// fee calculation, protocol-fee accrual, or global volume accumulation)
@@ -87,4 +98,23 @@ pub enum ContractError {
     /// Returned when admin repair would tombstone an index slot whose
     /// subscriber still has an active subscription
     CannotClearActiveSubscriber = 41,
+    /// Returned when a state-mutating operation is attempted before all
+    /// storage entries required by the current WASM schema are migrated.
+    SchemaMigrationRequired = 42,
+    /// Returned when resume is attempted after the subscription grace period elapsed.
+    ResumeGraceLapsed = 43,
+    /// Returned when `set_initial_admin` is called after an admin has already
+    /// been stored. Distinct from `AlreadyInitialized` (code 1), which guards
+    /// `initialize` (token + admin together); this variant covers the narrow
+    /// bootstrap path where only the admin slot is being set.
+    AdminAlreadySet = 44,
+    /// Returned when `accept_admin` is called without a staged admin transfer.
+    /// Replaces the previous untrappable host panic so callers and the
+    /// frontend error map can handle the no-pending-transfer case gracefully.
+    NoPendingAdmin = 45,
+    /// Returned when a subscription interval exceeds `MAX_SUBSCRIPTION_INTERVAL`.
+    /// Prevents `last_charged + interval` and grace-period math from overflowing
+    /// a `u64` timestamp. Subscriptions with an extreme legacy interval cannot
+    /// be re-created; document such cases and re-subscribe with a valid interval.
+    IntervalExceedsMaximum = 46,
 }

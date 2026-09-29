@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { usePauseResume } from "../hooks/usePauseResume";
 import { useTransaction } from "../hooks/useTransaction";
-import { buildPauseTx, buildResumeTx } from "../stellar";
+import { buildPauseTx, buildPauseUntilTx, buildResumeTx } from "../stellar";
 
 vi.mock("../hooks/useTransaction", () => ({
   useTransaction: vi.fn(),
@@ -10,6 +10,7 @@ vi.mock("../hooks/useTransaction", () => ({
 
 vi.mock("../stellar", () => ({
   buildPauseTx: vi.fn().mockResolvedValue("pause-xdr"),
+  buildPauseUntilTx: vi.fn().mockResolvedValue("pause-until-xdr"),
   buildResumeTx: vi.fn().mockResolvedValue("resume-xdr"),
   server: {},
   getAllowance: vi.fn(),
@@ -54,6 +55,19 @@ describe("usePauseResume", () => {
 
     expect(buildPauseTx).toHaveBeenCalledWith("user-key");
     expect(onSign).toHaveBeenCalledWith("pause-xdr");
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("should successfully build, sign, submit a bounded pause_until transaction, and call refresh", async () => {
+    const { result } = renderHook(() => usePauseResume("user-key", onSign, onRefresh));
+    const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
+
+    await act(async () => {
+      await result.current.pauseUntil(expiry);
+    });
+
+    expect(buildPauseUntilTx).toHaveBeenCalledWith("user-key", expiry);
+    expect(onSign).toHaveBeenCalledWith("pause-until-xdr");
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 

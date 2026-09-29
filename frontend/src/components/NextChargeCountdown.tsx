@@ -46,13 +46,22 @@ export default function NextChargeCountdown({ nextChargeTimestamp }: Props) {
   }, [nextChargeTimestamp]);
 
   if (countdown.overdue) {
-    return <span className="badge badge-warning">Overdue</span>;
+    return (
+      <span
+        className="badge badge-warning"
+        aria-label="Subscription is overdue"
+        data-testid="next-charge-overdue"
+      >
+        Overdue
+      </span>
+    );
   }
 
   const { days, hours, minutes } = countdown;
   const exactDate = new Date(nextChargeTimestamp * 1000).toLocaleString();
+  const label = `Next charge in ${days} days, ${hours} hours, and ${minutes} minutes`;
   return (
-    <span className="text-mono" title={exactDate}>
+    <span className="text-mono" title={exactDate} aria-label={label}>
       {days}d {hours}h {minutes}m
     </span>
   );

@@ -472,7 +472,7 @@ journalctl -u payflow-keeper -n 50 --no-pager
 # Expected: recent "Cycle complete" without DLQ growth
 ```
 
-Cross-ref: [`docs/KEEPER.md`](../KEEPER.md#handling-failed-charges), [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md).
+Cross-ref: [`docs/KEEPER.md`](../KEEPER.md#troubleshooting), [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md).
 
 ---
 
@@ -531,7 +531,7 @@ journalctl -u payflow-keeper -f
 # Expected: "acquired leadership" on one replica only
 ```
 
-Cross-ref: [`docs/KEEPER.md`](../KEEPER.md#high-availability-with-leader-election-production).
+Cross-ref: [`docs/KEEPER.md`](#multiple-keeper-ha-with-leader-election).
 
 ---
 
@@ -602,7 +602,7 @@ journalctl -u payflow-keeper -n 100 | grep -i rpc
 # Expected: stable endpoint or a single clean failover event
 ```
 
-Cross-ref: [`docs/KEEPER.md`](../KEEPER.md#monitoring-and-alerting).
+Cross-ref: [`docs/KEEPER.md`](../KEEPER.md#metrics-and-monitoring).
 
 ---
 

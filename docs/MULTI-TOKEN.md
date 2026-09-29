@@ -256,6 +256,7 @@ token_client.transfer_from(&env.current_contract_address(), user, &collector, &f
 ```
 
 The fee recipient priority is:
+
 1. `MerchantFeeRecipient(merchant)` — per-merchant override, if set
 2. `FeeCollector` — global fallback
 
@@ -268,9 +269,9 @@ The fee recipient priority is:
 Assume `fee_bps = 250` (2.5%), `fee_collector = F`, and all subscriptions use XLM.
 
 | Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
-|------------|-------|-------------------|---------------------|---------------------------|
-| Alice | XLM | 50,000,000 | 1,250,000 | 48,750,000 |
-| Bob | XLM | 100,000,000 | 2,500,000 | 97,500,000 |
+| ---------- | ----- | ---------------- | ------------------ | ------------------------- |
+| Alice      | XLM   | 50,000,000       | 1,250,000          | 48,750,000                |
+| Bob        | XLM   | 100,000,000      | 2,500,000          | 97,500,000                |
 
 **Global volume window** after both charges: `150,000,000` stroops.
 **`TotalProtocolFees`** after both charges: `3,750,000` stroops.
@@ -283,9 +284,9 @@ All counters are in XLM stroops. This is internally consistent — every value u
 Same `fee_bps = 250` (2.5%), all subscriptions use USDC (7 decimal places).
 
 | Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
-|------------|-------|-------------------|---------------------|---------------------------|
-| Alice | USDC | 100,000,000 | 2,500,000 | 97,500,000 |
-| Bob | USDC | 50,000,000 | 1,250,000 | 48,750,000 |
+| ---------- | ----- | ---------------- | ------------------ | ------------------------- |
+| Alice      | USDC  | 100,000,000      | 2,500,000          | 97,500,000                |
+| Bob        | USDC  | 50,000,000       | 1,250,000          | 48,750,000                |
 
 **Global volume window**: `150,000,000` stroops.
 **`TotalProtocolFees`**: `3,750,000` stroops.
@@ -298,22 +299,23 @@ Again internally consistent — all values are USDC stroops.
 Same `fee_bps = 250` (2.5%). Alice pays in XLM, Bob pays in USDC.
 
 | Subscriber | Token | Amount (stroops) | Fee to F (stroops) | Net to merchant (stroops) |
-|------------|-------|-------------------|---------------------|---------------------------|
-| Alice | XLM | 50,000,000 | 1,250,000 | 48,750,000 |
-| Bob | USDC | 100,000,000 | 2,500,000 | 97,500,000 |
+| ---------- | ----- | ---------------- | ------------------ | ------------------------- |
+| Alice      | XLM   | 50,000,000       | 1,250,000          | 48,750,000                |
+| Bob        | USDC  | 100,000,000      | 2,500,000          | 97,500,000                |
 
 **Fee transfers:**
+
 - Alice's fee: 1,250,000 XLM stroops transferred to F via XLM SAC contract
 - Bob's fee: 2,500,000 USDC stroops transferred to F via USDC SAC contract
 - F receives two separate token balances — these are **not** summed on-chain
 
 **On-chain counters (all in raw `i128`, no token dimension):**
 
-| Counter | Value | Meaning |
-|---------|-------|---------|
-| `GlobalVolumeWindow.accumulated_volume` | `150,000,000` | Sum of 50M XLM stroops + 100M USDC stroops — **semantically meaningless as a combined figure** |
-| `TotalProtocolFees` | `3,750,000` | Sum of 1.25M XLM stroops + 2.5M USDC stroops — **semantically meaningless as a combined figure** |
-| `MerchantRevenue(merchant)` | `146,250,000` | Sum of 48.75M XLM stroops + 97.5M USDC stroops — **semantically meaningless as a combined figure** |
+| Counter                                 | Value         | Meaning                                                                                            |
+| --------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------- |
+| `GlobalVolumeWindow.accumulated_volume` | `150,000,000` | Sum of 50M XLM stroops + 100M USDC stroops — **semantically meaningless as a combined figure**     |
+| `TotalProtocolFees`                     | `3,750,000`   | Sum of 1.25M XLM stroops + 2.5M USDC stroops — **semantically meaningless as a combined figure**   |
+| `MerchantRevenue(merchant)`             | `146,250,000` | Sum of 48.75M XLM stroops + 97.5M USDC stroops — **semantically meaningless as a combined figure** |
 
 ### Limitations of global stroop-denominated volume
 
@@ -336,25 +338,25 @@ For accountants reconciling fee income:
 
 ### Implications for auditors and accountants
 
-| What you need | Where to get it | What to watch out for |
-|---------------|-----------------|----------------------|
-| Per-token fee income | Filter `charged` events by token address; sum `fee` field per token | `TotalProtocolFees` on-chain counter mixes tokens — do not use for multi-token deployments |
-| Per-token merchant revenue | Filter `charged` events by (merchant, token); sum `net` field | `MerchantRevenue` on-chain counter mixes tokens — do not use for multi-token deployments |
-| Global volume (per-token) | Filter `charged`/`pay_per_use` events by token; sum `amount`/`gross` per token per hour | `GlobalVolumeWindow` on-chain counter mixes tokens — do not use for cross-token comparisons |
-| Daily spend per user per token | Filter `pay_per_use` events by (user, token) per day | `DailySpent` on-chain counter mixes tokens — do not use for multi-token daily limits |
+| What you need                  | Where to get it                                                                         | What to watch out for                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Per-token fee income           | Filter `charged` events by token address; sum `fee` field per token                     | `TotalProtocolFees` on-chain counter mixes tokens — do not use for multi-token deployments  |
+| Per-token merchant revenue     | Filter `charged` events by (merchant, token); sum `net` field                           | `MerchantRevenue` on-chain counter mixes tokens — do not use for multi-token deployments    |
+| Global volume (per-token)      | Filter `charged`/`pay_per_use` events by token; sum `amount`/`gross` per token per hour | `GlobalVolumeWindow` on-chain counter mixes tokens — do not use for cross-token comparisons |
+| Daily spend per user per token | Filter `pay_per_use` events by (user, token) per day                                    | `DailySpent` on-chain counter mixes tokens — do not use for multi-token daily limits        |
 
 ### Volume and fee API references
 
-| Function | Location | Purpose |
-|----------|----------|---------|
-| `check_and_update_global_volume` | `lib.rs` | Enforce hourly volume cap (cross-token) |
-| `get_global_volume_window` | `lib.rs` | Read current window start and accumulated volume |
-| `calculate_fee_amount` | `fee.rs` | Compute fee from amount and basis points |
-| `transfer_subscription_charge` | `fee.rs` | Fee-aware transfer for recurring charges |
-| `transfer_pay_per_use` | `fee.rs` | Fee-aware transfer for one-time charges |
-| `accumulate_protocol_fees` | `fee.rs` | Add fee to cumulative total (cross-token sum) |
-| `get_total_protocol_fees` | `fee.rs` | Read cumulative fee total |
-| `increment_revenue_with_daily` | `merchant_stats.rs` | Update merchant revenue (cross-token sum) |
+| Function                         | Location            | Purpose                                          |
+| -------------------------------- | ------------------- | ------------------------------------------------ |
+| `check_and_update_global_volume` | `lib.rs`            | Enforce hourly volume cap (cross-token)          |
+| `get_global_volume_window`       | `lib.rs`            | Read current window start and accumulated volume |
+| `calculate_fee_amount`           | `fee.rs`            | Compute fee from amount and basis points         |
+| `transfer_subscription_charge`   | `fee.rs`            | Fee-aware transfer for recurring charges         |
+| `transfer_pay_per_use`           | `fee.rs`            | Fee-aware transfer for one-time charges          |
+| `accumulate_protocol_fees`       | `fee.rs`            | Add fee to cumulative total (cross-token sum)    |
+| `get_total_protocol_fees`        | `fee.rs`            | Read cumulative fee total                        |
+| `increment_revenue_with_daily`   | `merchant_stats.rs` | Update merchant revenue (cross-token sum)        |
 
 ---
 

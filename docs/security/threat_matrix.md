@@ -42,7 +42,7 @@
 **Code-Level Defenses:**
 
 ```rust
-// limits.rs: Enforce per-transaction maximum
+// validation.rs: Enforce per-transaction maximum
 const MAX_AMOUNT: u128 = 1_000_000_000_000; // 1M tokens max per charge
 
 fn validate_charge_amount(amount: u128) -> Result<(), Error> {

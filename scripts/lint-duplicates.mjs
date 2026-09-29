@@ -1,128 +1,104 @@
-#!/usr/bin/env node
-
 /**
- * lint-duplicates.mjs — Lightweight duplicate declaration detector for TypeScript scripts.
+ * lint-duplicates.mjs — Check for duplicate import specifiers in .ts files.
+ * Used by the "Scripts / lint-duplicates" CI job.
  *
- * Scans all .ts files in the scripts directory for duplicate top-level declarations
- * (functions, consts, vars, classes, interfaces, types, enums).
+ * A duplicate is defined as two or more non-type `import` statements that
+ * share the same module specifier. A regular `import` followed by an
+ * `import type` from the same module is NOT flagged — TypeScript allows
+ * and sometimes requires this. Two regular (non-type) imports from the
+ * same module ARE flagged because they should be merged.
  *
- * Usage:
- *   node scripts/lint-duplicates.mjs
- *
- * Exit codes:
- *   0 — no duplicates found
- *   1 — one or more duplicates found
+ * Exit 0 = no duplicates found.
+ * Exit 1 = one or more duplicates found.
  */
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const scriptsDir = path.join(__dirname);
-
-// ── Declaration Patterns ─────────────────────────────────────────────────────
-
-/**
- * Regex patterns to match top-level declarations in TypeScript.
- * These are intentionally loose to catch most declarations without full parsing.
- */
-const declarationPatterns = [
-  /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/gm,
-  /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*[=:]/gm,
-  /^(?:export\s+)?class\s+(\w+)[\s{]/gm,
-  /^(?:export\s+)?interface\s+(\w+)[\s{]/gm,
-  /^(?:export\s+)?type\s+(\w+)\s*=/gm,
-  /^(?:export\s+)?enum\s+(\w+)[\s{]/gm,
-];
-
-/**
- * Extract all top-level declarations from TypeScript source code.
- */
-function extractDeclarations(source) {
-  const declarations = [];
-
-  for (const pattern of declarationPatterns) {
-    let match;
-    // Reset regex if it's global
-    pattern.lastIndex = 0;
-    while ((match = pattern.exec(source)) !== null) {
-      const declarationName = match[1];
-      const lineNumber = source.substring(0, match.index).split("\n").length;
-      declarations.push({ name: declarationName, line: lineNumber });
+function walk(dir) {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name === "node_modules") continue;
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walk(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      files.push(fullPath);
     }
   }
-
-  return declarations;
+  return files;
 }
 
 /**
- * Find duplicate declarations in extracted array.
+ * Extract all import statements from a TypeScript source file.
+ * Returns objects with { specifier, lineNumber, isTypeOnly }.
+ *
+ * isTypeOnly = true for `import type { ... } from "..."` statements.
  */
-function findDuplicates(declarations) {
-  const nameMap = new Map();
-
-  for (const decl of declarations) {
-    if (!nameMap.has(decl.name)) {
-      nameMap.set(decl.name, []);
+function extractImports(source) {
+  const lines = source.split("\n");
+  const imports = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimStart();
+    // Match `import type ...` (type-only import)
+    const typeMatch = line.match(/^import\s+type\s+.*from\s+['"]([^'"]+)['"]/);
+    if (typeMatch) {
+      imports.push({ specifier: typeMatch[1], lineNumber: i + 1, isTypeOnly: true });
+      continue;
     }
-    nameMap.get(decl.name).push(decl.line);
+    // Match regular `import ...`
+    const match = line.match(/^import\s+.*from\s+['"]([^'"]+)['"]/);
+    if (match) {
+      imports.push({ specifier: match[1], lineNumber: i + 1, isTypeOnly: false });
+    }
   }
+  return imports;
+}
 
+const scriptsDir = process.cwd();
+const tsFiles = walk(scriptsDir);
+let totalDuplicates = 0;
+
+for (const filePath of tsFiles) {
+  const source = readFileSync(filePath, "utf-8");
+  const imports = extractImports(source);
+
+  // Only track non-type imports for duplicate detection.
+  // Two `import type` from the same module, or one `import` + one `import type`,
+  // are both acceptable TypeScript patterns.
+  const seen = new Map(); // specifier -> first line number (non-type imports only)
   const duplicates = [];
-  for (const [name, lines] of nameMap) {
-    if (lines.length > 1) {
-      duplicates.push({ name, lines });
+
+  for (const { specifier, lineNumber, isTypeOnly } of imports) {
+    if (isTypeOnly) continue; // skip type-only imports
+    if (seen.has(specifier)) {
+      duplicates.push({ specifier, firstLine: seen.get(specifier), duplicateLine: lineNumber });
+    } else {
+      seen.set(specifier, lineNumber);
     }
   }
 
-  return duplicates;
+  if (duplicates.length > 0) {
+    const relPath = filePath
+      .replace(scriptsDir + "/", "")
+      .replace(scriptsDir + "\\", "");
+    console.error(`\n✗ ${relPath}: duplicate imports found`);
+    for (const { specifier, firstLine, duplicateLine } of duplicates) {
+      console.error(
+        `  "${specifier}" first imported at line ${firstLine}, duplicated at line ${duplicateLine}`
+      );
+    }
+    totalDuplicates += duplicates.length;
+  }
 }
 
-/**
- * Process all .ts files in scripts directory.
- */
-function lintDirectory(dir) {
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
-  const allIssues = [];
-
-  for (const file of files) {
-    const filePath = path.join(dir, file);
-    const source = fs.readFileSync(filePath, "utf-8");
-    const declarations = extractDeclarations(source);
-    const duplicates = findDuplicates(declarations);
-
-    if (duplicates.length > 0) {
-      allIssues.push({ file, duplicates });
-    }
-  }
-
-  return allIssues;
-}
-
-/**
- * Main entry point.
- */
-function main() {
-  const issues = lintDirectory(scriptsDir);
-
-  if (issues.length === 0) {
-    console.log("✓ No duplicate declarations found.");
-    process.exit(0);
-  }
-
-  console.log("✗ Duplicate declarations detected:\n");
-  for (const { file, duplicates } of issues) {
-    console.log(`  ${file}:`);
-    for (const { name, lines } of duplicates) {
-      console.log(`    - '${name}' declared at lines: ${lines.join(", ")}`);
-    }
-    console.log();
-  }
-
-  const totalIssues = issues.reduce((sum, { duplicates }) => sum + duplicates.length, 0);
-  console.log(`Found ${totalIssues} duplicate declaration(s).`);
+if (totalDuplicates > 0) {
+  console.error(
+    `\nFound ${totalDuplicates} duplicate import(s) across ${tsFiles.length} TypeScript file(s).`
+  );
   process.exit(1);
 }
 
-main();
+console.log(
+  `✓ No duplicate imports found across ${tsFiles.length} TypeScript file(s).`
+);

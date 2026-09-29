@@ -1739,13 +1739,32 @@
           "v0": {
             "topics": [
               {
-                "symbol": "paused"
+                "symbol": "pause_until"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
               }
             ],
-            "data": "void"
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "expiry_timestamp"
+                  },
+                  "val": {
+                    "u64": 300000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "ledger_sequence"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                }
+              ]
+            }
           }
         }
       },

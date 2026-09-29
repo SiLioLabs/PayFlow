@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import {
   buildRepairSubscriptionTx,
@@ -20,10 +20,12 @@ import AddressInput from "../AddressInput";
 import ConfirmModal from "../ConfirmModal";
 import Spinner from "../Spinner";
 import ToastContainer from "../Toast";
+import { AdminRepairSkeleton } from "../Skeleton";
 
 interface Props {
   adminKey: string;
   onSign: (xdr: string) => Promise<string>;
+  gatePassed?: boolean;
 }
 
 type ValidationPhase = "idle" | "loading" | "success" | "error";
@@ -40,9 +42,9 @@ function ViolationList({ items, prefix }: { items: string[]; prefix: string }) {
   );
 }
 
-export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
+export default function SubscriptionRepairPanel({ adminKey, onSign, gatePassed = true }: Props) {
   const { isAdmin, adminAddress, loading: adminLoading, error: adminError } = useAdmin(adminKey);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
   const repairTx = useTransaction();
 
   const [userAddress, setUserAddress] = useState("");
@@ -54,6 +56,10 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
   const [repairResultCount, setRepairResultCount] = useState<number | null>(null);
   const [subscriptionRefresh, setSubscriptionRefresh] = useState(0);
 
+  // Monotonic sequence counter — stale validation results (from a previous RPC
+  // call that outlived a newer one) are discarded when the seq does not match.
+  const latestValidationSeqRef = useRef(0);
+
   const lookupKey = validatedAddress ?? adminKey;
   const { subscription, refresh: refreshSubscription } = useSubscription(
     lookupKey,
@@ -64,7 +70,8 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
 
   const validationMessages = report ? collectValidationMessages(report) : [];
   const hasFailures = report ? hasValidationFailures(report) : false;
-  const canRepair = isAdmin && hasFailures && !!validatedAddress && repairTx.status !== "pending";
+  const canRepair =
+    isAdmin && gatePassed && hasFailures && !!validatedAddress && repairTx.status !== "pending";
 
   const runValidation = useCallback(async () => {
     const trimmed = userAddress.trim();
@@ -72,6 +79,9 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
       setValidationError("Enter a valid Stellar public key (G…).");
       return;
     }
+
+    const seq = ++latestValidationSeqRef.current;
+    const controller = new AbortController();
 
     setValidationPhase("loading");
     setValidationError(null);
@@ -81,9 +91,16 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
 
     try {
       const result = await validateSubscription(adminKey, trimmed);
+
+      // Discard stale results: if a newer validation was started while this one
+      // was in-flight, drop this result so the UI reflects the latest request.
+      if (seq !== latestValidationSeqRef.current || controller.signal.aborted) return;
+
       setReport(result);
       setValidationPhase("success");
     } catch (e: unknown) {
+      if (seq !== latestValidationSeqRef.current || controller.signal.aborted) return;
+
       const msg = friendlyError(e instanceof Error ? e.message : String(e));
       setValidationError(msg);
       setValidationPhase("error");
@@ -122,7 +139,12 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
 
   return (
     <section className="subscription-repair-panel" aria-labelledby="subscription-repair-heading">
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
 
       <header className="mb-4">
         <h3 id="subscription-repair-heading" className="text-lg font-semibold">
@@ -133,22 +155,22 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
         </p>
       </header>
 
+      {/* ── Loading state (admin credential check) ── */}
       {adminLoading && (
-        <div className="flex gap-2 items-center text-muted text-sm mb-4" role="status">
-          <Spinner size="sm" />
-          <span>Verifying admin credentials…</span>
-        </div>
+        <AdminRepairSkeleton />
       )}
 
-      {!adminLoading && !isAdmin && (
+      {!adminLoading && (!isAdmin || !gatePassed) && (
         <div className="network-warning mb-4" role="alert">
           <span>🔒</span>
           <span>
-            {adminError
-              ? adminError
-              : adminAddress
-                ? "Connected wallet is not the contract admin. Repair actions are disabled."
-                : "Admin credentials could not be verified. Repair actions are disabled."}
+            {!gatePassed
+              ? "Configuration gate failed. Repair actions are disabled."
+              : adminError
+                ? adminError
+                : adminAddress
+                  ? "Connected wallet is not the contract admin. Repair actions are disabled."
+                  : "Admin credentials could not be verified. Repair actions are disabled."}
           </span>
         </div>
       )}
@@ -167,6 +189,7 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
           onClick={runValidation}
           disabled={!addressValid || validationPhase === "loading"}
           aria-busy={validationPhase === "loading"}
+          aria-disabled={!addressValid || validationPhase === "loading"}
         >
           {validationPhase === "loading" ? (
             <span className="flex gap-2 items-center">
@@ -179,8 +202,25 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
         </button>
       </div>
 
+      {/* ── Idle / empty state — no validation run yet ── */}
+      {validationPhase === "idle" && (
+        <p
+          className="text-sm text-muted"
+          data-testid="repair-empty-state"
+          aria-live="polite"
+        >
+          Enter a subscriber address and run validation to inspect on-chain integrity.
+        </p>
+      )}
+
+      {/* ── Error state — validation RPC failed ── */}
       {validationPhase === "error" && validationError && (
-        <div className="card mb-4" role="alert" style={{ borderColor: "var(--color-danger)" }}>
+        <div
+          className="card mb-4"
+          role="alert"
+          data-testid="repair-validation-error"
+          style={{ borderColor: "var(--color-danger)" }}
+        >
           <h4 className="text-base font-semibold mb-2">Validation Error</h4>
           <p className="text-sm text-error mb-3">{validationError}</p>
           <button type="button" className="btn-secondary" onClick={runValidation}>
@@ -189,8 +229,9 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
         </div>
       )}
 
+      {/* ── Success state ── */}
       {validationPhase === "success" && report && (
-        <div className="card mb-4" aria-live="polite">
+        <div className="card mb-4" aria-live="polite" data-testid="repair-report">
           {hasFailures ? (
             <>
               <h4 className="text-base font-semibold mb-2" style={{ color: "var(--color-danger)" }}>
@@ -233,6 +274,7 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
                 type="button"
                 className="btn-danger mt-3"
                 disabled={!canRepair}
+                aria-disabled={!canRepair}
                 onClick={() => setShowRepairConfirm(true)}
                 title={!isAdmin ? "Contract admin wallet required" : undefined}
               >
@@ -281,12 +323,6 @@ export default function SubscriptionRepairPanel({ adminKey, onSign }: Props) {
             </details>
           )}
         </div>
-      )}
-
-      {validationPhase === "idle" && (
-        <p className="text-sm text-muted">
-          Enter a subscriber address and run validation to inspect on-chain integrity.
-        </p>
       )}
 
       {showRepairConfirm && (

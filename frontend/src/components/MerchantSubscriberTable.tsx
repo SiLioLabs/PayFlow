@@ -14,6 +14,10 @@ import React, { useMemo, useState } from "react";
 import type { MerchantSubscriber } from "../stellar";
 import { formatAddress, formatXlm } from "../utils/format";
 import CopyButton from "./CopyButton";
+import { useVirtualList } from "../hooks/useVirtualList";
+
+const ROW_HEIGHT = 56;
+const CONTAINER_HEIGHT = 480;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -106,6 +110,17 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
     return copy;
   }, [filtered, sort]);
 
+  // ── Virtualize the sorted/filtered rows so large lists stay smooth ──────────
+  const { visibleItems, totalHeight, offsetY, onScroll } = useVirtualList(
+    sorted,
+    ROW_HEIGHT,
+    CONTAINER_HEIGHT
+  );
+  const bottomSpacerHeight = Math.max(
+    totalHeight - offsetY - visibleItems.length * ROW_HEIGHT,
+    0
+  );
+
   // ── Sort toggle ───────────────────────────────────────────────────────────
   function toggleSort(field: SortField) {
     setSort((prev) =>
@@ -170,8 +185,16 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
 
       {/* Table */}
       {sorted.length > 0 && (
-        <div className="mst-scroll-container">
-          <table className="mst-table" aria-label="Merchant subscriber list">
+        <div
+          className="mst-scroll-container"
+          onScroll={onScroll}
+          style={{ maxHeight: CONTAINER_HEIGHT, overflowY: "auto" }}
+        >
+          <table
+            className="mst-table"
+            aria-label="Merchant subscriber list"
+            aria-rowcount={sorted.length}
+          >
             <thead>
               <tr className="mst-head-row">
                 <th scope="col" className="mst-th">
@@ -225,13 +248,19 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((sub) => {
+              {offsetY > 0 && (
+                <tr aria-hidden="true" style={{ height: offsetY }}>
+                  <td colSpan={6} style={{ padding: 0, border: "none" }} />
+                </tr>
+              )}
+              {visibleItems.map(({ item: sub, index }) => {
                 const status = deriveStatus(sub.nextChargeAt);
                 return (
                   <tr
                     key={sub.subscriber}
                     className={`mst-row mst-row--${status}`}
                     data-testid={`mst-row-${sub.subscriber}`}
+                    aria-rowindex={index + 1}
                   >
                     {/* Subscriber address */}
                     <td className="mst-cell mst-cell--address">
@@ -266,6 +295,11 @@ export default function MerchantSubscriberTable({ subscribers }: Props) {
                   </tr>
                 );
               })}
+              {bottomSpacerHeight > 0 && (
+                <tr aria-hidden="true" style={{ height: bottomSpacerHeight }}>
+                  <td colSpan={6} style={{ padding: 0, border: "none" }} />
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

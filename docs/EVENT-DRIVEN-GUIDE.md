@@ -402,7 +402,6 @@ Combine this with the [reconciliation pattern](#4-reconciliation-pattern) run on
 | `sub_amount_updated` / `sub_interval_updated`      | Analytics, Notifications                         | Plan-change confirmation; MRR recalculation                 |
 | `merchant_added` / `merchant_removed`              | Analytics, Notifications                         | Merchant directory sync                                     |
 | `merchant_frozen` / `merchant_unfrozen`            | Notifications, Reconciliation                    | Urgent operational alert to the affected merchant           |
-| `merchant_withdrawal`                              | Analytics, Reconciliation                        | Merchant payout ledger                                      |
 | `merch_hist_cleared`                               | Analytics, Reconciliation                        | Merchant revenue-history wipe — reset aggregates            |
 | `daily_limit_set` / `daily_limit_removed`          | Analytics                                        | User risk/spend-limit configuration tracking                |
 | `contract_paused` / `contract_unpaused`            | Notifications, Reconciliation                    | Protocol-wide incident signal — page operators              |

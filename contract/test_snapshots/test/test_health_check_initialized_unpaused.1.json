@@ -248,6 +248,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "SchemaVersion"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 3
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Token"
                             }
                           ]
@@ -1127,7 +1139,7 @@
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 0
+                    "u32": 3
                   }
                 },
                 {

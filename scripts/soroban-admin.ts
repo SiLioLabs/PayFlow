@@ -19,7 +19,8 @@ import { Server } from "@stellar/stellar-sdk/rpc";
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_RPC_URL = "https://soroban-testnet.stellar.org";
-const SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const SIMULATION_SOURCE =
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 export interface SorobanConfig {
   contractId: string;
@@ -34,22 +35,37 @@ export interface TxResult {
 }
 
 export function getNetworkPassphrase(
-  networkPassphrase = process.env.NETWORK_PASSPHRASE ?? process.env.VITE_NETWORK_PASSPHRASE
+  networkPassphrase = process.env.NETWORK_PASSPHRASE ??
+    process.env.VITE_NETWORK_PASSPHRASE,
 ): string {
   return networkPassphrase ?? Networks.TESTNET;
 }
 
-export function loadSorobanConfig(overrides: Partial<SorobanConfig> = {}): SorobanConfig {
-  const contractId = overrides.contractId ?? process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
-  const rpcUrl = overrides.rpcUrl ?? process.env.RPC_URL ?? process.env.VITE_RPC_URL ?? DEFAULT_RPC_URL;
-  const networkPassphrase = overrides.networkPassphrase ?? getNetworkPassphrase();
-  const adminSecretKey = overrides.adminSecretKey ?? process.env.ADMIN_SECRET_KEY ?? "";
+export function loadSorobanConfig(
+  overrides: Partial<SorobanConfig> = {},
+): SorobanConfig {
+  const contractId =
+    overrides.contractId ??
+    process.env.CONTRACT_ID ??
+    process.env.VITE_CONTRACT_ID ??
+    "";
+  const rpcUrl =
+    overrides.rpcUrl ??
+    process.env.RPC_URL ??
+    process.env.VITE_RPC_URL ??
+    DEFAULT_RPC_URL;
+  const networkPassphrase =
+    overrides.networkPassphrase ?? getNetworkPassphrase();
+  const adminSecretKey =
+    overrides.adminSecretKey ?? process.env.ADMIN_SECRET_KEY ?? "";
 
   if (!contractId) {
     throw new Error("CONTRACT_ID or VITE_CONTRACT_ID is required.");
   }
   if (!adminSecretKey) {
-    throw new Error("ADMIN_SECRET_KEY is required for admin-signed operations.");
+    throw new Error(
+      "ADMIN_SECRET_KEY is required for admin-signed operations.",
+    );
   }
 
   return { contractId, rpcUrl, networkPassphrase, adminSecretKey };
@@ -79,7 +95,7 @@ export function addressToScVal(address: string): xdr.ScVal {
 export function vecAddressToScVal(addresses: string[]): xdr.ScVal {
   return nativeToScVal(
     addresses.map((address) => parseStellarAddress(address)),
-    { type: "vec" }
+    { type: "vec" },
   );
 }
 
@@ -95,7 +111,7 @@ export async function simulateRead(
   config: Pick<SorobanConfig, "contractId" | "networkPassphrase">,
   server: Server,
   method: string,
-  args: xdr.ScVal[] = []
+  args: xdr.ScVal[] = [],
 ): Promise<xdr.ScVal | null> {
   const account = await loadSimulationAccount(server);
   const contract = new Contract(config.contractId);
@@ -121,7 +137,7 @@ export async function readContractValue<T>(
   server: Server,
   method: string,
   args: xdr.ScVal[] = [],
-  decode?: (value: xdr.ScVal | null) => T
+  decode?: (value: xdr.ScVal | null) => T,
 ): Promise<T> {
   const retval = await simulateRead(config, server, method, args);
   if (decode) {
@@ -139,7 +155,7 @@ export async function invokeContract(
   config: SorobanConfig,
   server: Server,
   method: string,
-  args: xdr.ScVal[] = []
+  args: xdr.ScVal[] = [],
 ): Promise<TxResult> {
   const keypair = Keypair.fromSecret(config.adminSecretKey);
   const sourceAccount = await server.getAccount(keypair.publicKey());
@@ -158,13 +174,17 @@ export async function invokeContract(
 
   const sendResult = await server.sendTransaction(tx);
   if (sendResult.errorResult) {
-    throw new Error(`Transaction submission failed for ${method}: ${sendResult.errorResult.toString()}`);
+    throw new Error(
+      `Transaction submission failed for ${method}: ${sendResult.errorResult.toString()}`,
+    );
   }
 
   const hash = sendResult.hash;
   const finalResult = await waitForTransaction(server, hash);
   if (finalResult.status !== "SUCCESS") {
-    throw new Error(`Transaction ${hash} finished with status ${finalResult.status}`);
+    throw new Error(
+      `Transaction ${hash} finished with status ${finalResult.status}`,
+    );
   }
 
   return {
@@ -173,7 +193,10 @@ export async function invokeContract(
   };
 }
 
-export async function waitForTransaction(server: Server, hash: string): Promise<{ status: string }> {
+export async function waitForTransaction(
+  server: Server,
+  hash: string,
+): Promise<{ status: string }> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 120_000) {
@@ -187,7 +210,11 @@ export async function waitForTransaction(server: Server, hash: string): Promise<
   throw new Error(`Timed out waiting for transaction ${hash}`);
 }
 
-export async function retry<T>(attempts: number, action: () => Promise<T>, label: string): Promise<T> {
+export async function retry<T>(
+  attempts: number,
+  action: () => Promise<T>,
+  label: string,
+): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -196,7 +223,9 @@ export async function retry<T>(attempts: number, action: () => Promise<T>, label
     } catch (error) {
       lastError = error;
       if (attempt < attempts) {
-        console.warn(`${label} failed (attempt ${attempt}/${attempts}); retrying...`);
+        console.warn(
+          `${label} failed (attempt ${attempt}/${attempts}); retrying...`,
+        );
         await sleep(1_500 * attempt);
       }
     }
@@ -209,7 +238,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function runCommand(command: string, args: string[], cwd: string): Promise<string> {
+export async function runCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<string> {
   const { stdout, stderr } = await execFileAsync(command, args, {
     cwd,
     env: process.env,
@@ -244,12 +277,18 @@ export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
   return JSON.parse(content) as T;
 }
 
-export async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(
+  path: string,
+  value: unknown,
+): Promise<void> {
   await ensureDir(dirname(path));
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
-export async function appendJsonLine(path: string, value: unknown): Promise<void> {
+export async function appendJsonLine(
+  path: string,
+  value: unknown,
+): Promise<void> {
   await ensureDir(dirname(path));
   await appendFile(path, `${JSON.stringify(value)}\n`, "utf-8");
 }

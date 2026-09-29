@@ -48,24 +48,34 @@ export default function ErrorRecovery({
   const allowanceIssue =
     raw.includes("insufficientallowance") ||
     raw.includes("insufficient allowance") ||
+    raw.includes("error(contract, #8)") ||
     (health != null && !health.has_sufficient_allowance) ||
     simulateResult === "InsufficientAllowance";
   const pausedIssue =
     raw.includes("subscriptionpaused") ||
     raw.includes("subscription is paused") ||
+    raw.includes("error(contract, #17)") ||
     health?.is_paused === true ||
     simulateResult === "SubscriptionPaused";
   const graceIssue =
     raw.includes("graceperiodelapsed") ||
     raw.includes("grace period") ||
+    raw.includes("error(contract, #9)") ||
     health?.within_grace === true ||
     simulateResult === "GracePeriodElapsed";
   const dailyLimitIssue =
-    raw.includes("dailylimitexceeded") || raw.includes("daily limit exceeded");
-  const merchantFrozen = raw.includes("merchantfrozen") || raw.includes("merchant is frozen");
+    raw.includes("dailylimitexceeded") ||
+    raw.includes("daily limit exceeded") ||
+    raw.includes("error(contract, #25)");
+  const merchantFrozen =
+    raw.includes("merchantfrozen") ||
+    raw.includes("merchant is frozen") ||
+    raw.includes("error(contract, #22)");
   const contractPaused =
     raw.includes("contractpaused") ||
     raw.includes("contract is paused") ||
+    raw.includes("error(contract, #18)") ||
+    raw.includes("error(contract, #30)") ||
     simulateResult === "ContractPaused";
 
   let message = error ? friendlyError(error) : (healthMessage as string);

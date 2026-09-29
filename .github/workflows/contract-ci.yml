@@ -1,0 +1,44 @@
+name: Contract CI
+
+# Runs for every change under contract/ so the instruction-budget gate is
+# evaluated on each contract change rather than only on manual bench runs.
+on:
+  push:
+    branches: ["master"]
+    paths: ["contract/**", ".github/workflows/contract-ci.yml"]
+  pull_request:
+    branches: ["master"]
+    paths: ["contract/**", ".github/workflows/contract-ci.yml"]
+
+defaults:
+  run:
+    working-directory: contract
+
+jobs:
+  # ── Instruction-budget gate ─────────────────────────────────────────────────
+  # Runs the bench_* tests in contract/src/bench.rs so a change that inflates
+  # the on-chain cost of a core entrypoint fails the pipeline instead of
+  # landing silently. The bench is the only early signal available: a small
+  # refactor can push an entrypoint past its Soroban instruction budget at
+  # deploy time, which is otherwise only discovered in production.
+  #
+  # --features bench is REQUIRED. `mod bench` in src/lib.rs sits behind the
+  # `bench` cargo feature, so plain `cargo test bench` matches zero tests and
+  # exits 0 — a gate that cannot fail. The filter then selects the bench_*
+  # tests by name, and --nocapture prints the CPU/memory cost curve on every
+  # run (not just failures) so the numbers are auditable in the job log.
+  #
+  # Budgets are the MAX_*_INSTRUCTIONS constants in contract/src/bench.rs, each
+  # pinned to the measured cost plus ~15 % headroom with the measurement date
+  # recorded alongside it. If this job fails with "exceeds budget threshold",
+  # the named entrypoint regressed: re-measure with
+  #   cargo test --features bench bench -- --nocapture
+  # and either fix the regression or re-pin the constant with a justification.
+  bench:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run instruction-budget benchmarks
+        run: cargo test --features bench bench -- --nocapture

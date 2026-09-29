@@ -1,6 +1,6 @@
 # Merchant Integration Cookbook
 
-[`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) covers the **subscriber** side of PayFlow (subscribe, approve allowance, listen for charges). This cookbook is the companion for **merchants** — developers who want to accept subscription revenue, monitor their subscriber base, react to billing events, and withdraw accrued balances.
+[`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) covers the **subscriber** side of PayFlow (subscribe, approve allowance, listen for charges). This cookbook is the companion for **merchants** — developers who want to accept subscription revenue, monitor their subscriber base, react to billing events, and track earned revenue.
 
 If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md).
 
@@ -12,7 +12,7 @@ If you are building a SaaS billing dashboard, a marketplace settlement backend, 
 2. [Receiving Revenue](#2-receiving-revenue)
 3. [Monitoring Subscribers](#3-monitoring-subscribers)
 4. [Handling Events](#4-handling-events)
-5. [Withdrawing Revenue](#5-withdrawing-revenue)
+5. [Non-Custodial Settlement & Revenue Tracking](#5-non-custodial-settlement--revenue-tracking)
 6. [Troubleshooting](#6-troubleshooting)
 7. [Related Docs](#7-related-docs)
 
@@ -202,19 +202,15 @@ Amounts are always in **stroops** (1 XLM = 10,000,000 stroops). See [API.md — 
 
 ### 2.2 When is revenue “available”?
 
-There are two related notions:
+PayFlow is **non-custodial**:
 
 | Concept                                      | Meaning                                                                                                                                                                                      |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wallet balance**                           | After a successful `charge` / `pay_per_use`, the **net** tokens are already in your Stellar account (or fee-recipient address). You can spend them immediately like any other token balance. |
-| **Tracked revenue (`get_merchant_revenue`)** | A persistent on-chain counter of cumulative net revenue. Useful for dashboards and for `withdraw_merchant_revenue`.                                                                          |
+| **Direct settlement to wallet**              | On every successful `charge` or `pay_per_use`, the net tokens transfer **directly** from subscriber to your Stellar account (or configured fee-recipient address) via SAC `transfer_from`. You can spend them immediately. |
+| **Tracked revenue (`get_merchant_revenue`)** | A persistent on-chain metric tracking cumulative net revenue earned. Used for dashboards, accounting, and analytics.                                                                          |
 
-`withdraw_merchant_revenue` transfers the **tracked** amount from the **contract’s** token balance to the merchant, then resets the counter to zero. It is available when:
-
-1. `get_merchant_revenue(merchant) > 0`, and
-2. The contract account holds enough of the configured global token to cover that amount.
-
-> **Note:** The current charge path pays the merchant wallet directly while still incrementing the tracking counter. Withdrawal is the settlement step for balances held by the contract (pooled / escrow-style deployments). Always check both your wallet balance and `get_merchant_revenue` when reconciling. See [§ 5](#5-withdrawing-revenue).
+> **Non-Custodial Architecture:**
+> Because funds settle immediately into the merchant's wallet at charge time, the smart contract never escrows or holds merchant revenue. There is no withdrawal step or contract holding balance. See [§ 5](#5-non-custodial-settlement--revenue-tracking).
 
 ### 2.3 Optional fee recipient
 
@@ -382,7 +378,6 @@ Merchants should subscribe (via RPC polling) to four core events. Full schemas l
 Also watch (ops / risk):
 
 - `merchant_frozen` / `merchant_removed` — stop marketing new checkouts until resolved.
-- `merchant_withdrawal` — confirm treasury movements.
 - `paused` / `resumed` on your subscribers — charges will skip while paused.
 
 ### 4.1 Polling example
@@ -446,88 +441,80 @@ For a continuous terminal watcher:
 npx tsx scripts/watch-events.ts
 ```
 
+### 4.2 Webhook Notifications
+
+`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks.
+
+#### Configuration
+Set the following environment variables (e.g. in `scripts/.env`):
+* `WEBHOOK_URL`: The HTTP POST endpoint of your server.
+* `WEBHOOK_SECRET`: A shared secret string used to sign request bodies.
+* `WEBHOOK_DLQ_FILE`: Optional path to write failed deliveries after retry exhaustion (default: `data/webhook-dlq.jsonl`).
+
+#### Signature Verification
+Each request is signed with a deterministic HMAC-SHA256 signature calculated over the exact raw JSON request body bytes using `WEBHOOK_SECRET` as the key. The signature is sent as a hexadecimal string in the `X-PayFlow-Signature` header.
+
+To verify a webhook delivery:
+1. Read the raw request body buffer.
+2. Compute the HMAC-SHA256 hash using your configured shared secret.
+3. Compare the computed signature to the value in the `X-PayFlow-Signature` header using constant-time comparison.
+
+Example verification in Node.js:
+```typescript
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyWebhook(body: string, secret: string, headerSignature: string): boolean {
+  const computed = createHmac("sha256", secret).update(body).digest("hex");
+  const a = Buffer.from(computed);
+  const b = Buffer.from(headerSignature);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+#### Reliability & Retry Logic
+Webhook delivery handles network/server errors automatically:
+* **Transient errors** (HTTP 408, 429, 5xx, or network dropouts) are retried up to 5 times (6 attempts total) with exponential backoff.
+* The script respects the `Retry-After` header for rate-limiting (up to a maximum delay of 30 seconds).
+* **Permanent failures** (HTTP 4xx client errors) are aborted immediately without retry.
+* Failed payloads are logged to the Dead Letter Queue (DLQ) file without exposing the shared secret. Webhook failures do not disrupt the event polling daemon.
+
 ---
 
-## 5. Withdrawing Revenue
+## 5. Non-Custodial Settlement & Revenue Tracking
 
-### 5.1 Preconditions
+### 5.1 Non-Custodial Settlement
 
-1. You are the `merchant` address (auth required).
-2. `get_merchant_revenue(merchant) > 0`.
-3. The contract is not paused.
-4. The global token is initialized (`initialize` was called).
-5. The contract account holds ≥ tracked amount of that token.
+PayFlow is designed from the ground up to be non-custodial:
 
-Calling with a zero balance panics with `ContractError::ZeroBalanceAvailable` (code 21) — see [`docs/ERROR-CODES.md`](ERROR-CODES.md).
+1. **Direct Transfers**: When `charge(user)` or `pay_per_use(user, amount)` is executed, the contract pulls funds directly from the user's allowance and transfers them straight to the merchant's Stellar address (or configured fee recipient) via Stellar Asset Contract (SAC) `transfer_from`.
+2. **Zero Escrow**: The smart contract never holds, pools, or escrows subscriber payments.
+3. **No Withdrawal Needed**: Because funds arrive immediately in the merchant's wallet on every billing event, there is no manual withdrawal transaction or withdrawal lockup period.
 
-### 5.2 CLI walkthrough
+### 5.2 Revenue Tracking & Analytics
+
+To facilitate merchant dashboards, reporting, and reconciliation:
+
+- **`get_merchant_revenue(merchant)`**: Returns the cumulative net revenue (in stroops) earned by the merchant across all charges and pay-per-use payments.
+- **`get_merchant_revenue_history(merchant)`**: Returns daily revenue history buckets (up to 7 days).
+- **`get_merchant_subscriber_count(merchant)`**: Returns the current count of active subscriptions for the merchant.
+
+### 5.3 CLI & Querying
 
 ```bash
-# 1. Inspect tracked balance
+# Query cumulative revenue
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --network testnet \
   -- get_merchant_revenue \
   --merchant <MERCHANT_ADDRESS>
 
-# 2. Withdraw (signs as the merchant)
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <MERCHANT_KEY> \
-  --network testnet \
-  -- withdraw_merchant_revenue \
-  --merchant <MERCHANT_ADDRESS>
-
-# 3. Confirm counter reset
+# Query 7-day daily revenue breakdown
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --network testnet \
-  -- get_merchant_revenue \
+  -- get_merchant_revenue_history \
   --merchant <MERCHANT_ADDRESS>
-# → 0
 ```
-
-A successful withdrawal emits `merchant_withdrawal` with the amount transferred.
-
-### 5.3 TypeScript walkthrough
-
-```typescript
-/** Build a signable withdraw_merchant_revenue transaction (merchant must sign). */
-export async function buildWithdrawMerchantRevenueTx(
-  merchant: string,
-): Promise<string> {
-  return buildTx(merchant, "withdraw_merchant_revenue", [addressVal(merchant)]);
-}
-
-/**
- * Example end-to-end flow for a backend that holds the merchant secret.
- * Prefer Freighter / wallet signing in browser apps.
- */
-export async function withdrawMerchantRevenue(merchantSecret: string) {
-  const { Keypair, TransactionBuilder } = await import("@stellar/stellar-sdk");
-  const kp = Keypair.fromSecret(merchantSecret);
-  const merchant = kp.publicKey();
-
-  const tracked = await getMerchantRevenue(merchant);
-  if (tracked <= 0n) {
-    throw new Error("Nothing to withdraw (tracked revenue is zero)");
-  }
-
-  const xdrStr = await buildWithdrawMerchantRevenueTx(merchant);
-  const tx = TransactionBuilder.fromXDR(xdrStr, NETWORK_PASSPHRASE);
-  tx.sign(kp);
-
-  const send = await server.sendTransaction(tx);
-  if (send.status === "ERROR") {
-    throw new Error(`submit failed: ${JSON.stringify(send)}`);
-  }
-
-  // Poll getTransaction until SUCCESS / FAILED in production.
-  return send.hash;
-}
-```
-
-Browser apps should build XDR with `buildWithdrawMerchantRevenueTx`, then pass it through Freighter / Albedo (same pattern as `buildSubscribeTx` in `stellar.ts`).
 
 ---
 
@@ -552,8 +539,7 @@ Work through this checklist:
 3. **Fee recipient redirect** — funds may land in `MerchantFeeRecipient` while counters still attribute to you.
 4. **Multi-token mixing** — revenue counters are token-agnostic integers. If subscribers pay different SACs, do not treat the counter as a single-asset total; rebuild per-token totals from events ([MULTI-TOKEN.md](MULTI-TOKEN.md)).
 5. **Cancelled / paused users** — they stop generating `charged` events; `get_merchant_sub_count` should drop on cancel.
-6. **Withdrawal already cleared the counter** — after `withdraw_merchant_revenue`, `get_merchant_revenue` is `0` even though historical `charged` events remain.
-7. **Direct wallet vs tracked counter** — wallet balance increases on each charge; the counter is a separate ledger. Reconcile both.
+6. **Direct wallet vs tracked counter** — wallet balance increases on each charge directly via SAC transfer; the `get_merchant_revenue` counter is a cumulative on-chain tracking metric.
 
 ### Why did `subscribe` fail with MerchantNotWhitelisted?
 
@@ -567,29 +553,20 @@ The whitelist is enabled and the `recipient` address you specified is not whitel
 
 The `recipient` address is the contract address itself. Both `pay_per_use_to` and `set_merchant_fee_recipient` reject the contract address as a valid recipient. Use a regular Stellar account address (G...) instead.
 
-### Why did `withdraw_merchant_revenue` panic?
-
-| Symptom                      | Cause                          | Fix                                                                   |
-| ---------------------------- | ------------------------------ | --------------------------------------------------------------------- |
-| `ZeroBalanceAvailable` (#21) | Tracked revenue ≤ 0            | Wait for charges, or you already withdrew                             |
-| Auth failure                 | Wrong signer                   | Sign as the merchant address                                          |
-| Contract paused              | Admin pause                    | Wait for unpause                                                      |
-| Transfer failure             | Contract token balance too low | Ensure the contract holds the tracked amount of the initialized token |
-
 ---
 
 ## 7. Related Docs
 
-| Doc                                                                         | Why                                                      |
-| --------------------------------------------------------------------------- | -------------------------------------------------------- |
-| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events              |
-| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)   |
-| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                   |
-| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on |
-| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                    |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                       |
-| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                  |
-| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                  |
-| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients               |
-| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance               |
+| Doc                                                                         | Why                                                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)                              | Subscriber-side subscribe / charge / events                 |
+| [`API.md`](API.md)                                                          | Full contract reference (merchant + admin entrypoints)      |
+| [`EVENTS.md`](EVENTS.md) / [`EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md) | Event schemas and reliable consumption                      |
+| [`KEEPER.md`](KEEPER.md)                                                    | Running the off-chain bill collector merchants depend on    |
+| [`SUBSCRIBER-LIFECYCLE.md`](SUBSCRIBER-LIFECYCLE.md)                        | Trial, pause, cancel, grace semantics                       |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                        | Storage keys, fee path, module map                          |
+| [`ERROR-CODES.md`](ERROR-CODES.md)                                          | Numeric contract errors                                     |
+| [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
+| [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
 | [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |

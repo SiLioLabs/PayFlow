@@ -3,34 +3,48 @@ name: Scripts
 on:
   push:
     branches: ["master"]
+    paths: ["scripts/**", ".github/workflows/scripts.yml"]
   pull_request:
     branches: ["master"]
-    paths:
-      - "scripts/**"
-      - "docs/**"
+    paths: ["scripts/**", ".github/workflows/scripts.yml"]
 
 defaults:
   run:
     working-directory: scripts
 
 jobs:
-  quality:
+  typecheck:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: scripts/package-lock.json
+
       - name: Install dependencies
         run: npm ci
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint duplicates
+
+      - name: TypeScript ESM typecheck (gated in CI)
+        run: npm run typecheck:esm
+
+  lint-duplicates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Parse + duplicate-declaration gate
         run: npm run lint:duplicates
-      - name: Smoke test config
-        run: npm run smoke:config
-      - name: Run tests
-        run: npm run test

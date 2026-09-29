@@ -21,6 +21,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { writeFileSync } from "node:fs";
 import { logger } from "./logger";
+import { fileURLToPath } from "node:url";
 
 interface EventRow {
   timestamp: number;
@@ -64,7 +65,10 @@ function main() {
     console.error("--db <path> required");
     process.exit(1);
   }
-  if (!dbPath) { logger.error("--db <path> required"); process.exit(1); }
+  if (!dbPath) {
+    logger.error("--db <path> required");
+    process.exit(1);
+  }
 
   const db = new DatabaseSync(dbPath, { open: true });
 
@@ -88,7 +92,7 @@ function main() {
     // Fallback: use total subscriber count from events
     const totalRow = db
       .prepare(
-        "SELECT COUNT(DISTINCT json_extract(data, '$.user')) as n FROM events WHERE event_name = 'subscribed'",
+        "SELECT COUNT(DISTINCT json_extract(raw_data, '$.user')) as n FROM events WHERE event_name = 'subscribed'",
       )
       .get() as { n: number };
     const fallbackTotal = totalRow?.n ?? 0;
@@ -132,8 +136,11 @@ function main() {
     writeFileSync(out, json);
     console.log(`Wrote report to ${out}`);
   } else process.stdout.write(json + "\n");
-  if (out) { writeFileSync(out, json); logger.info(`Wrote report to ${out}`); }
-  else process.stdout.write(json + "\n");
+  if (out) {
+    writeFileSync(out, json);
+    logger.info(`Wrote report to ${out}`);
+  } else process.stdout.write(json + "\n");
 }
 
-main();
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) main();

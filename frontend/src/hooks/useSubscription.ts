@@ -1,8 +1,10 @@
-/**
+﻿/**
  * useSubscription - Fetches a single subscription record for a given user.
  *
  * Queries the PayFlow contract for a subscription tied to the provided public key.
  * Respects the RPC circuit breaker via useRpcHealthContext to avoid hammering a downed endpoint.
+ * Re-reads contract state when the tab becomes visible or the window regains
+ * focus, throttled by the visibility cooldown to avoid RPC bursts.
  *
  * @param {string} userKey - Stellar public key of the subscriber
  * @param {number} [refreshTrigger] - Increment to force a re-fetch from the network
@@ -25,12 +27,22 @@ import { useState, useCallback, useEffect } from "react";
 import { getSubscription } from "../stellar";
 import type { Subscription } from "../types";
 import { useRpcHealthContext } from "../context/RpcHealthContext";
+import { useVisibilityRefresh } from "./useVisibilityRefresh";
+import { useVisibilityRefresh } from "./useVisibilityRefresh";
 
 export function useSubscription(userKey: string, refreshTrigger?: number) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { circuitOpen } = useRpcHealthContext();
+
+  const [prevUserKey, setPrevUserKey] = useState(userKey);
+  if (userKey !== prevUserKey) {
+    setPrevUserKey(userKey);
+    setSubscription(null);
+    setLoading(true);
+    setError(null);
+  }
 
   const refresh = useCallback(async () => {
     if (circuitOpen) {
@@ -50,6 +62,17 @@ export function useSubscription(userKey: string, refreshTrigger?: number) {
       setLoading(false);
     }
   }, [userKey, circuitOpen]);
+
+  // Re-read contract state when the user returns to the tab, throttled by
+  // the default 5s cooldown to avoid RPC bursts on rapid alt-tab.
+  useVisibilityRefresh(refresh);
+
+  // Re-read contract state when the user returns to the tab.
+
+
+  useVisibilityRefresh(refresh);
+
+
 
   useEffect(() => {
     refresh();

@@ -6,7 +6,7 @@
  * validate a set of environment variables and receive structured, human-
  * readable error messages.
  *
- * ## Schema
+ * ## Canonical Environment Variables
  *
  * | Variable          | Type            | Constraints                                    |
  * |-------------------|-----------------|------------------------------------------------|
@@ -16,23 +16,87 @@
  * | BATCH_SIZE        | number (coerce) | Integer 1–200                                  |
  * | INTERVAL_SECONDS  | number (coerce) | Integer ≥ 60                                   |
  * | WEBHOOK_URL       | string?         | Optional valid http/https URL                  |
+ * | NETWORK_PASSPHRASE| string?         | Optional network passphrase (testnet default)  |
+ *
+ * ## Deprecated Aliases (with fallback + warning)
+ *
+ * - `KEEPER_SECRET` → `SECRET_KEY` (emits deprecation warning)
+ * - `NETWORK_PASSTHRASE` → `NETWORK_PASSPHRASE` (emits deprecation warning)
  *
  * ## Usage
  *
  * ```ts
- * import { ConfigSchema } from "./config";
+ * import { loadConfig } from "./config";
  *
- * const result = ConfigSchema.safeParse(process.env);
- * if (!result.success) {
- *   console.error(result.error.format());
- *   process.exit(1);
- * }
- * const config = result.data;
- * // config is fully typed with CONTRACT_ID, RPC_URL, etc.
+ * const config = loadConfig();
+ * // config.SECRET_KEY is populated from either SECRET_KEY or KEEPER_SECRET (with warning)
+ * // Warnings logged if deprecated aliases were used.
  * ```
  */
 
 import { z } from "zod";
+
+// ── Environment Variable Normalization ───────────────────────────────────────
+//
+// Handles deprecated alias names for backwards compatibility. Logs warnings
+// when old names are used.
+
+const DEPRECATION_WARNINGS: string[] = [];
+
+export function getDeprecationWarnings(): string[] {
+  return DEPRECATION_WARNINGS;
+}
+
+export function clearDeprecationWarnings(): void {
+  DEPRECATION_WARNINGS.length = 0;
+}
+
+export function logDeprecationWarnings(): void {
+  if (DEPRECATION_WARNINGS.length > 0) {
+    console.warn("\n⚠ Deprecated environment variables detected:\n");
+    for (const warning of DEPRECATION_WARNINGS) {
+      console.warn(`  ${warning}`);
+    }
+    console.warn(
+      "\n  Please update your .env file to use the canonical names above.\n",
+    );
+  }
+}
+
+/**
+ * Normalize env object by resolving deprecated aliases.
+ * If both canonical and alias are set, canonical takes precedence.
+ * Logs a warning if alias is used.
+ */
+export function normalizeEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const normalized = { ...env };
+
+  // KEEPER_SECRET → SECRET_KEY
+  if (
+    !normalized.SECRET_KEY &&
+    env.KEEPER_SECRET
+  ) {
+    normalized.SECRET_KEY = env.KEEPER_SECRET;
+    DEPRECATION_WARNINGS.push(
+      "KEEPER_SECRET is deprecated — use SECRET_KEY instead",
+    );
+  }
+
+  // NETWORK_PASSTHRASE (typo) → NETWORK_PASSPHRASE (correct)
+  if (
+    !normalized.NETWORK_PASSPHRASE &&
+    env.NETWORK_PASSTHRASE
+  ) {
+    normalized.NETWORK_PASSPHRASE = env.NETWORK_PASSTHRASE;
+    DEPRECATION_WARNINGS.push(
+      "NETWORK_PASSTHRASE is deprecated (typo) — use NETWORK_PASSPHRASE instead",
+    );
+  }
+
+  return normalized;
+}
 
 // ── Primitive validators ─────────────────────────────────────────────────────
 
@@ -55,7 +119,10 @@ export const ConfigSchema = z.object({
   CONTRACT_ID: z
     .string({ required_error: "CONTRACT_ID is required" })
     .min(1, "CONTRACT_ID must not be empty")
-    .regex(contractIdRegex, "CONTRACT_ID must be a valid Stellar contract ID (starts with 'C', 56-char base32)"),
+    .regex(
+      contractIdRegex,
+      "CONTRACT_ID must be a valid Stellar contract ID (starts with 'C', 56-char base32)",
+    ),
 
   /** Soroban RPC endpoint (e.g. https://soroban-testnet.stellar.org) */
   RPC_URL: z
@@ -66,9 +133,22 @@ export const ConfigSchema = z.object({
   SECRET_KEY: z
     .string({ required_error: "SECRET_KEY is required" })
     .min(1, "SECRET_KEY must not be empty")
-    .regex(secretKeyRegex, "SECRET_KEY must be a valid Stellar secret key (starts with 'S', 56-char base32)"),
+    .regex(
+      secretKeyRegex,
+      "SECRET_KEY must be a valid Stellar secret key (starts with 'S', 56-char base32)",
+    ),
 
   /** Maximum number of subscriptions to charge in a single transaction (1–200) */
+  /**
+   * Maximum number of subscriptions to charge in a single transaction (1–200).
+   * The upper bound of 200 mirrors the contract's `MAX_BATCH_SIZE_CEILING` —
+   * the hard cap no admin-configured on-chain batch limit can exceed. This
+   * schema only validates the env var's shape; `keeper.ts` additionally
+   * clamps the effective value at startup to whatever `get_max_batch_size()`
+   * reports on-chain right now (which defaults to 50 and may be lower than
+   * this 200 ceiling), so a value that passes this schema can still be
+   * narrowed further before it's used.
+   */
   BATCH_SIZE: z
     .coerce
     .number({ invalid_type_error: "BATCH_SIZE must be a number" })
@@ -77,8 +157,7 @@ export const ConfigSchema = z.object({
     .max(200, "BATCH_SIZE must be at most 200"),
 
   /** Minimum interval in seconds between keeper charge cycles (≥ 60) */
-  INTERVAL_SECONDS: z
-    .coerce
+  INTERVAL_SECONDS: z.coerce
     .number({ invalid_type_error: "INTERVAL_SECONDS must be a number" })
     .int("INTERVAL_SECONDS must be an integer")
     .min(60, "INTERVAL_SECONDS must be at least 60 (1 minute)"),
@@ -89,14 +168,53 @@ export const ConfigSchema = z.object({
     .url("WEBHOOK_URL must be a valid URL with http:// or https:// protocol")
     .optional(),
 
-  /** Optional network passphrase for Stellar network identification */
-  NETWORK_PASSPHRASE: z
+  /** Secret used to generate HMAC-SHA256 signature for webhooks */
+  WEBHOOK_SECRET: z
+    .string()
+    .min(1, "WEBHOOK_SECRET must not be empty if provided")
+    .optional(),
+
+  /** Optional file path for the Dead Letter Queue for failed webhooks */
+  WEBHOOK_DLQ_FILE: z
     .string()
     .optional(),
+
+  /** Optional network passphrase for Stellar network identification */
+  NETWORK_PASSPHRASE: z.string().optional(),
 });
 
 /** Inferred TypeScript type from ConfigSchema */
 export type KeeperConfig = z.infer<typeof ConfigSchema>;
+
+// ── Manifest schema ──────────────────────────────────────────────────────────
+
+export const ManifestSchema = z.object({
+  contractId: z
+    .string({ required_error: "contractId is required in manifest" })
+    .regex(contractIdRegex, "contractId must be a valid Stellar contract ID"),
+
+  tokenAddress: z
+    .string({ required_error: "tokenAddress is required in manifest" })
+    .min(1, "tokenAddress must not be empty"),
+
+  adminAddress: z
+    .string({ required_error: "adminAddress is required in manifest" })
+    .min(1, "adminAddress must not be empty"),
+
+  network: z
+    .string({ required_error: "network is required in manifest" })
+    .min(1, "network must not be empty"),
+
+  rpcUrl: z
+    .string({ required_error: "rpcUrl is required in manifest" })
+    .url("rpcUrl must be a valid URL"),
+
+  networkPassphrase: z
+    .string({ required_error: "networkPassphrase is required in manifest" })
+    .min(1, "networkPassphrase must not be empty"),
+});
+
+export type ValidatedManifest = z.infer<typeof ManifestSchema>;
 
 // ── Validation helpers ───────────────────────────────────────────────────────
 

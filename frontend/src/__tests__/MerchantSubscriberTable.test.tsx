@@ -288,4 +288,43 @@ describe("MerchantSubscriberTable", () => {
       expect(screen.getByRole("button", { name: /show overdue \(1\)/i })).toBeInTheDocument();
     });
   });
+
+  describe("virtualization of filtered/sorted rows", () => {
+    const MANY_SUBS: MerchantSubscriber[] = Array.from({ length: 200 }, (_, i) =>
+      makeSub({
+        subscriber: `GSUB${i.toString().padStart(52, "0")}`,
+        amount: String((i + 1) * 1_000_000),
+        nextChargeAt: i % 2 === 0 ? FUTURE + i : PAST - i,
+      })
+    );
+
+    it("reports the full filtered/sorted count via aria-rowcount even though only a window is rendered", () => {
+      render(<MerchantSubscriberTable subscribers={MANY_SUBS} />);
+
+      const table = screen.getByRole("table", { name: /merchant subscriber list/i });
+      expect(table).toHaveAttribute("aria-rowcount", String(MANY_SUBS.length));
+
+      // Only a windowed subset of the 200 rows should be mounted in the DOM.
+      const renderedRows = screen.getAllByTestId(/^mst-row-/);
+      expect(renderedRows.length).toBeGreaterThan(0);
+      expect(renderedRows.length).toBeLessThan(MANY_SUBS.length);
+    });
+
+    it("keeps the virtual window in sync after filtering to a smaller set", async () => {
+      render(<MerchantSubscriberTable subscribers={MANY_SUBS} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
+
+      const overdueCount = MANY_SUBS.filter((s) => deriveStatus(s.nextChargeAt) === "overdue").length;
+      const table = screen.getByRole("table", { name: /merchant subscriber list/i });
+      expect(table).toHaveAttribute("aria-rowcount", String(overdueCount));
+
+      // Every rendered row must actually be overdue — the filter must apply to
+      // the full list before virtualization windows it, not the other way round.
+      const renderedRows = screen.getAllByTestId(/^mst-row-/);
+      renderedRows.forEach((row) => {
+        expect(row.className).toContain("mst-row--overdue");
+      });
+    });
+  });
 });

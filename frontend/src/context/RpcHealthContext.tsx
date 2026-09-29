@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { RPC_URL } from "../stellar";
+import { clearCache as clearRpcCache } from "../services/rpcCache";
 
 const POLL_INTERVAL_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
@@ -106,6 +107,9 @@ export function RpcHealthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // localStorage unavailable
     }
+    // Drop any cached RPC responses fetched from the previous endpoint so
+    // callers on the new endpoint can't be served cross-network data (#1067).
+    clearRpcCache();
     setCustomRpcUrlState(url);
   }, []);
 

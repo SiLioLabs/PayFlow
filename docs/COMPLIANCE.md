@@ -86,7 +86,7 @@ Backfill a ledger window into your own store (the upsert hook in the script is a
 CONTRACT_ID=C... npx tsx scripts/replay-events.ts --from-ledger 50000 --to-ledger 51000
 ```
 
-Keep every event where the merchant field or topic matches your merchant address, especially: `subscribed`, `charged`, `pay_per_use`, `cancelled`, `paused`, `resumed`, `merchant_withdrawal`.
+Keep every event where the merchant field or topic matches your merchant address, especially: `subscribed`, `charged`, `pay_per_use`, `cancelled`, `paused`, `resumed`.
 
 ### Step 2 — Export a merchant revenue snapshot
 
@@ -160,13 +160,6 @@ This is a reconstructed example combining real event and report shapes — **not
       "charged_at": 1719388800,
       "ledger": 105432,
       "tx_hash": "def456..."
-    },
-    {
-      "event_type": "merchant_withdrawal",
-      "merchant": "GDEF...ABC",
-      "amount": "1000000000",
-      "ledger": 106000,
-      "tx_hash": "ghi789..."
     }
   ],
   "merchant_report": {
@@ -205,7 +198,6 @@ These do **not** replace a primary event archive; they summarize one.
 | `paused` / `resumed`                          | Customer temporarily stopped / restarted billing                                                                      |
 | `sub_amount_updated` / `sub_interval_updated` | Price or billing period changed                                                                                       |
 | `sub_transferred`                             | Subscription moved to another Stellar address                                                                         |
-| `merchant_withdrawal`                         | Merchant withdrew accrued protocol-tracked revenue (payout)                                                           |
 | `daily_limit_set` / `daily_limit_removed`     | Customer changed pay-per-use daily cap (control, not revenue)                                                         |
 | `fee_proposed` / `fee_committed`              | Protocol fee schedule change (policy audit)                                                                           |
 | `merchant_frozen` / `merchant_unfrozen`       | Admin blocked / unblocked the merchant from new activity                                                              |
@@ -217,11 +209,10 @@ Amounts on `charged` are the structured source for revenue recognition splits (g
 
 1. For each `charged` or `pay_per_use` event in the period, note `net` (or amount), `tx_hash`, and ledger time.
 2. In the merchant wallet or the exchange that received deposits, match inbound SAC transfers by amount and timestamp (allow for network latency and batching).
-3. Match `merchant_withdrawal` events to withdrawals from the contract’s revenue accounting into the merchant wallet.
-4. Expect **gross − fee = net**. Protocol fees go to the configured fee collector, not the merchant — do not book fee as merchant revenue.
-5. Investigate gaps: missing events usually mean RPC retention lapsed without an indexer, or filters excluded the merchant.
+3. Expect **gross − fee = net**. Protocol fees go to the configured fee collector, not the merchant — do not book fee as merchant revenue.
+4. Investigate gaps: missing events usually mean RPC retention lapsed without an indexer, or filters excluded the merchant.
 
-Token transfers prove value movement; contract events prove _why_ (subscription charge vs pay-per-use vs withdrawal). Keep both in the audit package when possible.
+Token transfers prove value movement; contract events prove _why_ (subscription charge vs pay-per-use). Keep both in the audit package when possible.
 
 ---
 

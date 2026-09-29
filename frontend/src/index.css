@@ -27,6 +27,10 @@
   --color-danger-bg: #3f1515;
   --color-danger-text: #f87171;
 
+  --color-warning: #fbbf24;
+  --color-warning-bg: #451a03;
+  --color-warning-text: #fbbf24;
+
   --color-info: #1d4ed8;
   --color-info-hover: #1e40af;
 
@@ -87,11 +91,17 @@
   --color-border: #e2e8f0;
   --color-border-light: #cbd5e1;
 
+  --color-success: #15803d;
   --color-success-bg: #dcfce7;
   --color-success-text: #166534;
 
+  --color-danger: #b91c1c;
   --color-danger-bg: #fee2e2;
   --color-danger-text: #991b1b;
+
+  --color-warning: #b45309;
+  --color-warning-bg: #fef9c3;
+  --color-warning-text: #92400e;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -303,8 +313,8 @@ input::placeholder {
 }
 
 .badge-warning {
-  background: #451a03;
-  color: #fbbf24;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -634,6 +644,14 @@ input::placeholder {
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
+  margin-bottom: var(--space-4);
+  /* Notification priority (issue #864): the pause banner is the single
+     source of truth for maintenance state and must never be visually
+     obscured by toasts. It sticks to the top of the viewport and sits
+     above the toast container's stacking context (see .toast-container). */
+  position: sticky;
+  top: 0;
+  z-index: 300;
 }
 
 .contract-pause-banner__icon {
@@ -643,6 +661,24 @@ input::placeholder {
 
 .contract-pause-banner__message {
   flex: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Toast Container (notification priority — issue #864)
+   Fixed to a corner so toasts never push page content around; kept below the
+   contract pause banner's z-index so the banner is always on top when both
+   are visible at once.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.toast-container {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: min(360px, calc(100vw - var(--space-8)));
 }
 
 .merchant-row {
@@ -1934,11 +1970,6 @@ button.allowance-health-badge:focus-visible {
 [data-theme="light"] .btn-danger:hover:not(:disabled) {
   background: #fecaca;
   color: #7f1d1d;
-}
-
-[data-theme="light"] .badge-warning {
-  background: #fef9c3;
-  color: #92400e;
 }
 
 [data-theme="light"] .network-warning {
