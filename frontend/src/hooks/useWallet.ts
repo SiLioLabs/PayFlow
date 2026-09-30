@@ -7,6 +7,8 @@ import { FreighterAdapter } from "../services/wallets/FreighterAdapter";
 import { XBullAdapter } from "../services/wallets/XBullAdapter";
 import { LobstrAdapter } from "../services/wallets/LobstrAdapter";
 import { HanaAdapter } from "../services/wallets/HanaAdapter";
+import { useWalletStatus } from "./useWalletStatus";
+import type { WalletStatus } from "./useWalletStatus";
 
 const STORAGE_KEY_PK = "pf_wallet_pk";
 const STORAGE_KEY_ID = "pf_wallet_id";
@@ -20,10 +22,9 @@ export const AVAILABLE_WALLETS = [
 
 export function useWallet() {
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
   const [ready, setReady] = useState(false);
   const [activeAdapterId, setActiveAdapterId] = useState<string | null>(null);
+  const walletStatus = useWalletStatus();
 
   const activeAdapter = AVAILABLE_WALLETS.find((a) => a.id === activeAdapterId) || null;
 
@@ -80,8 +81,7 @@ export function useWallet() {
   }, []);
 
   const connect = useCallback(async (adapter: WalletAdapter) => {
-    setError(null);
-    setConnecting(true);
+    walletStatus.setConnecting();
     try {
       const isInstalled = await adapter.isInstalled();
       if (!isInstalled) {
@@ -93,12 +93,12 @@ export function useWallet() {
       localStorage.setItem(STORAGE_KEY_ID, adapter.id);
       setPublicKey(key);
       setActiveAdapterId(adapter.id);
+      walletStatus.setConnected();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to connect wallet");
-    } finally {
-      setConnecting(false);
+      const errorMsg = e instanceof Error ? e.message : "Failed to connect wallet";
+      walletStatus.setError(errorMsg);
     }
-  }, []);
+  }, [walletStatus]);
 
   const signAndSubmit = useCallback(
     async (xdr: string): Promise<string> => {
@@ -127,16 +127,17 @@ export function useWallet() {
     localStorage.removeItem(STORAGE_KEY_ID);
     setPublicKey(null);
     setActiveAdapterId(null);
-    setError(null);
-  }, [activeAdapter]);
+    walletStatus.reset();
+  }, [activeAdapter, walletStatus]);
 
   return {
     publicKey,
     connect,
     signAndSubmit,
     disconnect,
-    error,
-    connecting,
+    error: walletStatus.error,
+    connecting: walletStatus.status === "connecting",
+    connectionStatus: walletStatus.status,
     ready,
     activeAdapter,
   };
