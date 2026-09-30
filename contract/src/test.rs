@@ -1501,10 +1501,13 @@ fn test_frozen_merchant_survives_past_default_archive_point() {
     );
 
     // Attempting a new subscription must still be blocked.
-    let new_user = setup_funded_user(&env, &contract_id, &token_addr);
+    // NOTE: reuse the user funded in `setup()` — its token approval covers
+    // 200,000 ledgers and outlives the 100,000-ledger jump above. A fresh
+    // `setup_funded_user` here would approve with live_until = 200 and panic
+    // inside the token contract before `subscribe` is ever reached.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.subscribe(
-            &new_user,
+            &user,
             &merchant,
             &1_0000000,
             &86400,
@@ -10540,6 +10543,230 @@ fn test_extend_subscriber_index_ttl_non_admin_panics() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Issue #1010: SubscriberIndexSize TTL parity with index keys
+// ─────────────────────────────────────────────────────────────
+
+/// Regression test for issue #1010.
+///
+/// `append_subscriber_index` TTL-extends the `SubscriberIndex` slot and the
+/// `SubscriberIndexSlot` reverse-lookup, but wrote `SubscriberIndexSize` with
+/// a bare `set`. The size key therefore sat on the SDK default live-until
+/// (~4096 ledgers) while its siblings got the full `SUBSCRIPTION_TTL_LEDGERS`
+/// window. If the size key archives first, the next append reads a stale
+/// size, re-introduces already-occupied slots, and index bookkeeping
+/// diverges from actual subscriptions — silently breaking paged reads.
+fn assert_index_keys_share_ttl_window(env: &Env, contract_id: &Address) {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    env.as_contract(contract_id, || {
+        let size_ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::SubscriberIndexSize);
+        let slot_ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::SubscriberIndex(0));
+        let reverse_ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::SubscriberIndexSlot(user_of_slot0(env)));
+
+        // All three keys must live on the full TTL window.
+        assert!(
+            size_ttl >= SUBSCRIPTION_TTL_LEDGERS,
+            "SubscriberIndexSize TTL {size_ttl} must reach the sibling window {SUBSCRIPTION_TTL_LEDGERS}"
+        );
+        assert!(
+            slot_ttl >= SUBSCRIPTION_TTL_LEDGERS,
+            "SubscriberIndex(0) TTL {slot_ttl} must reach the sibling window"
+        );
+        assert!(
+            reverse_ttl >= SUBSCRIPTION_TTL_LEDGERS,
+            "SubscriberIndexSlot TTL {reverse_ttl} must reach the sibling window"
+        );
+
+        // Archive order parity: the size key must never expire before the
+        // slot keys it governs.
+        assert!(
+            size_ttl >= slot_ttl,
+            "SubscriberIndexSize must not archive before SubscriberIndex(0)"
+        );
+        assert!(
+            size_ttl >= reverse_ttl,
+            "SubscriberIndexSize must not archive before SubscriberIndexSlot"
+        );
+    });
+}
+
+/// Resolves the subscriber occupying slot 0 of the index.
+fn user_of_slot0(env: &Env) -> Address {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Address>(&DataKey::SubscriberIndex(0))
+        .expect("slot 0 occupied")
+}
+
+#[test]
+fn test_append_subscriber_index_ttl_extends_size_key() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    assert_eq!(client.get_subscriber_count(), 1);
+    assert_index_keys_share_ttl_window(&env, &contract_id);
+}
+
+/// Re-appends after a cancel + resubscribe cycle (transfer/cancel paths reuse
+/// `append_subscriber_index` internally) must re-extend the size key too.
+#[test]
+fn test_resubscribe_keeps_size_key_ttl_parity() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.cancel(&user);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    assert_eq!(client.get_subscriber_count(), 2);
+    assert_index_keys_share_ttl_window(&env, &contract_id);
+}
+
+/// A ledger advance that would archive a key on the default ~4096-ledger
+/// live-until must not take the size key (or any sibling) offline.
+#[test]
+fn test_size_key_survives_past_default_archive_point_after_append() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.ledger().with_mut(|l| {
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    // Advance past the SDK default archive point (4096 ledgers) but well
+    // within the SUBSCRIPTION_TTL_LEDGERS window the append now extends to.
+    env.ledger().with_mut(|l| {
+        l.sequence_number += 100_000; // >> 4096 default, << 6307200 window
+    });
+
+    // Keep the contract instance alive across the ledger jump.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .extend_ttl(2_000_000, 2_000_000);
+    });
+
+    env.as_contract(&contract_id, || {
+        for (label, ttl) in [
+            (
+                "SubscriberIndexSize",
+                env.storage()
+                    .persistent()
+                    .get_ttl(&DataKey::SubscriberIndexSize),
+            ),
+            (
+                "SubscriberIndex(0)",
+                env.storage()
+                    .persistent()
+                    .get_ttl(&DataKey::SubscriberIndex(0)),
+            ),
+        ] {
+            // get_ttl returns the remaining TTL directly (0 once archived).
+            assert!(
+                ttl >= SUBSCRIPTION_TTL_LEDGERS - 100_000,
+                "{label} TTL {ttl} must have survived the ledger advance"
+            );
+        }
+    });
+
+    // The public read path still sees the full index after the jump.
+    assert_eq!(client.get_subscriber_count(), 1);
+}
+
+/// The admin repair helper stays functionally compatible: it must still
+/// tombstone stale slots, and (per the issue's secondary ask) its touch also
+/// bumps the size key onto the shared TTL window.
+#[test]
+fn test_clear_subscriber_index_entry_bumps_size_key_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    env.ledger().with_mut(|l| {
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    deactivate_subscription_leaving_index(&env, &contract_id, &user);
+
+    client.clear_subscriber_index_entry(&0);
+
+    env.as_contract(&contract_id, || {
+        assert!(subscription_count::is_subscriber_index_removed(&env, 0));
+        let ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::SubscriberIndexSize);
+        assert!(
+            ttl >= SUBSCRIPTION_TTL_LEDGERS,
+            "admin repair must keep SubscriberIndexSize on the shared window; got {ttl}"
+        );
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
 // Issue #838: clear_subscriber_index_entry admin repair
 // ─────────────────────────────────────────────────────────────
 
@@ -13670,7 +13897,7 @@ fn test_estimate_at_raised_cap_succeeds_and_over_panics() {
         env2.mock_all_auths();
         let token_id2 = env2.register_stellar_asset_contract_v2(Address::generate(&env2));
         let token2 = token_id2.address();
-        let c2 = env2.register(crate::FlowPay, ());
+        let c2 = env2.register_contract(None, crate::FlowPay);
         let cl2 = FlowPayClient::new(&env2, &c2);
         let admin2 = Address::generate(&env2);
         cl2.initialize(&token2, &admin2);
@@ -13750,7 +13977,7 @@ fn test_subscribe_paused_does_not_emit_legacy_error_30() {
         Ok(contract_err) => {
             assert_eq!(
                 contract_err,
-                crate::errors::ContractError::ContractPaused,
+                crate::errors::ContractError::ContractPaused.into(),
                 "must be ContractPaused (#18), not the deprecated #30"
             );
         }

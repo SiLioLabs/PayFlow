@@ -400,6 +400,8 @@ impl FlowPay {
 
     pub fn get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
         if users.len() > caps::MAX_BATCH_SIZE_CEILING {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
         let max_size = batch::get_max_batch_size(&env);
         if users.len() > max_size {
             env.panic_with_error(ContractError::BatchTooLarge);
