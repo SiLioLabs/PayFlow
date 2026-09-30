@@ -121,6 +121,14 @@ export function loadEnvFile(projectRoot: string): Map<string, string> {
 
 // ── Shared Config Loader ─────────────────────────────────────────────────────
 
+type Validator = (value: string) => { valid: boolean; reason?: string };
+
+interface ValidationResult {
+  variable: string;
+  passed: boolean;
+  reason?: string;
+}
+
 /**
  * Load and validate the keeper environment configuration.
  *
