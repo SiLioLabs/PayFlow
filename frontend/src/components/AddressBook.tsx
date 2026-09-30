@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback } from "react";
+import { StrKey } from "@stellar/stellar-sdk";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import {
@@ -61,12 +62,17 @@ export default function AddressBook({ onSelect, onClose }: Props) {
 
   const handleAdd = useCallback(() => {
     setAddError(null);
-    const result = validateAddressBookEntry(newName, newAddress);
-    if (!result.valid) {
-      setAddError(result.error);
+    const trimmedName = newName.trim();
+    const trimmedAddress = newAddress.trim();
+
+    if (!trimmedName) {
+      setAddError("Name is required.");
       return;
     }
-    setEntries([...entries, { name: newName.trim(), address: newAddress.trim() }]);
+    if (!trimmedAddress) {
+      setAddError("Address is required.");
+      return;
+    }
     if (!StrKey.isValidEd25519PublicKey(trimmedAddress)) {
       setAddError("Invalid Stellar address.");
       return;

@@ -4,15 +4,14 @@ import { parseAddressList, chunkAddresses } from "../../utils/addressValidation"
 import { friendlyError } from "../../utils/errors";
 import { useTransaction } from "../../hooks/useTransaction";
 import { useToast } from "../../hooks/useToast";
-import { CONTRACT_LIMITS } from "../../constants";
 import AddressListInput from "./AddressListInput";
 import ConfirmModal from "../ConfirmModal";
 import Spinner from "../Spinner";
 import ToastContainer from "../Toast";
 import { AdminAddressListSkeleton } from "../Skeleton";
 
-/** Contract hard limit — sourced from shared constants */
-const MAX_PAUSE_BATCH = CONTRACT_LIMITS.MAX_BATCH_PAUSE;
+/** Contract hard limit per batch_pause_subscriptions call */
+const MAX_PAUSE_BATCH = 25;
 
 // ── Panel load state ──────────────────────────────────────────────────────────
 
@@ -48,8 +47,6 @@ interface Props {
  * the previous result is ignored (the component checks `signal.aborted` before
  * applying state). This prevents an out-of-order slow response from clobbering
  * a newer, faster one.
- * Lists longer than MAX_BATCH_PAUSE are blocked at submit with a warning,
- * because the contract caps each batch_pause_subscriptions call.
  */
 export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: Props) {
   const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
@@ -96,13 +93,6 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
   const { valid, invalid } = parseAddressList(rawInput);
   const canSubmit =
     isAdmin && valid.length > 0 && invalid.length === 0 && tx.status !== "pending" && panelState === "ready";
-  const overCap = valid.length > MAX_PAUSE_BATCH;
-  const canSubmit =
-    isAdmin &&
-    valid.length > 0 &&
-    invalid.length === 0 &&
-    !overCap &&
-    tx.status !== "pending";
 
   const chunks = chunkAddresses(valid, MAX_PAUSE_BATCH);
   const txCount = chunks.length;
@@ -155,8 +145,9 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
           Batch Pause Subscriptions
         </h4>
         <p className="text-sm text-muted">
-          Paste subscriber addresses (one per line) to pause multiple subscriptions at once. Max{" "}
-          {MAX_PAUSE_BATCH} addresses per batch.
+          Paste subscriber addresses (one per line) to pause multiple subscriptions at once. Lists
+          longer than {MAX_PAUSE_BATCH} addresses are split into multiple transactions
+          automatically.
         </p>
       </header>
 
@@ -280,44 +271,6 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
             </p>
           )}
         </>
-      {overCap && (
-        <div
-          role="alert"
-          className="mb-3 p-3 rounded-md text-sm"
-          style={{
-            background: "rgba(239, 68, 68, 0.1)",
-            color: "var(--color-error, #ef4444)",
-            border: "1px solid var(--color-error, #ef4444)",
-          }}
-        >
-          Too many addresses: {valid.length} provided, max {MAX_PAUSE_BATCH} per batch. Remove{" "}
-          {valid.length - MAX_PAUSE_BATCH} to continue.
-        </div>
-      )}
-
-      <button
-        type="button"
-        className="btn-danger"
-        onClick={() => setShowConfirm(true)}
-        disabled={!canSubmit}
-        aria-disabled={!canSubmit}
-        aria-busy={tx.status === "pending"}
-        title={!isAdmin ? "Admin access required" : undefined}
-      >
-        {tx.status === "pending" ? (
-          <span className="flex gap-2 items-center">
-            <Spinner size="sm" />
-            Pausing…
-          </span>
-        ) : (
-          "Pause subscriptions"
-        )}
-      </button>
-
-      {tx.error && (
-        <p className="text-error text-sm mt-2" role="alert">
-          {friendlyError(tx.error)}
-        </p>
       )}
 
       {showConfirm && (
