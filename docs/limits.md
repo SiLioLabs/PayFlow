@@ -7,8 +7,9 @@ with that file, the file is right and this page is a bug.
 
 **Related docs:**
 [`API.md`](API.md) (per-endpoint signatures and errors) |
-[`ERROR-CODES.md`](ERROR-CODES.md) (`BatchTooLarge` = 20, `InvalidBatchSize` = 29) |
+[`ERROR-CODES.md`](ERROR-CODES.md) (`BatchTooLarge` = 20, `InvalidBatchSize` = 29, `GlobalVolumeExceeded` = 28, `InvalidVolumeCap` = 33) |
 [`DEPLOYMENT.md`](DEPLOYMENT.md) (post-deploy gates) |
+[`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md#2-volume-cap) (volume cap operational checklist) |
 [`DAILY-LIMITS.md`](DAILY-LIMITS.md) (per-user `pay_per_use` daily cap - a different topic) |
 [`charge-results.md`](charge-results.md) (what a capped batch returns)
 
@@ -25,6 +26,7 @@ with that file, the file is right and this page is a bug.
 - [Why the ceilings exist](#why-the-ceilings-exist)
 - [Off-chain mirrors](#off-chain-mirrors)
 - [Verifying this page](#verifying-this-page)
+- [Global hourly volume cap](#global-hourly-volume-cap)
 - [Related](#related)
 
 ---
@@ -227,6 +229,75 @@ node scripts/emit-caps-table.mjs --check
 `scripts/emit-caps-table.mjs` parses `caps.rs` and diffs the result against this
 page, so a constant change without a doc change is a one-line command away from
 being caught.
+
+## Global Hourly Volume Cap
+
+The global volume cap is a separate, protocol-wide throughput limit. Unlike the batch and page caps above, it is not in `caps.rs` — it lives in `contract/src/lib.rs` as a compile-time constant with an admin-configurable override.
+
+### Constants and storage
+
+| Name | Value | Location |
+| ---- | ----: | -------- |
+| `GLOBAL_MAX_VOLUME_PER_HOUR` | `50_000_000_000_000` (50 trillion stroops) | `contract/src/lib.rs` |
+| `HOUR_IN_SECONDS` | `3600` | `contract/src/lib.rs` |
+| `DataKey::GlobalVolumeCapOverride` | admin override (instance storage) | set by `set_global_volume_cap` |
+| `DataKey::GlobalVolumeWindow` | rolling accumulator + window start (instance storage) | written on every charge |
+
+### Effective cap rule
+
+The **effective cap** is determined by `effective_global_volume_cap(env)` — a shared helper called by enforcement, the getter, and the config reader:
+
+```
+effective cap = GlobalVolumeCapOverride  (if set by admin)
+              | GLOBAL_MAX_VOLUME_PER_HOUR  (compile-time fallback)
+```
+
+Setting `set_global_volume_cap(new_cap)` writes `GlobalVolumeCapOverride` to instance storage and immediately changes the cap that enforcement reads. Clearing the override (or deploying a fresh contract) restores the compile-time default. There is no separate "activation" step.
+
+### Enforcement point
+
+`check_and_update_global_volume(env, amount)` is called inside `charge_exec::execute_charge` on every successful charge — **after** the token transfer succeeds but within the same atomic Soroban invocation. It:
+
+1. Reads the current `GlobalVolumeWindow` (resets the window if the rolling hour has elapsed).
+2. Computes `new_volume = accumulated + amount`. Overflows surface as `ArithmeticOverflow` (not `GlobalVolumeExceeded`) so clients can tell the two apart.
+3. Compares `new_volume` against `effective_global_volume_cap(env)` — the override when set, otherwise the compile-time constant.
+4. Panics `GlobalVolumeExceeded` (error 28) if the cap is exceeded; otherwise writes `new_volume` back.
+
+The same path runs for both single `charge()` and every successful hit in `batch_charge()`. `pay_per_use` and `pay_per_use_to` also call `check_and_update_global_volume`.
+
+### Getters and their scope
+
+| Function | Auth | Returns | Note |
+| -------- | ---- | ------- | ---- |
+| `get_global_volume_cap() -> i128` | none | Effective cap (override or compile-time constant) | Uses `effective_global_volume_cap` — same value enforcement uses |
+| `get_global_volume_window() -> (i128, u64)` | none | `(accumulated_volume, window_start_timestamp)` | Returns `(0, 0)` when no window has been written yet |
+| `get_contract_config() -> ContractConfig` | none | `.global_volume_cap` field reflects the effective cap | Reads `effective_global_volume_cap` — consistent with `get_global_volume_cap` |
+
+All three agree on the effective cap because they all delegate to `effective_global_volume_cap`. An operator who sets an override will see it immediately in all three.
+
+### Setting and reading the cap (CLI)
+
+```bash
+# Read effective cap
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_global_volume_cap
+
+# Read current window accumulation
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_global_volume_window
+
+# Set an override (admin only); panics InvalidVolumeCap (33) if new_cap <= 0
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ADMIN_KEY> \
+  --network testnet \
+  -- set_global_volume_cap \
+  --new_cap 25000000000000
+```
+
+### Note on this wave
+
+`effective_global_volume_cap` was introduced to wire the override into charge enforcement. Earlier versions of this doc (and `docs/MULTI-TOKEN.md`) noted that the override was "stored but not enforced" — that was true before this change. The override now takes full effect in the charge path.
+
+---
 
 ## Related
 

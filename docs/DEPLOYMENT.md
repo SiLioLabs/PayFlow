@@ -103,7 +103,7 @@ The pipeline, in order:
 5. **Fee** — `propose_fee` then `commit_fee` when the on-chain fee does not already match config.
 6. **Merchants** — `whitelist_batch_add` for addresses in `initialMerchants` that are not yet whitelisted.
 
-It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md)).
+It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md) and [`limits.md` — Global Hourly Volume Cap](limits.md#global-hourly-volume-cap)).
 
 Save the printed contract ID.
 

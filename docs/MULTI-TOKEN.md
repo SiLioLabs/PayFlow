@@ -325,7 +325,7 @@ The global volume cap (`GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000` stroops
 
 2. **Per-token volume tracking must be done off-chain.** The `charged` and `pay_per_use` events include the token address (via the subscription's `token` field at charge time), so indexers can reconstruct per-token totals by filtering events.
 
-3. **The cap override (`set_global_volume_cap`) is stored but not enforced.** The `check_and_update_global_volume` function hardcodes `GLOBAL_MAX_VOLUME_PER_HOUR` rather than reading the override. This is a known gap — the override value is stored under `DataKey::GlobalVolumeCapOverride` but has no effect on enforcement.
+3. **The cap override (`set_global_volume_cap`) is enforced in the charge path.** `check_and_update_global_volume` calls `effective_global_volume_cap(env)`, which reads `DataKey::GlobalVolumeCapOverride` when set and falls back to `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. Setting `set_global_volume_cap` therefore takes immediate effect on every subsequent charge. See [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap) for the full cap model.
 
 ### Per-token fee transfer semantics
 
