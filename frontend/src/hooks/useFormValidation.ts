@@ -2,6 +2,10 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import { server } from "../stellar";
 import { CONTRACT_LIMITS } from "../constants";
+import {
+  validateStroopAmount as validateStroopAmountCore,
+  type StroopValidationResult,
+} from "../utils/validation";
 
 export interface ValidationResult {
   valid: boolean;
@@ -40,26 +44,29 @@ const ACCOUNT_NOT_FOUND_ERROR = "Account not found on network.";
 /**
  * validateStroopAmount - Validates a subscription amount entered as a decimal string.
  *
- * Converts the human amount to stroops (7 decimal places) and checks it:
- * - is a valid number
- * - is > 0
- * - does not exceed the protocol maximum.
+ * Delegates to the canonical validateStroopAmount in utils/validation.ts and
+ * converts to the ValidationResult shape expected by this hook's callers.
  *
- * @param value - Amount as a decimal string (e.g., "12.34")
+ * The `unit` parameter defaults to "XLM" for backward-compatibility with
+ * existing callers (e.g. StroopInput.test.tsx, useFormValidation.test.ts)
+ * that pass an XLM string and a maxStroops bigint without a unit argument.
+ *
+ * @param value - Amount as a decimal string (e.g., "12.34") in XLM units by default
  * @param maxStroops - Maximum allowed amount in stroops
  * @returns {ValidationResult} Validation outcome
  */
-export function validateStroopAmount(value: string, maxStroops: bigint): ValidationResult {
-  const num = parseFloat(value);
-  if (!value || isNaN(num) || num <= 0) {
+export function validateStroopAmount(
+  value: string,
+  maxStroops: bigint
+): ValidationResult {
+  const result: StroopValidationResult = validateStroopAmountCore(value, "XLM", maxStroops);
+  if (result.error !== null) {
+    return { valid: false, error: result.error };
+  }
+  if (result.stroops === null) {
+    // Empty input: treat as invalid for form context
     return { valid: false, error: "Amount must be greater than 0." };
   }
-
-  const stroops = BigInt(Math.round(num * 10_000_000));
-  if (stroops > maxStroops) {
-    return { valid: false, error: `Amount exceeds maximum of ${maxStroops} stroops.` };
-  }
-
   return { valid: true };
 }
 

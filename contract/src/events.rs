@@ -602,6 +602,8 @@ pub fn publish_whitelist_enabled(env: &Env, enabled: bool) {
         .publish((Symbol::new(env, "whitelist_enabled"),), enabled);
 }
 
+
+
 /// Publishes `metadata_cleared` event — called from `subscription_metadata::clear_metadata`.
 pub fn metadata_cleared(env: &Env, user: &Address) {
     env.events().publish(

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, forwardRef } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import Spinner from "./Spinner";
-import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
+import { STROOPS_PER_XLM, CONTRACT_LIMITS } from "../constants";
 import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { type AmountUnit, stroopsToXlm } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
-import { validateStroopAmount } from "../hooks/useFormValidation";
+import { validateStroopAmount } from "../utils/validation";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint, recipient?: string) => Promise<void>;
@@ -22,48 +22,17 @@ interface PayPerUseFormProps {
   isLimitLoading?: boolean;
 }
 
+/**
+ * validatePayPerUseInput — thin wrapper around the canonical validateStroopAmount
+ * preserved for backward-compatibility with amounts.test.ts and other callers
+ * that rely on this export name and signature.
+ */
 export function validatePayPerUseInput(
   raw: string,
   unit: AmountUnit,
   maxStroops: bigint
 ): { stroops: bigint | null; error: string | null } {
-  if (!raw) return { stroops: null, error: null };
-  const num = parseFloat(raw);
-  if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
-
-  let stroops: bigint;
-  if (unit === "XLM") {
-    const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-    if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-    stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
-  } else {
-    if (raw.includes(".")) return { stroops: null, error: "Stroops must be whole numbers" };
-    try {
-      stroops = BigInt(raw);
-    } catch {
-      return { stroops: null, error: "Invalid integer" };
-    }
-  }
-
-  if (stroops < MIN_STROOPS) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at least ${stroopsToXlm(MIN_STROOPS)} XLM`
-          : `Must be at least ${MIN_STROOPS} STROOP`,
-    };
-  }
-  if (stroops > maxStroops) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at most ${stroopsToXlm(maxStroops)} XLM`
-          : `Must be at most ${maxStroops} STROOP`,
-    };
-  }
-  return { stroops, error: null };
+  return validateStroopAmount(raw, unit, maxStroops);
 }
 
 /**
@@ -156,8 +125,8 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     const isFormValid = convertedStroops !== null && !error && !recipientError;
 
     const validationResult = useMemo(() => {
-      return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
-    }, [amount]);
+      return validatePayPerUseInput(amount, unit, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
+    }, [amount, unit]);
 
     // Daily limit remaining logic — block submit when amount would exceed remaining budget
     const remaining = dailyLimit !== null && dailySpent !== null ? dailyLimit - dailySpent : null;
@@ -189,7 +158,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     }
 
     async function handleSubmit() {
-      if (!validationResult.valid || payDisabled || exceedsRemaining) return;
+      if (validationResult.stroops === null || payDisabled || exceedsRemaining) return;
       const trimmedRecipient = recipient.trim();
       if (trimmedRecipient) {
         const recipientErr = validateRecipient(trimmedRecipient);

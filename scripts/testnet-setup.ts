@@ -250,6 +250,8 @@ async function main(): Promise<void> {
   logger.info(`Testnet setup complete!`);
   logger.info(`Manifest written to: ${MANIFEST_PATH}`);
   logger.info(`====================================================`);
+  logger.info(`\nNext step: use the Soroban CLI with these identities to call subscribe()/charge()`);
+  logger.info(`against your deployed contract — see docs/TESTING.md, Integration Testing section.`);
 }
 
 main().catch((err) => {

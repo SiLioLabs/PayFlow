@@ -272,7 +272,6 @@ async function fetchAndPrintEvents(): Promise<void> {
       }
     }
 
-    
     // Periodic stats logging (every 100 events processed)
     totalEventsSeen += response.events.length;
     if (totalEventsSeen >= 100) {
@@ -285,7 +284,7 @@ async function fetchAndPrintEvents(): Promise<void> {
       );
       totalEventsSeen = 0;
     }
-    
+
     // Sort by timestamp and print new events
     newEvents.sort((a, b) => a.timestamp - b.timestamp);
     for (const event of newEvents) {

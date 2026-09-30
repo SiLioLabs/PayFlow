@@ -34,7 +34,7 @@
  *   </div>
  * );
  */
-import { useCallback, useMemo, useState, type UIEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 
 const OVERSCAN_ROWS = 3;
 
@@ -48,18 +48,39 @@ interface VirtualListResult<T> {
   totalHeight: number;
   offsetY: number;
   onScroll: (event: UIEvent) => void;
+  resetScroll: () => void;
 }
 
 export function useVirtualList<T>(
   items: T[],
   itemHeight: number,
-  containerHeight: number
+  containerHeight: number,
+  containerRef?: React.RefObject<HTMLElement | null>
 ): VirtualListResult<T> {
   const [scrollTop, setScrollTop] = useState(0);
+  const scrollElementRef = useRef<HTMLElement | null>(null);
+
+  const resetScroll = useCallback(() => {
+    setScrollTop(0);
+    if (scrollElementRef.current) {
+      scrollElementRef.current.scrollTop = 0;
+    }
+    if (containerRef?.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [containerRef]);
 
   const onScroll = useCallback((event: UIEvent) => {
-    setScrollTop((event.currentTarget as { scrollTop: number }).scrollTop);
+    const el = event.currentTarget as HTMLElement;
+    scrollElementRef.current = el;
+    setScrollTop(el.scrollTop);
   }, []);
+
+  // Reset scrollTop (both internal state and actual scroll container element)
+  // whenever the items array changes
+  useEffect(() => {
+    resetScroll();
+  }, [items, resetScroll]);
 
   return useMemo(() => {
     const totalHeight = items.length * itemHeight;
@@ -70,6 +91,7 @@ export function useVirtualList<T>(
         totalHeight,
         offsetY: 0,
         onScroll,
+        resetScroll,
       };
     }
 
@@ -87,6 +109,7 @@ export function useVirtualList<T>(
       totalHeight,
       offsetY: startIndex * itemHeight,
       onScroll,
+      resetScroll,
     };
-  }, [containerHeight, itemHeight, items, onScroll, scrollTop]);
+  }, [containerHeight, itemHeight, items, onScroll, resetScroll, scrollTop]);
 }

@@ -75,6 +75,7 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [get\_active\_subscriber\_page](#get_active_subscriber_page)
   - [clear\_subscriber\_index\_entry](#clear_subscriber_index_entry)
   - [get\_merchant\_revenue](#get_merchant_revenue)
+  - [withdraw\_merchant\_revenue](#withdraw_merchant_revenue)
   - [get\_merchant\_revenue\_history](#get_merchant_revenue_history)
   - [clear\_merchant\_revenue\_history](#clear_merchant_revenue_history)
   - [get\_merchant\_subscriber\_count](#get_merchant_subscriber_count)
@@ -298,9 +299,9 @@ pub struct HealthReport {
 | `schema_version`                | `u32`  | Migration schema version                                                                                                                                                                |
 | `fee_collector_set`             | `bool` | Protocol fee collector is set                                                                                                                                                           |
 | `global_volume_utilization_pct` | `u32`  | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`.                                                       |
-| `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with unwithdrawn revenue `> 0`                                                                                                                             |
+| `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with accumulated revenue (`MerchantRevenue`) `> 0`. This is a **tracking metric**, not a custodial balance — revenue settles directly into merchant wallets on every charge via SAC `transfer_from`. See [`MERCHANT-INTEGRATION.md` § 5](./MERCHANT-INTEGRATION.md#5-non-custodial-settlement--revenue-tracking). |
 
-**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, admin, or TTL flags are understood. `fee_collector_set` and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses the stored cap override when present; charge-time enforcement still uses the compile-time constant (see [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap)).
+**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, admin, or TTL flags are understood. `fee_collector_set` and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap)).
 
 ### `DataKey`
 
@@ -2497,6 +2498,26 @@ soroban contract invoke \
   -- get_merchant_revenue \
   --merchant <MERCHANT_ADDRESS>
 ```
+
+---
+
+### `withdraw_merchant_revenue`
+
+> **Vestigial entrypoint.** This function exists in the contract for backward compatibility but does **not** reflect the current settlement model. PayFlow is non-custodial: funds settle directly from subscriber to merchant wallet via SAC `transfer_from` on every `charge` or `pay_per_use` call. The contract does not hold or escrow merchant funds.
+>
+> `withdraw_merchant_revenue` operates on the on-chain `MerchantRevenue` accounting counter, not on a custodial token balance held by the contract. Calling it will attempt a `token::transfer` from the contract's own balance equal to the `MerchantRevenue` counter and then zero the counter — but because normal settlement does not deposit tokens into the contract, the contract balance is typically zero and this call will fail unless tokens were sent directly to the contract address by other means.
+>
+> **Integrators should not build on this entrypoint.** Use the `charged` and `pay_per_use` events, `get_merchant_revenue`, and `get_merchant_revenue_history` for analytics and reconciliation. See [`MERCHANT-INTEGRATION.md` § 5](./MERCHANT-INTEGRATION.md#5-non-custodial-settlement--revenue-tracking).
+
+```
+withdraw_merchant_revenue(env: Env, merchant: Address)
+```
+
+**Auth:** `merchant.require_auth()`.
+
+**Returns:** `()`.
+
+**Errors:** `ContractError::ZeroBalanceAvailable` if `get_merchant_revenue(merchant) <= 0`; `ContractError::ContractPaused` if the contract is paused.
 
 ---
 
