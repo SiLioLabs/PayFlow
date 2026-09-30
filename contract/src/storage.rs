@@ -107,3 +107,28 @@ pub fn clear_pause_expiry(env: &Env, user: &Address) {
         .persistent()
         .remove(&DataKey::PauseExpiry(user.clone()));
 }
+
+/// Resolves the paused-subscription `active`-flag semantics in one place.
+///
+/// A paused subscription — indefinite (`pause`) or bounded (`pause_until`) —
+/// keeps `active == true`; pausing never deactivates a subscription. Since
+/// issue #1009 the `paused && !active` combination is a **legacy** state only,
+/// written by older versions of `pause_until` before this rule was encoded.
+/// Cancellation (`cancel`, `batch_cancel`, `cancel_and_refund_prorated`) is
+/// the only writer of `active = false`.
+///
+/// Readers that ask "is this subscription still live / counted?" must use
+/// this helper (or its `!` form) instead of a bare `sub.active`, so cancelled
+/// and paused rows cannot be conflated:
+///
+/// - `subscription_count` — a paused subscription stays counted as active.
+/// - `get_active_subscriber_page` — a paused subscription stays listed.
+/// - `cancel_and_refund_prorated` — `active == false` means cancelled, not
+///   paused; the separate `paused` check is what blocks paused rows.
+/// - `batch auto-resume` (`try_auto_resume`) — cancels and paused rows are
+///   distinct outcomes; only a paused row with an elapsed expiry resumes.
+/// - `resume` — only cancelled rows are rejected; legacy `paused && !active`
+///   rows stay resumable.
+pub fn is_cancelled(sub: &Subscription) -> bool {
+    !sub.active && !sub.paused
+}

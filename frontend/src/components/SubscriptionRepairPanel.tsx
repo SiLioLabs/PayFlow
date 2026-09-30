@@ -58,8 +58,6 @@ const FALLBACK_RESTORE_FEE_STROOPS = 500_000n; // ~0.05 XLM — conservative est
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function stroopsToXlm(stroops: bigint): string {
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function SubscriptionRepairPanel({

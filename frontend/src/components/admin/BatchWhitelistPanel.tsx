@@ -4,15 +4,14 @@ import { parseAddressList, chunkAddresses } from "../../utils/addressValidation"
 import { friendlyError } from "../../utils/errors";
 import { useTransaction } from "../../hooks/useTransaction";
 import { useToast } from "../../hooks/useToast";
-import { CONTRACT_LIMITS } from "../../constants";
 import AddressListInput from "./AddressListInput";
 import ConfirmModal from "../ConfirmModal";
 import Spinner from "../Spinner";
 import ToastContainer from "../Toast";
 import { AdminAddressListSkeleton } from "../Skeleton";
 
-/** Contract hard limit — sourced from shared constants */
-const MAX_WHITELIST_BATCH = CONTRACT_LIMITS.MAX_BATCH_WHITELIST;
+/** Contract hard limit per whitelist_batch_add / whitelist_batch_remove call */
+const MAX_WHITELIST_BATCH = 50;
 
 type WhitelistAction = "add" | "remove";
 
@@ -46,7 +45,6 @@ interface Props {
  *
  * Stale responses: each `onInit` invocation is paired with an `AbortController`
  * and a monotonic sequence counter. Results from superseded calls are dropped.
- * Lists longer than MAX_BATCH_WHITELIST are blocked at submit with a warning.
  */
 export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit }: Props) {
   const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
@@ -91,15 +89,12 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
   }, [adminKey, onInit]);
 
   const { valid, invalid } = parseAddressList(rawInput);
-  const overCap = valid.length > MAX_WHITELIST_BATCH;
   const canSubmit =
     isAdmin &&
     valid.length > 0 &&
     invalid.length === 0 &&
     tx.status !== "pending" &&
     panelState === "ready";
-    !overCap &&
-    tx.status !== "pending";
 
   const chunks = chunkAddresses(valid, MAX_WHITELIST_BATCH);
   const txCount = chunks.length;
@@ -156,8 +151,8 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
           Batch Whitelist Management
         </h4>
         <p className="text-sm text-muted">
-          Add or remove multiple merchant addresses from the whitelist. Max{" "}
-          {MAX_WHITELIST_BATCH} addresses per batch.
+          Add or remove multiple merchant addresses from the whitelist. Lists longer than{" "}
+          {MAX_WHITELIST_BATCH} addresses are split automatically.
         </p>
       </header>
 
@@ -293,46 +288,6 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
             </p>
           )}
         </>
-      {overCap && (
-        <div
-          role="alert"
-          className="mb-3 p-3 rounded-md text-sm"
-          style={{
-            background: "rgba(239, 68, 68, 0.1)",
-            color: "var(--color-error, #ef4444)",
-            border: "1px solid var(--color-error, #ef4444)",
-          }}
-        >
-          Too many addresses: {valid.length} provided, max {MAX_WHITELIST_BATCH} per batch. Remove{" "}
-          {valid.length - MAX_WHITELIST_BATCH} to continue.
-        </div>
-      )}
-
-      <button
-        type="button"
-        className={action === "add" ? "btn-primary" : "btn-danger"}
-        onClick={() => setShowConfirm(true)}
-        disabled={!canSubmit}
-        aria-disabled={!canSubmit}
-        aria-busy={tx.status === "pending"}
-        title={!isAdmin ? "Admin access required" : undefined}
-      >
-        {tx.status === "pending" ? (
-          <span className="flex gap-2 items-center">
-            <Spinner size="sm" />
-            {action === "add" ? "Adding…" : "Removing…"}
-          </span>
-        ) : action === "add" ? (
-          "Add to whitelist"
-        ) : (
-          "Remove from whitelist"
-        )}
-      </button>
-
-      {tx.error && (
-        <p className="text-error text-sm mt-2" role="alert">
-          {friendlyError(tx.error)}
-        </p>
       )}
 
       {showConfirm && (

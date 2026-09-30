@@ -28,7 +28,6 @@ import { getSubscription } from "../stellar";
 import type { Subscription } from "../types";
 import { useRpcHealthContext } from "../context/RpcHealthContext";
 import { useVisibilityRefresh } from "./useVisibilityRefresh";
-import { useVisibilityRefresh } from "./useVisibilityRefresh";
 
 export function useSubscription(userKey: string, refreshTrigger?: number) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);

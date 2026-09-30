@@ -4,6 +4,26 @@ use crate::errors::ContractError;
 use crate::storage;
 use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
 
+// Issue #1009 — paused-subscription active-flag semantics:
+//
+// Pausing (`pause` or `pause_until`) never clears the `active` flag; only
+// cancellation does (see `storage::is_cancelled` for the full rule). The
+// readers below therefore treat `active == true` as "counted / listed",
+// which includes paused subscriptions:
+//
+// - `get_active_count`: a paused subscription stays counted. Pause and
+//   resume never move the counter — it only moves on the subscribe and
+//   cancel edges (`cancel_inner`).
+// - `get_active_subscriber_page` (lib.rs): a paused subscription stays
+//   listed; keepers filtering by `paused` do that client-side.
+// - `clear_subscriber_index_entry`: refuses to tombstone the slot of a
+//   counted subscriber, so a paused subscription still blocks clearing.
+//
+// Legacy note: rows written before issue #1009 by the old `pause_until`
+// carry `paused && !active` and are NOT counted by these readers. They
+// become counted again as soon as auto-resume or `resume` rewrites the row
+// with `active = true`.
+
 /// Returns the current number of active subscriptions.
 pub fn get_active_count(env: &Env) -> u64 {
     env.storage()
@@ -123,11 +143,11 @@ pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
 /// index. Returns the subscriber address that occupied the slot.
 ///
 /// # Errors
-///
-/// - `NoSubscriptionFound` if `index` is out of range, empty, or already
-///   tombstoned.
-/// - `CannotClearActiveSubscriber` if the occupant still has an active
-///   subscription.
+////// - `NoSubscriptionFound` if `index` is out of range, empty, or already
+/// tombstoned.
+/// - `CannotClearActiveSubscriber` if the occupant still has a live
+///   subscription (active or paused — pausing never clears `active`, see
+///   `storage::is_cancelled`).
 pub fn clear_subscriber_index_entry(env: &Env, index: u64) -> Address {
     let size = get_subscriber_index_size(env);
     // Issue #1010: an admin repair touch is a free opportunity to keep the

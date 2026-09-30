@@ -18,6 +18,15 @@
 const STROOPS_PER_XLM_BIGINT = 10_000_000n;
 
 /**
+ * Truncates a Stellar address or transaction hash for display, keeping the
+ * head and tail separated by an ellipsis. Defaults to 6 head / 4 tail chars.
+ */
+export function formatAddress(addr: string, prefixLen = 6, suffixLen = 4): string {
+  if (addr.length <= prefixLen + suffixLen) return addr;
+  return `${addr.slice(0, prefixLen)}…${addr.slice(-suffixLen)}`;
+}
+
+/**
  * Convert a stroop amount (bigint) to an XLM string with exactly 7 decimal
  * places, e.g. 10_000_001n → "1.0000001".
  *

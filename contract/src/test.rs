@@ -11830,6 +11830,160 @@ fn test_pause_until_emits_distinct_event_with_expiry() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Issue #1009: pause_until keeps PauseExpiry + Subscription alive
+// and paused-subscription active-flag semantics
+// ─────────────────────────────────────────────────────────────
+
+/// `pause_until` must TTL-extend BOTH the `Subscription` entry and its
+/// `PauseExpiry` entry (via `extend_subscription_ttl`), so they archive
+/// together. Pre-#1009 it wrote `PauseExpiry` with no extension, so the key
+/// could archive while the subscription survived — silently disabling
+/// bounded-pause auto-resume.
+#[test]
+fn test_pause_until_extends_subscription_and_pause_expiry_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.ledger().with_mut(|l| {
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90000);
+
+    env.as_contract(&contract_id, || {
+        let sub_ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::Subscription(user.clone()));
+        let expiry_ttl = env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::PauseExpiry(user.clone()));
+
+        // extend_subscription_ttl extends both entries to the full
+        // SUBSCRIPTION_TTL_LEDGERS window; accept the half-window floor.
+        assert!(
+            sub_ttl >= SUBSCRIPTION_TTL_LEDGERS / 2,
+            "Subscription TTL must be extended by pause_until"
+        );
+        assert!(
+            expiry_ttl >= SUBSCRIPTION_TTL_LEDGERS / 2,
+            "PauseExpiry TTL must be extended by pause_until (issue #1009)"
+        );
+    });
+}
+
+/// Worst-case archival mock: a ledger advance that would archive a key on
+/// the SDK default ~4096-ledger live-until (what pre-#1009 `pause_until`
+/// gave `PauseExpiry`) must not take either entry offline, and auto-resume
+/// must still fire afterwards.
+#[test]
+fn test_auto_resume_fires_after_worst_case_ttl_archival() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    env.ledger().with_mut(|l| {
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    client.pause_until(&user, &90000);
+
+    // Keep the contract instance alive across the ledger jump.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .extend_ttl(2_000_000, 2_000_000);
+    });
+
+    // Advance past the SDK default archive point (4096 ledgers) but well
+    // within the SUBSCRIPTION_TTL_LEDGERS window pause_until now extends
+    // both entries to. Pre-#1009 this jump archived PauseExpiry while the
+    // Subscription row survived — auto-resume then lost its trigger key.
+    env.ledger().with_mut(|l| {
+        l.sequence_number += 100_000; // >> 4096 default, << 6307200 window
+    });
+
+    // Both entries must still be live after the jump.
+    env.as_contract(&contract_id, || {
+        assert!(
+            env.storage()
+                .persistent()
+                .has(&DataKey::Subscription(user.clone())),
+            "Subscription must survive the archival window"
+        );
+        assert!(
+            env.storage()
+                .persistent()
+                .has(&DataKey::PauseExpiry(user.clone())),
+            "PauseExpiry must survive the archival window (issue #1009)"
+        );
+    });
+
+    // Auto-resume still fires on the next batch charge after expiry.
+    env.ledger().set_timestamp(90000);
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+    let result = client.batch_charge(&users);
+    assert_eq!(result.get(0).unwrap(), crate::ChargeResult::Charged);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.paused, false);
+    assert_eq!(sub.active, true);
+    assert_eq!(token.balance(&merchant), 1000);
+
+    env.as_contract(&contract_id, || {
+        let expiry: Option<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PauseExpiry(user.clone()));
+        assert_eq!(expiry, None, "PauseExpiry must be cleared on auto-resume");
+    });
+}
+
+/// Paused-subscription active-flag semantics (issue #1009): `pause_until`
+/// sets `paused = true` and leaves `active = true`, so a bounded-paused
+/// subscription stays counted as active, stays listed in the subscriber
+/// index page, and reports `active: true, is_paused: true` in its health.
+#[test]
+fn test_pause_until_keeps_active_flag_true_across_readers() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    let user_b = setup_funded_user(&env, &contract_id, &token_addr);
+    client.subscribe(&user_b, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    // Sanity: both counted before the pause.
+    assert_eq!(client.get_active_count(), 2);
+
+    client.pause_until(&user, &90000);
+
+    // The paused subscription row keeps active = true.
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.paused, true);
+    assert_eq!(sub.active, true, "pause_until must not clear the active flag (issue #1009)");
+
+    // Reader agreement: counts, index pages and health all treat the
+    // paused subscription as a live subscriber.
+    assert_eq!(client.get_active_count(), 2);
+    let page = client.get_active_subscriber_page(&0, &10);
+    assert!(
+        page.contains(&user),
+        "paused subscription must stay listed in the subscriber index page"
+    );
+    let health = client.get_subscription_health(&user);
+    assert_eq!(health.active, true);
+    assert_eq!(health.is_paused, true);
+}
+
+// ─────────────────────────────────────────────────────────────
 // Issue #5: get_referral Read Function Tests
 // ─────────────────────────────────────────────────────────────
 
@@ -13593,7 +13747,7 @@ fn test_whitelist_enabled_event_emitted_on_repeated_toggle() {
                 .get(0)
                 .as_ref()
                 .and_then(|t| TryIntoVal::<_, Symbol>::try_into_val(t, &env).ok())
-                .map_or(false, |s| s == expected)
+                .is_some_and(|s| s == expected)
         })
         .count();
 
@@ -14087,7 +14241,7 @@ fn test_prune_compacts_day_index() {
 
     // Page should show 2 entries (day 1 and day 2)
     let page_before = client.get_merchant_revenue_day_page(&merchant, &0u32, &30u32);
-    assert!(page_before.len() >= 1);
+    assert!(!page_before.is_empty());
 
     // Prune day1 bucket
     let days_to_prune = soroban_sdk::vec![&env, day1];
@@ -14151,7 +14305,7 @@ fn test_reset_clears_day_index() {
 
     // At least one day entry should exist
     let page_before = client.get_merchant_revenue_day_page(&merchant, &0u32, &30u32);
-    assert!(page_before.len() >= 1, "should have at least one day entry before reset");
+    assert!(!page_before.is_empty(), "should have at least one day entry before reset");
 
     // Reset clears the day-index
     client.reset_merchant_revenue(&merchant);

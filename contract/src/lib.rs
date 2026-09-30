@@ -758,6 +758,10 @@ impl FlowPay {
             .get(&key)
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
+        // `active == false` means cancelled (pausing never clears `active`,
+        // see `storage::is_cancelled`), so this rejects refunds for cancelled
+        // subscriptions only; the paused check below is what blocks
+        // currently-paused subscriptions, indefinite or bounded.
         if !sub.active {
             env.panic_with_error(ContractError::SubscriptionInactive);
         }
@@ -840,8 +844,28 @@ impl FlowPay {
     }
 
     /// Pauses `user`'s subscription until a specific expiry timestamp.
-    /// The subscription will auto-resume via `charge` or `batch_charge`
-    /// when the ledger timestamp reaches `expiry`.
+    ///
+    /// The subscription auto-resumes via `charge` or `batch_charge` when the
+    /// ledger timestamp reaches `expiry`.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber address. Must authorize the call.
+    /// - `expiry`: Ledger timestamp after which auto-resume may fire. Must be
+    ///   strictly in the future.
+    ///
+    /// # Errors
+    ///
+    /// Panics if no subscription exists, the subscription is inactive, or
+    /// `expiry` is not strictly in the future (`InvalidPauseExpiry`).
+    ///
+    /// # Side Effects
+    ///
+    /// Sets the subscription `paused` flag (leaving `active` true — pausing
+    /// never deactivates a subscription, see `storage::is_cancelled`), stores
+    /// `PauseExpiry(user) = expiry`, extends the TTL of both the
+    /// `Subscription` and `PauseExpiry` entries so they archive together
+    /// (see `storage::extend_subscription_ttl`), and emits `pause_until`.
     pub fn pause_until(env: Env, user: Address, expiry: u64) {
         bump_instance_ttl(&env);
         user.require_auth();
@@ -863,11 +887,26 @@ impl FlowPay {
             env.panic_with_error(ContractError::SubscriptionNotActive);
         }
 
+        // Issue #1009: pausing — indefinite (`pause`) or bounded
+        // (`pause_until`) — must never deactivate the subscription. `active`
+        // is the "row is live" flag: it only turns false on cancellation
+        // (see `storage::is_cancelled`). Keeping `active = true` here makes
+        // `paused && !active` a legacy-only state, so every reader (active
+        // counts, refunds, batch auto-resume, index pages) interprets paused
+        // subscriptions the same way, and resume/auto-resume just flip
+        // `paused` back off.
         sub.paused = true;
-        sub.active = false;
 
         env.storage().persistent().set(&key, &sub);
+
+        // Issue #1009: write PauseExpiry and extend the TTL of BOTH entries
+        // together. The `Subscription` row and `PauseExpiry` must archive at
+        // the same time: if PauseExpiry archives first (the old behavior,
+        // which wrote the key with no TTL extension), bounded-pause
+        // auto-resume silently loses its trigger key while the subscription
+        // itself survives.
         storage::set_pause_expiry(&env, &user, expiry);
+        extend_subscription_ttl(&env, &user);
 
         events::publish_pause_until(&env, &user, expiry);
     }
@@ -905,9 +944,12 @@ impl FlowPay {
             .get(&key)
             .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
-        // Reject cancelled subscriptions (inactive and not paused).
-        // pause_until sets active=false while paused=true; those must still be resumable.
-        if !sub.active && !sub.paused {
+        // Reject cancelled subscriptions. `active == false` means cancelled —
+        // both pause paths keep `active` true (see `pause_until` and
+        // `storage::is_cancelled`). The `!paused` term only covers legacy
+        // rows paused before issue #1009, when `pause_until` still wrote
+        // `active = false`; those stay resumable as well.
+        if storage::is_cancelled(&sub) {
             env.panic_with_error(ContractError::SubscriptionInactive);
         }
 
@@ -2388,7 +2430,7 @@ fn subscribe_inner(
     }
 
     // Prevent new subscriptions when contract is paused
-    ensure_contract_not_paused(&env);
+    ensure_contract_not_paused(env);
 
     validation::require_valid_amount(env, amount);
     validation::validate_interval(env, interval);
