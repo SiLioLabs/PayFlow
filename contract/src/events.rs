@@ -602,11 +602,6 @@ pub fn publish_whitelist_enabled(env: &Env, enabled: bool) {
         .publish((Symbol::new(env, "whitelist_enabled"),), enabled);
 }
 
-pub fn publish_max_whitelist_batch_size_set(env: &Env, old: u32, new: u32) {
-    env.events()
-        .publish((Symbol::new(env, "max_wl_batch_size_set"),), (old, new));
-}
-
 
 
 /// Publishes `metadata_cleared` event — called from `subscription_metadata::clear_metadata`.

@@ -63,9 +63,18 @@ pub fn append_subscriber_index(env: &Env, user: &Address) {
         SUBSCRIPTION_TTL_LEDGERS,
     );
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::SubscriberIndexSize, &(slot + 1));
+    let size_key = DataKey::SubscriberIndexSize;
+    env.storage().persistent().set(&size_key, &(slot + 1));
+    // Issue #1010: keep the size counter on the same TTL window as its
+    // sibling keys. If it archived before the slots, the next append would
+    // read a stale (archived) size and re-introduce already-occupied slots,
+    // diverging the index from actual subscriptions and silently breaking
+    // paged reads.
+    env.storage().persistent().extend_ttl(
+        &size_key,
+        SUBSCRIPTION_TTL_LEDGERS,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
 }
 
 /// Marks `user`'s slot in the subscriber index as removed (tombstoned) so
@@ -121,6 +130,15 @@ pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
 ///   subscription.
 pub fn clear_subscriber_index_entry(env: &Env, index: u64) -> Address {
     let size = get_subscriber_index_size(env);
+    // Issue #1010: an admin repair touch is a free opportunity to keep the
+    // size counter on the same TTL window as the index slots it counts.
+    if size > 0 {
+        env.storage().persistent().extend_ttl(
+            &DataKey::SubscriberIndexSize,
+            SUBSCRIPTION_TTL_LEDGERS,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
     if index >= size || is_subscriber_index_removed(env, index) {
         env.panic_with_error(ContractError::NoSubscriptionFound);
     }
