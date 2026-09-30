@@ -127,6 +127,7 @@ export default function StroopInput({
   }
 
   const stateClass = !value ? "" : error ? "input--error" : "input--valid";
+  const errorId = `${id}-error`;
 
   const formatAlternate = (stroops: bigint): string => {
     if (unit === "XLM") {
@@ -155,9 +156,9 @@ export default function StroopInput({
         disabled={disabled}
         required
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? "amount-error" : undefined}
+        aria-describedby={error ? errorId : undefined}
       />
-      {error && <span className="text-error">{error}</span>}
+      {error && <span id={errorId} className="text-error">{error}</span>}
       {convertedStroops !== null && !error && (
         <span className="text-muted">= {formatAlternate(convertedStroops)}</span>
       )}
