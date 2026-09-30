@@ -618,7 +618,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 
 ### `pause_until`
 
-Bounded user pause. The subscription auto-resumes on a later `charge` or `batch_charge` when ledger time `>= expiry`. Unlike indefinite [`pause`](#pause), this path sets `paused = true` **and** `active = false`.
+Bounded user pause. The subscription auto-resumes on a later `charge` or `batch_charge` when ledger time `>= expiry`. Like indefinite [`pause`](#pause), this sets `paused = true` and leaves `active = true` — pausing never deactivates a subscription (issue #1009; `active = false` is reserved for cancellation). The call also TTL-extends both the `Subscription` and `PauseExpiry` entries so they archive together.
 
 ```
 pause_until(env: Env, user: Address, expiry: u64)

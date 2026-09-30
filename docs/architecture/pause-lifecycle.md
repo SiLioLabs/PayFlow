@@ -30,11 +30,17 @@ A subscription can be in one of four observable states:
 | `active` | `paused` | Meaning                                                                        |
 | :------- | :------- | :----------------------------------------------------------------------------- |
 | `true`   | `false`  | **Active** — eligible to charge when interval elapses.                         |
-| `true`   | `true`   | **Indefinitely paused** — set by `pause`. Charge attempts skip with `Paused`.  |
-| `false`  | `true`   | **Bounded pause** — set by `pause_until`. Auto-resumes when `PauseExpiry` ≤ now. |
+| `true`   | `true`   | **Paused** — set by `pause` (indefinite) or `pause_until` (bounded). Charge attempts skip with `Paused`; a bounded pause auto-resumes when `PauseExpiry` ≤ now. |
 | `false`  | `false`  | **Cancelled / inactive** — set by `cancel` or `batch_cancel`.                  |
 
 The `active/paused` combination is the full state: there is no separate status field.
+
+> **Active-flag rule (issue #1009):** pausing — indefinite or bounded — **never clears
+> `active`**. `active = false` means cancelled, written only by `cancel`, `batch_cancel`,
+> and `cancel_and_refund_prorated`. This is encoded once in `storage::is_cancelled`
+> (`contract/src/storage.rs`). A legacy `paused && !active` state (written by
+> pre-#1009 `pause_until`) may still exist on-chain; readers treat it as paused, and
+> the next auto-resume or `resume()` rewrites the row with `active = true`.
 
 ---
 
@@ -80,12 +86,13 @@ pause_until(env: Env, user: Address, expiry: u64)
 **What it writes:**
 
 ```
-sub.paused = true
-sub.active = false       ← DIFFERS from indefinite pause
+sub.paused = true        (active remains true — same as indefinite pause)
 PauseExpiry(user) = expiry
 ```
 
-The `active = false` flag is intentional: it marks the subscription as not charge-eligible by the standard `active` check, so only code that explicitly reads `PauseExpiry` (i.e. `try_auto_resume`) can re-activate it. This prevents any charge path that skips the auto-resume step from accidentally billing a bounded-pause subscriber.
+Since issue #1009, `pause_until` sets **only** `paused = true`; `active` stays `true`, exactly like `pause`. `active = false` is reserved for cancellation, so every reader (active counts, refunds, batch auto-resume, subscriber index) interprets paused subscriptions identically. Charge attempts are blocked by the `paused` check — `paused = true` alone is what makes the subscription not charge-eligible until auto-resume or an explicit `resume()`.
+
+`pause_until` also TTL-extends **both** the `Subscription` entry and the `PauseExpiry` entry (via `storage::extend_subscription_ttl`, the same helper `pause` uses). If `PauseExpiry` archived while the subscription survived, bounded-pause auto-resume would silently lose its trigger key — the two entries must archive together.
 
 **Event emitted:** `paused` (`("paused", user)` topic pair) — same topic as indefinite pause; the expiry timestamp is in the event payload. See [`EVENTS.md`](../EVENTS.md) for the full payload shape.
 
@@ -106,8 +113,10 @@ resume(env: Env, user: Address)
 | `user.require_auth()` | `NoSubscriptionFound` (4), `SubscriptionInactive` (5), `ResumeGraceLapsed` (43) |
 
 Works for **both** indefinite and bounded-pause subscriptions:
-- Indefinite pause: `active` was already `true`, `paused` becomes `false`.
-- Bounded pause (`pause_until`): `active` was `false`, both `active` and `paused` are reset to their live state.
+- Current rows: `paused` becomes `false`; `active` was already `true` and stays `true`.
+- Legacy bounded-pause rows (pre-issue #1009 `pause_until`, which wrote `active = false`): both flags are reset to their live state, so `resume` is also the repair path for those rows.
+
+`resume` rejects only genuinely cancelled rows via `storage::is_cancelled` (`!active && !paused`).
 
 `resume` also clears `PauseExpiry` from storage and emits the `resumed` event.
 

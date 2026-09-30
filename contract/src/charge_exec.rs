@@ -113,7 +113,7 @@ pub(crate) fn charge_result_from_precheck(
         Some(sub) => sub,
         None => return ChargeResult::NoSubscription,
     };
-    if !validation::has_sufficient_allowance(env, &user, &sub.token, sub.amount) {
+    if !validation::has_sufficient_allowance(env, user, &sub.token, sub.amount) {
         return ChargeResult::AllowanceInsufficient;
     }
     ChargeResult::Charged

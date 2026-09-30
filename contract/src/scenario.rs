@@ -312,7 +312,7 @@ fn scenario_transfer_subscription_moves_subscription_and_index() {
     );
     assert!(client
         .get_subscriber_page(&0, &10)
-        .contains(&user_new.clone()));
+        .contains(&user_new));
 
     // The merchant keeps its single subscriber — a transfer must not double-count.
     assert_eq!(client.get_merchant_sub_count(&merchant), 1);
@@ -482,7 +482,7 @@ fn scenario_estimate_does_not_mutate_storage() {
         "get_batch_charge_estimate auto-resumed the subscription: a dry run \
          mutated contract state"
     );
-    assert_eq!(client.get_contract_config().paused, false, "contract not paused");
+    assert!(!client.get_contract_config().paused, "contract not paused");
 
     // The second estimate must equal the first. A write inside the estimate
     // makes the prediction non-repeatable.
