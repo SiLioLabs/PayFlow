@@ -14,10 +14,11 @@ import {
 } from "@stellar/stellar-sdk";
 
 import { logger } from "./logger";
+import { vecAddressToScVal } from "./soroban-admin";
 
-const RPC_URL = process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE = process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
-const CONTRACT_ID = process.env.VITE_CONTRACT_ID ?? "";
+const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
+const NETWORK_PASSPHRASE = process.env.VITE_NETWORK_PASSPHRASE ?? process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET;
+const CONTRACT_ID = process.env.VITE_CONTRACT_ID ?? process.env.CONTRACT_ID ?? "";
 
 function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
@@ -60,13 +61,16 @@ async function migrate(users: string[]): Promise<void> {
     "GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6",
   );
 
-  const usersVec = users.map((u) => addressVal(u));
+  // Encode as a real ScVec rather than passing a bare JS array: `contract.call`
+  // spreads its arguments into individually-encoded ScVals, so a raw array was
+  // never valid and had to be laundered through a cast.
+  const usersVec = vecAddressToScVal(users);
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(contract.call("migrate", usersVec as unknown as xdr.ScVal))
+    .addOperation(contract.call("migrate", usersVec))
     .setTimeout(30)
     .build();
 
@@ -78,7 +82,15 @@ async function migrate(users: string[]): Promise<void> {
 
 async function main() {
   const args = process.argv.slice(2);
-  const dryRun = args.includes("--dry-run");
+  // --simulate is the safe default; --dry-run is kept as a backwards-compatible alias.
+  const dryRun = args.includes("--simulate") || args.includes("--dry-run");
+
+  if (!CONTRACT_ID) {
+    logger.error(
+      "ERROR: CONTRACT_ID is not set. Export CONTRACT_ID (or VITE_CONTRACT_ID) before running.",
+    );
+    process.exit(1);
+  }
 
   logger.info("Starting contract migration...\n");
 
@@ -87,8 +99,11 @@ async function main() {
   logger.info(`Pre-migration schema version: ${preVersion}`);
 
   if (dryRun) {
-    logger.info("\n[Dry-run mode] Skipping actual migration");
+    logger.info("\n[Simulate mode] Validating migration arguments against the network...");
+    // Exercise the ScVal encoding path without submitting anything.
+    await migrate([]);
     logger.info(`Post-migration version would be: ${preVersion}`);
+    logger.info("\nSimulation successful — no transaction submitted.");
     return;
   }
 

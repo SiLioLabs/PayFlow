@@ -34,6 +34,8 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
       commit: { type: "boolean" },
       bps: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      simulate: { type: "boolean", default: true },
+      "confirm-commit": { type: "boolean", default: false },
     },
   });
 
@@ -42,7 +44,10 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
 
   const isPropose = !!values.propose;
   const isCommit = !!values.commit;
-  const dryRun = !!values["dry-run"];
+  // Simulation is the default. Live submission requires --commit plus an
+  // explicit --confirm-commit acknowledgement.
+  const dryRun = values.simulate !== false || !values.commit;
+  const isConfirmed = !!values["confirm-commit"];
 
   if (isPropose && isCommit) {
     logger.error("Error: Cannot specify both --propose and --commit");
@@ -54,6 +59,16 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
     logger.error("Error: Must specify either --propose <address> or --commit");
     process.exitCode = 1;
     throw new Error("Must specify either --propose <address> or --commit");
+  }
+
+  // Gate any live submission behind an explicit acknowledgement, so a stray
+  // `--commit` can never submit a transaction on its own.
+  if (isCommit && !isConfirmed) {
+    logger.error(
+      "Refusing to submit: --commit also requires --confirm-commit. Simulations run by default.",
+    );
+    process.exitCode = 1;
+    throw new Error("--commit requires --confirm-commit");
   }
 
   if (isPropose) {
