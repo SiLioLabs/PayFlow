@@ -52,7 +52,7 @@ vi.mock("../hooks/useContractId", () => ({
 
 // Mock useContractPaused — the single source of truth this test suite exercises.
 vi.mock("../hooks/useContractPaused", () => ({
-  useContractPaused: vi.fn(() => ({ isPaused: false, loading: false })),
+  useContractPaused: vi.fn(() => ({ isPaused: false, status: "active", loading: false })),
 }));
 
 // Mock heavy child components so this suite stays focused on App-level wiring.
@@ -120,7 +120,8 @@ function mockWallet(publicKey: string | null) {
 }
 
 function mockPaused(isPaused: boolean) {
-  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({ isPaused, loading: false });
+  const status = isPaused ? "paused" : "active";
+  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({ isPaused, status, loading: false });
 }
 
 describe("App — notification priority orchestration", () => {

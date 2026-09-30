@@ -42,7 +42,7 @@ export default function App() {
   } = useNetworkStatus();
   const { valid: isContractIdValid, error: contractIdError } = useContractId();
   const { isAdmin } = useAdmin(publicKey);
-  const { isPaused } = useContractPaused();
+  const { isPaused, status: contractStatus } = useContractPaused();
   // Dashboard/SubscribeForm/MerchantDashboard/admin panels each keep their own
   // useToast() instance (and their own tests mock them independently), so
   // centralizing every toast call site into one shared instance is out of
@@ -96,7 +96,7 @@ export default function App() {
     <div style={{ maxWidth: 480, margin: "60px auto", padding: "0 16px" }}>
       {/* Contract pause banner — rendered first so it takes precedence over
           everything else, including toasts (see index.css stacking rules). */}
-      <ContractPauseBanner paused={isPaused} />
+      <ContractPauseBanner paused={isPaused} contractStatus={contractStatus} />
 
       {/* ARIA live region for screen reader announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { MIN_STROOPS, MAX_STROOPS, STROOPS_PER_XLM } from "../constants";
-import { stroopsToXlm, xlmToStroops } from "../utils/format";
+import { MAX_STROOPS } from "../constants";
+import { stroopsToXlm } from "../utils/format";
 import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
-import { type AmountUnit } from "../utils/format";
+import { validateStroopAmount } from "../utils/validation";
+import type { AmountUnit } from "../utils/format";
 
 interface Props {
   label: string;
@@ -14,54 +15,23 @@ interface Props {
   testId?: string;
 }
 
-// Keep the name used by existing amount-boundary callers.
-export { validateStroopInput as validateStroopAmount };
-
+/**
+ * validateStroopInput — thin wrapper around the canonical validateStroopAmount
+ * that supplies a default maxStroops.  Kept for backward-compatibility with
+ * existing callers (e.g. amounts.test.ts) that rely on this export name and
+ * signature.
+ */
 export function validateStroopInput(
   raw: string,
   unit: AmountUnit,
   maxStroops: bigint = MAX_STROOPS
 ): { stroops: bigint | null; error: string | null } {
-  if (!raw) return { stroops: null, error: null };
-  const num = parseFloat(raw);
-  if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
-
-  let stroops: bigint;
-  if (unit === "XLM") {
-    const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-    if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-    stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
-  } else {
-    if (raw.includes(".")) {
-      return { stroops: null, error: "Stroops must be whole numbers" };
-    }
-    try {
-      stroops = BigInt(raw);
-    } catch {
-      return { stroops: null, error: "Invalid integer" };
-    }
-  }
-
-  if (stroops < MIN_STROOPS) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at least ${stroopsToXlm(MIN_STROOPS)} XLM`
-          : `Must be at least ${MIN_STROOPS} STROOP`,
-    };
-  }
-  if (stroops > maxStroops) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at most ${stroopsToXlm(maxStroops)} XLM`
-          : `Must be at most ${maxStroops} STROOP`,
-    };
-  }
-  return { stroops, error: null };
+  return validateStroopAmount(raw, unit, maxStroops);
 }
+
+// Keep the aliased export so callers that import validateStroopAmount from
+// this module continue to work without changes.
+export { validateStroopInput as validateStroopAmount };
 
 export default function StroopInput({
   label,
@@ -108,7 +78,7 @@ export default function StroopInput({
   }, [value, lastValue]);
 
   useEffect(() => {
-    const { stroops, error: err } = validateStroopInput(debouncedValue, unit);
+    const { stroops, error: err } = validateStroopAmount(debouncedValue, unit, MAX_STROOPS);
     setConvertedStroops(stroops);
     setError(err);
     onChange(stroops);
@@ -120,7 +90,7 @@ export default function StroopInput({
   }
 
   function handleBlur() {
-    const { stroops, error: err } = validateStroopInput(value, unit);
+    const { stroops, error: err } = validateStroopAmount(value, unit, MAX_STROOPS);
     setConvertedStroops(stroops);
     setError(err);
     onChange(stroops);
