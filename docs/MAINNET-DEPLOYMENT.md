@@ -97,7 +97,7 @@ HOUR_IN_SECONDS            = 3600
 
 **Operational purpose:** limit protocol-wide transfer volume per rolling hour. Exceeding the cap during charge accounting panics with `GlobalVolumeExceeded` (28).
 
-**Enforcement note (do not assume the override is live in the charge path):** `check_and_update_global_volume` currently compares accumulated volume against the compile-time `GLOBAL_MAX_VOLUME_PER_HOUR` constant, not against `get_global_volume_cap()`. `get_contract_config` also reports the constant. Treat `set_global_volume_cap` as stored operator intent and a health-report input (`HealthReport.global_volume_utilization_pct` uses the override when present). The charge-time ceiling that actually panics is still `GLOBAL_MAX_VOLUME_PER_HOUR` until that path is wired to the override.
+**Enforcement:** `check_and_update_global_volume` reads the effective cap via `effective_global_volume_cap(env)`, which returns `DataKey::GlobalVolumeCapOverride` when an admin override is set, or `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. `get_global_volume_cap()` and `get_contract_config().global_volume_cap` use the same helper and therefore always agree with what enforcement will apply. Setting `set_global_volume_cap` takes immediate effect on the next charge. See [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap) for the complete model.
 
 **Pre-deposit checks:**
 
