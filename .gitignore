@@ -193,8 +193,7 @@ iissue.md
 skills-lock.json
 
 contract/target/
-
-contract/target/
+vesting/target/
 
 # Webhook Dead Letter Queue
 data/webhook-dlq.jsonl

@@ -20,7 +20,7 @@ fn setup() -> (Env, Address, Address, Address, Address, Address) {
     let token_contract = env.register_stellar_asset_contract_v2(token_admin);
     let token_addr = token_contract.address();
 
-    let contract_id = env.register(AcademyVestingContract, ());
+    let contract_id = env.register_contract(None, AcademyVestingContract);
 
     (
         env,

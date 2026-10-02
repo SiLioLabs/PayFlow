@@ -6,7 +6,9 @@ extern crate std;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
+};
 
 /// Vesting schedule for an academy reward
 #[contracttype]
@@ -81,6 +83,7 @@ pub struct RevokeEvent {
 }
 
 /// Vesting error codes
+#[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum VestingError {
@@ -93,24 +96,6 @@ pub enum VestingError {
     Revoked = 4007,
     InvalidTimelock = 4008,
     NotEnoughTimeForRevoke = 4009,
-}
-
-impl From<VestingError> for soroban_sdk::Error {
-    fn from(error: VestingError) -> Self {
-        soroban_sdk::Error::from_contract_error(error as u32)
-    }
-}
-
-impl From<&VestingError> for soroban_sdk::Error {
-    fn from(error: &VestingError) -> Self {
-        soroban_sdk::Error::from_contract_error(*error as u32)
-    }
-}
-
-impl From<soroban_sdk::Error> for VestingError {
-    fn from(_error: soroban_sdk::Error) -> Self {
-        VestingError::Unauthorized
-    }
 }
 
 #[contract]
