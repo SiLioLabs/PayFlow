@@ -33,8 +33,10 @@ import {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+let tmpFileCounter = 0;
+
 function tmpFile(suffix: string): string {
-  return path.join(os.tmpdir(), `payflow-test-${Date.now()}${suffix}`);
+  return path.join(os.tmpdir(), `payflow-test-${Date.now()}-${tmpFileCounter++}${suffix}`);
 }
 
 function createTmpWasm(content = "fake-wasm-binary"): string {

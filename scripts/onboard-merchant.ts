@@ -222,7 +222,6 @@ export async function onboardMerchant(
   }
 
   const tx = await invokeContract(config, server, "whitelist_batch_add", args);
-  const tx = await invokeContract(config, server, "whitelist_batch_add", [vecAddressToScVal([address])]);
   const verified = await isMerchantWhitelisted(config, server, address);
   if (!verified) {
     throw new Error(`Whitelist verification failed after tx ${tx.hash}`);
