@@ -3,6 +3,7 @@ import { formatAddress } from "../utils/format";
 import CopyButton from "./CopyButton";
 import NetworkBadge from "./NetworkBadge";
 import BalanceDisplay from "./BalanceDisplay";
+import AmountUnitToggle from "./AmountUnitToggle";
 import NotificationCenter from "./NotificationCenter";
 import TxQueuePanel from "./TxQueuePanel";
 import { useTxQueue } from "../services/txQueue";
@@ -51,6 +52,7 @@ export default function WalletBar({
         </div>
         <BalanceDisplay address={publicKey} />
         <NetworkBadge />
+        <AmountUnitToggle />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <NotificationCenter

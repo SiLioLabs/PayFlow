@@ -66,13 +66,6 @@ export function useSubscription(userKey: string, refreshTrigger?: number) {
   // the default 5s cooldown to avoid RPC bursts on rapid alt-tab.
   useVisibilityRefresh(refresh);
 
-  // Re-read contract state when the user returns to the tab.
-
-
-  useVisibilityRefresh(refresh);
-
-
-
   useEffect(() => {
     refresh();
   }, [refresh, refreshTrigger]);

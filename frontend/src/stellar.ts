@@ -55,10 +55,24 @@ export function getServer(): Server {
   return server;
 }
 
+// Horizon REST base URL for the active network.
+// Mainnet ("Public Global Stellar Network ; September 2015") uses the public
+// Horizon cluster; everything else falls back to the testnet cluster.
+export function horizonBaseUrl(passphrase: string = NETWORK_PASSPHRASE): string {
+  return passphrase === Networks.PUBLIC
+    ? "https://horizon.stellar.org"
+    : "https://horizon-testnet.stellar.org";
+}
+
+// Stellar.expert explorer base URL for the active network.
+export function explorerBaseUrl(passphrase: string = NETWORK_PASSPHRASE): string {
+  const network = passphrase === Networks.PUBLIC ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${network}`;
+}
+
 // Stellar.expert explorer link for a transaction, on the active network.
-export function explorerTxUrl(hash: string): string {
-  const network = NETWORK_PASSPHRASE === Networks.PUBLIC ? "public" : "testnet";
-  return `https://stellar.expert/explorer/${network}/tx/${hash}`;
+export function explorerTxUrl(hash: string, passphrase: string = NETWORK_PASSPHRASE): string {
+  return `${explorerBaseUrl(passphrase)}/tx/${hash}`;
 }
 
 export interface MerchantSubscriber {
@@ -912,26 +926,29 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
 }
 
 
+/**
+ * Fetch the XLM (or requested asset) balance for an account from Horizon.
+ *
+ * Returns "0" only when the account exists but holds no matching balance entry.
+ * Network/HTTP/JSON failures throw so callers (useStellarBalance) can surface
+ * the error instead of silently rendering $0.
+ */
 export async function getBalance(
   publicKey: string,
   fields?: { asset_type?: string }
 ): Promise<string> {
-  try {
-    // Note: Horizon /accounts/{id} endpoint does not support filtering by asset_type,
-    // so we append the query parameter but still parse client-side.
-    const query = fields?.asset_type ? `?asset_type=${fields.asset_type}` : "";
-    const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}${query}`);
-    if (!resp.ok) throw new Error(`Horizon API error: ${resp.status}`);
-    const data = await resp.json();
+  // Note: Horizon /accounts/{id} endpoint does not support filtering by asset_type,
+  // so we append the query parameter but still parse client-side.
+  const query = fields?.asset_type ? `?asset_type=${fields.asset_type}` : "";
+  const resp = await fetch(`${horizonBaseUrl()}/accounts/${publicKey}${query}`);
+  if (!resp.ok) throw new Error(`Horizon API error: ${resp.status}`);
+  const data = await resp.json();
 
-    const assetType = fields?.asset_type ?? "native";
-    const nativeBalance = data.balances?.find(
-      (b: { asset_type: string; balance: string }) => b.asset_type === assetType
-    );
-    return nativeBalance?.balance ?? "0";
-  } catch {
-    return "0";
-  }
+  const assetType = fields?.asset_type ?? "native";
+  const nativeBalance = data.balances?.find(
+    (b: { asset_type: string; balance: string }) => b.asset_type === assetType
+  );
+  return nativeBalance?.balance ?? "0";
 }
 
 export function getTokenBalance(owner: string, tokenId: string): Promise<bigint> {

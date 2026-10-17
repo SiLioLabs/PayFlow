@@ -8,10 +8,21 @@ interface BalanceDisplayProps {
 }
 
 export default function BalanceDisplay({ address, tokenId }: BalanceDisplayProps) {
-  const { balance, loading, stale } = useStellarBalance(address, 10000, tokenId);
+  const { balance, loading, stale, error } = useStellarBalance(address, 10000, tokenId);
 
   if (loading && !stale) {
     return <div className="skeleton balance-skeleton" />;
+  }
+
+  if (error && balance === "0") {
+    return (
+      <div className="flex flex-col">
+        <span className="wallet-bar__label">Balance</span>
+        <span className="wallet-bar__address text-mono" title={error} data-testid="balance-error">
+          —
+        </span>
+      </div>
+    );
   }
 
   return (

@@ -197,3 +197,7 @@ vesting/target/
 
 # Webhook Dead Letter Queue
 data/webhook-dlq.jsonl
+
+# Debug brace dumps (recurring local artefacts, see #1252)
+frontend/*_braces.txt
+*_braces.txt

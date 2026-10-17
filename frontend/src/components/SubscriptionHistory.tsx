@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { useContractEvents } from "../hooks/useContractEvents";
 import { ChargeEvent } from "../types";
 import { STROOPS_PER_XLM } from "../constants";
+import { explorerTxUrl } from "../stellar";
 import Spinner from "./Spinner";
 import CopyButton from "./CopyButton";
 import { ChargeHistorySkeleton } from "./Skeleton";
@@ -513,7 +514,7 @@ export default function SubscriptionHistory({ userKey }: Props) {
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
                   <a
-                    href={`https://stellar.expert/explorer/testnet/tx/${event.txHash}`}
+                    href={explorerTxUrl(event.txHash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="merchant-row__address"

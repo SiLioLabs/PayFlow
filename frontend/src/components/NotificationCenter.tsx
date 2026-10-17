@@ -1,12 +1,13 @@
 import React, { useRef, useEffect, useState } from "react";
 import type { Notification, ToastVariant } from "../hooks/useToast";
+import { explorerTxUrl } from "../stellar";
 
 interface Props {
   notifications: Notification[];
   unreadCount: number;
   onMarkAllRead: () => void;
   onClearAll: () => void;
-  /** Base URL for the Stellar explorer. Defaults to testnet. */
+  /** Base URL for the Stellar explorer. Defaults to the active network. */
   explorerBase?: string;
 }
 
@@ -81,7 +82,7 @@ export default function NotificationCenter({
   unreadCount,
   onMarkAllRead,
   onClearAll,
-  explorerBase = "https://stellar.expert/explorer/testnet",
+  explorerBase,
 }: Props) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -269,7 +270,9 @@ export default function NotificationCenter({
                   </div>
                   {n.txHash && (
                     <a
-                      href={`${explorerBase}/tx/${n.txHash}`}
+                      href={
+                        explorerBase ? `${explorerBase}/tx/${n.txHash}` : explorerTxUrl(n.txHash)
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{

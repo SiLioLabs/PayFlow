@@ -313,3 +313,81 @@ describe("useToast — notification accumulation", () => {
     expect(screen.getByTestId("count")).toHaveTextContent("0");
   });
 });
+
+// ── Explorer network (#1254) ────────────────────────────────────────────────
+
+describe("NotificationCenter explorer network (#1254)", () => {
+  const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+  const PUBLIC_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+
+  async function renderOnNetwork(passphrase: string) {
+    vi.resetModules();
+    vi.doMock("../stellar", async () => {
+      const actual = (await vi.importActual("../stellar")) as Record<string, unknown>;
+      return { ...(actual as object), NETWORK_PASSPHRASE: passphrase };
+    });
+    const { default: CenterOnNetwork } = await import("../components/NotificationCenter");
+    const notes = [
+      {
+        id: 1,
+        message: "Tx confirmed",
+        variant: "info",
+        timestamp: new Date("2024-01-15T10:00:00Z"),
+        read: false,
+        txHash: "abc123",
+      },
+    ] as any;
+    const { unmount } = render(
+      <CenterOnNetwork
+        notifications={notes}
+        unreadCount={1}
+        onMarkAllRead={vi.fn()}
+        onClearAll={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    const link = screen.getByTestId("notification-explorer-link-1");
+    const href = link.getAttribute("href") ?? "";
+    unmount();
+    vi.resetModules();
+    return href;
+  }
+
+  it("renders testnet explorer links on testnet", async () => {
+    const href = await renderOnNetwork(TESTNET_PASSPHRASE);
+    expect(href).toContain("/testnet/tx/abc123");
+  });
+
+  it("renders public explorer links on mainnet", async () => {
+    const href = await renderOnNetwork(PUBLIC_PASSPHRASE);
+    expect(href).toContain("/public/tx/abc123");
+  });
+
+  it("respects an explicit explorerBase override", async () => {
+    const { default: Center } = await import("../components/NotificationCenter");
+    const notes = [
+      {
+        id: 7,
+        message: "Tx confirmed",
+        variant: "info",
+        timestamp: new Date("2024-01-15T10:00:00Z"),
+        read: false,
+        txHash: "override123",
+      },
+    ] as any;
+    render(
+      <Center
+        notifications={notes}
+        unreadCount={1}
+        onMarkAllRead={vi.fn()}
+        onClearAll={vi.fn()}
+        explorerBase="https://custom.explorer/tx-net"
+      />
+    );
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    expect(screen.getByTestId("notification-explorer-link-7")).toHaveAttribute(
+      "href",
+      "https://custom.explorer/tx-net/tx/override123"
+    );
+  });
+});
