@@ -23,7 +23,7 @@ Production import graph was checked against `frontend/src/**/*.ts(x)` excluding 
 | Module | Location | Domain | Evidence | Canonical replacement |
 | ------ | -------- | ------ | -------- | --------------------- |
 | **stellarBatchCharge.ts** | `frontend/src/stellarBatchCharge.ts` | Merchant / charge | File body is only `// Batch charge UI helper (unused).` Zero production or test imports. | Live batch charge is `simulateBatchCharge` / `buildBatchChargeTx` in [`stellar.ts`](../../frontend/src/stellar.ts), used by [`MerchantDashboard.tsx`](../../frontend/src/components/MerchantDashboard.tsx). |
-| **SubscriptionRepairPanel (root)** | `frontend/src/components/SubscriptionRepairPanel.tsx` | Subscriber TTL restore | Duplicate name. **Not** imported by `App`, `Dashboard`, or `AdminDashboard`. Covered only by `SubscriptionRepairPanel.ttl.test.tsx`. | **Canonical:** [`components/admin/AdminRepairPanel.tsx`](../../frontend/src/components/admin/AdminRepairPanel.tsx), mounted from [`pages/AdminDashboard.tsx`](../../frontend/src/pages/AdminDashboard.tsx) (`validate_subscription` / `repair_subscription`). |
+| **SubscriptionRepairPanel (root)** | `frontend/src/components/SubscriptionRepairPanel.tsx` | Subscriber TTL restore | Duplicate name. **Not** imported by `App`, `Dashboard`, or `AdminDashboard`. Covered only by `SubscriptionRepairPanel.ttl.test.tsx`. | **Canonical:** [`components/admin/AdminRepairPanel.tsx`](../../frontend/src/components/admin/AdminRepairPanel.tsx), mounted from [`pages/AdminDashboard.tsx`](../../frontend/src/pages/AdminDashboard.tsx) (`get_subscription_health` / `extend_subscription_ttl`). |
 
 The root panel is a TTL/`extend_subscription_ttl` UI. The admin panel is on-chain **integrity repair**. They are not interchangeable. Do not import the root file into AdminDashboard.
 
@@ -112,7 +112,7 @@ There is **no** knip / unimported / ts-prune / CI dead-code job in this reposito
 | BatchPausePanel | `admin/BatchPausePanel.tsx` | `batch_pause_subscriptions` | Admin | Canonical (`AdminDashboard`) |
 | BatchWhitelistPanel | `admin/BatchWhitelistPanel.tsx` | `whitelist_batch_add` / `remove` | Admin | Canonical (`AdminDashboard`) |
 | ProtocolStatsPanel | `admin/ProtocolStatsPanel.tsx` | Protocol stats | Admin | Canonical (`AdminDashboard`) |
-| **SubscriptionRepairPanel** | `admin/SubscriptionRepairPanel.tsx` | `validate_subscription` / `repair_subscription` | Admin | **Canonical** |
+| **SubscriptionRepairPanel** | `admin/SubscriptionRepairPanel.tsx` | `get_subscription_health` / `extend_subscription_ttl` | Admin | **Canonical** |
 
 ---
 

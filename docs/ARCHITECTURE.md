@@ -222,10 +222,10 @@ App.tsx
 ### Admin repair workflow
 
 1. Admin connects Freighter wallet; `useAdmin` compares `publicKey` to on-chain `get_admin`.
-2. Operator enters a subscriber address and runs `validate_subscription` via RPC simulation.
-3. Violations are mapped to human-readable messages in the UI (missing records, invalid transitions, corrupted references).
-4. If failures exist and the wallet is admin, `repair_subscription` is submitted after confirmation.
-5. The UI parses the `subscription_repaired` event for the exact fixed-inconsistency count and re-runs validation.
+2. Operator enters a subscriber address and checks subscription health via `get_subscription_health` (read-only RPC simulation).
+3. Health violations are mapped to human-readable messages in the UI (missing records, invalid transitions, corrupted references).
+4. If failures exist and the wallet is admin, `migrate` or `extend_subscription_ttl` is submitted after confirmation.
+5. The UI re-checks `get_subscription_health` after the operation to confirm the fix.
 
 Authorization is enforced both in the UI (repair button disabled for non-admins) and on-chain (`require_admin` in the contract).
 

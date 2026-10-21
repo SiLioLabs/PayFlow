@@ -105,8 +105,6 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [get\_charge\_history\_ttl](#get_charge_history_ttl)
   - [get\_charge\_history\_page](#get_charge_history_page)
   - [transfer\_subscription](#transfer_subscription)
-  - [validate\_subscription](#validate_subscription)
-  - [repair\_subscription](#repair_subscription)
 - [Units & Conversions](#units--conversions)
 - [Events Reference](#events-reference)
 - [Error Codes](#error-codes)
@@ -3277,56 +3275,6 @@ soroban contract invoke \
 
 ---
 
-## Subscription Integrity Diagnostics
-
-Administrative utilities for detecting and repairing corrupted subscription records after migrations or contract upgrades.
-
-### `validate_subscription`
-
-Read-only integrity check for a subscriber address.
-
-```
-validate_subscription(env: Env, user: Address) -> SubscriptionValidationReport
-```
-
-**Returns `SubscriptionValidationReport`**
-
-| Field                       | Type          | Description                                         |
-| --------------------------- | ------------- | --------------------------------------------------- |
-| `is_valid`                  | `bool`        | `true` when no inconsistencies are detected         |
-| `violations`                | `Vec<String>` | General integrity violations                        |
-| `missing_records`           | `Vec<String>` | Missing auxiliary records (history, metadata, etc.) |
-| `invalid_state_transitions` | `Vec<String>` | Illegal active/paused/cancelled state combinations  |
-| `corrupted_references`      | `Vec<String>` | Broken merchant/token/referrer references           |
-
-**Auth:** None (read-only simulation).
-
-**Frontend:** Exposed in the Admin Dashboard → Subscription Repair panel.
-
----
-
-### `repair_subscription`
-
-Repairs detected subscription inconsistencies for a user.
-
-```
-repair_subscription(env: Env, user: Address) -> u32
-```
-
-**Auth:** Contract admin only (`require_admin`).
-
-**Returns:** Count of fixed inconsistencies (also emitted in the `subscription_repaired` event).
-
-**Event emitted**
-
-| Event name              | Topic                                     | Data                         |
-| ----------------------- | ----------------------------------------- | ---------------------------- |
-| `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
-
-**Frontend authorization:** The repair button is enabled only when the connected Freighter wallet matches the on-chain admin returned by `get_admin`.
-
----
-
 ## Units & Conversions
 
 All amounts are in **stroops** — the smallest unit of a Stellar token.
@@ -3363,7 +3311,6 @@ For a complete reference of all events with detailed schemas and examples, see [
 | `resumed`                  | `("resumed", user_address)`                              | `()`                                  |
 | `referred`                 | `("referred", user_address)`                             | `referrer_address`                    |
 | `subscription_transferred` | `("subscription_transferred", from_address, to_address)` | `(merchant, amount, interval, token)` |
-| `subscription_repaired`    | `("subscription_repaired", user_address)`                | `fixed_inconsistencies: u32`          |
 | `subscriber_index_cleared` | `("subscriber_index_cleared", user_address)` | `index: u64` |
 
 ---
