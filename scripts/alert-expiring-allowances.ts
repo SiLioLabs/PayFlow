@@ -69,6 +69,7 @@ import {
   formatTokenAmount,
   isAllowanceAtRisk,
 } from "./allowance-utils.js";
+import { readIntEnv } from "./utils/readIntEnv.js";
 import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -162,17 +163,11 @@ const CONTRACT_ID =
   process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
 const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
   Networks.TESTNET) as string;
-const ALERT_WINDOW_LEDGERS = parseInt(
-  process.env.ALERT_WINDOW_LEDGERS ?? "17280",
-  10,
-);
+const ALERT_WINDOW_LEDGERS = readIntEnv("ALERT_WINDOW_LEDGERS", 17280, { min: 1 });
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY ?? "5", 10));
-const MAX_RETRIES = Math.max(0, parseInt(process.env.MAX_RETRIES ?? "3", 10));
-const RETRY_BASE_MS = Math.max(
-  0,
-  parseInt(process.env.RETRY_BASE_MS ?? "300", 10),
-);
+const CONCURRENCY = readIntEnv("CONCURRENCY", 5, { min: 1 });
+const MAX_RETRIES = readIntEnv("MAX_RETRIES", 3, { min: 0 });
+const RETRY_BASE_MS = readIntEnv("RETRY_BASE_MS", 300, { min: 0 });
 
 if (!CONTRACT_ID) {
   console.error("Error: CONTRACT_ID environment variable is required.");

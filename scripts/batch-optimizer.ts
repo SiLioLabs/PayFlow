@@ -36,6 +36,7 @@ import {
 import { MultiEndpointServer } from "./rpc-client.js";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { fileURLToPath } from "node:url";
+import { readIntEnv } from "./utils/readIntEnv.js";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -45,15 +46,18 @@ const NETWORK_PASSPHRASE =
   process.env.NETWORK_PASSPHRASE ??
   process.env.VITE_NETWORK_PASSPHRASE ??
   Networks.TESTNET;
+
+// readIntEnv rejects non-numeric values with a named warning (#1304).
+// MAX_BATCH_SIZE=abc previously silently produced NaN, disabling the override.
 const ENV_MAX_BATCH = process.env.MAX_BATCH_SIZE
-  ? Number.parseInt(process.env.MAX_BATCH_SIZE, 10)
+  ? readIntEnv("MAX_BATCH_SIZE", 50, { min: 1, max: 200 })
   : undefined;
 const MAX_CYCLE_USERS = process.env.MAX_CYCLE_USERS
-  ? Number.parseInt(process.env.MAX_CYCLE_USERS, 10)
+  ? readIntEnv("MAX_CYCLE_USERS", Number.POSITIVE_INFINITY, { min: 1 })
   : Number.POSITIVE_INFINITY;
 const PAGE_SIZE = Math.min(
   50,
-  Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50),
+  Math.max(1, readIntEnv("PAGE_SIZE", 50, { min: 1, max: 50 })),
 );
 
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";

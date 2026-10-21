@@ -37,12 +37,15 @@ import {
 } from "prom-client";
 import type { Server } from "node:http";
 import { logger as rootLogger } from "./logger.js";
+import { readIntEnv } from "./utils/readIntEnv.js";
 
 const logger = rootLogger.child({ script: "metrics-server" });
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const METRICS_PORT = parseInt(process.env.METRICS_PORT ?? "9090", 10);
+// readIntEnv rejects NaN / non-numeric values and logs a warning naming the
+// variable, instead of silently passing NaN to server.listen() (#1304).
+const METRICS_PORT = readIntEnv("METRICS_PORT", 9090, { min: 1, max: 65535 });
 
 // ── Registry & default metrics ───────────────────────────────────────────────
 

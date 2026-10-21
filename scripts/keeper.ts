@@ -93,6 +93,7 @@ import {
   CHARGE_RESULT_NAMES as CHARGE_RESULT_NAMES_EXPORT,
   decodeChargeResults,
 } from "./lib/charge-results.js";
+import { readIntEnv } from "./utils/readIntEnv.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -106,26 +107,24 @@ const KEEPER_PUBLIC_KEY = process.env.KEEPER_PUBLIC_KEY || "";
 const KEEPER_SECRET = process.env.SECRET_KEY || process.env.KEEPER_SECRET || "";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * BATCH_SIZE resolution — kept in sync with the on-chain `get_max_batch_size`
- * value (and with batch-optimizer.ts's MAX_BATCH_SIZE handling) so the legacy
- * paging path can never request a page larger than the contract will accept.
- *
- * `ENV_BATCH_SIZE` is the raw operator-supplied override, if any.
- * `BATCH_SIZE` starts as the env override (or the fallback default) and is
- * narrowed down to the live on-chain max once `resolveBatchSize()` runs at
- * startup. It is intentionally `let`, not `const`, so `main()` can tighten it
- * before any charge cycle begins.
- */
-const ENV_BATCH_SIZE = process.env.BATCH_SIZE ? Number(process.env.BATCH_SIZE) : undefined;
-const DEFAULT_BATCH_SIZE = 50; // Mirrors the contract's own MAX_BATCH_SIZE default.
-const BATCH_SIZE_CEILING = 200; // Mirrors the contract's MAX_BATCH_SIZE_CEILING.
-let BATCH_SIZE =
-  ENV_BATCH_SIZE && ENV_BATCH_SIZE > 0
-    ? Math.min(BATCH_SIZE_CEILING, Math.max(1, ENV_BATCH_SIZE))
-    : DEFAULT_BATCH_SIZE;
+const DEFAULT_BATCH_SIZE = 50;
+const BATCH_SIZE_CEILING = 200;
 
-const INTERVAL_SECONDS = Math.max(Number(process.env.INTERVAL_SECONDS) || 3600, 1);
+// readIntEnv rejects NaN and warns naming the variable (#1304).
+// Previously: Number(process.env.BATCH_SIZE) could be NaN, then clamped only
+// after a truthy check that NaN fails — effectively using DEFAULT_BATCH_SIZE
+// but without any diagnostic.
+const ENV_BATCH_SIZE = process.env.BATCH_SIZE
+  ? readIntEnv("BATCH_SIZE", DEFAULT_BATCH_SIZE, { min: 1, max: BATCH_SIZE_CEILING })
+  : undefined;
+let BATCH_SIZE =
+  ENV_BATCH_SIZE !== undefined ? ENV_BATCH_SIZE : DEFAULT_BATCH_SIZE;
+
+// INTERVAL_SECONDS: the old `Math.max(Number(...) || 3600, 1)` accidentally
+// handled NaN (|| 3600) but silently accepted negative values (Math.max(...,1)
+// would catch those, so it was safe — but gave no diagnostic). readIntEnv
+// emits a warning naming the variable for any invalid value (#1304).
+const INTERVAL_SECONDS = readIntEnv("INTERVAL_SECONDS", 3600, { min: 1 });
 const REPORT_DIR = process.env.REPORT_DIR ?? path.join(SCRIPT_DIR, "data", "benchmarks");
 const USE_LEGACY_PAGING = process.env.KEEPER_USE_LEGACY_PAGING === "true";
 
