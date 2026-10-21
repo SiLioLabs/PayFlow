@@ -990,6 +990,27 @@ CONTRACT_ID=C... tsx check-allowances.ts GXYZ... GABC...
 CONTRACT_ID=C... tsx check-allowances.ts --json --file subscribers.txt
 ```
 
+#### stdout / stderr contract (#1300)
+
+| Stream | Content |
+|--------|---------|
+| **stdout** | Machine-readable JSON report (`--json` flag only) |
+| **stderr** | Human-readable summary, startup messages, warnings, errors |
+
+Pipe-friendly examples:
+```bash
+# Pipe to jq — human summary never touches stdout
+CONTRACT_ID=C... tsx check-allowances.ts --json --file subs.txt | jq '.results[] | select(.at_risk)'
+
+# Capture JSON while watching summary in terminal
+CONTRACT_ID=C... tsx check-allowances.ts --json --file subs.txt > audit.json
+```
+
+The same contract applies to all three machine-readable scripts:
+- `check-allowances.ts --json` → JSON on stdout, human summary on stderr
+- `alert-expiring-allowances.ts` → JSON on stdout, narration on stderr
+- `watch-events.ts` → colored event lines on stdout, banner and structured log on stderr
+
 ### alert-expiring-allowances
 
 Alert on allowances expiring within a configurable ledger window (default 17280 ≈ 24 h):

@@ -220,7 +220,7 @@ async function readAddressesFromFile(filePath: string): Promise<string[]> {
 }
 
 function showHelp(): never {
-  console.log(`
+  process.stderr.write(`
 Usage: tsx alert-expiring-allowances.ts [options] [addresses...]
 
 Options:
@@ -620,11 +620,11 @@ async function main(): Promise<void> {
   db.close();
 
   if (rows.length === 0) {
-    console.log("No active subscriptions found.");
+    console.error("No active subscriptions found.");
     return;
   }
 
-  console.log(`Checking ${rows.length} active subscription(s)…`);
+  console.error(`Checking ${rows.length} active subscription(s)…`);
 
   const server = new Server(RPC_URL);
   const limiter = new RateLimiter({
@@ -672,7 +672,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(payload, null, 2));
 
   if (alerts.length === 0) {
-    console.log("No expiring allowances detected.");
+    console.error("No expiring allowances detected.");
     return;
   }
 
@@ -688,7 +688,7 @@ async function main(): Promise<void> {
         10_000
       );
       if (resp.ok) {
-        console.log(`Alert webhook delivered (HTTP ${resp.status}).`);
+        console.error(`Alert webhook delivered (HTTP ${resp.status}).`);
       } else {
         console.error(`Alert webhook responded with HTTP ${resp.status}.`);
       }
@@ -696,7 +696,7 @@ async function main(): Promise<void> {
       console.error(`Alert webhook delivery failed: ${err}`);
     }
   } else if (dryRun) {
-    console.log("[dry-run] Webhook delivery skipped.");
+    console.error("[dry-run] Webhook delivery skipped.");
   }
 }
 

@@ -133,7 +133,7 @@ async function parseAddressListFromFile(path: string): Promise<string[]> {
 }
 
 function showHelp(): never {
-  logger.info(`
+  process.stderr.write(`
 Usage: tsx check-allowances.ts [options] [addresses...]
 
 Options:
@@ -392,6 +392,14 @@ export function buildReport(results: AuditResult[]): AllowanceCheckReport {
   };
 }
 
+/**
+ * Write the human-readable audit summary to stderr.
+ *
+ * Always uses stderr so it never pollutes stdout — stdout is reserved for the
+ * machine-readable JSON report (--json flag).  This means:
+ *   check-allowances.ts --json | jq   → works; only JSON on stdout
+ *   check-allowances.ts               → human summary on stderr as before
+ */
 function printHumanSummary(report: AllowanceCheckReport): void {
   const { results } = report;
   const atRisk = results.filter((r) => r.at_risk);
@@ -401,49 +409,50 @@ function printHumanSummary(report: AllowanceCheckReport): void {
     (r) => r.error && r.error !== "no_subscription",
   );
 
-  logger.info(`\nAudited ${results.length} subscriber(s)\n`);
+  // All output goes to stderr — logger.warn routes there via writeLine().
+  logger.warn(`\nAudited ${results.length} subscriber(s)\n`);
 
   if (noSub.length > 0) {
-    logger.info(`${noSub.length} with no subscription:`);
-    for (const r of noSub) logger.info(`  ${r.address}`);
-    logger.info("");
+    logger.warn(`${noSub.length} with no subscription:`);
+    for (const r of noSub) logger.warn(`  ${r.address}`);
+    logger.warn("");
   }
 
   if (errors.length > 0) {
-    logger.info(`${errors.length} with errors:`);
+    logger.warn(`${errors.length} with errors:`);
     for (const r of errors)
-      logger.info(`  ${r.address}  [${r.error}]`);
-    logger.info("");
+      logger.warn(`  ${r.address}  [${r.error}]`);
+    logger.warn("");
   }
 
   if (atRisk.length > 0) {
-    logger.info(`${atRisk.length} at risk of failed charge:`);
+    logger.warn(`${atRisk.length} at risk of failed charge:`);
     const header =
       "  ADDRESS".padEnd(56) +
       "AMOUNT".padStart(12) +
       "ALLOWANCE".padStart(14) +
       "GAP".padStart(12) +
       "  TOKEN";
-    logger.info(header);
+    logger.warn(header);
     for (const r of atRisk) {
-      logger.info(
+      logger.warn(
         `  ${r.address.padEnd(56)}${stroopsToXlm(r.subscription_amount).padStart(12)}${stroopsToXlm(r.allowance).padStart(14)}${stroopsToXlm(r.gap).padStart(12)}  ${r.token}`,
       );
     }
-    logger.info("");
+    logger.warn("");
   }
 
   if (healthy.length > 0) {
-    logger.info(`${healthy.length} healthy:`);
+    logger.warn(`${healthy.length} healthy:`);
     for (const r of healthy) {
-      logger.info(
+      logger.warn(
         `  ${r.address.padEnd(56)} ${stroopsToXlm(r.subscription_amount).padStart(12)} ${stroopsToXlm(r.allowance).padStart(12)}`,
       );
     }
-    logger.info("");
+    logger.warn("");
   }
 
-  logger.info(
+  logger.warn(
     `Summary: healthy=${report.healthy_count}, atRisk=${report.at_risk_count}, ` +
       `errors=${report.error_count}, total=${report.total_checked}`,
   );
@@ -486,7 +495,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  logger.info(
+  logger.warn(
     `Auditing ${allAddresses.length} subscriber(s) — concurrency=${CONCURRENCY}, maxRetries=${MAX_RETRIES}`,
   );
 
@@ -520,11 +529,13 @@ async function main(): Promise<void> {
   const report = buildReport(results);
 
   if (jsonOutput) {
-    // JSON report to stdout; human summary to stderr so they don't interleave
+    // Machine-readable JSON goes to stdout only; nothing else touches stdout.
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+  } else {
+    // Human summary goes to stderr (logger.warn → stderr) so the contract
+    // "check-allowances.ts --json | jq" always works cleanly.
+    printHumanSummary(report);
   }
-  // Human summary always emitted (logger writes to stderr for warn/error, stdout for info)
-  printHumanSummary(report);
 
   process.exit(report.at_risk_count > 0 ? 1 : 0);
 }

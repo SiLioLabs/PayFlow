@@ -196,9 +196,16 @@ function parseEvent(event: any): ParsedEvent | null {
 }
 
 /**
- * Pretty-print an event to stdout.
- * Human-readable output uses ANSI colors; the logger call uses plain text +
- * structured context so LOG_FORMAT=json output never contains raw escape codes.
+ * Pretty-print an event.
+ *
+ * stdout/stderr contract (#1300):
+ *   - The colored human-readable line goes to stdout so `watch-events.ts | jq`
+ *     can consume the raw ANSI stream as intended.
+ *   - The structured log entry goes to stderr via logger.warn so it never
+ *     appears on stdout and never breaks downstream pipes.
+ *
+ * If you want machine-readable JSON events, set LOG_FORMAT=json and redirect
+ * stderr: `watch-events.ts 2>events.jsonl`
  */
 function printEvent(event: ParsedEvent): void {
   const color = getEventColor(event.type);
@@ -207,8 +214,9 @@ function printEvent(event: ParsedEvent): void {
   const merchant = event.merchant ? shortenAddress(event.merchant) : "N/A";
   const amount = event.amount ? `${stroopsToXlm(event.amount)} XLM` : "N/A";
 
-  // Structured log — no ANSI, so JSON mode stays clean.
-  logger.info("event", {
+  // Structured log → stderr (warn level routes to stderr in logger.ts:writeLine).
+  // This keeps stdout clean for pipes and LOG_FORMAT=json consumers.
+  logger.warn("event", {
     event_type: event.type,
     user: event.user,
     merchant: event.merchant ?? null,
@@ -217,7 +225,7 @@ function printEvent(event: ParsedEvent): void {
     timestamp,
   });
 
-  // Human-readable colored line to stdout (independent of log format).
+  // Human-readable colored line → stdout as the primary event stream output.
   process.stdout.write(
     `${colors.dim}${timestamp}${colors.reset} ` +
       `${color}${colors.bright}${event.type}${colors.reset} ` +
@@ -279,11 +287,11 @@ async function fetchAndPrintEvents(): Promise<void> {
       }
     }
 
-    // Periodic stats logging (every 100 events processed)
+    // Periodic stats logging (every 100 events processed) → stderr
     totalEventsSeen += response.events.length;
     if (totalEventsSeen >= 100) {
       const s = dedupCache.stats;
-      logger.info("dedup stats", {
+      logger.warn("dedup stats", {
         duplicates_skipped: s.deduplicatedTotal,
         unique_processed: s.totalProcessed,
         cache_size: s.size,
@@ -307,31 +315,32 @@ async function fetchAndPrintEvents(): Promise<void> {
     }
 
     if (newEvents.length > 0) {
-      console.log(
-        colors.dim + `─ ${newEvents.length} new event(s) ─` + colors.reset,
+      process.stderr.write(
+        colors.dim + `─ ${newEvents.length} new event(s) ─` + colors.reset + "\n",
       );
     }
   } catch (error) {
     const errorMsg =
       error instanceof Error ? error.message : JSON.stringify(error);
-    console.error(
-      colors.red + `Error fetching events: ${errorMsg}` + colors.reset,
+    process.stderr.write(
+      colors.red + `Error fetching events: ${errorMsg}` + colors.reset + "\n",
     );
   }
 }
 
 async function main(): Promise<void> {
-  console.log(colors.bright + "FlowPay Event Watcher" + colors.reset);
-  console.log(colors.dim + `RPC: ${RPC_URL}` + colors.reset);
-  console.log(colors.dim + `Contract: ${CONTRACT_ID}` + colors.reset);
-  console.log(
-    colors.dim + `Polling every ${POLL_INTERVAL_MS}ms...` + colors.reset,
+  // All startup banner lines go to stderr so stdout stays clean for event output.
+  process.stderr.write(colors.bright + "FlowPay Event Watcher" + colors.reset + "\n");
+  process.stderr.write(colors.dim + `RPC: ${RPC_URL}` + colors.reset + "\n");
+  process.stderr.write(colors.dim + `Contract: ${CONTRACT_ID}` + colors.reset + "\n");
+  process.stderr.write(
+    colors.dim + `Polling every ${POLL_INTERVAL_MS}ms...` + colors.reset + "\n",
   );
-  console.log(colors.dim + `Dedup cache: ${dedupCache.stats.maxSize} entries` + (process.env.EVENT_DEDUP_TTL_MS ? `, TTL: ${process.env.EVENT_DEDUP_TTL_MS}` : "") + colors.reset);
+  process.stderr.write(colors.dim + `Dedup cache: ${dedupCache.stats.maxSize} entries` + (process.env.EVENT_DEDUP_TTL_MS ? `, TTL: ${process.env.EVENT_DEDUP_TTL_MS}` : "") + colors.reset + "\n");
   if (webhookConfig) {
-    console.log(colors.dim + `Webhook delivery enabled to: ${webhookConfig.url}` + colors.reset);
+    process.stderr.write(colors.dim + `Webhook delivery enabled to: ${webhookConfig.url}` + colors.reset + "\n");
   }
-  console.log("");
+  process.stderr.write("\n");
   
   // Initial fetch
   await fetchAndPrintEvents();
