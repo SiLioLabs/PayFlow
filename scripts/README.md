@@ -587,3 +587,13 @@ across all scripts:
 - Mainnet gates: [`docs/MAINNET-DEPLOYMENT.md`](../docs/MAINNET-DEPLOYMENT.md)
 - Keeper handbook: [`docs/KEEPER.md`](../docs/KEEPER.md)
 - Contract API (`batch_charge`, health, estimates): [`docs/API.md`](../docs/API.md)
+
+---
+
+## Benchmark Data & Generated Reports
+
+Generated benchmark reports (e.g., from keeper-benchmark.ts) are considered local artifacts and are **not** committed to version control. 
+
+- They may contain sensitive deployment data such as subscriber addresses and contract IDs.
+- Output should be written to scripts/data/benchmarks/ (which is gitignored).
+- Only source code, scripts, and intentional fixtures should be tracked in Git.

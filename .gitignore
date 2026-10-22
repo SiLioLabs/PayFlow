@@ -189,3 +189,6 @@ config/local.json
 contract/target/
 
 contract/target/
+
+# Ignore generated benchmark reports containing sensitive data
+scripts/data/
