@@ -60,8 +60,10 @@ pub fn require_current_version(env: &Env) {
 
 /// Migrates contract storage to the latest schema version.
 ///
-/// v1 → v2: Introduces `SchemaVersion` tracking and transforms v1 Subscriptions to v2 (adding `paused: false`).
-/// v2 → v3: Reads DataKey::Referral(user) and populates the `referrer` field on each Subscription.
+/// v1 → v2: Transforms v1 Subscriptions to v2 (adding `paused: false`) and
+/// clamps intervals above `MAX_SUBSCRIPTION_INTERVAL` to that maximum.
+/// v2 → v3: Populates the `referrer` field and also clamps oversized intervals
+/// on v2 rows, including rows left by a partially completed earlier migration.
 ///
 /// Safe to call multiple times — subsequent calls are no-ops when already at CURRENT_VERSION.
 /// Only the contract admin can call this.
@@ -93,7 +95,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
                 let v2_sub = Subscription {
                     merchant: v1_sub.merchant,
                     amount: v1_sub.amount,
-                    interval: v1_sub.interval,
+                    interval: v1_sub.interval.min(crate::MAX_SUBSCRIPTION_INTERVAL),
                     last_charged: v1_sub.last_charged,
                     active: v1_sub.active,
                     paused: false,
@@ -115,6 +117,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
             if let Some(mut sub) = env.storage().persistent().get::<_, Subscription>(&key) {
                 let referrer = referral::get_referrer(env, &user);
                 sub.referrer = referrer;
+                sub.interval = sub.interval.min(crate::MAX_SUBSCRIPTION_INTERVAL);
                 env.storage().persistent().set(&key, &sub);
                 updated_count += 1;
             }

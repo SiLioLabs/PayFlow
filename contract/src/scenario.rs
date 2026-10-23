@@ -28,7 +28,7 @@ use soroban_sdk::{
 };
 
 use super::test::{setup, setup_funded_user};
-use crate::migration::CURRENT_VERSION;
+use crate::migration::{SubscriptionV1, CURRENT_VERSION};
 
 /// A funded subscriber with its own token allowance, as `setup()` does for the
 /// first user.
@@ -747,6 +747,78 @@ fn scenario_zero_interval_guards_division_by_zero() {
         res,
         Err(Ok(soroban_sdk::Error::from_contract_error(3))),
         "set_subscription_interval accepted a zero interval"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Overflow-safe scheduling and legacy interval migration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Oversized legacy intervals are capped during migration, while schedule
+/// reads safely return `None` if timestamp addition would still overflow.
+#[test]
+fn scenario_legacy_oversized_interval_is_clamped_and_overflow_is_not_chargeable() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&token_addr, &admin);
+
+    let legacy_user = user.clone();
+    let legacy = SubscriptionV1 {
+        merchant: merchant.clone(),
+        amount: 1_0000000,
+        interval: u64::MAX,
+        last_charged: 0,
+        active: true,
+        token: token_addr.clone(),
+        referrer: None,
+        label: Symbol::new(&env, "legacy"),
+        trial_duration: 0,
+    };
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &1u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Subscription(legacy_user.clone()), &legacy);
+    });
+
+    let users = soroban_sdk::vec![&env, legacy_user.clone()];
+    client.migrate(&users);
+
+    let migrated = client.get_subscription(&legacy_user).unwrap();
+    assert_eq!(migrated.interval, MAX_SUBSCRIPTION_INTERVAL);
+    assert_eq!(client.next_charge_at(&legacy_user), Some(MAX_SUBSCRIPTION_INTERVAL));
+
+    let overflowing_user = extra_user(&env, &contract_id, &token_addr);
+    let overflowing = Subscription {
+        merchant,
+        amount: 1_0000000,
+        interval: 2,
+        last_charged: u64::MAX - 1,
+        active: true,
+        paused: false,
+        token: token_addr,
+        referrer: None,
+        label: Symbol::new(&env, ""),
+        trial_duration: 0,
+        created_at: 0,
+    };
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().set(
+            &DataKey::Subscription(overflowing_user.clone()),
+            &overflowing,
+        );
+    });
+
+    assert_eq!(client.next_charge_at(&overflowing_user), None);
+    assert!(!client.is_charge_due(&overflowing_user));
+    let estimate_users = soroban_sdk::vec![&env, overflowing_user];
+    assert_eq!(
+        client.get_batch_charge_estimate(&estimate_users).get(0),
+        Some(ChargeResult::Inactive),
+        "overflowing schedule must retain the existing non-chargeable result"
     );
 }
 

@@ -315,7 +315,7 @@ pub fn compute_next_charge_at(sub: &Subscription) -> Option<u64> {
     if !sub.active || sub.paused {
         return None;
     }
-    Some(sub.last_charged + sub.interval)
+    sub.last_charged.checked_add(sub.interval)
 }
 
 /// Attempts to auto-resume a paused subscription if the pause expiry has passed.
