@@ -1455,7 +1455,7 @@ Read-only SQLite query helpers for merchant analytics and reports, including ind
 
 ### webhook.ts
 
-Delivers HMAC-SHA256-signed webhook payloads with retries; exhausted deliveries are written to a local dead-letter queue. Requires `WEBHOOK_URL` and `WEBHOOK_SECRET`.
+Delivers HMAC-SHA256-signed webhook payloads with retries; exhausted deliveries are written to a local dead-letter queue. Requires `WEBHOOK_URL` and `WEBHOOK_SECRET`. See [`docs/WEBHOOKS.md`](../docs/WEBHOOKS.md) for full payload reference, verification code, and DLQ replay procedures.
 
 ## Environment variable reference
 

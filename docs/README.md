@@ -13,7 +13,8 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Integration guide](INTEGRATION-GUIDE.md) — end-to-end developer walkthrough
 - [Merchant integration cookbook](MERCHANT-INTEGRATION.md)
 - [Event-driven integration cookbook](EVENT-DRIVEN-GUIDE.md)
-- [Frontend integration guide](integrations/frontend_integration.md)
+- [Webhook reference](WEBHOOKS.md) — payloads, headers, verification, retries, and DLQ
+- [Frontend integration guide](FRONTEND.md)
 - [Subscriber lifecycle guide](SUBSCRIBER-LIFECYCLE.md)
 - [Daily spending limits](DAILY-LIMITS.md)
 - [Multi-token architecture](MULTI-TOKEN.md)

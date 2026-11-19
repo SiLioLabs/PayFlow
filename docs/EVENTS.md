@@ -2,7 +2,7 @@
 
 This document provides a complete reference for all events emitted by the FlowPay smart contract. Events are grouped by functional area for easy navigation.
 
-> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
+> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). For delivering events over signed HTTP webhooks with retries and dead-letter queues, see [`docs/WEBHOOKS.md`](WEBHOOKS.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
 > **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-09-26. All 53 `publish_*` helpers are documented below.
 
@@ -977,6 +977,7 @@ Events related to contract migration and infrastructure operations.
 | Doc                                                       | Role                                                           |
 | --------------------------------------------------------- | -------------------------------------------------------------- |
 | [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md)     | Cookbook: consume events reliably, react, dedupe, detect gaps  |
+| [`docs/WEBHOOKS.md`](WEBHOOKS.md)                         | Webhook delivery, schemas, signatures, retries, and DLQ replay |
 | [`docs/KEEPER.md`](KEEPER.md)                             | Keeper operations (primary producer/consumer of charge cycles) |
 | [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)       | Third-party app integration (transactions + reads)             |
 | [`docs/API.md`](API.md)                                   | Contract function surface                                      |
