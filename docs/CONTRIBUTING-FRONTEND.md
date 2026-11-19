@@ -265,6 +265,6 @@ Before opening a PR, confirm:
 For architectural background (hook composition, `stellar.ts` responsibilities), see:
 
 - `docs/FRONTEND.md`
-- `docs/frontend/components.md` — canonical vs orphan components; validation-rule owners
+- `docs/frontend/COMPONENTS.md` — canonical vs orphan components; validation-rule owners
 - `docs/FRONTEND-COMPONENTS.md`
-- `docs/limits.md` — admin batch UI vs contract caps (do not change caps in a docs-only change)
+- `docs/LIMITS.md` — admin batch UI vs contract caps (do not change caps in a docs-only change)

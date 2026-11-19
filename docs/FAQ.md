@@ -1,6 +1,6 @@
 # Subscriber & Merchant FAQ
 
-Plain-language answers for subscribers (payers) and merchants (receivers). Operators should use [operations/troubleshooting.md](operations/troubleshooting.md) and the full [ERROR-CODES.md](ERROR-CODES.md) recovery playbook instead.
+Plain-language answers for subscribers (payers) and merchants (receivers). Operators should use [operations/TROUBLESHOOTING.md](operations/TROUBLESHOOTING.md) and the full [ERROR-CODES.md](ERROR-CODES.md) recovery playbook instead.
 
 **Conventions:** amounts are in **stroops** (10,000,000 stroops = 1 XLM). Every answer links to the contract error code(s) it covers. The [error-code coverage table](#error-code-coverage) at the bottom reaches every code 1–47 so no `ContractError` is orphaned.
 
@@ -94,7 +94,7 @@ Related codes: 2, 4, 5, 10, 15, 17, 18, 25, 32.
 
 Stellar evicted the subscription entry from ledger state (TTL elapsed). This is storage expiry, not cancellation. Use the UI **Restore** action (or `extend_subscription_ttl` / `bump_subscription`) then retry. Keepers should call `batch_extend_subscription_ttl` for dormant users. The frontend maps `entryexpired` / `archived` / `-32700` to this message.
 
-Related codes: none (host TTL, not a `ContractError`) — see `architecture/storage_and_ttl.md`.
+Related codes: none (host TTL, not a `ContractError`) — see `architecture/STORAGE-AND-TTL.md`.
 
 ### Subscriber: Service temporarily unavailable
 
@@ -186,7 +186,7 @@ Related codes: 2, 3, 15, 19, 46.
 
 ### Merchant: Keeper ChargeResult values
 
-`batch_charge` never aborts on per-user skips — map each element: `Charged` (success), `Skipped` (6, too early — show "Next charge at …"), `NoSubscription` (4, prompt subscribe), `Inactive` (5, cancelled), `Paused` (17, show Resume), `GracePeriodElapsed` (9, re-subscribe), `AllowanceInsufficient` (8, prompt top-up). Transaction-level aborts are `BatchTooLarge` (20, split the batch) and `ContractPaused` (18/30, stop and page on-call). Full table: [KEEPER.md](KEEPER.md), [charge-results](charge-results.md).
+`batch_charge` never aborts on per-user skips — map each element: `Charged` (success), `Skipped` (6, too early — show "Next charge at …"), `NoSubscription` (4, prompt subscribe), `Inactive` (5, cancelled), `Paused` (17, show Resume), `GracePeriodElapsed` (9, re-subscribe), `AllowanceInsufficient` (8, prompt top-up). Transaction-level aborts are `BatchTooLarge` (20, split the batch) and `ContractPaused` (18/30, stop and page on-call). Full table: [KEEPER.md](KEEPER.md), [CHARGE-RESULTS](CHARGE-RESULTS.md).
 
 Related codes: 4, 5, 6, 8, 9, 17, 18, 20, 30.
 
@@ -198,7 +198,7 @@ Related codes: 28, 33, 36.
 
 ### Merchant: No pending proposal errors
 
-A two-step ceremony (`transfer_admin` → `accept_admin`, `propose_fee` → `commit_fee`, `propose_grace_period` → `commit_grace_period`, `propose_upgrade` → `commit_upgrade`) was committed/accepted without the propose step, or the proposal expired. Code 23 (`NoPendingProposal`, also 45 for the admin variant). Re-run the propose step inside one ops window. See [architecture/two-step-auth.md](architecture/two-step-auth.md).
+A two-step ceremony (`transfer_admin` → `accept_admin`, `propose_fee` → `commit_fee`, `propose_grace_period` → `commit_grace_period`, `propose_upgrade` → `commit_upgrade`) was committed/accepted without the propose step, or the proposal expired. Code 23 (`NoPendingProposal`, also 45 for the admin variant). Re-run the propose step inside one ops window. See [architecture/TWO-STEP-AUTH.md](architecture/TWO-STEP-AUTH.md).
 
 Related codes: 23, 45.
 

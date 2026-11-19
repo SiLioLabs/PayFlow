@@ -236,7 +236,7 @@ npm run typecheck
 
 ## Environment Variables
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 The keeper's signing key is `SECRET_KEY` (deprecated alias `KEEPER_SECRET`), read by [`keeper.ts`](keeper.ts) in this directory. `PAGE_SIZE` is the subscriber page size used by `batch-optimizer.ts` (default and max `50`), not the `batch_charge` batch size.
 
@@ -539,7 +539,7 @@ so the same events are not re-fetched as duplicates (upsert key
 `subscription_auto_resumed` events to maintain accurate pause state for each
 subscriber. `pause_until` subscriptions auto-resume on the next `charge` or
 `batch_charge` after their expiry — the expiry timestamp is in the `paused`
-event payload. See [docs/architecture/pause-lifecycle.md](../docs/architecture/pause-lifecycle.md#keeper-and-indexer-guidance) for the full event-driven
+event payload. See [docs/architecture/PAUSE-LIFECYCLE.md](../docs/architecture/PAUSE-LIFECYCLE.md#keeper-and-indexer-guidance) for the full event-driven
 tracking guide.
 
 ### Prerequisites
@@ -563,7 +563,7 @@ tracking guide.
 
 `indexer.ts` does not read `NETWORK_PASSPHRASE` itself, but its RPC client
 (`rpc-client.ts`) does, along with `RPC_URLS` — see
-[`docs/scripts-environment.md`](../docs/scripts-environment.md).
+[`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ### Startup
 
@@ -845,7 +845,7 @@ uses `RPC_URL` to probe the Soroban RPC endpoint.
 
 ## Environment matrix
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 Compose itself declares no `environment:` keys; it only loads `.env`. The Docker image additionally sets `NODE_ENV=production` and `NODE_OPTIONS=--unhandled-rejections=throw`.
 
@@ -871,11 +871,11 @@ This ops guide does not reproduce those playbooks:
 | Topic                             | Where                                                                                                              |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Keeper overview + runbook pointer | [`docs/KEEPER.md`](../docs/KEEPER.md)                                                                              |
-| Dead-letter queue recovery        | [`docs/operations/keeper_runbook.md`](../docs/operations/keeper_runbook.md) (section “Dead-Letter Queue Recovery”) |
+| Dead-letter queue recovery        | [`docs/operations/KEEPER-RUNBOOK.md`](../docs/operations/KEEPER-RUNBOOK.md) (section “Dead-Letter Queue Recovery”) |
 | RPC failover (runbook)            | Same file, section “RPC Failover Configuration”                                                                    |
 | TS DLQ replay helper              | [`replay-dlq.ts`](replay-dlq.ts) (default `DLQ_FILE=dlq/failed-batches.jsonl`)                                     |
 | Event backfill                    | [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md), [`replay-events.ts`](replay-events.ts)              |
-| **Charge outcome encoding**       | **[`docs/charge-results.md`](../docs/charge-results.md)** - `scvU32` discriminants, event `scvSymbol` keys, DLQ row schema, `null` vs failure |
+| **Charge outcome encoding**       | **[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md)** - `scvU32` discriminants, event `scvSymbol` keys, DLQ row schema, `null` vs failure |
 | Multi-endpoint RPC helper         | [`rpc-client.ts`](rpc-client.ts) (`RPC_URLS`) — **not** imported by the current keeper/indexer entrypoints         |
 
 `replay-dlq.ts` states that `keeper.ts` writes the JSONL DLQ. Confirm that path
@@ -884,7 +884,7 @@ against the keeper you actually run before relying on it in production.
 ### Reading charge outcomes
 
 If you are building anything that needs to know *which subscribers were charged*,
-read [`docs/charge-results.md`](../docs/charge-results.md) first. The short
+read [`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) first. The short
 version, because it is easy to get wrong:
 
 - `batch_charge` returns a `Vec<ChargeResult>` where **each element is an
@@ -943,7 +943,7 @@ Out of scope for this ops-guide revision. Existing helpers include (non-exhausti
 indexer's stored events, so they work from the `batch_charge_skips` aggregate
 rather than from per-subscriber results. If you need per-subscriber outcomes,
 read the return value, and get the encoding right:
-[`docs/charge-results.md`](../docs/charge-results.md). The two spellings of the
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md). The two spellings of the
 same outcome differ (`Charged` vs `charged`, `Skipped` vs `not_due`), and mixing
 them up is the usual cause of an export that reports every subscriber as
 unpaid.
@@ -1213,7 +1213,7 @@ disappears.
 Scans live subscriptions and warns about token allowances that are about to
 expire, so subscribers can be nudged before a charge starts failing with
 `AllowanceInsufficient`. See
-[`docs/charge-results.md`](../docs/charge-results.md) for what that outcome
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) for what that outcome
 means.
 
 ```bash
@@ -1298,7 +1298,7 @@ npx tsx keeper-benchmark.ts --fixture data/benchmarks/keeper-dryrun-report-sampl
 | `RPC_URL` | Also read from `VITE_RPC_URL`. |
 
 Use `--fixture` to iterate on keeper changes with no network dependency, and
-[`docs/limits.md`](../docs/limits.md) to check the result against the caps
+[`docs/LIMITS.md`](../docs/LIMITS.md) to check the result against the caps
 the contract actually enforces.
 
 ### metrics-server.ts
@@ -1378,7 +1378,7 @@ npx tsx onboard-merchant.ts GABC... --contractId C... --rpcUrl https://soroban-t
 By default the contract ID, RPC URL and network come from
 `deployments/manifest.json`; the flags override that. The merchant key must
 authorize the write. The batch size is bounded by the contract's whitelist cap
-- see [`docs/limits.md`](../docs/limits.md#batch-operations) - and the script
+- see [`docs/LIMITS.md`](../docs/LIMITS.md#batch-operations) - and the script
 chunks to it.
 
 ### renewal-forecast.ts
@@ -1459,7 +1459,7 @@ Delivers HMAC-SHA256-signed webhook payloads with retries; exhausted deliveries 
 
 ## Environment variable reference
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ## Related
 

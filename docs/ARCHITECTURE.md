@@ -38,7 +38,7 @@ graph TD
 | `admin.rs`                 | `require_admin`, admin initialization, and two-step admin transfer (`transfer_admin` / `accept_admin`).                                                                                                                    |
 | `batch.rs`                 | `batch_charge`, `batch_cancel`, `batch_extend_subscription_ttl`. Defines `ChargeResult` and `CancelResult` enums. Default `MAX_BATCH_SIZE = 50`.                                                                           |
 | `bench.rs`                 | Instruction-count benchmarks gated by `#[cfg(feature = "bench")]`. Not compiled by `cargo test` unless `--features bench` is passed.                                                                                       |
-| `caps.rs`                  | Single source of truth for the batch and page caps: 9 constants (`DEFAULT_BATCH_SIZE`, `MAX_BATCH_SIZE_CEILING`, `MAX_BATCH_PAUSE_SUBSCRIPTIONS`, `MAX_WHITELIST_BATCH_SIZE`, `MAX_MERCHANT_SUB_COUNT_BATCH`, `SUBSCRIBER_PAGE_SIZE`, `MERCHANT_PAGE_SIZE`, `REVENUE_DAY_PAGE_SIZE`, `TOP_MERCHANTS_PAGE_SIZE`) plus the `effective_*` clamping helpers. The operator-facing table lives in [limits.md](./limits.md). |
+| `caps.rs`                  | Single source of truth for the batch and page caps: 9 constants (`DEFAULT_BATCH_SIZE`, `MAX_BATCH_SIZE_CEILING`, `MAX_BATCH_PAUSE_SUBSCRIPTIONS`, `MAX_WHITELIST_BATCH_SIZE`, `MAX_MERCHANT_SUB_COUNT_BATCH`, `SUBSCRIBER_PAGE_SIZE`, `MERCHANT_PAGE_SIZE`, `REVENUE_DAY_PAGE_SIZE`, `TOP_MERCHANTS_PAGE_SIZE`) plus the `effective_*` clamping helpers. The operator-facing table lives in [LIMITS.md](./LIMITS.md). |
 | `charge_exec.rs`           | Charge prechecks (`precheck_charge`), auto-resume logic (`try_auto_resume`), simulation (`simulate_charge`), and fee-aware transfer execution (`execute_charge`). Defines `ChargeSimResult` enum.                          |
 | `errors.rs`                | `ContractError` enum with 46 variants.                                                                                                                                                                                     |
 | `events.rs`                | All `publish_*` event helpers (53 event types) and event data structs.                                                                                                                                                     |
@@ -121,7 +121,7 @@ sequenceDiagram
     C-->>K: ok
 ```
 
-Verified against `contract/src/lib.rs::charge`, `contract/src/charge_exec.rs` (`try_auto_resume`, `precheck_charge`, `execute_charge`), `contract/src/fee.rs` (`transfer_subscription_charge`) and `contract/src/events.rs` (`publish_charged`, `publish_subscription_auto_resumed`). For per-user batch semantics see [charge-results](charge-results.md); for pause auto-resume see [pause-lifecycle](architecture/pause-lifecycle.md).
+Verified against `contract/src/lib.rs::charge`, `contract/src/charge_exec.rs` (`try_auto_resume`, `precheck_charge`, `execute_charge`), `contract/src/fee.rs` (`transfer_subscription_charge`) and `contract/src/events.rs` (`publish_charged`, `publish_subscription_auto_resumed`). For per-user batch semantics see [CHARGE-RESULTS](CHARGE-RESULTS.md); for pause auto-resume see [PAUSE-LIFECYCLE](architecture/PAUSE-LIFECYCLE.md).
 
 ### Batch charge
 
@@ -145,7 +145,7 @@ Verified against `contract/src/lib.rs::charge`, `contract/src/charge_exec.rs` (`
 
 ## Storage Strategy
 
-FlowPay uses Soroban instance, persistent, and temporary storage deliberately. The table below is a high-level summary of purpose and storage tier only. The **canonical, exhaustive** `DataKey` reference — including each key's value type, TTL policy, and the functions that read or write it — lives in [Storage and TTL Management](./architecture/storage_and_ttl.md). When the two disagree, that document wins.
+FlowPay uses Soroban instance, persistent, and temporary storage deliberately. The table below is a high-level summary of purpose and storage tier only. The **canonical, exhaustive** `DataKey` reference — including each key's value type, TTL policy, and the functions that read or write it — lives in [Storage and TTL Management](./architecture/STORAGE-AND-TTL.md). When the two disagree, that document wins.
 
 | DataKey                                  | Purpose                                                    | Storage type |
 | ---------------------------------------- | ---------------------------------------------------------- | ------------ |
@@ -165,7 +165,7 @@ FlowPay uses Soroban instance, persistent, and temporary storage deliberately. T
 | `ActiveCount`                            | Active subscription count                                  | instance     |
 | `MaxBatchSize`                           | Configurable batch size limit (max 200, default 50)        | instance     |
 | `MaxWhitelistBatchSize`                  | Configurable whitelist batch size limit (default 50)       | instance     |
-| `MaxBatchSize`                           | Configurable batch size limit (max 200, default 50) — one of two batch knobs; the other is `MaxWhitelistBatchSize` (see `caps.rs` and [limits.md](./limits.md)) | instance     |
+| `MaxBatchSize`                           | Configurable batch size limit (max 200, default 50) — one of two batch knobs; the other is `MaxWhitelistBatchSize` (see `caps.rs` and [LIMITS.md](./LIMITS.md)) | instance     |
 | `MaxWhitelistBatchSize`                  | Configurable whitelist batch size limit (max 200, default 50) — the second batch knob, independent of `MaxBatchSize`                                                            | instance     |
 | `GlobalVolumeWindow`                     | Rolling volume cap state                                   | instance     |
 | `GlobalVolumeCapOverride`                | Admin-configurable volume cap override                     | instance     |
@@ -198,7 +198,7 @@ FlowPay uses Soroban instance, persistent, and temporary storage deliberately. T
 
 Persistent entries that must remain available are refreshed with TTL extensions where needed, most importantly subscription records and selected merchant-revenue data. Temporary entries are used for short-lived proposals and daily spending caps.
 
-`PendingAdmin`, `PendingFee`, `PendingGracePeriod`, and (not shown above) `PendingUpgrade` all back a propose/commit or propose/accept two-step authorization flow rather than an instant admin action. See [architecture/two-step-auth.md](./architecture/two-step-auth.md) for the security rationale and a state diagram per flow.
+`PendingAdmin`, `PendingFee`, `PendingGracePeriod`, and (not shown above) `PendingUpgrade` all back a propose/commit or propose/accept two-step authorization flow rather than an instant admin action. See [architecture/TWO-STEP-AUTH.md](./architecture/TWO-STEP-AUTH.md) for the security rationale and a state diagram per flow.
 Each `Subscription(user)` record carries its own `token` address rather than sharing one contract-wide token, which is what lets a single deployment serve subscribers paying in different SAC tokens. See [MULTI-TOKEN.md](./MULTI-TOKEN.md) for the full architecture, deployment models, and fee implications.
 
 ---
@@ -318,4 +318,4 @@ This means the contract **does not** currently tolerate per‑user allowance fai
 See [`docs/KEEPER.md`](./KEEPER.md) for operational precheck steps.
 
 
-For the canonical, complete breakdown of every `DataKey` variant — storage tier, TTL policy, and which functions read/write each key — see [Storage and TTL Management](architecture/storage_and_ttl.md). The Storage Strategy table above is a summary; that document is the exhaustive reference.
+For the canonical, complete breakdown of every `DataKey` variant — storage tier, TTL policy, and which functions read/write each key — see [Storage and TTL Management](architecture/STORAGE-AND-TTL.md). The Storage Strategy table above is a summary; that document is the exhaustive reference.

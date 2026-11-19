@@ -2,7 +2,7 @@
 
 This document is the **canonical** referral guide for PayFlow: data model, subscribe authentication, self-referral, events, frontend (`ReferralPanel`), and operations.
 
-[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/STORAGE-AND-TTL.md`](./architecture/STORAGE-AND-TTL.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 

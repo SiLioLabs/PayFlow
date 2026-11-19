@@ -1,6 +1,6 @@
 # Contract API Reference
 
-This document tracks the current public contract surface in [contract/src/lib.rs](../contract/src/lib.rs). For error codes, see [ERROR-CODES.md](./ERROR-CODES.md), which contains the CONTRACT-34 table. For events, see [EVENTS.md](./EVENTS.md). For the propose/commit and propose/accept pattern shared by `transfer_admin`/`accept_admin`, `propose_fee`/`commit_fee`, `propose_grace_period`/`commit_grace_period`, and `propose_upgrade`/`commit_upgrade`, see [architecture/two-step-auth.md](./architecture/two-step-auth.md). **For the batch-size and page-size limits enforced by the batch and pagination entrypoints, see [limits.md](./limits.md), which tabulates every cap from a single source of truth in [contract/src/caps.rs](../contract/src/caps.rs).**
+This document tracks the current public contract surface in [contract/src/lib.rs](../contract/src/lib.rs). For error codes, see [ERROR-CODES.md](./ERROR-CODES.md), which contains the CONTRACT-34 table. For events, see [EVENTS.md](./EVENTS.md). For the propose/commit and propose/accept pattern shared by `transfer_admin`/`accept_admin`, `propose_fee`/`commit_fee`, `propose_grace_period`/`commit_grace_period`, and `propose_upgrade`/`commit_upgrade`, see [architecture/TWO-STEP-AUTH.md](./architecture/TWO-STEP-AUTH.md). **For the batch-size and page-size limits enforced by the batch and pagination entrypoints, see [LIMITS.md](./LIMITS.md), which tabulates every cap from a single source of truth in [contract/src/caps.rs](../contract/src/caps.rs).**
 
 ---
 
@@ -307,7 +307,7 @@ pub struct HealthReport {
 | `global_volume_utilization_pct` | `u32`  | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`.                                                       |
 | `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with accumulated revenue (`MerchantRevenue`) `> 0`. This is a **tracking metric**, not a custodial balance — revenue settles directly into merchant wallets on every charge via SAC `transfer_from`. See [`MERCHANT-INTEGRATION.md` § 5](./MERCHANT-INTEGRATION.md#5-non-custodial-settlement--revenue-tracking). |
 
-**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, or admin flags are understood. `instance_ttl_ledgers`, `fee_collector_set`, and volume utilization are informational and do **not** enter the `is_healthy` formula. On-chain `instance_ttl_ledgers` is a fabricated constant, not a measurement. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap)).
+**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, or admin flags are understood. `instance_ttl_ledgers`, `fee_collector_set`, and volume utilization are informational and do **not** enter the `is_healthy` formula. On-chain `instance_ttl_ledgers` is a fabricated constant, not a measurement. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap)).
 
 ### `DataKey`
 
@@ -370,7 +370,7 @@ pub struct SubscriptionHealth {
 | `trial_active`              | `bool` | Currently in trial period (first charge not yet due)                   |
 | `daily_limit_set`           | `bool` | User has configured a daily spending limit                             |
 
-Returns default/zero values when no subscription exists (all fields `false`). See [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md) and [`docs/frontend/components.md`](./frontend/components.md) for UI integration patterns.
+Returns default/zero values when no subscription exists (all fields `false`). See [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md) and [`docs/frontend/COMPONENTS.md`](./frontend/COMPONENTS.md) for UI integration patterns.
 
 ### `DailyLimitStatus`
 
@@ -448,7 +448,7 @@ pub enum CancelResult {
 | `PausedCancelled`  | Subscription was paused; cancel succeeded but state was unusual      |
 | `MerchantFrozen`   | Subscription's merchant was frozen; cancel succeeded but unusual state |
 
-Wire encoding: discriminant `u32` (0=Cancelled, 1=NoSubscription, 2=AlreadyCancelled, 3=PausedCancelled, 4=MerchantFrozen). **Append-only invariant:** new variants must be appended to preserve off-chain parser compatibility. See [`docs/cancel-results.md`](./cancel-results.md).
+Wire encoding: discriminant `u32` (0=Cancelled, 1=NoSubscription, 2=AlreadyCancelled, 3=PausedCancelled, 4=MerchantFrozen). **Append-only invariant:** new variants must be appended to preserve off-chain parser compatibility. See [`docs/CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
 
 ---
 
@@ -825,7 +825,7 @@ pause_until(env: Env, user: Address, expiry: u64)
 
 **Pause-expiry read API:** there is **no** public `get_pause_expiry`, `get_pause`, or `paused_until` contract method. Expiry is stored via internal `storage::set_pause_expiry` / `storage::get_pause_expiry` only.
 
-For the full pause state model, auto-resume semantics, TTL considerations, and keeper/indexer guidance see [architecture/pause-lifecycle.md](./architecture/pause-lifecycle.md).
+For the full pause state model, auto-resume semantics, TTL considerations, and keeper/indexer guidance see [architecture/PAUSE-LIFECYCLE.md](./architecture/PAUSE-LIFECYCLE.md).
 
 CLI example:
 
@@ -1378,7 +1378,7 @@ Auth: none.
 
 Returns: `Vec<(Address, u32)>` (top N merchants ranked by active subscriber count in descending order).
 
-Panics: `ContractError::BatchTooLarge` if `limit > 20`. The 20 is `caps::TOP_MERCHANTS_PAGE_SIZE`; see [limits.md](./limits.md#pagination).
+Panics: `ContractError::BatchTooLarge` if `limit > 20`. The 20 is `caps::TOP_MERCHANTS_PAGE_SIZE`; see [LIMITS.md](./LIMITS.md#pagination).
 
 CLI example:
 
@@ -1595,7 +1595,7 @@ A non-`Charged` result for one user never aborts the rest of the batch. Insuffic
 
 The public wrapper calls `ensure_contract_not_paused` first: a paused protocol panics `ContractPaused` (18) for the whole invoke (not a per-user result).
 
-Errors: `ContractError::BatchTooLarge` (20) if `users.len()` exceeds `get_max_batch_size` (default 50, ceiling 200). `get_max_batch_size` is sourced from a single implementation in [contract/src/caps.rs](../contract/src/caps.rs) (the same key and default used by `contract/src/batch.rs`). Ordinary per-user outcomes are enum values. Full cap table: [limits.md](./limits.md#batch-operations).
+Errors: `ContractError::BatchTooLarge` (20) if `users.len()` exceeds `get_max_batch_size` (default 50, ceiling 200). `get_max_batch_size` is sourced from a single implementation in [contract/src/caps.rs](../contract/src/caps.rs) (the same key and default used by `contract/src/batch.rs`). Ordinary per-user outcomes are enum values. Full cap table: [LIMITS.md](./LIMITS.md#batch-operations).
 
 Keeper ops: [`KEEPER.md`](./KEEPER.md).
 
@@ -1623,7 +1623,7 @@ get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Success behavior:** for each user, missing sub → `NoSubscription`. If paused, `try_auto_resume` may persist an auto-resume. Then `precheck_charge` runs. If that returns `Ok`, the estimate reads SAC `allowance(user, contract)` against gross `sub.amount` and returns `Charged` or `AllowanceInsufficient`.
 
-**Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics. Note this is the shared ceiling, so it is higher than the default live charge cap: see [limits.md](./limits.md#batch-operations).
+**Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics. Note this is the shared ceiling, so it is higher than the default live charge cap: see [LIMITS.md](./LIMITS.md#batch-operations).
 
 **Operational caveats (from `lib.rs`):**
 
@@ -1640,7 +1640,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_batch_charge_estimate --users '["<USER_A>","<USER_B>"]'
 ```
 
-For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, batch size cap differences, and result-enum mapping) see [architecture/batch-estimate-vs-live.md](./architecture/batch-estimate-vs-live.md).
+For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, batch size cap differences, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 ### `get_active_count`
 
@@ -2221,7 +2221,7 @@ end = min(offset + effective_limit, ordered_history.len())
 return ordered_history[offset..end]
 ```
 
-`limit` is silently capped at 12 — passing `limit: 100` is safe and simply returns everything available. This 12 is a retention length (`MAX_HISTORY`), not a batch or page cap; see [limits.md](./limits.md#pagination). `offset` is never validated against the history length beyond the empty-result check above; there is no `IndexOutOfBounds`-style error anywhere in this path.
+`limit` is silently capped at 12 — passing `limit: 100` is safe and simply returns everything available. This 12 is a retention length (`MAX_HISTORY`), not a batch or page cap; see [LIMITS.md](./LIMITS.md#pagination). `offset` is never validated against the history length beyond the empty-result check above; there is no `IndexOutOfBounds`-style error anywhere in this path.
 
 > **`ascending` parameter.** Passing `ascending = true` returns records in oldest-to-newest order. Passing `ascending = false` returns records in newest-to-oldest order (most recent first).
 

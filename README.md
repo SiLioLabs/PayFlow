@@ -194,11 +194,11 @@ FlowPay is **currently deployed on Testnet only** and has not been formally audi
 
 ### How does the daily spending limit work for `pay_per_use`?
 
-Users can cap their `pay_per_use` exposure by calling `set_daily_limit(user, limit)`, which stores the limit in **temporary storage** with a TTL of approximately 24 hours (~17,280 ledgers at 5 s/ledger). Every `pay_per_use` call checks that `DailySpent + amount <= DailyLimit` before transferring, and increments `DailySpent` on success. Both keys expire automatically after ~24 hours, resetting the counter without any manual cleanup. Use `get_daily_limit(user)` and `get_daily_spent(user)` to inspect the current state. See [`docs/API.md`](docs/API.md#set_daily_limit) and the [Storage Architecture](docs/architecture/storage_and_ttl.md) for TTL details.
+Users can cap their `pay_per_use` exposure by calling `set_daily_limit(user, limit)`, which stores the limit in **temporary storage** with a TTL of approximately 24 hours (~17,280 ledgers at 5 s/ledger). Every `pay_per_use` call checks that `DailySpent + amount <= DailyLimit` before transferring, and increments `DailySpent` on success. Both keys expire automatically after ~24 hours, resetting the counter without any manual cleanup. Use `get_daily_limit(user)` and `get_daily_spent(user)` to inspect the current state. See [`docs/API.md`](docs/API.md#set_daily_limit) and the [Storage Architecture](docs/architecture/STORAGE-AND-TTL.md) for TTL details.
 
 ### How does FlowPay prevent subscription data from being evicted by the network?
 
-Stellar's Soroban platform uses state archiving — persistent storage entries have a TTL and can be evicted if not refreshed. FlowPay automatically calls `extend_ttl` on a subscription's persistent storage entry during `subscribe()` and `charge()`, bumping its TTL to ~1 year (6,307,200 ledgers). For subscriptions that are paused or idle for extended periods, keepers or users should manually call `extend_subscription_ttl(user)` to prevent archival. Daily-limit data uses temporary storage (~24-hour TTL) and is permanently purged on expiry — this is intentional, not a risk. Full details are in [Storage and TTL Management](docs/architecture/storage_and_ttl.md).
+Stellar's Soroban platform uses state archiving — persistent storage entries have a TTL and can be evicted if not refreshed. FlowPay automatically calls `extend_ttl` on a subscription's persistent storage entry during `subscribe()` and `charge()`, bumping its TTL to ~1 year (6,307,200 ledgers). For subscriptions that are paused or idle for extended periods, keepers or users should manually call `extend_subscription_ttl(user)` to prevent archival. Daily-limit data uses temporary storage (~24-hour TTL) and is permanently purged on expiry — this is intentional, not a risk. Full details are in [Storage and TTL Management](docs/architecture/STORAGE-AND-TTL.md).
 
 ---
 
@@ -232,10 +232,10 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 For when something needs doing to a live deployment:
 
 - [Keeper runbook](docs/KEEPER.md) - runtime, flags and configuration for `keeper.ts`
-- [Troubleshooting runbook](docs/operations/troubleshooting.md) - diagnosing `ChargeResult` errors, wallet failures, RPC failures and other operational issues
-- [Scripts environment reference](docs/scripts-environment.md) - every environment variable the scripts read, with defaults
-- [Charge outcome encoding](docs/charge-results.md) - what a `ChargeResult` is on the wire, and what the DLQ and export tooling should do with it
-- [Batch and pagination caps](docs/limits.md) - every size limit the contract enforces
+- [Troubleshooting runbook](docs/operations/TROUBLESHOOTING.md) - diagnosing `ChargeResult` errors, wallet failures, RPC failures and other operational issues
+- [Scripts environment reference](docs/SCRIPTS-ENVIRONMENT.md) - every environment variable the scripts read, with defaults
+- [Charge outcome encoding](docs/CHARGE-RESULTS.md) - what a `ChargeResult` is on the wire, and what the DLQ and export tooling should do with it
+- [Batch and pagination caps](docs/LIMITS.md) - every size limit the contract enforces
 - [Operator scripts](scripts/README.md#undocumented-operator-scripts) - the maintenance tools: allowance alerts, churn analysis, migration, merchant onboarding, renewal forecasts, metrics
 
 ---

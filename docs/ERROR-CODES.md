@@ -382,7 +382,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 2. Contact protocol admin / follow incident runbook — only admin can `unpause_contract()`.
 3. Keepers should stop cycling and alert (do not spam failed txs).
 
-**Prevention:** Announce maintenance windows; use [keeper incident response](operations/keeper_runbook.md).
+**Prevention:** Announce maintenance windows; use [keeper incident response](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -459,7 +459,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 1. Re-run the propose step (`transfer_admin` / `propose_fee` / `propose_grace_period`, etc.).
 2. Complete commit/accept before proposal TTL expires.
-3. See [two-step auth](architecture/two-step-auth.md).
+3. See [two-step auth](architecture/TWO-STEP-AUTH.md).
 
 **Prevention:** Automate propose→commit within the same ops window; monitor proposal TTL.
 
@@ -811,7 +811,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 1. Re-run `transfer_admin(new_admin)` to stage a new transfer.
 2. Call `accept_admin()` from the new admin address before the proposal TTL expires (~24 hours).
 
-**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/two-step-auth.md](architecture/two-step-auth.md).
+**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/TWO-STEP-AUTH.md](architecture/TWO-STEP-AUTH.md).
 
 ---
 
@@ -829,7 +829,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 2. If you truly need a longer billing cycle (unusual), discuss protocol governance — the constant is a compile-time value in `lib.rs`.
 3. For **legacy subscriptions** created before this cap was enforced (e.g. via direct storage injection in tests), the subscription can still be cancelled via `cancel(user)`; it cannot be charged. Re-subscribe with a valid interval to restore chargeability.
 
-**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/limits.md`](limits.md).
+**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/LIMITS.md`](LIMITS.md).
 
 ---
 
@@ -916,7 +916,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Parse error code from logs / simulation.
 2. Apply the table above — never infinite-retry grace or pause errors.
-3. For DLQ / advanced failover, see [operations/keeper_runbook.md](operations/keeper_runbook.md) and [KEEPER.md](KEEPER.md).
+3. For DLQ / advanced failover, see [operations/KEEPER-RUNBOOK.md](operations/KEEPER-RUNBOOK.md) and [KEEPER.md](KEEPER.md).
 
 ---
 
@@ -963,7 +963,7 @@ Always map numeric Soroban contract errors to this document before inventing new
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
 - Schema write-denial invariant: [`docs/DEPLOYMENT.md` — SchemaMigrationRequired](DEPLOYMENT.md#schemamigrationrequired-error-42) (`contract/src/migration.rs`)
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
+- Troubleshooting runbook: [`docs/operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)
 - Security model: [`docs/SECURITY.md`](SECURITY.md)

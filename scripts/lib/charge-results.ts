@@ -13,7 +13,7 @@
  * `scripts/__tests__/keeper-decode.test.ts` diffs this table against
  * contract/src/batch.rs so the two cannot drift.
  *
- * See docs/charge-results.md for the full wire-format reference.
+ * See docs/CHARGE-RESULTS.md for the full wire-format reference.
  */
 
 /** The `ChargeResult` variants, in discriminant order. */

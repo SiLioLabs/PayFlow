@@ -172,7 +172,7 @@ See `contract/src/charge_exec.rs` — the `DryRunSkipOutcome` enum and its
 - [API.md — `batch_charge`](../API.md#batch_charge)
 - [API.md — `get_batch_charge_estimate`](../API.md#get_batch_charge_estimate)
 - [API.md — `simulate_charge`](../API.md#simulate_charge)
-- [pause-lifecycle.md](./pause-lifecycle.md) — auto-resume mechanics and PauseExpiry
+- [PAUSE-LIFECYCLE.md](./PAUSE-LIFECYCLE.md) — auto-resume mechanics and PauseExpiry
 - [KEEPER.md](../KEEPER.md) — operational keeper guide
 - [EVENTS.md](../EVENTS.md) — `batch_charge_skips`, `subscription_auto_resumed` shapes
 - [`contract/src/batch.rs`](../../contract/src/batch.rs) — `batch_charge` implementation

@@ -174,7 +174,7 @@ Both dry-run surfaces use the shared `dry_run_skip_precheck` helper in `charge_e
 | `simulate_charge`         | Virtual     | No             | Yes                  |
 | `get_batch_charge_estimate` | **Real**  | **Yes**        | No                   |
 
-> **`get_batch_charge_estimate` is not a pure read.** When auto-resume fires inside the estimate, it writes the subscription and emits `subscription_auto_resumed`. See [`docs/architecture/batch-estimate-vs-live.md`](./batch-estimate-vs-live.md) for the full comparison table.
+> **`get_batch_charge_estimate` is not a pure read.** When auto-resume fires inside the estimate, it writes the subscription and emits `subscription_auto_resumed`. See [`docs/architecture/BATCH-ESTIMATE-VS-LIVE.md`](./BATCH-ESTIMATE-VS-LIVE.md) for the full comparison table.
 
 ---
 
@@ -211,7 +211,7 @@ If `PauseExpiry` archives (is evicted from the ledger) while the `Subscription` 
 
 1. For subscriptions paused via `pause_until`, ensure `extend_subscription_ttl(user)` is called at least once before `SUBSCRIPTION_TTL_LEDGERS / 2` ledgers have elapsed since the pause.
 2. Keepers should call `batch_extend_subscription_ttl` on paused subscribers periodically.
-3. The `storage_and_ttl.md` [archival risk table](./storage_and_ttl.md#8-archival-risk-and-operator-checklist) lists all affected keys.
+3. The `STORAGE-AND-TTL.md` [archival risk table](./STORAGE-AND-TTL.md#8-archival-risk-and-operator-checklist) lists all affected keys.
 
 If a `PauseExpiry` key is already archived and the subscriber's expiry has passed, the admin can unblock them by calling `resume(user)` on their behalf (no longer blocked since the expiry is gone and the grace check uses `last_charged`), or by having the user re-subscribe after cancelling.
 
@@ -335,8 +335,8 @@ Full recovery steps: [`docs/ERROR-CODES.md`](../ERROR-CODES.md).
 - [API.md — pause](../API.md#pause)
 - [API.md — pause_until](../API.md#pause_until)
 - [API.md — resume](../API.md#resume)
-- [storage_and_ttl.md — PauseExpiry row](./storage_and_ttl.md)
-- [batch-estimate-vs-live.md](./batch-estimate-vs-live.md) — auto-resume side-effects in estimate vs live paths
+- [STORAGE-AND-TTL.md — PauseExpiry row](./STORAGE-AND-TTL.md)
+- [BATCH-ESTIMATE-VS-LIVE.md](./BATCH-ESTIMATE-VS-LIVE.md) — auto-resume side-effects in estimate vs live paths
 - [EVENTS.md](../EVENTS.md) — `paused`, `resumed`, `subscription_auto_resumed` event shapes
 - [SUBSCRIBER-LIFECYCLE.md](../SUBSCRIBER-LIFECYCLE.md)
 - [`contract/src/charge_exec.rs`](../../contract/src/charge_exec.rs) — `try_auto_resume`, `dry_run_skip_precheck`

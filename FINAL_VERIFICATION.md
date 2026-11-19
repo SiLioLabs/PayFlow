@@ -19,7 +19,7 @@
 - [x] Added comprehensive doc comment with append-only rule
 - [x] Updated `batch_cancel` logic to detect and return correct variants
 - [x] `MerchantFrozen` takes precedence over `PausedCancelled`
-- [x] Created `docs/cancel-results.md` documentation
+- [x] Created `docs/CANCEL-RESULTS.md` documentation
 - [x] Updated `scripts/EVENT-MAPPING.md`
 - [x] Tests created in `contract_tests_addon.rs`
 
@@ -63,7 +63,7 @@
 2. `contract/src/lib.rs` (resume function documentation expanded)
 
 ### Documentation
-1. `docs/cancel-results.md` (new file)
+1. `docs/CANCEL-RESULTS.md` (new file)
 2. `scripts/EVENT-MAPPING.md` (updated)
 
 ### Tests (Pending Integration)

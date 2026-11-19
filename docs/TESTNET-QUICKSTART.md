@@ -278,7 +278,7 @@ soroban contract invoke \
   --users '["<USER1>", "<USER2>"]'
 ```
 
-Per-user outcomes are `ChargeResult` (`Charged`, `Skipped`, `NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`) — the batch continues past per-user skips. See [charge-results](charge-results.md) and [FAQ — Why did my charge fail?](FAQ.md#subscriber-why-did-my-charge-fail).
+Per-user outcomes are `ChargeResult` (`Charged`, `Skipped`, `NoSubscription`, `Inactive`, `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`) — the batch continues past per-user skips. See [CHARGE-RESULTS](CHARGE-RESULTS.md) and [FAQ — Why did my charge fail?](FAQ.md#subscriber-why-did-my-charge-fail).
 
 If `charge` panics with `IntervalNotElapsed` (code 6), you called too early — wait and retry. If `GracePeriodElapsed` (code 9), the window closed — the user must re-subscribe.
 
@@ -333,10 +333,10 @@ cd frontend && npm install && npm run dev
 | `GracePeriodElapsed` (9) / `ResumeGraceLapsed` (43) | Window closed — `cancel` + re-`subscribe` |
 | `MerchantNotWhitelisted` (10) / `MerchantFrozen` (22) | Admin: `add_merchant` / `unfreeze_merchant` |
 | `ContractPaused` (18) | Admin-only `unpause_contract`; keepers must stop cycling |
-| Wrong network / empty `VITE_CONTRACT_ID` | Match `VITE_RPC_URL` + passphrase + `CONTRACT_ID`; see `docs/development/network-matrix.md` |
-| RPC failures | Retry with backoff or switch `VITE_RPC_URL`; see `operations/troubleshooting.md` |
+| Wrong network / empty `VITE_CONTRACT_ID` | Match `VITE_RPC_URL` + passphrase + `CONTRACT_ID`; see `docs/development/NETWORK-MATRIX.md` |
+| RPC failures | Retry with backoff or switch `VITE_RPC_URL`; see `operations/TROUBLESHOOTING.md` |
 
-Full code table: [ERROR-CODES.md](ERROR-CODES.md). Operator playbook: [operations/troubleshooting.md](operations/troubleshooting.md).
+Full code table: [ERROR-CODES.md](ERROR-CODES.md). Operator playbook: [operations/TROUBLESHOOTING.md](operations/TROUBLESHOOTING.md).
 
 ---
 

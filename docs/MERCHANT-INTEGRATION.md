@@ -569,4 +569,4 @@ The `recipient` address is the contract address itself. Both `pay_per_use_to` an
 | [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
 | [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
-| [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |
+| [`operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)            | Common ChargeResult errors, wallet failures, and ops issues |

@@ -267,7 +267,7 @@ soroban contract invoke \
 ### Prevention
 
 - Announce maintenance windows.
-- Use the keeper incident response pattern from [`docs/operations/keeper_runbook.md`](keeper_runbook.md).
+- Use the keeper incident response pattern from [`docs/operations/KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md).
 - Set up `ContractPause` event alerts.
 
 ---
@@ -517,5 +517,5 @@ Wallet integration issues (Freighter not installed, wrong network, stale session
 | [`docs/TESTING.md`](../TESTING.md)                           | Test suite execution and CI                     |
 | [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md) | Merchant-specific troubleshooting               |
 | [`docs/KEEPER.md`](../KEEPER.md)                             | Keeper setup and monitoring                     |
-| [`docs/operations/keeper_runbook.md`](keeper_runbook.md)     | Keeper incident response                        |
+| [`docs/operations/KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md)     | Keeper incident response                        |
 | [`docs/INTEGRATION-GUIDE.md`](../INTEGRATION-GUIDE.md)       | Integration troubleshooting                     |

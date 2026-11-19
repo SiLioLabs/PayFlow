@@ -28,22 +28,22 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Architecture](ARCHITECTURE.md)
 - [Events reference](EVENTS.md)
 - [Error codes and recovery playbook](ERROR-CODES.md)
-- [Batch and pagination caps](limits.md)
-- [`ChargeResult` wire encoding](charge-results.md) and [`CancelResult` wire encoding](cancel-results.md)
-- [Subscription lifecycle state specification](spec/lifecycle_spec.md)
+- [Batch and pagination caps](LIMITS.md)
+- [`ChargeResult` wire encoding](CHARGE-RESULTS.md) and [`CancelResult` wire encoding](CANCEL-RESULTS.md)
+- [Subscription lifecycle state specification](spec/LIFECYCLE-SPEC.md)
 - Architecture deep-dives:
-  - [Storage and TTL management](architecture/storage_and_ttl.md)
-  - [Two-step authorization flows](architecture/two-step-auth.md)
-  - [Pause lifecycle](architecture/pause-lifecycle.md)
-  - [`batch_charge` estimate vs live execution](architecture/batch-estimate-vs-live.md)
+  - [Storage and TTL management](architecture/STORAGE-AND-TTL.md)
+  - [Two-step authorization flows](architecture/TWO-STEP-AUTH.md)
+  - [Pause lifecycle](architecture/PAUSE-LIFECYCLE.md)
+  - [`batch_charge` estimate vs live execution](architecture/BATCH-ESTIMATE-VS-LIVE.md)
 
 ## Running the keeper and operating a deployment
 
 - [Keeper runbook](KEEPER.md) — runtime, flags and configuration for `keeper.ts`
-- [Keeper bot operations handbook](operations/keeper_runbook.md)
-- [Troubleshooting runbook](operations/troubleshooting.md)
-- [Two-step admin operator playbooks](operations/two_step_admin_playbooks.md)
-- [Scripts environment variable reference](scripts-environment.md)
+- [Keeper bot operations handbook](operations/KEEPER-RUNBOOK.md)
+- [Troubleshooting runbook](operations/TROUBLESHOOTING.md)
+- [Two-step admin operator playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md)
+- [Scripts environment variable reference](SCRIPTS-ENVIRONMENT.md)
 - [Scripts reference](../scripts/README.md) and [operational fixes](../scripts/README-OPERATIONAL-FIXES.md)
 - [Deployment guide](DEPLOYMENT.md)
 - [Mainnet deployment checklist](MAINNET-DEPLOYMENT.md)
@@ -52,13 +52,13 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 
 - [Frontend architecture guide](FRONTEND.md)
 - [Frontend component reference](FRONTEND-COMPONENTS.md)
-- [Frontend component inventory](frontend/components.md)
+- [Frontend component inventory](frontend/COMPONENTS.md)
 
 ## Security
 
 - [Security model](SECURITY.md)
-- [Security specification and threat matrix](security/threat_matrix.md)
-- [Security audit preparation](security/audit-preparation.md)
+- [Security specification and threat matrix](security/THREAT-MATRIX.md)
+- [Security audit preparation](security/AUDIT-PREPARATION.md)
 - Vulnerability disclosure policy: [SECURITY.md](../SECURITY.md)
 
 ## Contributing and testing
@@ -67,10 +67,10 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Contributing to the contract](CONTRIBUTING-CONTRACT.md)
 - [Contributing to the frontend](CONTRIBUTING-FRONTEND.md)
 - [Testing guide](TESTING.md)
-- [Development testing runbook](development/testing_runbook.md)
-- [Local checks to run before a PR](development/ci-workflows.md)
-- [Local development network matrix](development/network-matrix.md)
-- [Performance benchmarking](development/performance-benchmarking.md)
+- [Development testing runbook](development/TESTING-RUNBOOK.md)
+- [Local checks to run before a PR](development/CI-WORKFLOWS.md)
+- [Local development network matrix](development/NETWORK-MATRIX.md)
+- [Performance benchmarking](development/PERFORMANCE-BENCHMARKING.md)
 - [Changelog](../CHANGELOG.md)
 
 ## Documentation tooling
@@ -79,8 +79,8 @@ These checks keep the docs in sync with the code. Run them from the repository r
 
 | Command | What it checks |
 | --- | --- |
-| `node check-doc-links.mjs` | Every relative link and `#anchor` in every Markdown file resolves; reports orphaned Markdown files (orphans under `docs/` fail — link them from this page). |
-| `node scripts/emit-caps-table.mjs --check` | [limits.md](limits.md) matches the constants in `contract/src/caps.rs`. Drop `--check` to print the table. |
+| `node check-doc-links.mjs` | Every relative link and `#anchor` in every Markdown file resolves; reports orphaned Markdown files (orphans under `docs/` fail — link them from this page); enforces `UPPER-KEBAB.md` filenames under `docs/` (see [CONTRIBUTING.md](../CONTRIBUTING.md#documentation-naming-convention)). |
+| `node scripts/emit-caps-table.mjs --check` | [LIMITS.md](LIMITS.md) matches the constants in `contract/src/caps.rs`. Drop `--check` to print the table. |
 | `node scripts/gen-undocumented-scripts.mjs --check` | The generated script-reference block in [scripts/README.md](../scripts/README.md) matches the flags and env vars the scripts read. Drop `--check` to print the block. |
 | `node scripts/check-quicklinks.mjs` | The quick-link table in [scripts/README.md](../scripts/README.md) points at the correct heading anchors. |
 | `node scripts/check-error-codes.mjs` | [ERROR-CODES.md](ERROR-CODES.md) lists every code in `contract/src/errors.rs`, with no duplicates. |

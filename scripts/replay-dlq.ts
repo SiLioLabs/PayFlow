@@ -46,7 +46,7 @@
  *   leaving one subscriber unpaid -- `ChargeResult::AllowanceInsufficient` --
  *   is not a DLQ entry at all.
  *
- *   See docs/charge-results.md for the full outcome encoding, including the
+ *   See docs/CHARGE-RESULTS.md for the full outcome encoding, including the
  *   `scvU32` discriminants this script's `parseChargeResults` is meant to read.
  */
 
@@ -203,7 +203,7 @@ async function retryWithBackoff<T>(
  * the decoder in `lib/charge-results.ts` is used here. The previous
  * implementation branched on `scvVec`/`scvMap`, neither of which is ever
  * reachable, so `charged` was always 0 and `skipped` always equalled the
- * batch size. See docs/charge-results.md.
+ * batch size. See docs/CHARGE-RESULTS.md.
  */
 function parseChargeResults(retval: xdr.ScVal): {
   charged: number;

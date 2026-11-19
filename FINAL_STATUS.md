@@ -58,7 +58,7 @@ gh pr create --base master --head fix/issue1-component-naming ...
 - Added `PausedCancelled` (discriminant 3)
 - Added `MerchantFrozen` (discriminant 4)
 - Updated `batch_cancel` logic
-- Created `docs/cancel-results.md`
+- Created `docs/CANCEL-RESULTS.md`
 
 **Impact:** Admins can now distinguish unusual cancellation states
 

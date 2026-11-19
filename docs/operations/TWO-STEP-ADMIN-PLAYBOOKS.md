@@ -2,7 +2,7 @@
 
 Step-by-step runbooks for **contract WASM upgrade** and **protocol fee rotation** ceremonies. These flows use temporary storage with a **17,280-ledger TTL** (~24 hours at ~5 s/ledger). If step 2 is not submitted before the TTL expires, the pending proposal disappears and `commit_*` panics with `NoPendingProposal` (23).
 
-For security rationale and state diagrams, see [`architecture/two-step-auth.md`](../architecture/two-step-auth.md). Implementation references: [`contract/src/upgrade.rs`](../../contract/src/upgrade.rs), [`contract/src/fee.rs`](../../contract/src/fee.rs), [`scripts/soroban-admin.ts`](../../scripts/soroban-admin.ts), [`scripts/rotate-fee-collector.ts`](../../scripts/rotate-fee-collector.ts), [`scripts/pre-upgrade-check.ts`](../../scripts/pre-upgrade-check.ts).
+For security rationale and state diagrams, see [`architecture/TWO-STEP-AUTH.md`](../architecture/TWO-STEP-AUTH.md). Implementation references: [`contract/src/upgrade.rs`](../../contract/src/upgrade.rs), [`contract/src/fee.rs`](../../contract/src/fee.rs), [`scripts/soroban-admin.ts`](../../scripts/soroban-admin.ts), [`scripts/rotate-fee-collector.ts`](../../scripts/rotate-fee-collector.ts), [`scripts/pre-upgrade-check.ts`](../../scripts/pre-upgrade-check.ts).
 
 ---
 
@@ -110,7 +110,7 @@ soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_schema_v
 # If layout changed: run migrate() once (admin), then re-check version == CURRENT_VERSION (3)
 ```
 
-Restart keepers; drain any DLQ per [`keeper_runbook.md`](keeper_runbook.md).
+Restart keepers; drain any DLQ per [`KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md).
 
 ### Abort / cancel paths (upgrade)
 
@@ -204,7 +204,7 @@ See [`KEEPER.md`](../KEEPER.md) and [`MAINNET-DEPLOYMENT.md`](../MAINNET-DEPLOYM
 
 ## Related
 
-- [`architecture/two-step-auth.md`](../architecture/two-step-auth.md) — pattern reference
+- [`architecture/TWO-STEP-AUTH.md`](../architecture/TWO-STEP-AUTH.md) — pattern reference
 - [`API.md`](../API.md) — `propose_upgrade`, `commit_upgrade`, `get_pending_upgrade`, `propose_fee`, `commit_fee`, `get_fee`
 - [`ERROR-CODES.md`](../ERROR-CODES.md) — `NoPendingProposal` (23), `FeeOutOfBoundsAtCommit` (35)
 - [`DEPLOYMENT.md`](../DEPLOYMENT.md) — Testnet deploy and migration
