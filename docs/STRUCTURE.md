@@ -299,8 +299,7 @@ Root `package.json` `npm test` runs `tsx --test tests/*.test.ts`.
 | `config.ts` / `keeper.ts` / `indexer.ts` | Root copies of operational entrypoints                                 |
 | `AGENTS.md`                         | High-level architecture for agents                                          |
 | `CHANGELOG.md`, `TODO.md`, `UIDesign.md` | Project notes                                                          |
-| `issue.md`, `Issue.md`, `Issues.md` | Tracked issue dumps                                                         |
-| `code.md`, `md`, `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
+| `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
 | `test_migration.rs`                 | Root-level migration test file (canonical tests live in `contract/src/`)    |
 | `alert-failed-charges.ts`, `query-events.ts`, `replay-events.ts` | Root script copies            |
 
