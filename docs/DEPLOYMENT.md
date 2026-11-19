@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md).
+Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md). New here? Start with the copy-paste [`TESTNET-QUICKSTART.md`](TESTNET-QUICKSTART.md) (deploy → subscribe → charge → withdraw in ~10 minutes).
 
 ---
 

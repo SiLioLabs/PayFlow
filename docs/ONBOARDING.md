@@ -2,7 +2,7 @@
 
 Welcome! This guide walks you from "I just heard about FlowPay" to "my first PR is open," assuming only general Rust and TypeScript experience — no prior Soroban, Stellar, or smart-contract background required.
 
-This is a narrative walkthrough. For reference material once you're up and running, see:
+For a copy-paste path from zero to a charged subscription (deploy, subscribe, charge, withdraw with expected outputs), see [`docs/TESTNET-QUICKSTART.md`](TESTNET-QUICKSTART.md). For reference material once you're up and running, see:
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — full contribution reference (branching, commit style, PR checklist)
 - [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md) — contract/Rust conventions in depth

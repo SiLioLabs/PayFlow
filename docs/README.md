@@ -5,6 +5,8 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 ## Getting started
 
 - [Onboarding: first issue to first PR](ONBOARDING.md)
+- [Testnet quickstart: deploy → subscribe → charge → withdraw (10 min)](TESTNET-QUICKSTART.md)
+- [Subscriber & merchant FAQ](FAQ.md)
 - [Project structure](STRUCTURE.md) — what lives where in the repository
 - [Glossary](GLOSSARY.md)
 

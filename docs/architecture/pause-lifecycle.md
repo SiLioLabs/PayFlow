@@ -219,6 +219,29 @@ If a `PauseExpiry` key is already archived and the subscriber's expiry has passe
 
 ## State transition diagram
 
+```mermaid
+stateDiagram-v2
+    [*] --> Active : subscribe()
+    Active --> IndefinitePause : pause()
+    Active --> BoundedPause : pause_until(expiry)
+    IndefinitePause --> Active : resume()
+    BoundedPause --> Active : resume() before expiry
+    BoundedPause --> Active : auto-resume on charge()/batch_charge()\nwhen now >= expiry
+    Active --> Inactive : cancel() / batch_cancel()
+    IndefinitePause --> Inactive : cancel()
+    BoundedPause --> Inactive : cancel()
+
+    note right of BoundedPause
+        Emits subscription_auto_resumed,
+        then charges immediately.
+        resume() after grace window
+        fails with ResumeGraceLapsed (43).
+    end note
+```
+
+<details>
+<summary>ASCII fallback (same transitions)</summary>
+
 ```
                     subscribe()
                         │
@@ -252,6 +275,8 @@ If a `PauseExpiry` key is already archived and the subscriber's expiry has passe
                     │ a=F p=F  │
                     └──────────┘
 ```
+
+</details>
 
 > From any paused state: if `resume()` is called after the grace window has closed, it fails with `ResumeGraceLapsed` (43) and the subscription moves to effectively-lapsed. The user must `cancel()` and re-subscribe.
 

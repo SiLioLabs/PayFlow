@@ -1,6 +1,6 @@
 # Subscriber Lifecycle Guide
 
-A narrative walkthrough of everything that can happen to a PayFlow subscription, from the first `subscribe()` call to a final `cancel()`. This guide is written for developers integrating PayFlow who want the story in plain language, with concrete timestamps and stroop amounts. For the formal state-transition rules this guide is based on, see [`docs/spec/lifecycle_spec.md`](./spec/lifecycle_spec.md) — that document is the technical reference; this one is the tour.
+A narrative walkthrough of everything that can happen to a PayFlow subscription, from the first `subscribe()` call to a final `cancel()`. This guide is written for developers integrating PayFlow who want the story in plain language, with concrete timestamps and stroop amounts. For the formal state-transition rules this guide is based on, see [`docs/spec/lifecycle_spec.md`](./spec/lifecycle_spec.md) — that document is the technical reference; this one is the tour. Mermaid state diagram: [`spec/lifecycle_spec.md`](./spec/lifecycle_spec.md#state-transition-diagram); charge sequence: [`ARCHITECTURE.md`](./ARCHITECTURE.md#recurring-charge). Subscriber/merchant Q&A: [`FAQ.md`](./FAQ.md).
 
 ---
 

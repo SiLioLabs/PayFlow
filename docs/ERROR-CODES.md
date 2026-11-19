@@ -2,6 +2,8 @@
 
 This document is the complete reference for all error codes returned by the FlowPay smart contract (`contract/src/errors.rs`). Each error includes when it occurs, the immediate cause, numbered recovery steps, and prevention advice.
 
+Plain-language Q&A for non-operators: [`FAQ.md`](FAQ.md) (every code below is reachable from an FAQ answer via its coverage table).
+
 Use the [quick-reference table](#quick-reference-table) for lookups, then jump to the detailed recovery section for that code. Audience-specific walkthroughs are at the end:
 
 - [Common error scenarios](#common-error-scenarios)

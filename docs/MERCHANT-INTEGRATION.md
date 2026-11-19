@@ -2,7 +2,7 @@
 
 [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) covers the **subscriber** side of PayFlow (subscribe, approve allowance, listen for charges). This cookbook is the companion for **merchants** — developers who want to accept subscription revenue, monitor their subscriber base, react to billing events, and track earned revenue.
 
-If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md).
+If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md). Common merchant questions are answered in [`docs/FAQ.md`](FAQ.md#merchant-questions).
 
 ---
 

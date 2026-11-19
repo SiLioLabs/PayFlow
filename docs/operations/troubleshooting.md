@@ -2,7 +2,7 @@
 
 Common ChargeResult errors, wallet failures, and operational issues with diagnosis steps and resolutions.
 
-For full error code documentation, see [`docs/ERROR-CODES.md`](../ERROR-CODES.md). For merchant-specific issues, see [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md).
+For full error code documentation, see [`docs/ERROR-CODES.md`](../ERROR-CODES.md). For merchant-specific issues, see [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md). Subscribers and merchants: start with the plain-language [`docs/FAQ.md`](../FAQ.md).
 
 ---
 

@@ -84,6 +84,45 @@ graph TD
 5. `subscription_history.rs` records the successful charge timestamp.
 6. `events.rs` emits `charged`.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K as Keeper (any caller)
+    participant C as FlowPay contract<br/>charge(user)
+    participant S as Storage<br/>Subscription(user)
+    participant T as SAC token contract
+    participant E as Events<br/>charged / auto_resumed
+
+    K->>C: charge(user)
+    C->>C: ensure_contract_not_paused()<br/>else ContractPaused (18)
+    C->>S: load Subscription(user)<br/>else NoSubscriptionFound (4)
+    alt paused == true
+        C->>C: try_auto_resume(now, PauseExpiry)
+        alt expiry passed
+            C->>S: paused=false, clear PauseExpiry
+            C->>E: emit subscription_auto_resumed
+        else still paused
+            C-->>K: panic SubscriptionPaused (17)
+        end
+    else active == false
+        C-->>K: panic SubscriptionInactive (5)
+    end
+    C->>C: next = last_charged + interval
+    alt now < next
+        C-->>K: panic IntervalNotElapsed (6)
+    else grace > 0 and now > next + grace
+        C-->>K: panic GracePeriodElapsed (9)
+    end
+    C->>T: transfer_from(user → fee collector, fee)
+    C->>T: transfer_from(user → merchant, net)
+    C->>C: check_and_update_global_volume()<br/>else GlobalVolumeExceeded (28)
+    C->>S: MerchantRevenue += net<br/>last_charged = now<br/>record charge history
+    C->>E: emit charged{merchant, gross, fee, net}
+    C-->>K: ok
+```
+
+Verified against `contract/src/lib.rs::charge`, `contract/src/charge_exec.rs` (`try_auto_resume`, `precheck_charge`, `execute_charge`), `contract/src/fee.rs` (`transfer_subscription_charge`) and `contract/src/events.rs` (`publish_charged`, `publish_subscription_auto_resumed`). For per-user batch semantics see [charge-results](charge-results.md); for pause auto-resume see [pause-lifecycle](architecture/pause-lifecycle.md).
+
 ### Batch charge
 
 1. `batch_charge()` iterates over a list of subscriber addresses.
