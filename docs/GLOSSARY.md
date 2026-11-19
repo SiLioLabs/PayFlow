@@ -2,6 +2,12 @@
 
 > PayFlow uses a number of domain-specific terms in its contract and docs. This glossary defines those terms alphabetically and links to the most relevant source materials.
 
+## Naming
+
+**PayFlow** is the product and repository name. It appears in user-facing text, prose, package names, and documentation titles.
+
+**`FlowPay`** is the Rust/Soroban contract and client type name (for example, `FlowPayClient` and `contract/src/lib.rs`). Use `FlowPay` only when referring to the implementation symbol or contract crate; do not use it as the product name.
+
 ## A
 
 ### Active Count

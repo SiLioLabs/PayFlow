@@ -143,7 +143,7 @@ export default function ReferralPanel({ publicKey }: Props) {
       <div className="referral-panel__header">
         <h3 className="referral-panel__title">Referral Program</h3>
         <p className="referral-panel__subtitle text-muted text-sm">
-          Share your referral link to invite others to FlowPay.
+          Share your referral link to invite others to PayFlow.
         </p>
       </div>
 

@@ -1,0 +1,26 @@
+name: Documentation request
+description: Improve or correct PayFlow documentation
+title: "[Docs] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Which page or workflow is unclear or wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requirements
+      description: Required updates, source of truth, and intended audience.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable documentation outcomes and relevant tests.
+    validations:
+      required: true
