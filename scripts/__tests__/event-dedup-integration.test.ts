@@ -16,14 +16,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventDedupCache, createCacheKey } from "./event-dedup.js";
+import { it } from "vitest";
+import { EventDedupCache, createCacheKey } from "../event-dedup.js";
 import {
   openDatabase,
   initSchema,
   indexEvents,
   parseEvent,
-} from "./indexer.js";
-import { recordIndexerDedupStats, metricsText } from "./metrics-server.js";
+} from "../indexer.js";
+import { recordIndexerDedupStats, metricsText } from "../metrics-server.js";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -236,7 +237,6 @@ async function runTests(): Promise<void> {
   console.log("All event-dedup integration tests passed!");
 }
 
-runTests().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
+it("deduplicates indexer events across cache and DB layers", async () => {
+  await runTests();
 });

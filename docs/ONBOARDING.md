@@ -94,17 +94,31 @@ Don't be surprised that the CLI identifies itself as `stellar` rather than `soro
 
 ### 1.4 Install Node.js
 
-You need Node 18 or newer (the frontend CI runs Node 20). Install via [nodejs.org](https://nodejs.org/) or a version manager (`nvm`, `fnm`, etc.). Verify:
+PayFlow requires **Node.js ≥ 22.5.0** (and npm ≥ 10).  The minimum is set by
+`node:sqlite` (`--experimental-sqlite`) used by the indexer scripts.  The repo
+ships a `.nvmrc` / `.node-version` file at the root so that `nvm`, `fnm`,
+`volta`, and similar tools pick the right version automatically.
+
+```bash
+# With nvm
+nvm install       # reads .nvmrc
+nvm use
+
+# Or download from nodejs.org
+# https://nodejs.org/en/download
+```
+
+Verify:
 
 ```bash
 node --version
 npm --version
 ```
 
-Expected output (any Node ≥18 / recent npm is fine):
+Expected output (any Node ≥22.5 / npm ≥10 is fine):
 
 ```text
-v20.20.2
+v22.5.0
 10.8.2
 ```
 

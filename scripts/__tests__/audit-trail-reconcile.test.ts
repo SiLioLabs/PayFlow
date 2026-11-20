@@ -18,6 +18,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { expect, it } from "vitest";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +29,7 @@ import {
   type DayAggregate,
   type DayReconcileResult,
   type ReconcileReport,
-} from "./audit-trail.js";
+} from "../audit-trail.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,7 @@ interface Fixture {
   };
 }
 
-const fixturePath = resolve(__dirname, "fixtures", "audit-trail-reconcile.json");
+const fixturePath = resolve(__dirname, "..", "fixtures", "audit-trail-reconcile.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as Fixture;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -414,13 +415,6 @@ console.log("\n=== Suite 5: edge cases ===");
 
 // ── Results ───────────────────────────────────────────────────────────────────
 
-console.log(`\n${"=".repeat(60)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-console.log(`${"=".repeat(60)}`);
-
-if (failed > 0) {
-  process.exit(1);
-} else {
-  console.log("All reconciliation tests passed ✓");
-  process.exit(0);
-}
+it("reconciles audit-trail export fixtures against the indexer DB", () => {
+  expect(failed, `${failed} reconciliation assertion(s) failed`).toBe(0);
+});

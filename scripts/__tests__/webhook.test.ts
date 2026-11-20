@@ -15,7 +15,10 @@
 
 import { createHmac } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
+import { createServer, type Server as HttpServer } from "node:http";
+import { it } from "vitest";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
+import { setWebhookFetch, sendWebhook, WebhookConfig, setSleep } from "../webhook.js";
 
 // ── Minimal test harness ──────────────────────────────────────────────────────
 
@@ -221,19 +224,6 @@ await (async () => {
   globalThis.fetch = originalFetch;
 })();
 
-// ── Summary ───────────────────────────────────────────────────────────────────
-
-console.log(`\n── Results: ${passed} passed, ${failed} failed ──`);
-
-if (failed > 0) {
-  process.exit(1);
-}
-import { createServer } from "node:http";
-import { createHmac } from "node:crypto";
-import { setWebhookFetch, sendWebhook, WebhookConfig, setSleep } from "./webhook.js";
-
-import { Server as HttpServer } from "node:http";
-
 async function runTestServer(): Promise<{ server: HttpServer; port: number }> {
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
@@ -321,4 +311,6 @@ async function runTests() {
   server.close();
 }
 
-runTests().catch(console.error);
+it("delivers, retries, and records DLQ entries for webhooks", async () => {
+  await runTests();
+});

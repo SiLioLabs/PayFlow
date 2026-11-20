@@ -26,42 +26,19 @@ import {
   formatTokenAmount,
   isAllowanceAtRisk,
   allowanceGap,
-} from "./allowance-utils.js";
-
-// ── Minimal test harness ──────────────────────────────────────────────────────
- * test-allowance-utils.ts — Unit tests for concurrency, retry, and error-
- * classification logic in allowance-utils.ts.
- *
- * Uses in-process mock RPC functions — no network, no CONTRACT_ID required.
- *
- * Run:
- *   npx tsx scripts/test-allowance-utils.ts
- *
- * Exit codes:
- *   0 — all tests passed
- *   1 — one or more tests failed
- */
-
-import {
-  withRetry,
   pLimit,
   runConcurrent,
   isTransientError,
   DefinitiveError,
   sleep,
-} from "./allowance-utils.js";
+} from "../allowance-utils.js";
+import { expect, it } from "vitest";
 
 // ── Test harness ──────────────────────────────────────────────────────────────
 
 let passed = 0;
 let failed = 0;
 
-function assert(condition: boolean, message: string): void {
-  if (condition) {
-    console.log(`  ✓  ${message}`);
-    passed++;
-  } else {
-    console.error(`  ✗  ${message}`);
 function assert(condition: boolean, label: string): void {
   if (condition) {
     console.log(`  [PASS] ${label}`);
@@ -276,12 +253,6 @@ await (async () => {
   );
 })();
 
-// ── Summary ───────────────────────────────────────────────────────────────────
-
-console.log(`\n── Results: ${passed} passed, ${failed} failed ──`);
-
-if (failed > 0) {
-  process.exit(1);
 async function assertRejects(
   fn: () => Promise<unknown>,
   label: string,
@@ -673,13 +644,6 @@ console.log("\n=== Suite 16: runConcurrent — empty task list ===");
 
 // ── Results ───────────────────────────────────────────────────────────────────
 
-console.log(`\n${"=".repeat(60)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-console.log(`${"=".repeat(60)}`);
-
-if (failed > 0) {
-  process.exit(1);
-} else {
-  console.log("All allowance-utils tests passed ✓");
-  process.exit(0);
-}
+it("passes all allowance-utils assertions", () => {
+  expect(failed, `${failed} allowance-utils assertion(s) failed`).toBe(0);
+});
