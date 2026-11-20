@@ -45,10 +45,13 @@ const RevenueSparklineComponent: React.FC<Props> = ({ history }) => {
           transition: r 0.2s ease, fill 0.2s ease;
         }
         .sparkline-point:hover,
-        .sparkline-point:focus {
+        .sparkline-point:focus-visible {
           r: 5;
           fill: var(--color-primary);
-          outline: none;
+        }
+        .sparkline-point:focus-visible {
+          stroke: var(--color-text);
+          stroke-width: 2.5;
         }
       `}</style>
       <svg

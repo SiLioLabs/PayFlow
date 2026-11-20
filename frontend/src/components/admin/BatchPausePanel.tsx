@@ -9,9 +9,14 @@ import ConfirmModal from "../ConfirmModal";
 import Spinner from "../Spinner";
 import ToastContainer from "../Toast";
 import { AdminAddressListSkeleton } from "../Skeleton";
+import { CONTRACT_LIMITS } from "../../constants";
 
-/** Contract hard limit per batch_pause_subscriptions call */
-const MAX_PAUSE_BATCH = 25;
+/**
+ * Contract hard limit per `batch_pause_subscriptions` call.
+ * Sourced from CONTRACT_LIMITS so the UI cannot drift from
+ * `caps::MAX_BATCH_PAUSE_SUBSCRIPTIONS` in contract/src/caps.rs.
+ */
+const MAX_PAUSE_BATCH = CONTRACT_LIMITS.MAX_BATCH_PAUSE;
 
 // ── Panel load state ──────────────────────────────────────────────────────────
 
@@ -54,7 +59,9 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
 
   const [rawInput, setRawInput] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
-  const [panelState, setPanelState] = useState<PanelState>("loading");
+  // When no onInit seam is supplied there is no async work to wait for, so the
+  // panel starts ready rather than flashing a skeleton that resolves instantly.
+  const [panelState, setPanelState] = useState<PanelState>(onInit ? "loading" : "ready");
   const [initError, setInitError] = useState<string | null>(null);
 
   // Tracks the sequence number of the latest init call so older completions
@@ -62,6 +69,9 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
   const latestSeqRef = useRef(0);
 
   useEffect(() => {
+    // No async init seam supplied — nothing to load, stay in the ready state.
+    if (!onInit) return;
+
     const seq = ++latestSeqRef.current;
     const controller = new AbortController();
     const { signal } = controller;
@@ -69,9 +79,7 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
     setPanelState("loading");
     setInitError(null);
 
-    const initialise = onInit ?? (() => Promise.resolve());
-
-    initialise(signal).then(
+    onInit(signal).then(
       () => {
         if (signal.aborted || seq !== latestSeqRef.current) return;
         setPanelState("ready");

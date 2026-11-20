@@ -20,7 +20,7 @@ function createMockServer(options: {
   initialWhitelisted: boolean;
 }) {
   let whitelisted = options.initialWhitelisted;
-  let txSubmitted = false;
+  let txSubmittedCount = 0;
 
   const server = {
     simulateTransaction: async (tx: any) => {
@@ -37,12 +37,13 @@ function createMockServer(options: {
     },
     prepareTransaction: async (tx: any) => tx,
     sendTransaction: async (tx: any) => {
-      txSubmitted = true;
+      txSubmittedCount += 1;
       whitelisted = true; // simulate successful whitelist add
       return { hash: "mock-tx-hash" };
     },
     getTransaction: async (hash: string) => ({ status: "SUCCESS" }),
-    wasTxSubmitted: () => txSubmitted,
+    wasTxSubmitted: () => txSubmittedCount > 0,
+    txSubmittedCount: () => txSubmittedCount,
   } as any;
 
   return server;
@@ -56,6 +57,8 @@ async function runTests() {
   const outcome1 = await onboardMerchant(mockConfig, server1, merchantAddress);
   if (outcome1.status !== "onboarded") throw new Error(`Expected status to be onboarded, got ${outcome1.status}`);
   if (!server1.wasTxSubmitted()) throw new Error("Expected whitelist transaction to be submitted");
+  if (server1.txSubmittedCount() !== 1)
+    throw new Error(`Expected exactly one whitelist transaction, got ${server1.txSubmittedCount()}`);
 
   console.log("Testing idempotent onboarding (already whitelisted)...");
   const server2 = createMockServer({ isFrozen: false, initialWhitelisted: true });

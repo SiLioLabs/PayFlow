@@ -27,9 +27,7 @@ pub fn is_grace_lapsed(env: &Env, sub: &Subscription) -> bool {
     // u64 and flip the comparison. Saturate to u64::MAX on overflow — any
     // timestamp that would require an overflowed sum is definitively in the
     // future, so the grace window is NOT yet lapsed.
-    let next = sub
-        .last_charged
-        .saturating_add(sub.interval);
+    let next = sub.last_charged.saturating_add(sub.interval);
     let deadline = next.saturating_add(grace_period);
     now > deadline
 }

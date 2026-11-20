@@ -190,7 +190,7 @@ check(
     /KEEPER_SECRET is never logged/.test(keeper),
 );
 
-// ── 7. ChargeResult table: all seven variants, matching charge-results.md.
+// ── 7. ChargeResult table: all seven variants, matching CHARGE-RESULTS.md.
 for (const v of [
   "Charged",
   "Skipped",
@@ -204,7 +204,7 @@ for (const v of [
 }
 check(
   "KEEPER.md links the wire-format doc",
-  doc.includes("charge-results.md"),
+  doc.includes("CHARGE-RESULTS.md"),
 );
 
 // ── 8. Command examples must use the tsx runtime.

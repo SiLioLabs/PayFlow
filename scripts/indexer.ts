@@ -13,6 +13,7 @@
  * ──────
  *   events     — one row per event occurrence (upsert on tx_hash + op/event index)
  *   meta       — key/value store for indexer state (last_ledger, schema_version)
+ *   Defined solely by the numbered migrations in db/migrations/ (see db/migrate.ts).
  *
  * Event Topics (mapped from contract/src/events.rs)
  * ───────────────────────────────────────────────
@@ -21,7 +22,9 @@
  *     to charge due to insufficient subscriber allowance. This is the primary
  *     signal for charge failures that should trigger alerts (see
  *     scripts/alert-failed-charges.ts).
- *   - charged: Successful charge (topic[0]='charged', topic[1]=user_address)
+ *   - charged: Successful charge (topic[0]='charged', topic[1]=user_address).
+ *     Carries merchant, gross, fee, net, charged_at, ledger_sequence, and
+ *     paid_to (Option<Address> fee destination), preserved in raw_data.
  *   - subscribed, cancelled, paused, resumed: Subscription lifecycle events
  *   - trial_extended, grace_period_*: Policy management events
  *
@@ -39,6 +42,14 @@
  *   LOG_LEVEL          Optional. "debug" | "info" | "error" (default: info).
  *   EVENT_DEDUP_CACHE_SIZE  Optional. Max EventDedupCache entries (default: 1000).
  *   EVENT_DEDUP_TTL_MS      Optional. EventDedupCache entry TTL in ms (default: 0 = no TTL).
+ *   INDEXER_METRICS_ENABLED Optional. "true" to serve Prometheus metrics (incl. ledger-gap metrics).
+ *
+ * Ledger gaps
+ * ───────────
+ * Before each poll the indexer compares its cursor with the RPC's oldest
+ * available ledger (getHealth). If the RPC has pruned ledgers the indexer never
+ * read, the range is stored in `ledger_gaps`, logged, exported as metrics, and
+ * indexing resumes from the oldest available ledger. See horizon-backfill.ts.
  *
  * Deduplication
  * ─────────────
@@ -65,7 +76,14 @@ import { logger as rootLogger } from "./logger.js";
 import { fileURLToPath } from "node:url";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { EventDedupCache, type DedupStats } from "./event-dedup.js";
-import { recordIndexerDedupStats } from "./metrics-server.js";
+import {
+  recordIndexerDedupStats,
+  setIndexerLedgerPosition,
+  startMetricsServer,
+} from "./metrics-server.js";
+import { checkForGap, refreshOpenGapMetric } from "./ledger-gaps.js";
+import { runMigrations, readSchemaVersion } from "./db/migrate.js";
+import { SCHEMA_VERSION } from "./db/migrations/index.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -74,9 +92,6 @@ const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "10000", 10);
 
 const DATA_DIR = process.env.DATA_DIR ?? "data";
 const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
-
-/** Schema version — increment when adding columns or new tables. */
-const SCHEMA_VERSION = 2;
 
 /** Max events requested per getEvents page. */
 const EVENTS_PAGE_LIMIT = 200;
@@ -143,61 +158,17 @@ export function openDatabase(filePath: string): DatabaseSync {
 }
 
 /**
- * Create tables and apply migrations if the schema version has changed.
- * Adding new columns/tables here is the only required migration step.
+ * Bring the database up to the latest schema. The schema itself is defined
+ * only by the numbered migrations in `db/migrations/`; see db/migrate.ts.
  */
 export function initSchema(db: DatabaseSync): void {
-  // meta table — key/value pairs for indexer state.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-
-  // events table — one row per unique (tx_hash, event_name) pair.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      id         TEXT    PRIMARY KEY,
-      event_name TEXT    NOT NULL,
-      address    TEXT    NOT NULL,
-      amount     TEXT,
-      ledger     INTEGER NOT NULL,
-      timestamp  INTEGER NOT NULL,
-      tx_hash    TEXT    NOT NULL,
-      raw_data   TEXT    NOT NULL,
-      merchant     TEXT,
-      fee_amount   TEXT,
-      token        TEXT,
-      result_code  TEXT
-    )
-  `);
-
-  // Indexes for the query-events.ts access patterns.
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_events_address    ON events(address);
-    CREATE INDEX IF NOT EXISTS idx_events_event_name ON events(event_name);
-    CREATE INDEX IF NOT EXISTS idx_events_ledger     ON events(ledger);
-    CREATE INDEX IF NOT EXISTS idx_events_timestamp  ON events(timestamp)
-  `);
-
-  // Store the schema version so future migrations can guard on it.
-  const existingVersion = getMeta(db, "schema_version");
-  if (existingVersion === null) {
-    setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    logger.info("Database schema initialised", { schema_version: SCHEMA_VERSION });
-  } else if (parseInt(existingVersion, 10) < SCHEMA_VERSION) {
-    if (parseInt(existingVersion, 10) === 1) {
-      db.exec(`
-        ALTER TABLE events ADD COLUMN merchant TEXT;
-        ALTER TABLE events ADD COLUMN fee_amount TEXT;
-        ALTER TABLE events ADD COLUMN token TEXT;
-        ALTER TABLE events ADD COLUMN result_code TEXT;
-      `);
-    }
-    // Future migrations would go here, guarded by the version number.
-    setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    logger.info("Database schema migrated", { schema_version: SCHEMA_VERSION });
+  const before = readSchemaVersion(db);
+  const applied = runMigrations(db);
+  if (applied.length > 0) {
+    logger.info(before === 0 ? "Database schema initialised" : "Database schema migrated", {
+      schema_version: SCHEMA_VERSION,
+      from_version: before,
+    });
   }
 }
 
@@ -564,6 +535,9 @@ async function main(): Promise<void> {
   const db = openDatabase(DB_FILE);
   initSchema(db);
 
+  if (process.env.INDEXER_METRICS_ENABLED === "true") startMetricsServer();
+  refreshOpenGapMetric(db);
+
   const dedup = new EventDedupCache();
   logger.info("Dedup cache ready", {
     max_size: dedup.stats.maxSize,
@@ -594,11 +568,21 @@ async function main(): Promise<void> {
   logger.info("Indexer running. Press Ctrl-C to stop.");
 
   while (!shutdown) {
+    // If we were down longer than RPC retention, record the gap and resume
+    // from the oldest ledger RPC still serves instead of failing forever.
+    const resumeFrom = await checkForGap(db, currentLedger, server);
+    if (resumeFrom !== currentLedger) {
+      currentLedger = resumeFrom;
+      setMeta(db, "last_ledger", String(currentLedger));
+    }
+
     const nextLedger = await pollOnce(db, currentLedger, dedup);
 
     if (nextLedger !== currentLedger) {
       currentLedger = nextLedger;
       setMeta(db, "last_ledger", String(currentLedger));
+      setMeta(db, "last_processed_ledger", String(currentLedger - 1));
+      setIndexerLedgerPosition({ lastProcessed: currentLedger - 1 });
     }
 
     if (!shutdown) {

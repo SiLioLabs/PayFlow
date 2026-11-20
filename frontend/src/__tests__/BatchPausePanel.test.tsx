@@ -22,6 +22,7 @@ vi.mock("../hooks/useToast", () => ({
 
 import * as stellar from "../stellar";
 import { useTransaction } from "../hooks/useTransaction";
+import { CONTRACT_LIMITS } from "../constants";
 import BatchPausePanel from "../components/admin/BatchPausePanel";
 
 // Generated via Keypair.random() — checksum-valid for StrKey.isValidEd25519PublicKey
@@ -49,6 +50,14 @@ describe("BatchPausePanel", () => {
   it("renders the section heading", () => {
     render(<BatchPausePanel {...defaultProps} />);
     expect(screen.getByText("Batch Pause Subscriptions")).toBeTruthy();
+  });
+
+  it("chunks at CONTRACT_LIMITS.MAX_BATCH_PAUSE (25) sourced from constants.ts", () => {
+    // The panel must not re-declare the cap; it reads it from CONTRACT_LIMITS,
+    // which mirrors caps::MAX_BATCH_PAUSE_SUBSCRIPTIONS in contract/src/caps.rs.
+    expect(CONTRACT_LIMITS.MAX_BATCH_PAUSE).toBe(25);
+    render(<BatchPausePanel {...defaultProps} />);
+    expect(screen.getByText(/lists longer than 25 addresses are split/i)).toBeTruthy();
   });
 
   it("shows admin access warning for non-admin wallets", () => {

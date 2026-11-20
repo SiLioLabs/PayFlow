@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MerchantSubscriber } from "../stellar";
 import { formatAddress, formatXlm } from "../utils/format";
 import { debounce } from "../utils/debounce";
+import { SECONDS_PER_DAY, SECONDS_PER_WEEK, SECONDS_PER_MONTH } from "../constants";
 import CopyButton from "./CopyButton";
 import { useVirtualList } from "../hooks/useVirtualList";
 
@@ -46,13 +47,14 @@ function formatDate(unixSec: number): string {
   });
 }
 
-function formatInterval(secs: number): string {
-  const day = 86_400;
-  const week = 604_800;
-  const month = 2_592_000;
-  if (secs >= month) return `${Math.round(secs / month)}mo`;
-  if (secs >= week) return `${Math.round(secs / week)}w`;
-  if (secs >= day) return `${Math.round(secs / day)}d`;
+/**
+ * Human-readable interval label. Buckets are derived from the shared
+ * SECONDS_PER_* constants so the table stays in sync with BILLING_INTERVALS.
+ */
+export function formatInterval(secs: number): string {
+  if (secs >= SECONDS_PER_MONTH) return `${Math.round(secs / SECONDS_PER_MONTH)}mo`;
+  if (secs >= SECONDS_PER_WEEK) return `${Math.round(secs / SECONDS_PER_WEEK)}w`;
+  if (secs >= SECONDS_PER_DAY) return `${Math.round(secs / SECONDS_PER_DAY)}d`;
   return `${secs}s`;
 }
 
@@ -226,6 +228,7 @@ export default function MerchantSubscriberTable({
       {sorted.length > 0 && (
         <div
           className="mst-scroll-container"
+          ref={scrollContainerRef}
           onScroll={onScroll}
           style={{ maxHeight: CONTAINER_HEIGHT, overflowY: "auto" }}
         >

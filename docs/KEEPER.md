@@ -9,10 +9,10 @@ actually is. Every flag, environment variable and default below was read from
 the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 
 **Related docs:**
-[`charge-results.md`](charge-results.md) (what a `ChargeResult` is on the wire) |
-[`limits.md`](limits.md) (batch and pagination caps) |
+[`CHARGE-RESULTS.md`](CHARGE-RESULTS.md) (what a `ChargeResult` is on the wire) |
+[`LIMITS.md`](LIMITS.md) (batch and pagination caps) |
 [`scripts/README.md`](../scripts/README.md) (all scripts, Docker Compose) |
-[`operations/keeper_runbook.md`](operations/keeper_runbook.md) (HA and failover) |
+[`operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md) (HA and failover) |
 [`API.md`](API.md) (`batch_charge` contract reference) |
 [`ERROR-CODES.md`](ERROR-CODES.md)
 
@@ -101,6 +101,7 @@ Everything is read from `process.env` at module load.
 | `DRY_RUN`                    | No                  | `false`                                  | Exactly `"true"` enables dry-run. Anything else, including `1` or `TRUE`, is false. |
 | `RPC_URL`                    | No                  | `https://soroban-testnet.stellar.org`    | Soroban RPC endpoint. |
 | `NETWORK_PASSPHRASE`         | No                  | `Networks.TESTNET`                       | Must match the network the contract is deployed on. |
+| `ALLOW_MAINNET`              | No                  | `false`                                  | Must be `"true"` to start with the mainnet passphrase (`Public Global Stellar Network ; September 2015`); otherwise startup fails. |
 | `BATCH_SIZE`                 | No                  | on-chain max, else 50                    | **Legacy paging path only** - see [Batch size resolution](#batch-size-resolution). Clamped to 1-200. |
 | `INTERVAL_SECONDS`           | No                  | `3600`                                   | Seconds between cycles in loop mode. Floor of 1. |
 | `REPORT_DIR`                 | No                  | `<script_dir>/data/benchmarks`           | Dry-run reports and the live-cycle pointer file. |
@@ -215,7 +216,7 @@ Resolution at startup:
 
 1. Start from `BATCH_SIZE` if set and positive, else `50`.
 2. Clamp to `1..200`. The 200 is `MAX_BATCH_SIZE_CEILING`; see
-   [`limits.md`](limits.md).
+   [`LIMITS.md`](LIMITS.md).
 3. Simulate `get_max_batch_size()` and narrow to whatever the chain reports.
 4. On RPC failure, log a warning and **keep the un-narrowed value**, still
    clamped to `1..200`.
@@ -252,7 +253,7 @@ never a DLQ entry: the transaction succeeded, it just did not transfer that
 one subscriber's funds. Alert on the `batch_charge_skips` event, not on the DLQ.
 
 **The on-the-wire encoding of these values is `scvU32` discriminants, not
-strings or symbols.** See [`charge-results.md`](charge-results.md) before
+strings or symbols.** See [`CHARGE-RESULTS.md`](CHARGE-RESULTS.md) before
 writing anything that reads them.
 
 ## Dead-letter queue
@@ -289,7 +290,7 @@ non-retryable errors by substring (`NoSubscriptionFound`, `SubscriptionInactive`
 tooling.
 
 A DLQ row is a **transaction-level** abort and carries no per-subscriber
-outcome. See [`charge-results.md`](charge-results.md#channel-3-the-dead-letter-queue-row).
+outcome. See [`CHARGE-RESULTS.md`](CHARGE-RESULTS.md#channel-3-the-dead-letter-queue-row).
 
 ## Metrics and monitoring
 

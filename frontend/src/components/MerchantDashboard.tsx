@@ -21,7 +21,6 @@ import EventFeed from "./EventFeed";
 import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
-import ConfirmModal from "./ConfirmModal";
 import LastUpdated from "./LastUpdated";
 
 const SUBSCRIBER_ROW_HEIGHT = 72;

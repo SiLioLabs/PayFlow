@@ -9,9 +9,14 @@ import ConfirmModal from "../ConfirmModal";
 import Spinner from "../Spinner";
 import ToastContainer from "../Toast";
 import { AdminAddressListSkeleton } from "../Skeleton";
+import { CONTRACT_LIMITS } from "../../constants";
 
-/** Contract hard limit per whitelist_batch_add / whitelist_batch_remove call */
-const MAX_WHITELIST_BATCH = 50;
+/**
+ * Contract hard limit per `whitelist_batch_add` / `whitelist_batch_remove` call.
+ * Sourced from CONTRACT_LIMITS so the UI cannot drift from
+ * `caps::MAX_WHITELIST_BATCH_SIZE` in contract/src/caps.rs.
+ */
+const MAX_WHITELIST_BATCH = CONTRACT_LIMITS.MAX_BATCH_WHITELIST;
 
 type WhitelistAction = "add" | "remove";
 
@@ -53,7 +58,9 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
   const [rawInput, setRawInput] = useState("");
   const [action, setAction] = useState<WhitelistAction>("add");
   const [showConfirm, setShowConfirm] = useState(false);
-  const [panelState, setPanelState] = useState<PanelState>("loading");
+  // With no onInit seam there is nothing async to await, so start ready rather
+  // than flashing a skeleton that resolves on the next microtask.
+  const [panelState, setPanelState] = useState<PanelState>(onInit ? "loading" : "ready");
   const [initError, setInitError] = useState<string | null>(null);
 
   const latestSeqRef = useRef(0);
@@ -84,6 +91,8 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
   };
 
   useEffect(() => {
+    // No async init seam supplied — nothing to load, stay in the ready state.
+    if (!onInit) return;
     return runInit();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminKey, onInit]);

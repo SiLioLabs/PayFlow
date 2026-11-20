@@ -18,6 +18,7 @@ import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import type { Subscription, ChargeEvent, SubscriptionValidationReport } from "./types";
 import { ScValDecoder } from "./services/scval";
 import { dedupedCall } from "./services/rpcCache";
+import { readCustomRpcUrl } from "./constants";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -44,14 +45,8 @@ export const server = new Server(RPC_URL);
  * still appropriate, but one-off transaction calls should prefer getServer().
  */
 export function getServer(): Server {
-  try {
-    const stored =
-      typeof localStorage !== "undefined" ? localStorage.getItem("flowpay_custom_rpc_url") : null;
-    const customUrl: string | null = stored ? (JSON.parse(stored) as string) : null;
-    if (customUrl) return new Server(customUrl);
-  } catch {
-    // localStorage unavailable or invalid JSON
-  }
+  const customUrl = typeof localStorage !== "undefined" ? readCustomRpcUrl() : null;
+  if (customUrl) return new Server(customUrl);
   return server;
 }
 

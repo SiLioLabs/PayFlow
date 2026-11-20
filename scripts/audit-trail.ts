@@ -37,17 +37,13 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { Server } from "@stellar/stellar-sdk/rpc";
 import { DatabaseSync } from "node:sqlite";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const CONTRACT_ID =
   process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
-const RPC_URL =
-  process.env.RPC_URL ??
-  process.env.VITE_RPC_URL ??
-  "https://soroban-testnet.stellar.org";
 
 /** Events fetched per RPC call. */
 const EVENTS_PER_REQUEST = 1000;
@@ -269,7 +265,7 @@ interface RawEvent {
  * Streams events rather than buffering the full result set to handle large ranges.
  */
 async function* fetchEventStream(
-  server: Server,
+  server: MultiEndpointServer,
   fromLedger: number,
   toLedger: number,
 ): AsyncGenerator<RawEvent> {
@@ -861,7 +857,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer();
 
   console.error(
     `Fetching audit trail: ledgers ${args.fromLedger} → ${args.toLedger}…`,

@@ -18,6 +18,7 @@ Thank you for considering a contribution to FlowPay. This document covers everyt
 - [Frontend Contribution Guidelines](#frontend-contribution-guidelines)
 - [Commit Style](#commit-style)
 - [Generated TypeScript Bindings](#generated-typescript-bindings)
+- [Documentation Naming Convention](#documentation-naming-convention)
 - [Pull Request Checklist](#pull-request-checklist)
 - [Questions](#questions)
 
@@ -99,9 +100,7 @@ See [`scripts/README.md`](scripts/README.md) and [`docs/ONBOARDING.md`](docs/ONB
 
 ## CI workflows
 
-GitHub Actions runs **Backend (Rust)** and **Frontend** workflows on every PR to `master`. Frontend Vitest and scripts typecheck are **not** enforced in CI today.
-
-Full truth table, line-by-line job steps, and copy-pastable recommended YAML: [`docs/development/ci-workflows.md`](docs/development/ci-workflows.md).
+This repository does not ship any GitHub Actions workflow files, so nothing is enforced automatically on PRs. Run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
 
 ---
 
@@ -207,6 +206,20 @@ This invokes `scripts/generate-types.sh`, which requires either:
 ### Output Location
 
 All generated files are written to `frontend/src/generated/`. Do not manually edit files in this directory — they will be overwritten on the next generation run.
+
+---
+
+## Documentation Naming Convention
+
+All Markdown files under `docs/` use `UPPER-KEBAB.md`: uppercase letters and digits joined by hyphens, ending in `.md` (e.g. `DEPLOYMENT.md`, `TWO-STEP-AUTH.md`, `TESTING-RUNBOOK.md`). This is enforced by `node check-doc-links.mjs`, which fails on any `docs/**/*.md` file that does not match `^[A-Z0-9]+(-[A-Z0-9]+)*\.md$`.
+
+When adding a new doc:
+
+- Name it `UPPER-KEBAB.md` and place it in the matching subdirectory (`architecture/`, `development/`, `frontend/`, `operations/`, `security/`, `spec/`) or at the top level of `docs/`.
+- Link it from [`docs/README.md`](docs/README.md) — files under `docs/` that nothing links to are reported as orphans and also fail the check.
+- Rename with `git mv` so history is preserved, then update every link target (the checker validates all relative links and `#anchor`s).
+
+Rationale: one convention keeps links greppable and avoids case-sensitivity surprises across macOS/Windows/Linux checkouts (see issue #1500).
 
 ---
 

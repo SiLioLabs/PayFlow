@@ -15,7 +15,7 @@
  * silently loses precision.
  */
 
-const STROOPS_PER_XLM_BIGINT = 10_000_000n;
+import { STROOPS_PER_XLM_BIGINT } from "../constants";
 
 /**
  * Truncates a Stellar address or transaction hash for display, keeping the

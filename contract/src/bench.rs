@@ -25,6 +25,12 @@
 /// | batch_charge() – 10 users       |   8_860_549     | 1_894_229    | 10_200_000    |
 /// | get_top_merchants_by_subs() – 15 merchants | 724_790 | 68_839   |    835_000    |
 ///
+/// The top-merchants bench is parameterised over index sizes (15 / 100 / 500)
+/// so the scan-over-index shape is exercised as the index grows. The
+/// 15-merchant row is the last recorded baseline; the larger sizes pin budgets
+/// extrapolated from it (see `MAX_TOP_MERCHANTS_INDEX_*_INSTRUCTIONS`) and
+/// print their measured cost at runtime so the numbers can be re-recorded.
+///
 /// These numbers are printed at runtime (see `--nocapture`).  Update the
 /// table above whenever a deliberate change shifts the baseline by more
 /// than ~5 %.
@@ -46,6 +52,12 @@ pub const MAX_CHARGE_INSTRUCTIONS: u64 = 770_000;
 pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 825_000;
 pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 10_200_000;
 pub const MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS: u64 = 835_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 100-merchant index.
+/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
+pub const MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS: u64 = 8_000_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 500-merchant index.
+/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
+pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 40_000_000;
 
 use super::*;
 use soroban_sdk::{
@@ -406,25 +418,47 @@ fn bench_charge_vs_subscribe_ratio() {
     );
 }
 
-#[test]
-fn bench_get_top_merchants_by_subs_large_index() {
-    let (env, contract_id, token_addr, _, _) = bench_setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    env.as_contract(&contract_id, || {
-        crate::whitelist::set_whitelist_enabled(&env, false);
-    });
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: get_top_merchants_by_subs() at multiple index sizes
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Seed 15 merchants with varying subscriber counts
-    for i in 0..15 {
-        let merchant = Address::generate(&env);
-        let user = add_funded_user(&env, &contract_id, &token_addr);
-        client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-        if i % 2 == 0 {
-            let u2 = add_funded_user(&env, &contract_id, &token_addr);
-            client.subscribe(&u2, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+/// Seeds `n` distinct merchants into the merchant index with varying subscriber
+/// counts by writing the index directly rather than going through `subscribe()`.
+///
+/// The point of this benchmark is the cost of the ranking scan as the index
+/// grows, so the measured call must not be dominated by the cost of building
+/// the fixtures. Seeding through `subscribe()` would also require a funded user
+/// and token approval per merchant, which is both slower and irrelevant to what
+/// is being measured.
+fn seed_merchant_index(env: &Env, contract_id: &Address, n: u32) {
+    env.as_contract(contract_id, || {
+        for i in 0..n {
+            let merchant = Address::generate(env);
+            crate::merchant_stats::index_merchant(env, &merchant);
+            // Vary the counts so the descending-order assertion is meaningful.
+            let count = (i % 5) as u64 + 1;
+            let key = DataKey::MerchantSubCount(merchant.clone());
+            env.storage().persistent().set(&key, &count);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, 1555200, 1555200);
         }
-    }
+    });
+}
 
+/// Runs `get_top_merchants_by_subs(10)` over an index of `n` merchants and
+/// asserts the measured CPU cost stays within `budget`, the result fills the
+/// top-10 window, and the ranking is ordered descending by subscriber count.
+fn run_top_merchants_bench(n: u32, budget: u64) {
+    let (env, contract_id, _token_addr, _user, _merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Lift the meter while building fixtures: seeding a 500-entry index would
+    // otherwise risk tripping the default budget before the measured call.
+    env.budget().reset_unlimited();
+    seed_merchant_index(&env, &contract_id, n);
+
+    // Reset immediately before the call under measurement.
     env.budget().reset_unlimited();
 
     let top = client.get_top_merchants_by_subs(&10);
@@ -434,17 +468,55 @@ fn bench_get_top_merchants_by_subs_large_index() {
 
     env.budget().reset_default();
 
-    println!("\n[bench_get_top_merchants_by_subs_large_index]");
+    println!("\n[bench_get_top_merchants_by_subs]");
+    println!("  Index size       : {}", n);
     println!("  CPU Instructions : {}", cpu);
     println!("  Memory Bytes     : {}", mem);
+    println!("  Pinned budget    : {}", budget);
 
-    assert_eq!(top.len(), 10);
-    assert!(cpu > 0, "get_top_merchants_by_subs must consume CPU instructions");
+    assert_eq!(
+        top.len(),
+        10,
+        "the top-10 window must fill with {} merchants in the index",
+        n
+    );
+
+    let mut prev: u32 = u32::MAX;
+    for i in 0..top.len() {
+        let (_merchant, count) = top.get(i).unwrap();
+        assert!(
+            count <= prev,
+            "ranking must be ordered descending at position {}",
+            i
+        );
+        prev = count;
+    }
+
+    assert!(
+        cpu > 0,
+        "get_top_merchants_by_subs must consume CPU instructions"
+    );
     assert!(mem > 0, "get_top_merchants_by_subs must consume memory");
     assert!(
-        cpu <= MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS,
-        "get_top_merchants_by_subs() CPU ({}) exceeds budget threshold ({})",
+        cpu <= budget,
+        "get_top_merchants_by_subs() CPU ({}) exceeds budget threshold ({}) at index size {}",
         cpu,
-        MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS
+        budget,
+        n
     );
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_15() {
+    run_top_merchants_bench(15, MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_100() {
+    run_top_merchants_bench(100, MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_500() {
+    run_top_merchants_bench(500, MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS);
 }

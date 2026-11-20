@@ -1,8 +1,7 @@
 # Security
 <!-- updated -->
-> **Revision date:** 2026-08-27  
-> Auth matrix audited against `contract/src/lib.rs`, `admin.rs`, `migration.rs`, and `upgrade.rs`.  
-> Rows for `migrate` and `upgrade` corrected to admin‑only. `set_initial_admin` remains permissionless by design.
+> **Revision date:** 2026-09-26  
+> Auth matrix rebuilt by grepping `require_auth` across `contract/src/` (lib.rs, admin.rs, fee.rs, grace.rs, merchant_stats.rs, migration.rs, upgrade.rs). All 22 call sites accounted for. `transfer_subscription` corrected to two signers; `cancel_and_refund_prorated`, `withdraw_merchant_revenue`, `set_merchant_fee_recipient`, `pay_per_use_to`, `pause_until`, `extend_trial`, and `batch_charge` added. `clear_charge_history` and `set_initial_admin` corrected to admin-gated. Stale single-token limitation removed.
 
 This document describes the current security model, threat model, known limitations, and responsible disclosure process for FlowPay.
 
@@ -14,12 +13,12 @@ FlowPay is deployed on Testnet only and has not been formally audited. Treat the
 
 ### Audit roadmap
 
-1. Complete the internal preparation checklist in [`docs/security/audit-preparation.md`](security/audit-preparation.md).
+1. Complete the internal preparation checklist in [`docs/security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md).
 2. Freeze and tag an audit candidate commit; publish the WASM hash.
 3. Engage an independent Soroban-focused auditor with the in-scope contract sources.
 4. Remediate findings, re-test, and publish the report (or summary) before Mainnet.
 
-Use the [Security Audit Preparation Guide](security/audit-preparation.md) for invariants, threat mapping, scope, and known limitations to brief auditors.
+Use the [Security Audit Preparation Guide](security/AUDIT-PREPARATION.md) for invariants, threat mapping, scope, and known limitations to brief auditors.
 
 ---
 
@@ -58,43 +57,47 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 
 ## Auth Model
 
-| Function                                  | Required signer                                                 |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| `subscribe()`                             | `user`                                                          |
-| `subscribe_with_metadata()`               | `user`                                                          |
-| `charge()`                                | None                                                            |
-| `extend_subscription_ttl()`               | None                                                            |
-| `pay_per_use()`                           | `user`                                                          |
-| `cancel()`                                | `user`                                                          |
-| `pause()`                                 | `user`                                                          |
-| `resume()`                                | `user`                                                          |
-| `transfer_admin()`                        | current admin                                                   |
-| `accept_admin()`                          | pending admin                                                   |
-| `upgrade()`                               | Admin (production uses two-step propose/commit, both admin‑gated) |
-| `set_subscription_amount()`               | admin                                                           |
-| `set_subscription_interval()`             | admin                                                           |
-| `set_min_interval()`                      | admin                                                           |
-| `add_merchant()`                          | admin                                                           |
-| `remove_merchant()`                       | admin                                                           |
-| `set_whitelist_enabled()`                 | admin                                                           |
-| `freeze_merchant()`                       | admin                                                           |
-| `unfreeze_merchant()`                     | admin                                                           |
-| `propose_fee()`                           | admin                                                           |
-| `commit_fee()`                            | admin                                                           |
-| `propose_grace_period()`                  | admin                                                           |
-| `commit_grace_period()`                   | admin                                                           |
-| `set_daily_limit()`                       | `user`                                                          |
-| `remove_daily_limit()`                    | `user`                                                          |
-| `set_metadata()`                          | `user`                                                          |
-| `clear_metadata()`                        | `user`                                                          |
-| `clear_charge_history()`                  | `user`                                                          |
-| `transfer_subscription()`                 | `user`                                                          |
-| read-only getters                         | none                                                            |
-| `pause_contract()` / `unpause_contract()` | admin                                                           |
-| `clear_merchant_revenue_history()`        | admin                                                           |
-| `reset_merchant_revenue()`                | admin                                                           |
-| `set_initial_admin()`                     | none                                                            |
-| `migrate()`                               | Admin                                                           |
+| Function | Required signer |
+| --- | --- |
+| `subscribe()`, `subscribe_with_metadata()` | `user` |
+| `cancel()` | `user` |
+| `extend_trial()` | `user` |
+| `pause()`, `pause_until()` | `user` |
+| `resume()` | `user` |
+| `pay_per_use()`, `pay_per_use_to()` | `user` |
+| `set_daily_limit()`, `remove_daily_limit()` | `user` |
+| `set_metadata()`, `clear_metadata()` | `user` |
+| `transfer_subscription()` | `user` **and** `new_user` |
+| `cancel_and_refund_prorated()` | `user` **and** `merchant` |
+| `withdraw_merchant_revenue()` | `merchant` |
+| `set_merchant_fee_recipient()` | `merchant` |
+| `transfer_admin()` | current admin |
+| `accept_admin()` | pending admin |
+| `initialize()`, `set_initial_admin()` | admin |
+| `set_max_batch_size()`, `set_max_whitelist_batch_size()` | admin |
+| `set_fee_bounds()`, `set_global_volume_cap()` | admin |
+| `batch_pause_subscriptions()`, `batch_cancel()` | admin |
+| `whitelist_batch_add()`, `whitelist_batch_remove()` | admin |
+| `set_subscription_amount()`, `set_subscription_interval()` | admin |
+| `set_min_interval()` | admin |
+| `add_merchant()`, `remove_merchant()` | admin |
+| `set_whitelist_enabled()` | admin |
+| `freeze_merchant()`, `unfreeze_merchant()` | admin |
+| `clear_fee()`, `propose_fee()`, `commit_fee()` | admin |
+| `propose_grace_period()`, `commit_grace_period()` | admin |
+| `clear_charge_history()`, `prune_charge_history()` | admin |
+| `clear_merchant_revenue_history()`, `reset_merchant_revenue()` | admin |
+| `prune_merchant_revenue_days()` | admin |
+| `extend_subscriber_index_ttl()`, `clear_subscriber_index_entry()` | admin |
+| `pause_contract()`, `unpause_contract()` | admin |
+| `propose_upgrade()`, `commit_upgrade()`, `cancel_pending_upgrade()` | admin |
+| `migrate()` | admin |
+| `charge()`, `batch_charge()` | none |
+| `extend_subscription_ttl()`, `batch_extend_subscription_ttl()` | none |
+| `bump_subscription()`, `bump_instance_ttl()` | none |
+| `bump_merchant_revenue_day()` | none |
+| `simulate_charge()`, `simulate_pay_per_use()`, `simulate_pay_per_use_to()` | none |
+| read-only getters | none |
 
 The current contract uses a mix of direct `require_auth()` checks and admin helper enforcement. That is intentional, but the auth path should be reviewed whenever a new public function is added.
 
@@ -141,7 +144,6 @@ The contract includes an upgrade wrapper, which means upgrade governance matters
 
 ## Known Limitations
 
-- Single-token operation is still the default contract model.
 - The keeper is an external liveness dependency.
 - There is no fully decentralized dispute-resolution layer for failed or delayed charges.
 - Admin powers are broad and should be treated as high trust until governance is tightened.

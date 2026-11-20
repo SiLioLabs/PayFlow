@@ -422,8 +422,11 @@ describe("MerchantSubscriberTable", () => {
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
       const overdueCount = MANY_SUBS.filter((s) => deriveStatus(s.nextChargeAt) === "overdue").length;
-      const table = screen.getByRole("table", { name: /merchant subscriber list/i });
-      expect(table).toHaveAttribute("aria-rowcount", String(overdueCount));
+      // The filter is applied through a debounced setter, so wait for it to settle.
+      await waitFor(() => {
+        const table = screen.getByRole("table", { name: /merchant subscriber list/i });
+        expect(table).toHaveAttribute("aria-rowcount", String(overdueCount));
+      });
 
       // Every rendered row must actually be overdue — the filter must apply to
       // the full list before virtualization windows it, not the other way round.

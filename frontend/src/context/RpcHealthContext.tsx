@@ -2,10 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { RPC_URL } from "../stellar";
 import { clearCache as clearRpcCache } from "../services/rpcCache";
+import { CUSTOM_RPC_URL_KEY, readCustomRpcUrl } from "../constants";
 
 const POLL_INTERVAL_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
-const CUSTOM_RPC_KEY = "flowpay_custom_rpc_url";
 
 // Backoff: 30s → 60s → 120s (capped)
 function nextInterval(failures: number): number {
@@ -48,14 +48,7 @@ interface RpcHealthState {
   setCustomRpcUrl: (url: string | null) => void;
 }
 
-const defaultUrl = (() => {
-  try {
-    const stored = window.localStorage.getItem(CUSTOM_RPC_KEY);
-    return stored ? (JSON.parse(stored) as string) : null;
-  } catch {
-    return null;
-  }
-})();
+const defaultUrl = readCustomRpcUrl();
 
 const RpcHealthContext = createContext<RpcHealthState>({
   healthy: true,
@@ -71,14 +64,7 @@ export function useRpcHealthContext(): RpcHealthState {
 }
 
 export function RpcHealthProvider({ children }: { children: React.ReactNode }) {
-  const [customRpcUrl, setCustomRpcUrlState] = useState<string | null>(() => {
-    try {
-      const stored = window.localStorage.getItem(CUSTOM_RPC_KEY);
-      return stored ? (JSON.parse(stored) as string) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [customRpcUrl, setCustomRpcUrlState] = useState<string | null>(() => readCustomRpcUrl());
 
   const activeRpcUrl = customRpcUrl ?? RPC_URL;
 
@@ -100,9 +86,9 @@ export function RpcHealthProvider({ children }: { children: React.ReactNode }) {
   const setCustomRpcUrl = useCallback((url: string | null) => {
     try {
       if (url === null) {
-        window.localStorage.removeItem(CUSTOM_RPC_KEY);
+        window.localStorage.removeItem(CUSTOM_RPC_URL_KEY);
       } else {
-        window.localStorage.setItem(CUSTOM_RPC_KEY, JSON.stringify(url));
+        window.localStorage.setItem(CUSTOM_RPC_URL_KEY, JSON.stringify(url));
       }
     } catch {
       // localStorage unavailable

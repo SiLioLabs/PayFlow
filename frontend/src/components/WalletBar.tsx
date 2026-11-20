@@ -8,6 +8,7 @@ import NotificationCenter from "./NotificationCenter";
 import TxQueuePanel from "./TxQueuePanel";
 import { useTxQueue } from "../services/txQueue";
 import type { Notification } from "../hooks/useToast";
+import ThemeToggle from "./ThemeToggle";
 
 import { WalletAdapter } from "../services/wallets/WalletAdapter";
 
@@ -55,6 +56,7 @@ export default function WalletBar({
         <AmountUnitToggle />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <ThemeToggle />
         <NotificationCenter
           notifications={notifications}
           unreadCount={unreadCount}

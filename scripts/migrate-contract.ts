@@ -16,7 +16,6 @@ import {
 import { logger } from "./logger";
 import { vecAddressToScVal } from "./soroban-admin";
 
-const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE = process.env.VITE_NETWORK_PASSPHRASE ?? process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET;
 const CONTRACT_ID = process.env.VITE_CONTRACT_ID ?? process.env.CONTRACT_ID ?? "";
 

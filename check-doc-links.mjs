@@ -6,11 +6,17 @@
  *   2. each `#anchor` resolves to a heading that actually exists in the target,
  *   3. each intra-document `#anchor` resolves within the same file.
  *
- * Also reports markdown files that nothing links to (orphans), which is how a
- * new doc ends up unreachable.
+ * Also reports markdown files that no other markdown file links to (orphans),
+ * which is how a new doc ends up unreachable. The root README.md is the entry
+ * point and is never an orphan. Orphans under docs/ are errors (docs/README.md
+ * is the index that must reach them); orphans elsewhere are warnings.
+ *
+ * Also enforces the docs naming convention (issue #1500): every Markdown
+ * file under docs/ must be UPPER-KEBAB.md (`^[A-Z0-9]+(-[A-Z0-9]+)*\.md$`).
+ * Non-conforming filenames are errors, like broken links and docs/ orphans.
  *
  * Usage: node check-doc-links.mjs [rootDir]
- * Exits 1 if any broken link is found.
+ * Exits 1 if any broken link or docs/ orphan is found.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, resolve, relative, extname } from "node:path";
@@ -83,6 +89,11 @@ const broken = [];
 const linkTargets = new Set(); // resolved .md paths that at least one link points to
 let checked = 0;
 
+/** Records `target` as linked to, ignoring self-links. */
+function markLinked(target, from) {
+  if (target !== from) linked.add(target);
+}
+
 for (const file of files) {
   const md = readFileSync(file, "utf8");
   const rel = relative(ROOT, file).replace(/\\/g, "/");
@@ -116,6 +127,11 @@ for (const file of files) {
 
     // Bare directory link: fine.
     if (extname(resolved) !== ".md") { continue; }
+    // Bare directory link: fine; GitHub renders its README.md.
+    if (extname(resolved) !== ".md") {
+      if (statSync(resolved).isDirectory()) markLinked(join(resolved, "README.md"), file);
+      continue;
+    }
 
     const targetRel = relative(ROOT, resolved).replace(/\\/g, "/");
     if (anchor) {
@@ -125,14 +141,38 @@ for (const file of files) {
       }
     }
     linkTargets.add(targetRel);
+    markLinked(resolved, file);
   }
 }
 
+const orphans = files
+  .filter((f) => !linked.has(f) && f !== join(ROOT, "README.md"))
+  .map((f) => relative(ROOT, f).replace(/\\/g, "/"))
+  .sort();
+const docOrphans = orphans.filter((o) => o.startsWith("docs/"));
+
+// Docs naming convention (issue #1500): every Markdown file under docs/
+// must be UPPER-KEBAB.md.
+const nameRe = /^[A-Z0-9]+(-[A-Z0-9]+)*\.md$/;
+const nameViolations = files
+  .map((f) => relative(ROOT, f).replace(/\\/g, "/"))
+  .filter((rel) => rel.startsWith("docs/") && rel.endsWith(".md"))
+  .filter((rel) => !nameRe.test(rel.split("/").pop()))
+  .sort();
+
 console.log(`Scanned ${files.length} markdown file(s), checked ${checked} link(s).`);
+const warnOrphans = orphans.filter((o) => !o.startsWith("docs/"));
+if (warnOrphans.length) {
+  console.log(`\nORPHANS outside docs/ (warning, ${warnOrphans.length}):`);
+  for (const o of warnOrphans) console.log("  " + o);
+}
+if (docOrphans.length) {
+  console.log(`\nORPHANS under docs/ (${docOrphans.length}) — link them from docs/README.md:`);
+  for (const o of docOrphans) console.log("  " + o);
+}
 if (broken.length) {
   console.log(`\nBROKEN LINKS (${broken.length}):`);
   for (const b of broken) console.log("  " + b);
-  process.exit(1);
 }
 
 // Orphans: markdown files that nothing links to. README.md files are index
@@ -149,3 +189,9 @@ if (orphanRel.size) {
   process.exit(1);
 }
 console.log("No broken relative links or anchors.");
+if (nameViolations.length) {
+  console.log(`\nNON-CONFORMING DOC FILENAMES (${nameViolations.length}) — rename to UPPER-KEBAB.md (see CONTRIBUTING.md):`);
+  for (const v of nameViolations) console.log("  " + v);
+}
+if (broken.length || docOrphans.length || nameViolations.length) process.exit(1);
+console.log("No broken relative links or anchors, no orphans under docs/, and all docs filenames are UPPER-KEBAB.");

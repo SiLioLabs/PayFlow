@@ -2,6 +2,8 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from "rea
 import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
 import { useRpcHealthContext } from "./context/RpcHealthContext";
+import { ToastProvider } from "./context/ToastContext";
+import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
 import RpcSettings from "./components/RpcSettings";
@@ -9,7 +11,6 @@ import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { useAdmin } from "./hooks/useAdmin";
 import { useContractId } from "./hooks/useContractId";
 import { useContractPaused } from "./hooks/useContractPaused";
-import { useToast } from "./hooks/useToast";
 import MerchantDashboard from "./components/MerchantDashboard";
 import WalletSelectModal from "./components/WalletSelectModal";
 import WalletBar from "./components/WalletBar";
@@ -25,7 +26,7 @@ import { ShortcutRegistryContext } from "./context/ShortcutRegistry";
 
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
-export default function App() {
+function AppInner() {
   const { publicKey, connect, disconnect, signAndSubmit, error, connecting, connectionStatus, activeAdapter } =
     useWallet();
   const { announcement, announce } = useAccessibility();
@@ -48,11 +49,6 @@ export default function App() {
   const { valid: isContractIdValid, error: contractIdError } = useContractId();
   const { isAdmin } = useAdmin(publicKey);
   const { isPaused, status: contractStatus } = useContractPaused();
-  // Dashboard/SubscribeForm/MerchantDashboard/admin panels each keep their own
-  // useToast() instance (and their own tests mock them independently), so
-  // centralizing every toast call site into one shared instance is out of
-  // scope here. This App-level instance exists solely to drive the header's
-  // NotificationCenter (issue #864).
   const { notifications, unreadCount, markAllRead, clearNotifications } = useToast();
   const [showWalletModal, setShowWalletModal] = useState(false);
   const wasOnline = useRef(isOnline);
@@ -233,43 +229,73 @@ export default function App() {
 
           {/* Content */}
           <div className="card" style={{ marginTop: 20 }}>
-            {tab === "subscribe" && (
-              <SubscribeForm
-                userKey={publicKey}
-                onSign={signAndSubmit}
-                onSuccess={() => {
-                  setTab("dashboard");
-                  setRefresh((r) => r + 1);
-                }}
-                isPaused={!gatePassed}
-                announce={announce}
-                isOffline={!isOnline}
-              />
-            )}
-            {tab === "dashboard" && (
-              <Dashboard
-                userKey={publicKey}
-                onSign={signAndSubmit}
-                refreshTrigger={refresh}
-                announce={announce}
-                isPaused={!gatePassed}
-                isOffline={!isOnline}
-              />
-            )}
-            {tab === "merchant" && (
-              <MerchantDashboard
-                merchantKey={publicKey}
-                onSign={signAndSubmit}
-                refreshTrigger={refresh}
-                isPaused={isPaused}
-              />
-            )}
-            {tab === "admin" && isAdmin && (
-              <AdminDashboard
-                publicKey={publicKey}
-                onSign={signAndSubmit}
-                gatePassed={gatePassed}
-              />
+            <div
+              role="tabpanel"
+              id="panel-subscribe"
+              aria-labelledby="tab-subscribe"
+              hidden={tab !== "subscribe"}
+            >
+              {tab === "subscribe" && (
+                <SubscribeForm
+                  userKey={publicKey}
+                  onSign={signAndSubmit}
+                  onSuccess={() => {
+                    setTab("dashboard");
+                    setRefresh((r) => r + 1);
+                  }}
+                  isPaused={!gatePassed}
+                  announce={announce}
+                  isOffline={!isOnline}
+                />
+              )}
+            </div>
+            <div
+              role="tabpanel"
+              id="panel-dashboard"
+              aria-labelledby="tab-dashboard"
+              hidden={tab !== "dashboard"}
+            >
+              {tab === "dashboard" && (
+                <Dashboard
+                  userKey={publicKey}
+                  onSign={signAndSubmit}
+                  refreshTrigger={refresh}
+                  announce={announce}
+                  isPaused={!gatePassed}
+                  isOffline={!isOnline}
+                />
+              )}
+            </div>
+            <div
+              role="tabpanel"
+              id="panel-merchant"
+              aria-labelledby="tab-merchant"
+              hidden={tab !== "merchant"}
+            >
+              {tab === "merchant" && (
+                <MerchantDashboard
+                  merchantKey={publicKey}
+                  onSign={signAndSubmit}
+                  refreshTrigger={refresh}
+                  isPaused={isPaused}
+                />
+              )}
+            </div>
+            {isAdmin && (
+              <div
+                role="tabpanel"
+                id="panel-admin"
+                aria-labelledby="tab-admin"
+                hidden={tab !== "admin"}
+              >
+                {tab === "admin" && (
+                  <AdminDashboard
+                    publicKey={publicKey}
+                    onSign={signAndSubmit}
+                    gatePassed={gatePassed}
+                  />
+                )}
+              </div>
             )}
           </div>
         </>
@@ -292,5 +318,13 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   );
 }

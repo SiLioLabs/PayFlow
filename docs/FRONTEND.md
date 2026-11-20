@@ -48,7 +48,7 @@ Each directory has a dedicated responsibility.
 - **services** provide shared utilities.
 - **stellar.ts** acts as the blockchain gateway.
 
-Canonical vs orphan modules and validation-rule owners: [`frontend/components.md`](frontend/components.md).
+Canonical vs orphan modules and validation-rule owners: [`frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
 
 ---
 
@@ -344,4 +344,4 @@ The frontend is organized around a simple principle:
 - Freighter signs transactions.
 - React state and hooks manage application state efficiently.
 
-Admin batch size caps (pause, whitelist, charge, cancel) vs the contract: [`limits.md`](limits.md). Component catalog: [`FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).
+Admin batch size caps (pause, whitelist, charge, cancel) vs the contract: [`LIMITS.md`](LIMITS.md). Component catalog: [`FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).

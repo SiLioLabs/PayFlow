@@ -34,6 +34,7 @@
  * ```
  */
 
+import { Keypair } from "@stellar/stellar-sdk";
 import { z } from "zod";
 
 // ── Environment Variable Normalization ───────────────────────────────────────
@@ -246,4 +247,70 @@ export function formatConfigErrors(error: z.ZodError): string[] {
   }
 
   return lines;
+}
+
+// ── Mainnet safety gate & secret redaction ──────────────────────────────────
+
+/** Stellar public (mainnet) network passphrase. */
+export const PUBLIC_NETWORK_PASSPHRASE =
+  "Public Global Stellar Network ; September 2015";
+
+/**
+ * Mainnet safety gate. Returns an actionable error message when the public
+ * (mainnet) network passphrase is selected without the operator explicitly
+ * setting `ALLOW_MAINNET=true`; returns `null` when it is safe to proceed.
+ *
+ * Ported from the retired root `keeper-config.ts` so the canonical keeper
+ * keeps its mainnet safeguard.
+ */
+export function mainnetGateError(
+  networkPassphrase: string | undefined,
+  allowMainnet: boolean,
+): string | null {
+  if (networkPassphrase === PUBLIC_NETWORK_PASSPHRASE && !allowMainnet) {
+    return "Mainnet network passphrase detected. Set ALLOW_MAINNET=true to confirm you want to use Mainnet.";
+  }
+  return null;
+}
+
+/**
+ * Redact a Stellar secret key for display or logging: keeps the leading `S`
+ * and the final 4 characters, masking everything in between. Text that is not
+ * a secret key passes through unchanged.
+ *
+ * Ported from the retired root `keeper-config.ts` (`redactSecret`), so
+ * configuration summaries can never leak a full secret. The pattern uses the
+ * exact base32 alphabet `[A-Z2-7]` (corrected upstream in #1293): characters
+ * 0, 1, 8, 9 never appear in real Stellar keys, and the case-insensitive flag
+ * is omitted so lowercase lookalikes are not falsely redacted.
+ */
+export function redactSecret(value: string): string {
+  return value.replace(/S[A-Z2-7]{55}/g, (match) => {
+    return "S" + "*".repeat(8) + match.slice(-4);
+  });
+}
+
+/**
+ * Verify that `KEEPER_PUBLIC_KEY` is the public key derived from the signing
+ * secret. Returns an actionable error message when they disagree, or `null`
+ * when they match (or when either value is absent, or the secret is
+ * malformed — those cases are reported by `ConfigSchema` instead).
+ *
+ * Ported from the retired root `keeper-config.ts` so a misconfigured signer is
+ * caught at startup instead of at transaction signing time.
+ */
+export function publicKeyMismatchError(
+  secret: string | undefined,
+  publicKey: string | undefined,
+): string | null {
+  if (!secret || !publicKey) return null;
+  try {
+    if (Keypair.fromSecret(secret).publicKey() !== publicKey) {
+      return "KEEPER_PUBLIC_KEY does not match SECRET_KEY (or KEEPER_SECRET)";
+    }
+  } catch {
+    // Shape-valid but unparsable secrets are reported by ConfigSchema's
+    // secret-key pattern check; nothing to add here.
+  }
+  return null;
 }

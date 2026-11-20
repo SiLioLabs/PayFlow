@@ -133,4 +133,33 @@ describe("TransferSubscriptionModal", () => {
 
     expect(screen.getByTestId("transfer-address-input")).toHaveValue(TARGET_KEY);
   });
+
+  it("gives target address input an accessible name queried by role", () => {
+    renderModal();
+    const input = screen.getByRole("textbox", { name: /target address/i });
+    expect(input).toBeInTheDocument();
+  });
+
+  it("sets aria-invalid and aria-describedby on error and clears when valid", async () => {
+    renderModal();
+    const input = screen.getByRole("textbox", { name: /target address/i });
+
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(input).not.toHaveAttribute("aria-describedby");
+
+    await userEvent.type(input, "invalid-address");
+
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", "transfer-address-error");
+    const errorEl = document.getElementById("transfer-address-error");
+    expect(errorEl).toBeInTheDocument();
+    expect(errorEl).toHaveAttribute("role", "alert");
+
+    await userEvent.clear(input);
+    await userEvent.type(input, TARGET_KEY);
+
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(input).not.toHaveAttribute("aria-describedby");
+    expect(document.getElementById("transfer-address-error")).not.toBeInTheDocument();
+  });
 });

@@ -36,6 +36,9 @@ import {
   Registry,
 } from "prom-client";
 import type { Server } from "node:http";
+import { logger as rootLogger } from "./logger.js";
+
+const logger = rootLogger.child({ script: "metrics-server" });
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -112,6 +115,41 @@ const indexerDedupCacheSize = new Gauge({
 const indexerDedupEvictionsTotal = new Counter({
   name: "indexer_dedup_evictions_total",
   help: "Total number of LRU evictions performed by the EventDedupCache",
+  registers: [registry],
+});
+
+/** Ledger gaps detected (RPC retention pruned ledgers the indexer had not read). */
+const indexerLedgerGapsTotal = new Counter({
+  name: "indexer_ledger_gaps_total",
+  help: "Total number of ledger gaps detected by the indexer",
+  registers: [registry],
+});
+
+/** Ledgers skipped across all detected gaps. */
+const indexerLedgerGapLedgersTotal = new Counter({
+  name: "indexer_ledger_gap_ledgers_total",
+  help: "Total number of ledgers lost to detected gaps",
+  registers: [registry],
+});
+
+/** Gaps not yet backfilled. */
+const indexerOpenLedgerGaps = new Gauge({
+  name: "indexer_open_ledger_gaps",
+  help: "Number of detected ledger gaps that have not been backfilled",
+  registers: [registry],
+});
+
+/** Highest ledger the indexer has fully processed. */
+const indexerLastProcessedLedger = new Gauge({
+  name: "indexer_last_processed_ledger",
+  help: "Last ledger successfully processed by the indexer",
+  registers: [registry],
+});
+
+/** Oldest ledger the RPC provider currently serves. */
+const indexerOldestAvailableLedger = new Gauge({
+  name: "indexer_oldest_available_ledger",
+  help: "Oldest ledger available from the RPC provider (retention boundary)",
   registers: [registry],
 });
 
@@ -224,6 +262,26 @@ export function recordIndexerDedupStats(stats: {
   indexerDedupCacheSize.set(stats.size);
 }
 
+/** Record a newly detected ledger gap of `ledgerCount` ledgers. */
+export function recordLedgerGap(ledgerCount: number): void {
+  indexerLedgerGapsTotal.inc();
+  indexerLedgerGapLedgersTotal.inc(ledgerCount);
+}
+
+/** Set the current number of un-backfilled gaps. */
+export function setOpenLedgerGaps(count: number): void {
+  indexerOpenLedgerGaps.set(count);
+}
+
+/** Record indexer progress and the RPC retention boundary (either may be omitted). */
+export function setIndexerLedgerPosition(pos: {
+  lastProcessed?: number;
+  oldestAvailable?: number;
+}): void {
+  if (pos.lastProcessed !== undefined) indexerLastProcessedLedger.set(pos.lastProcessed);
+  if (pos.oldestAvailable !== undefined) indexerOldestAvailableLedger.set(pos.oldestAvailable);
+}
+
 /**
  * Return the Prometheus text-format metrics string.
  * Used by the HTTP handler — also available for testing.
@@ -263,27 +321,28 @@ export function startMetricsServer(): boolean {
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
-        console.error(
-          `[metrics] Port ${METRICS_PORT} already in use — keeper will continue without metrics`,
-        );
+        logger.error("Port already in use — keeper will continue without metrics", {
+          port: METRICS_PORT,
+        });
         server?.close();
         server = null;
       } else {
-        console.error(`[metrics] Server error: ${err.message}`);
+        logger.error("Metrics server error", { error: err.message });
       }
     });
 
     server.listen(METRICS_PORT, () => {
-      console.error(
-        `[metrics] Prometheus metrics server listening on :${METRICS_PORT}/metrics`,
-      );
+      logger.info("Prometheus metrics server listening", {
+        port: METRICS_PORT,
+        path: "/metrics",
+      });
     });
 
     return true;
   } catch (err) {
-    console.error(
-      `[metrics] Failed to start metrics server: ${err instanceof Error ? err.message : err}`,
-    );
+    logger.error("Failed to start metrics server", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return false;
   }
 }
@@ -298,7 +357,7 @@ export function stopMetricsServer(): Promise<void> {
       return;
     }
     server.close(() => {
-      console.error("[metrics] Server stopped");
+      logger.info("Metrics server stopped");
       server = null;
       resolve();
     });
@@ -313,20 +372,19 @@ export function stopMetricsServer(): Promise<void> {
  * keeper process imports and uses the exported record* functions.
  */
 async function main(): Promise<void> {
-  console.error(
-    `[metrics] Starting standalone metrics server on port ${METRICS_PORT}`,
-  );
+  logger.info("Starting standalone metrics server", { port: METRICS_PORT });
   startMetricsServer();
 
   // Keep the process alive. In standalone mode the metrics just reflect
   // defaults (zero counters / empty histograms) unless a keeper updates them.
   process.on("SIGINT", async () => {
-    console.error("\n[metrics] Shutting down...");
+    logger.info("Shutting down (SIGINT)");
     await stopMetricsServer();
     process.exit(0);
   });
 
   process.on("SIGTERM", async () => {
+    logger.info("Shutting down (SIGTERM)");
     await stopMetricsServer();
     process.exit(0);
   });
@@ -336,9 +394,7 @@ async function main(): Promise<void> {
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
   main().catch((err) => {
-    console.error(
-      `[metrics] Fatal: ${err instanceof Error ? err.message : err}`,
-    );
+    logger.error("Fatal error", { error: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   });
 }

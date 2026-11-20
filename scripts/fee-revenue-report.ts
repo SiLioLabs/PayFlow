@@ -35,6 +35,33 @@ interface Report {
   days: DayRevenue[];
 }
 
+/**
+ * Parsed shape of a `charged` event's raw_data payload.
+ * Shared with renewal-forecast.ts so both scripts read the same fields.
+ */
+export interface ChargedEventData {
+  user: string;
+  amount: string;
+  fee: string;
+}
+
+/**
+ * Parse a `charged` event's raw_data JSON into a normalized shape.
+ * Returns null for malformed rows so callers can skip them.
+ */
+export function parseChargedEvent(rawData: string): ChargedEventData | null {
+  try {
+    const parsed = JSON.parse(rawData) as Record<string, unknown>;
+    return {
+      user: String(parsed.user ?? ""),
+      amount: String(parsed.amount ?? "0"),
+      fee: String(parsed.fee ?? "0"),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function getArg(flag: string): string | undefined {
   const idx = process.argv.indexOf(flag);
   return idx !== -1 ? process.argv[idx + 1] : undefined;
@@ -46,10 +73,6 @@ function toDateStr(ts: number): string {
 
 function main() {
   const dbPath = getArg("--db");
-  if (!dbPath) {
-    console.error("--db <path> required");
-    process.exit(1);
-  }
   if (!dbPath) {
     logger.error("--db <path> required");
     process.exit(1);
@@ -68,12 +91,14 @@ function main() {
   const byDay = new Map<string, { fee: bigint; count: number }>();
 
   for (const row of rows) {
+    const parsed = parseChargedEvent(row.raw_data);
     let fee = 0n;
-    try {
-      const parsed = JSON.parse(row.raw_data) as Record<string, unknown>;
-      fee = BigInt(String(parsed.fee ?? "0"));
-    } catch {
-      /* skip malformed rows */
+    if (parsed) {
+      try {
+        fee = BigInt(parsed.fee);
+      } catch {
+        /* skip malformed fee values */
+      }
     }
 
     const date = toDateStr(row.timestamp);

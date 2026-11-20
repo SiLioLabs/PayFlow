@@ -57,7 +57,11 @@ pub fn prune_charge_history(env: &Env, user: &Address) {
         .remove(&DataKey::ChargeHistory(user.clone()));
 }
 
-/// Returns the current TTL (in ledgers) of the ChargeHistory entry, or 0 if absent.
+/// ChargeHistory TTL helper.
+///
+/// - Test/testutils: real persistent TTL, or `0` if the key is absent.
+/// - Production: always `0`. Soroban does not expose `get_ttl()` on-chain;
+///   callers must not treat `0` as “expired” or as a measured remaining TTL.
 pub fn get_charge_history_ttl(_env: &Env, _user: &Address) -> u32 {
     #[cfg(any(test, feature = "testutils"))]
     {
@@ -127,4 +131,29 @@ pub fn get_charge_history_page(
     }
 
     page
+}
+
+/// Transfers the charge history from one subscriber to another.
+/// Moves the history from `old_user` to `new_user`, clears the old entry, and extends TTL.
+pub fn transfer_charge_history(env: &Env, old_user: &Address, new_user: &Address) {
+    let old_key = DataKey::ChargeHistory(old_user.clone());
+    let new_key = DataKey::ChargeHistory(new_user.clone());
+
+    // Get the history from the old address
+    if let Some(history) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, Vec<u64>>(&old_key)
+    {
+        // Move it to the new address
+        env.storage().persistent().set(&new_key, &history);
+        env.storage().persistent().extend_ttl(
+            &new_key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+
+    // Clear the old address's history
+    env.storage().persistent().remove(&old_key);
 }

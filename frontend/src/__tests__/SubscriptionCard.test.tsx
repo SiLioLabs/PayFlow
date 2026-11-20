@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -63,9 +63,10 @@ vi.mock("../hooks/useSubscriptionSync", () => ({
   }),
 }));
 
-const { mockPause, mockPauseUntil } = vi.hoisted(() => ({
+const { mockPause, mockPauseUntil, mockPauseTx } = vi.hoisted(() => ({
   mockPause: vi.fn(),
   mockPauseUntil: vi.fn(),
+  mockPauseTx: { state: "idle", error: null as string | null, isError: false },
 }));
 
 vi.mock("../hooks/usePauseResume", () => ({
@@ -73,9 +74,9 @@ vi.mock("../hooks/usePauseResume", () => ({
     pause: mockPause,
     pauseUntil: mockPauseUntil,
     resume: vi.fn(),
-    pauseTx: { state: "idle", error: null },
-    pauseUntilTx: { state: "idle", error: null },
-    resumeTx: { state: "idle", error: null },
+    pauseTx: mockPauseTx,
+    pauseUntilTx: { state: "idle", error: null, isError: false },
+    resumeTx: { state: "idle", error: null, isError: false },
   }),
 }));
 
@@ -86,6 +87,167 @@ vi.mock("../context/ShortcutRegistry", () => ({
 vi.mock("../hooks/useResponsive", () => ({
   useResponsive: () => ({ isMobile: false }),
 }));
+
+// ── Pause / cancel dialog accessibility (Issue #1259) ───────────────────────
+
+describe("SubscriptionCard pause/cancel dialog accessibility", () => {
+  const mockOnSign = vi.fn().mockResolvedValue("test-hash");
+  const mockOnRefresh = vi.fn();
+  const mockUserKey = "GUSER123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901234";
+
+  const sub: Subscription = {
+    merchant: "GMERCHANT123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678",
+    amount: "100000000",
+    interval: 2592000,
+    last_charged: 1000000,
+    active: true,
+    paused: false,
+    trial_duration: 0,
+  };
+
+  const renderCard = () =>
+    render(
+      <SubscriptionCard
+        subscription={sub}
+        userKey={mockUserKey}
+        onSign={mockOnSign}
+        onRefresh={mockOnRefresh}
+      />
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAllowance.mockResolvedValue(300000000n);
+    mockGetTrialEnd.mockResolvedValue(null);
+    mockPause.mockResolvedValue(undefined);
+    mockPauseUntil.mockResolvedValue(undefined);
+  });
+
+  it("exposes the pause modal as a labelled modal dialog", async () => {
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby", "pause-modal-title");
+    // aria-labelledby must resolve to the visible heading text
+    const labelId = dialog.getAttribute("aria-labelledby")!;
+    expect(document.getElementById(labelId)).toHaveTextContent(/pause subscription\?/i);
+  });
+
+  it("exposes the cancel modal as a labelled modal dialog", async () => {
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby", "cancel-modal-title");
+    const labelId = dialog.getAttribute("aria-labelledby")!;
+    expect(document.getElementById(labelId)).toHaveTextContent(/cancel subscription\?/i);
+  });
+
+  it("moves focus into the pause modal when it opens", async () => {
+    renderCard();
+    const trigger = screen.getByRole("button", { name: /pause subscription/i });
+    await userEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toContainElement(
+        document.activeElement as HTMLElement
+      );
+    });
+  });
+
+  it("closes the pause modal on Escape", async () => {
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // Escape is a dismissal, not a confirmation
+    expect(mockPause).not.toHaveBeenCalled();
+  });
+
+  it("closes the cancel modal on Escape without cancelling", async () => {
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /confirm cancel/i })).not.toBeInTheDocument();
+  });
+
+  it("returns focus to the pause trigger after Escape", async () => {
+    renderCard();
+    const trigger = screen.getByRole("button", { name: /pause subscription/i });
+    await userEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("returns focus to the cancel trigger after closing via the Back button", async () => {
+    renderCard();
+    const trigger = screen.getByRole("button", { name: /cancel subscription/i });
+    await userEvent.click(trigger);
+
+    await userEvent.click(screen.getByRole("button", { name: /^back$/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("does not dispatch pause twice on a rapid double confirm click", async () => {
+    // A pending promise keeps the tx in flight so the disabled prop cannot be
+    // relied upon to block the second click.
+    let resolvePause: () => void = () => {};
+    mockPause.mockImplementation(
+      () =>
+        new Promise<void>((res) => {
+          resolvePause = res;
+        })
+    );
+
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+
+    const confirm = screen.getByRole("button", { name: /^pause$/i });
+    await userEvent.dblClick(confirm);
+
+    expect(mockPause).toHaveBeenCalledTimes(1);
+    resolvePause();
+  });
+
+  it("does not dispatch cancel twice when confirm is activated twice in one tick", async () => {
+    // Two synthetic clicks inside a single act() batch: React never re-renders
+    // between them, so the button's `disabled` prop cannot be what blocks the
+    // second dispatch. Only the submit latch can.
+    let resolveSign: (v: string) => void = () => {};
+    mockOnSign.mockImplementation(
+      () =>
+        new Promise<string>((res) => {
+          resolveSign = res;
+        })
+    );
+
+    renderCard();
+    await userEvent.click(screen.getByRole("button", { name: /cancel subscription/i }));
+
+    const confirm = screen.getByRole("button", { name: /confirm cancel/i });
+    await act(async () => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+
+    // The cancel path signs exactly one transaction.
+    expect(mockOnSign).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSign("test-hash");
+    });
+  });
+});
 
 describe("SubscriptionCard", () => {
   const mockOnSign = vi.fn().mockResolvedValue("test-hash");
@@ -916,6 +1078,36 @@ describe("SubscriptionCard", () => {
       expect(screen.queryByTestId("transfer-subscription-modal")).not.toBeInTheDocument();
       await userEvent.click(screen.getByTestId("transfer-subscription-button"));
       expect(screen.getByTestId("transfer-subscription-modal")).toBeInTheDocument();
+    });
+  });
+
+  describe("Structured transaction error handling (Issue #1262)", () => {
+    afterEach(() => {
+      mockPauseTx.state = "idle";
+      mockPauseTx.error = null;
+      mockPauseTx.isError = false;
+    });
+
+    it("displays error with role='alert' and warning icon when status is failed without relying on Error prefix", () => {
+      mockPauseTx.state = "failed";
+      mockPauseTx.error = "Connection dropped unexpectedly";
+      mockPauseTx.isError = true;
+
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(/Connection dropped unexpectedly/);
+      const status = screen.getByTestId("subscription-card-status");
+      expect(status).toHaveTextContent(/⚠️ Connection dropped unexpectedly/);
+      expect(status).toHaveClass("text-error");
     });
   });
 });

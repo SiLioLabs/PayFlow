@@ -85,7 +85,15 @@ fn test_migration_subscribe_blocked_at_version_0() {
     // Simulate a pre-migration state by forcing version back to 0.
     set_version_directly(&env, &contract_id, 0);
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &1_000_000i128, &3600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 }
 
 /// When schema_version == 1 (simulate a contract that wrote version=1 manually
@@ -97,7 +105,15 @@ fn test_migration_subscribe_blocked_at_version_1() {
     set_version_directly(&env, &contract_id, 1);
 
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &1_000_000i128, &3600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 }
 
 /// When schema_version == 2 (one step behind CURRENT_VERSION == 3),
@@ -109,7 +125,15 @@ fn test_migration_subscribe_blocked_at_version_2() {
     set_version_directly(&env, &contract_id, 2);
 
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &1_000_000i128, &3600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 }
 
 /// When schema_version == CURRENT_VERSION, subscribe must succeed.
@@ -120,9 +144,19 @@ fn test_migration_subscribe_allowed_at_current_version() {
 
     let client = FlowPayClient::new(&env, &contract_id);
     // Should not panic.
-    client.subscribe(&user, &merchant, &1_000_000i128, &3600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
-    let sub = client.get_subscription(&user).expect("subscription should exist");
+    let sub = client
+        .get_subscription(&user)
+        .expect("subscription should exist");
     assert!(sub.active);
     assert_eq!(sub.merchant, merchant);
 }
@@ -244,7 +278,10 @@ fn test_migration_idempotent_at_current_version() {
     });
 
     let v2 = env.as_contract(&contract_id, || migration::get_schema_version(&env));
-    assert_eq!(v2, CURRENT_VERSION, "version must not change on repeated migrate calls");
+    assert_eq!(
+        v2, CURRENT_VERSION,
+        "version must not change on repeated migrate calls"
+    );
 }
 
 /// Calling migrate with users that already hold v3 blobs (already at CURRENT_VERSION)
@@ -256,7 +293,15 @@ fn test_migration_idempotent_does_not_alter_current_subscriptions() {
     set_version_directly(&env, &contract_id, CURRENT_VERSION);
 
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &2_000_000i128, &7200u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &2_000_000i128,
+        &7200u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     let sub_before = client.get_subscription(&user).expect("sub before migrate");
 
@@ -268,7 +313,10 @@ fn test_migration_idempotent_does_not_alter_current_subscriptions() {
     });
 
     let sub_after = client.get_subscription(&user).expect("sub after migrate");
-    assert_eq!(sub_before, sub_after, "subscription must be unchanged after idempotent migrate");
+    assert_eq!(
+        sub_before, sub_after,
+        "subscription must be unchanged after idempotent migrate"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

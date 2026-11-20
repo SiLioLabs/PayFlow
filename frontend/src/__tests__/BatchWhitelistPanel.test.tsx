@@ -22,6 +22,7 @@ vi.mock("../hooks/useToast", () => ({
 
 import * as stellar from "../stellar";
 import { useTransaction } from "../hooks/useTransaction";
+import { CONTRACT_LIMITS } from "../constants";
 import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
 
 // Generated via Keypair.random() — checksum-valid for StrKey.isValidEd25519PublicKey
@@ -56,6 +57,14 @@ describe("BatchWhitelistPanel", () => {
     render(<BatchWhitelistPanel {...defaultProps} isAdmin={false} />);
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.getByText(/Admin access required to modify the whitelist/)).toBeTruthy();
+  });
+
+  it("chunks at CONTRACT_LIMITS.MAX_BATCH_WHITELIST (50) sourced from constants.ts", () => {
+    // The panel must not re-declare the cap; it reads it from CONTRACT_LIMITS,
+    // which mirrors caps::MAX_WHITELIST_BATCH_SIZE in contract/src/caps.rs.
+    expect(CONTRACT_LIMITS.MAX_BATCH_WHITELIST).toBe(50);
+    render(<BatchWhitelistPanel {...defaultProps} />);
+    expect(screen.getByText(/lists longer than 50 addresses are split automatically/i)).toBeTruthy();
   });
 
   it("defaults to 'Add merchants' action", () => {

@@ -12,16 +12,18 @@
  * means the indexer can keep running during backup.
  *
  * After the backup is written, an integrity check (`PRAGMA integrity_check`)
- * is run on the backup file to verify it is not corrupt before the script
- * exits successfully.
+ * is run on the backup file to verify it is not corrupt, and a SHA-256
+ * checksum is written to `<backup>.sha256` (sha256sum format) before the
+ * script exits successfully.
  *
  * Usage
  * ─────
  *   # Create a backup
  *   npx ts-node scripts/backup-indexer-db.ts backup [options]
  *
- *   # Restore from a backup
- *   npx ts-node scripts/backup-indexer-db.ts restore --from <backup-path> [options]
+ *   # Restore from a backup (delegates to restore-indexer-db.ts — prefer calling
+ *   # that script directly; see "Backup and restore runbook" in scripts/README.md)
+ *   npx tsx scripts/restore-indexer-db.ts --from <backup-path> [options]
  *
  * Options (backup):
  *   --db <path>       Source database path (default: data/events.db)
@@ -45,6 +47,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { restoreIndexerDb, writeChecksumFile } from "./restore-indexer-db.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -268,6 +272,21 @@ export function runBackup(
     backupDb?.close();
   }
 
+  // Checksum sidecar so restore can detect corruption/truncation that
+  // integrity_check cannot (verified by restore-indexer-db.ts).
+  try {
+    // (VACUUM INTO always creates the file; the guard only matters for tests
+    // that inject a mock SqliteDb.)
+    if (fs.existsSync(opts.outPath)) {
+      writeChecksumFile(opts.outPath);
+      console.log(`  ✓ Checksum written (${path.basename(opts.outPath)}.sha256)`);
+    }
+  } catch (err: unknown) {
+    result.message = `Could not write checksum file: ${(err as Error).message}`;
+    console.error(`  ✗ ${result.message}`);
+    return result;
+  }
+
   result.success = true;
   result.message = `Backup completed successfully → ${opts.outPath}`;
   console.log(`  ✓ ${result.message}\n`);
@@ -382,7 +401,11 @@ function main() {
   let result: BackupResult;
 
   if (command === "restore") {
-    result = runRestore(restore);
+    // Delegate to the hardened restore (checksum, schema checks, safety copy,
+    // atomic swap). runRestore() below is kept for API compatibility only.
+    const r = restoreIndexerDb({ ...restore, requireChecksum: false });
+    console.log(r.success ? `  ✓ ${r.message}` : `  ✗ ${r.message}`);
+    process.exit(r.success ? 0 : 1);
   } else {
     result = runBackup(backup);
   }
@@ -392,6 +415,11 @@ function main() {
   }
 }
 
-if (require.main === module) {
+// ESM entrypoint guard (scripts/package.json sets "type": "module", so the CJS
+// `require.main === module` check would throw `require is not defined`).
+// Run only when executed directly (`tsx scripts/backup-indexer-db.ts`), not
+// when imported by tests.
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
   main();
 }

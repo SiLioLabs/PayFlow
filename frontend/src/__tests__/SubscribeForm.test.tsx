@@ -856,6 +856,7 @@ describe("Referral field validation", () => {
   });
 
   it("passes null referrer to buildSubscribeTx when referrer field is empty", async () => {
+    mockBuildSubscribeTx.mockClear();
     mockBuildSubscribeTx.mockResolvedValue("mock-xdr");
     const onSign = vi.fn().mockResolvedValue("mock-hash");
     const onSuccess = vi.fn();

@@ -84,7 +84,7 @@ describe("StroopInput accessibility", () => {
     const onChange1 = vi.fn();
     const onChange2 = vi.fn();
     
-    const { container } = render(
+    render(
       <>
         <StroopInput label="Amount 1" onChange={onChange1} id="input-1" testId="input-1" />
         <StroopInput label="Amount 2" onChange={onChange2} id="input-2" testId="input-2" />
@@ -129,5 +129,57 @@ describe("StroopInput accessibility", () => {
     fireEvent.blur(input);
     expect(input.getAttribute("aria-describedby")).toBeNull();
     expect(document.getElementById("test-input-error")).toBeNull();
+  });
+
+  it("exposes role='alert' on the error message and sets aria-invalid", () => {
+    localStorage.setItem("flowpay_amount_unit", JSON.stringify("XLM"));
+    const onChange = vi.fn();
+    render(<StroopInput label="Amount" onChange={onChange} id="alert-test" />);
+    const input = screen.getByTestId("amount-input");
+
+    expect(input).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.change(input, { target: { value: "-1" } });
+    fireEvent.blur(input);
+
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    const error = screen.getByRole("alert");
+    expect(error).toBeInTheDocument();
+    expect(error).toHaveAttribute("id", "alert-test-error");
+
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.blur(input);
+
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("supports external isInvalid and ariaDescribedBy associations", () => {
+    localStorage.setItem("flowpay_amount_unit", JSON.stringify("XLM"));
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <StroopInput
+        label="Amount"
+        onChange={onChange}
+        id="ext-test"
+        isInvalid={true}
+        ariaDescribedBy="modal-error-id"
+      />
+    );
+    const input = screen.getByTestId("amount-input");
+
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", "modal-error-id");
+
+    rerender(
+      <StroopInput
+        label="Amount"
+        onChange={onChange}
+        id="ext-test"
+        isInvalid={false}
+      />
+    );
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(input).not.toHaveAttribute("aria-describedby");
   });
 });

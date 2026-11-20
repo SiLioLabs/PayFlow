@@ -6,7 +6,7 @@
 import React from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect } from "vitest";
 
 vi.mock("../stellar");
 vi.mock("../hooks/useTransaction", () => ({
@@ -169,7 +169,7 @@ describe("BatchWhitelistPanel — race / stale-response prevention", () => {
       const [useFast, setUseFast] = React.useState(false);
 
       const onInit = React.useCallback(
-        async (_signal: AbortSignal) => {
+        async () => {
           if (!useFast) return slowDeferred.promise;
         },
         [useFast]

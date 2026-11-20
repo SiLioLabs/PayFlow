@@ -27,8 +27,8 @@ use soroban_sdk::{
     Address, Env, String, Symbol, TryIntoVal, Vec,
 };
 
-use crate::migration::CURRENT_VERSION;
 use super::test::{setup, setup_funded_user};
+use crate::migration::CURRENT_VERSION;
 
 /// A funded subscriber with its own token allowance, as `setup()` does for the
 /// first user.
@@ -45,7 +45,9 @@ fn subscribe(
     token_addr: &Address,
     referrer: &Option<Address>,
 ) {
-    client.subscribe(user, merchant, &amount, &interval, token_addr, &None, referrer);
+    client.subscribe(
+        user, merchant, &amount, &interval, token_addr, &None, referrer,
+    );
 }
 
 /// The aggregate counters a cancel is allowed to touch. Snapshotted as a tuple
@@ -105,7 +107,15 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
     // Three subscribers across two merchants: a shared merchant is what makes
     // the per-merchant counter observable, and the extra merchant proves the
     // counter is not a global scalar in disguise.
-    subscribe(&client, &user_a, &merchant_a, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_a,
+        &merchant_a,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
     subscribe(
         &client,
         &user_b,
@@ -115,7 +125,15 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
         &token_addr,
         &Some(referrer.clone()),
     );
-    subscribe(&client, &user_c, &merchant_b, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_c,
+        &merchant_b,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     let merchants = soroban_sdk::vec![&env, merchant_a.clone(), merchant_b.clone()];
     let before = counters(&client, &merchants);
@@ -168,7 +186,15 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
 fn scenario_legacy_paused_inactive_row_reader_semantics() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    subscribe(&client, &user, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     env.as_contract(&contract_id, || {
         let key = DataKey::Subscription(user.clone());
@@ -186,7 +212,8 @@ fn scenario_legacy_paused_inactive_row_reader_semantics() {
     assert_eq!(client.get_active_count(), 0);
     assert_eq!(client.get_merchant_sub_count(&merchant), 0);
     assert_eq!(client.get_merchant_subscriber_count(&merchant), 0);
-    let merchant_counts = client.get_merchant_sub_counts(&soroban_sdk::vec![&env, merchant.clone()]);
+    let merchant_counts =
+        client.get_merchant_sub_counts(&soroban_sdk::vec![&env, merchant.clone()]);
     assert_eq!(merchant_counts.get(0), Some((merchant.clone(), 0)));
     assert_eq!(client.get_active_subscriber_page(&0, &10).len(), 0);
     assert!(client
@@ -199,7 +226,10 @@ fn scenario_legacy_paused_inactive_row_reader_semantics() {
     assert_eq!(raw_page.get(0).unwrap(), user);
     assert_eq!(client.get_subscriber_at(&0), Some(user.clone()));
     // Merchant listings likewise enumerate the separate merchant index.
-    assert_eq!(client.get_merchant_page(&0, &10).get(0), Some(merchant.clone()));
+    assert_eq!(
+        client.get_merchant_page(&0, &10).get(0),
+        Some(merchant.clone())
+    );
     assert_eq!(
         client.get_top_merchants_by_subs(&1).get(0),
         Some((merchant, 0))
@@ -219,14 +249,34 @@ fn scenario_batch_cancel_of_already_cancelled_user_moves_no_counter() {
         storage::set_admin(&env, &admin);
     });
 
-    subscribe(&client, &user_a, &merchant, 1_0000000, 86_400, &token_addr, &None);
-    subscribe(&client, &user_b, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_a,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
+    subscribe(
+        &client,
+        &user_b,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     client.cancel(&user_a);
 
     let merchants = soroban_sdk::vec![&env, merchant.clone()];
     let before = counters(&client, &merchants);
-    assert_eq!(before, (1, 2, 1), "one of the two subscribers is already cancelled");
+    assert_eq!(
+        before,
+        (1, 2, 1),
+        "one of the two subscribers is already cancelled"
+    );
 
     let users = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
     let results = client.batch_cancel(&users);
@@ -265,14 +315,33 @@ fn scenario_lowered_volume_cap_rejects_over_cap_charge() {
     let admin = Address::generate(&env);
     client.initialize(&token_addr, &admin);
 
-    subscribe(&client, &user_a, &merchant, 1_0000000, 86_400, &token_addr, &None);
-    subscribe(&client, &user_b, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_a,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
+    subscribe(
+        &client,
+        &user_b,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     // One charge inside the (large) default cap.
     env.ledger().set_timestamp(86_400);
     client.charge(&user_a);
     let (accumulated, charge_window_start) = client.get_global_volume_window();
-    assert_eq!(accumulated, 1_0000000, "the window accumulates live charges");
+    assert_eq!(
+        accumulated, 1_0000000,
+        "the window accumulates live charges"
+    );
 
     // Lower the cap *below* what a second charge needs. This is the
     // cap-lowering case: an operator tightening the cap mid-window.
@@ -305,7 +374,10 @@ fn scenario_lowered_volume_cap_rejects_over_cap_charge() {
     // And the user stays charged-once, not half-charged: no funds moved.
     let token = TokenClient::new(&env, &token_addr);
     let sub_before = client.get_subscription(&user_b).unwrap();
-    assert_eq!(sub_before.last_charged, 0, "rejected charge advanced last_charged");
+    assert_eq!(
+        sub_before.last_charged, 0,
+        "rejected charge advanced last_charged"
+    );
 
     // Raising the cap again lets the same charge through, proving the cap is
     // read per charge rather than latched at subscribe time.
@@ -333,7 +405,15 @@ fn scenario_transfer_subscription_moves_subscription_and_index() {
     let client = FlowPayClient::new(&env, &contract_id);
     let user_new = extra_user(&env, &contract_id, &token_addr);
 
-    subscribe(&client, &user_old, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_old,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     assert_eq!(client.get_active_count(), 1);
     assert_eq!(client.get_subscriber_count(), 1);
@@ -351,10 +431,18 @@ fn scenario_transfer_subscription_moves_subscription_and_index() {
 
     // The index slot follows too: the old address is gone from it and the new
     // one is at the tail.
-    assert_eq!(client.get_active_count(), 1, "a transfer is not a subscribe");
+    assert_eq!(
+        client.get_active_count(),
+        1,
+        "a transfer is not a subscribe"
+    );
     // Append-only: the old slot is tombstoned and the new address is appended,
     // so the raw index size grows to 2 while the live view still has one entry.
-    assert_eq!(client.get_subscriber_count(), 2, "index size after the re-seat");
+    assert_eq!(
+        client.get_subscriber_count(),
+        2,
+        "index size after the re-seat"
+    );
     assert_eq!(client.get_subscriber_at(&0), None, "old slot is tombstoned");
     assert_eq!(client.get_subscriber_at(&1), Some(user_new.clone()));
     assert_ne!(
@@ -362,9 +450,7 @@ fn scenario_transfer_subscription_moves_subscription_and_index() {
         Some(user_old.clone()),
         "the transferred address is still in the subscriber index"
     );
-    assert!(client
-        .get_subscriber_page(&0, &10)
-        .contains(&user_new));
+    assert!(client.get_subscriber_page(&0, &10).contains(&user_new));
 
     // The merchant keeps its single subscriber — a transfer must not double-count.
     assert_eq!(client.get_merchant_sub_count(&merchant), 1);
@@ -384,7 +470,6 @@ fn scenario_transfer_subscription_moves_subscription_and_index() {
 /// the rebinding fix lands; it should pass then, and the fix is expected to
 /// move each of these keys and clear the old address's copy.
 #[test]
-#[ignore = "transfer does not rebind metadata/history/referral yet (fix not in tree)"]
 fn scenario_transfer_subscription_rebinds_metadata_history_and_referral() {
     let (env, contract_id, token_addr, user_old, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -457,10 +542,42 @@ fn scenario_estimate_matches_live_batch_outcomes() {
     let user_broke = extra_user(&env, &contract_id, &token_addr);
     let unknown = Address::generate(&env);
 
-    subscribe(&client, &user_due, &merchant, 1_0000000, 86_400, &token_addr, &None);
-    subscribe(&client, &user_not_due, &merchant, 1_0000000, 86_400, &token_addr, &None);
-    subscribe(&client, &user_paused, &merchant, 1_0000000, 86_400, &token_addr, &None);
-    subscribe(&client, &user_broke, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_due,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
+    subscribe(
+        &client,
+        &user_not_due,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
+    subscribe(
+        &client,
+        &user_paused,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
+    subscribe(
+        &client,
+        &user_broke,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     // user_paused is paused, so it must skip as Paused.
     client.pause(&user_paused);
@@ -500,7 +617,10 @@ fn scenario_estimate_matches_live_batch_outcomes() {
     assert_eq!(estimate.get(0).unwrap(), ChargeResult::Charged);
     assert_eq!(estimate.get(1).unwrap(), ChargeResult::Skipped);
     assert_eq!(estimate.get(2).unwrap(), ChargeResult::Paused);
-    assert_eq!(estimate.get(3).unwrap(), ChargeResult::AllowanceInsufficient);
+    assert_eq!(
+        estimate.get(3).unwrap(),
+        ChargeResult::AllowanceInsufficient
+    );
     assert_eq!(estimate.get(4).unwrap(), ChargeResult::NoSubscription);
 }
 
@@ -519,7 +639,15 @@ fn scenario_estimate_does_not_mutate_storage() {
     let (env, contract_id, token_addr, user_paused, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    subscribe(&client, &user_paused, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user_paused,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
     client.pause_until(&user_paused, &5_000);
 
     // Move past the pause expiry so the next call would auto-resume.
@@ -562,14 +690,30 @@ fn scenario_zero_interval_guards_division_by_zero() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     // The public path is guarded up front.
-    let res = client.try_subscribe(&user, &merchant, &1_0000000, &0u64, &token_addr, &None, &None);
+    let res = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &0u64,
+        &token_addr,
+        &None,
+        &None,
+    );
     assert_eq!(
         res,
         Err(Ok(soroban_sdk::Error::from_contract_error(3))),
         "subscribe accepted a zero interval"
     );
 
-    subscribe(&client, &user, &merchant, 1_0000000, 86_400, &token_addr, &None);
+    subscribe(
+        &client,
+        &user,
+        &merchant,
+        1_0000000,
+        86_400,
+        &token_addr,
+        &None,
+    );
 
     // Forge a zero interval underneath the guard to reach the division itself.
     env.as_contract(&contract_id, || {
@@ -587,7 +731,15 @@ fn scenario_zero_interval_guards_division_by_zero() {
     );
 
     // The interval floor is also enforced on the admin mutation path.
-    subscribe(&client, &user, &merchant, 1_0000000, 86_400u64, &token_addr, &None);
+    subscribe(
+        &client,
+        &user,
+        &merchant,
+        1_0000000,
+        86_400u64,
+        &token_addr,
+        &None,
+    );
     let admin = Address::generate(&env);
     client.initialize(&token_addr, &admin);
     let res = client.try_set_subscription_interval(&user, &0u64);
@@ -633,14 +785,26 @@ fn scenario_schema_version_guard_blocks_mutation() {
     assert_eq!(client.get_schema_version(), CURRENT_VERSION - 1);
 
     for user in [user_a.clone(), user_b.clone()] {
-        let res = client.try_subscribe(&user, &merchant, &1_0000000, &86_400u64, &token_addr, &None, &None);
+        let res = client.try_subscribe(
+            &user,
+            &merchant,
+            &1_0000000,
+            &86_400u64,
+            &token_addr,
+            &None,
+            &None,
+        );
         assert_eq!(
             res,
             Err(Ok(soroban_sdk::Error::from_contract_error(42))),
             "subscribe was allowed below the current schema version"
         );
     }
-    assert_eq!(client.get_active_count(), 0, "no partial writes escaped the guard");
+    assert_eq!(
+        client.get_active_count(),
+        0,
+        "no partial writes escaped the guard"
+    );
 
     // Migration unblocks the batch for every user at once.
     let everyone = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
@@ -648,7 +812,15 @@ fn scenario_schema_version_guard_blocks_mutation() {
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
 
     for user in [user_a.clone(), user_b.clone()] {
-        subscribe(&client, &user, &merchant, 1_0000000, 86_400u64, &token_addr, &None);
+        subscribe(
+            &client,
+            &user,
+            &merchant,
+            1_0000000,
+            86_400u64,
+            &token_addr,
+            &None,
+        );
     }
     assert_eq!(client.get_active_count(), 2);
     assert_eq!(client.get_merchant_sub_count(&merchant), 2);

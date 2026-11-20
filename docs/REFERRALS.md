@@ -2,7 +2,7 @@
 
 This document is the **canonical** referral guide for PayFlow: data model, subscribe authentication, self-referral, events, frontend (`ReferralPanel`), and operations.
 
-[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/STORAGE-AND-TTL.md`](./architecture/STORAGE-AND-TTL.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 
@@ -158,16 +158,20 @@ subscribe(user, ..., referrer: Some(R))
          │
          ├─ subscribe(referrer=R2) ──────────▶ [Referral(user)=R2]   // replaced
          ├─ subscribe(referrer=None) ────────▶ [cleared]
-         └─ cancel / cancel_and_refund_* ───▶ [cleared]
+         ├─ cancel / cancel_and_refund_* ───▶ [cleared]
+         └─ transfer_subscription ──────────▶ [Referral(new_user)=R]  // moved with subscription
 ```
 
-Rules enforced by the running contract (`contract/src/referral.rs` + `subscribe_inner` / `cancel_inner`):
+Rules enforced by the running contract (`contract/src/referral.rs` + `subscribe_inner` / `cancel_inner` / `transfer_subscription`):
 
 1. **Optional.** Omitting a referrer (`None` / CLI `null`) stores nothing.
 2. **No self-referral.** If `referrer == user`, the call panics with `SelfReferral` (error `11`).
 3. **Resubscribe updates.** A later `subscribe` with a different referrer overwrites the stored address and emits a new `referred` event.
 4. **Resubscribe with `None` clears.** Passing `referrer: None` removes `DataKey::Referral(user)`.
 5. **Cancel clears referral storage.** `cancel_inner` calls `referral::remove_referral`. The cancelled `Subscription` record may still show a historical `referrer` field until the user resubscribes; `get_referrer` returns `None` after cancel.
+6. **Transfer moves referral.** `transfer_subscription` moves the referral attribution from the old subscriber to the new one, preserving the original referrer attribution. The old address's referral entry is cleared. This ensures attribution remains intact when a subscription is transferred between wallets.
+
+> **Referral Transfer Semantics:** On `transfer_subscription`, the referral follows the subscription to the new owner. If the old subscriber had a referrer, that attribution continues under the new address. This preserves commission tracking across wallet changes.
 
 > **Note:** Older lifecycle notes that describe referrals as “immutable after first write” or “surviving cancel” do not match the current implementation. Treat this document and `referral.rs` as authoritative.
 

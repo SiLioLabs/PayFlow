@@ -801,7 +801,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 3
+                  "u64": 2
                 }
               }
             },
@@ -3497,6 +3497,12 @@
                       "lo": 10000000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }

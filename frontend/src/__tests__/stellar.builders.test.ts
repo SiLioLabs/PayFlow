@@ -1,5 +1,4 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
 import { Account, Address, Contract, nativeToScVal, xdr } from "@stellar/stellar-sdk";
 import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
 

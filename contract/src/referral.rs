@@ -51,3 +51,24 @@ pub fn store_referral(env: &Env, user: &Address, referrer: &Option<Address>) {
         env.storage().persistent().remove(&key);
     }
 }
+
+/// Transfers the referral from one subscriber to another.
+/// Moves the referrer attribution from `old_user` to `new_user`, clears the old entry, and extends TTL.
+pub fn transfer_referral(env: &Env, old_user: &Address, new_user: &Address) {
+    let old_key = DataKey::Referral(old_user.clone());
+    let new_key = DataKey::Referral(new_user.clone());
+
+    // Get the referral from the old address
+    if let Some(referrer) = env.storage().persistent().get::<DataKey, Address>(&old_key) {
+        // Move it to the new address
+        env.storage().persistent().set(&new_key, &referrer);
+        env.storage().persistent().extend_ttl(
+            &new_key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+
+    // Clear the old address's referral
+    env.storage().persistent().remove(&old_key);
+}

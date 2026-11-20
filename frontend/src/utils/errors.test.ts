@@ -286,3 +286,19 @@ describe("CONTRACT_ERRORS conformance with contract/src/errors.rs", () => {
     }
   });
 });
+
+describe("friendlyError — IntervalExceedsMaximum (code 46)", () => {
+  const expected = "Billing interval must not exceed 400 years.";
+
+  it("maps the Soroban numeric code #46", () => {
+    expect(friendlyError("error(Contract, #46)")).toBe(expected);
+  });
+
+  it("maps the lowercase contract error form", () => {
+    expect(friendlyError("error(contract, #46)")).toBe(expected);
+  });
+
+  it("maps the contract variant name", () => {
+    expect(friendlyError("IntervalExceedsMaximum")).toBe(expected);
+  });
+});

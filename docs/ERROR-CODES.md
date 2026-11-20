@@ -2,6 +2,8 @@
 
 This document is the complete reference for all error codes returned by the FlowPay smart contract (`contract/src/errors.rs`). Each error includes when it occurs, the immediate cause, numbered recovery steps, and prevention advice.
 
+Plain-language Q&A for non-operators: [`FAQ.md`](FAQ.md) (every code below is reachable from an FAQ answer via its coverage table).
+
 Use the [quick-reference table](#quick-reference-table) for lookups, then jump to the detailed recovery section for that code. Audience-specific walkthroughs are at the end:
 
 - [Common error scenarios](#common-error-scenarios)
@@ -34,7 +36,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 18   | `ContractPaused`            | State        | Op while protocol paused           |
 | 19   | `IntervalTooShort`          | Validation   | Interval below min floor           |
 | 20   | `BatchTooLarge`             | Limit        | Batch size above max               |
-| 21   | `ZeroBalanceAvailable`              | Compatibility | Legacy withdraw path; never emitted by current WASM |
+| 21   | `ZeroBalanceAvailable`              | State        | Merchant withdraw attempted with no accrued revenue |
 | 22   | `MerchantFrozen`            | Auth         | Subscribe to frozen merchant       |
 | 23   | `NoPendingProposal`         | State        | Commit without proposal            |
 | 24   | `SubscriptionAlreadyActive` | State        | Transfer target already subscribed |
@@ -44,7 +46,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
 | 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
 | 30   | `ContractPausedError` (deprecated) | Compatibility | Deprecated alias; never emitted by current WASM |
-| 31   | *(reserved)*                | Reserved     | Historical gap; never emitted      |
+| 31   | `Reserved31` (deprecated)   | Reserved     | Reserved compatibility variant; not emitted |
 | 32   | `InvalidRecipient`          | Validation   | Recipient address invalid           |
 | 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
@@ -62,7 +64,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
 | 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
 
-> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 is intentionally reserved and has no enum variant in the published map. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
 ---
 
@@ -380,7 +382,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 2. Contact protocol admin / follow incident runbook — only admin can `unpause_contract()`.
 3. Keepers should stop cycling and alert (do not spam failed txs).
 
-**Prevention:** Announce maintenance windows; use [keeper incident response](operations/keeper_runbook.md).
+**Prevention:** Announce maintenance windows; use [keeper incident response](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -417,16 +419,16 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 21 — `ZeroBalanceAvailable` (legacy)
+### 21 — `ZeroBalanceAvailable`
 
 | Field               | Detail                                                  |
 | ------------------- | ------------------------------------------------------- |
-| **When it occurs**  | Legacy / unused error variant (formerly emitted by `withdraw_merchant_revenue` before migration to non-custodial direct payouts). Kept for discriminant compatibility. |
-| **Immediate cause** | N/A — merchant revenue is non-custodial and settles directly on charge. |
+| **When it occurs**  | A merchant calls `withdraw_merchant_revenue` with no accrued revenue. |
+| **Immediate cause** | The available withdrawal amount is zero or negative. |
 
 **Recovery steps**
 
-1. No action needed; charges settle directly into merchant wallets without withdrawal.
+1. Confirm the merchant has accrued revenue before retrying the withdrawal.
 
 ---
 
@@ -457,7 +459,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 1. Re-run the propose step (`transfer_admin` / `propose_fee` / `propose_grace_period`, etc.).
 2. Complete commit/accept before proposal TTL expires.
-3. See [two-step auth](architecture/two-step-auth.md).
+3. See [two-step auth](architecture/TWO-STEP-AUTH.md).
 
 **Prevention:** Automate propose→commit within the same ops window; monitor proposal TTL.
 
@@ -809,7 +811,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 1. Re-run `transfer_admin(new_admin)` to stage a new transfer.
 2. Call `accept_admin()` from the new admin address before the proposal TTL expires (~24 hours).
 
-**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/two-step-auth.md](architecture/two-step-auth.md).
+**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/TWO-STEP-AUTH.md](architecture/TWO-STEP-AUTH.md).
 
 ---
 
@@ -827,7 +829,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 2. If you truly need a longer billing cycle (unusual), discuss protocol governance — the constant is a compile-time value in `lib.rs`.
 3. For **legacy subscriptions** created before this cap was enforced (e.g. via direct storage injection in tests), the subscription can still be cancelled via `cancel(user)`; it cannot be charged. Re-subscribe with a valid interval to restore chargeability.
 
-**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/limits.md`](limits.md).
+**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/LIMITS.md`](LIMITS.md).
 
 ---
 
@@ -914,7 +916,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Parse error code from logs / simulation.
 2. Apply the table above — never infinite-retry grace or pause errors.
-3. For DLQ / advanced failover, see [operations/keeper_runbook.md](operations/keeper_runbook.md) and [KEEPER.md](KEEPER.md).
+3. For DLQ / advanced failover, see [operations/KEEPER-RUNBOOK.md](operations/KEEPER-RUNBOOK.md) and [KEEPER.md](KEEPER.md).
 
 ---
 
@@ -961,7 +963,7 @@ Always map numeric Soroban contract errors to this document before inventing new
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
 - Schema write-denial invariant: [`docs/DEPLOYMENT.md` — SchemaMigrationRequired](DEPLOYMENT.md#schemamigrationrequired-error-42) (`contract/src/migration.rs`)
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
+- Troubleshooting runbook: [`docs/operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)
 - Security model: [`docs/SECURITY.md`](SECURITY.md)

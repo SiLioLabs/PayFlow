@@ -20,6 +20,9 @@
  * ─────────────────────
  *   CONTRACT_ID          Required. Deployed FlowPay contract ID.
  *   KEEPER_SECRET        Required. Stellar secret key (S…).
+ *                       The key is never logged: every log line and every
+ *                       error string this script writes is scrubbed by
+ *                       `redactSecrets` (`logger.ts`) before it is emitted.
  *   RPC_URL              Soroban RPC endpoint (default: testnet).
  *   NETWORK_PASSPHRASE   Stellar network passphrase (default: testnet).
  *   KEEPER_MAX_RETRIES   Retry attempts per entry (default: 3).
@@ -43,7 +46,7 @@
  *   leaving one subscriber unpaid -- `ChargeResult::AllowanceInsufficient` --
  *   is not a DLQ entry at all.
  *
- *   See docs/charge-results.md for the full outcome encoding, including the
+ *   See docs/CHARGE-RESULTS.md for the full outcome encoding, including the
  *   `scvU32` discriminants this script's `parseChargeResults` is meant to read.
  */
 
@@ -57,7 +60,8 @@ import {
   xdr,
   Address,
 } from "@stellar/stellar-sdk";
-import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import {
   existsSync,
   readFileSync,
@@ -67,12 +71,16 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { isChargeDue } from "./batch-optimizer";
+import { decodeChargeResults } from "./lib/charge-results.js";
+import { redactSecrets } from "./logger.js";
+import { logger as rootLogger } from "./logger.js";
+
+const logger = rootLogger.child({ script: "replay-dlq" });
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
 const KEEPER_SECRET = process.env.KEEPER_SECRET ?? "";
-const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
   Networks.TESTNET) as string;
 const KEEPER_MAX_RETRIES = parseInt(process.env.KEEPER_MAX_RETRIES ?? "3", 10);
@@ -81,8 +89,6 @@ const KEEPER_RETRY_BASE_MS = parseInt(
   10,
 );
 const DLQ_FILE = resolve(process.env.DLQ_FILE ?? "dlq/failed-batches.jsonl");
-const LOG_LEVEL = (process.env.LOG_LEVEL ?? "info") as
-  "debug" | "info" | "warn" | "error";
 
 const DLQ_DIR = dirname(DLQ_FILE);
 const REPLAYED_FILE = resolve(DLQ_DIR, "replayed-batches.jsonl");
@@ -98,13 +104,30 @@ const LEVEL_ORDER: Record<string, number> = {
 };
 const activeLevel = LEVEL_ORDER[LOG_LEVEL] ?? 1;
 
+/**
+ * JSON log sink.
+ *
+ * Every message and metadata value is passed through `redactSecrets` before
+ * it is written, so the keeper secret can never end up in the DLQ replay log
+ * or in an error string that came from the RPC layer.
+ */
 function log(
   level: "debug" | "info" | "warn" | "error",
   msg: string,
   meta?: Record<string, unknown>,
 ): void {
   if ((LEVEL_ORDER[level] ?? 0) < activeLevel) return;
-  const entry = { ts: new Date().toISOString(), level, msg, ...(meta ?? {}) };
+  const safeMeta: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta ?? {})) {
+    safeMeta[redactSecrets(key)] =
+      typeof value === "string" ? redactSecrets(value) : value;
+  }
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    msg: redactSecrets(msg),
+    ...safeMeta,
+  };
   (level === "error" || level === "warn"
     ? process.stderr
     : process.stdout
@@ -160,7 +183,7 @@ async function retryWithBackoff<T>(
       if (isPermanentError(lastError.message)) throw lastError;
       if (attempt < maxAttempts) {
         const delay = baseMs * Math.pow(2, attempt - 1);
-        log("warn", `${context} attempt ${attempt}/${maxAttempts} failed`, {
+        logger.warn(`${context} attempt ${attempt}/${maxAttempts} failed`, {
           error: lastError.message,
           retry_in_ms: delay,
         });
@@ -173,35 +196,29 @@ async function retryWithBackoff<T>(
 
 // ── RPC helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Tally the per-address outcomes of a replayed batch.
+ *
+ * `ChargeResult` travels as an `scvU32` discriminant inside an `scvVec`, so
+ * the decoder in `lib/charge-results.ts` is used here. The previous
+ * implementation branched on `scvVec`/`scvMap`, neither of which is ever
+ * reachable, so `charged` was always 0 and `skipped` always equalled the
+ * batch size. See docs/CHARGE-RESULTS.md.
+ */
 function parseChargeResults(retval: xdr.ScVal): {
   charged: number;
   skipped: number;
 } {
+  const names = decodeChargeResults(retval);
   let charged = 0;
-  let skipped = 0;
-  for (const item of retval.vec() ?? []) {
-    try {
-      const name = item.switch().name;
-      if (name === "scvVec") {
-        item.vec()?.[0]?.sym()?.toString() === "Charged"
-          ? charged++
-          : skipped++;
-      } else if (name === "scvMap") {
-        item.map()?.[0]?.key()?.sym()?.toString() === "Charged"
-          ? charged++
-          : skipped++;
-      } else {
-        skipped++;
-      }
-    } catch {
-      skipped++;
-    }
+  for (const name of names) {
+    if (name === "Charged") charged++;
   }
-  return { charged, skipped };
+  return { charged, skipped: names.length - charged };
 }
 
 async function replayEntry(
-  server: Server,
+  server: MultiEndpointServer,
   contract: Contract,
   keypair: Keypair,
   entry: DlqEntry,
@@ -220,13 +237,13 @@ async function replayEntry(
         dueUsers.push(user);
       }
     } catch (err) {
-      log("warn", `Precheck failed for user ${user}`, { error: String(err) });
+      logger.warn(`Precheck failed for user ${user}`, { error: String(err) });
       dueUsers.push(user); // Assume due on failure to not falsely skip
     }
   }
 
   if (dueUsers.length === 0) {
-    log("info", "All users in batch skipped by precheck (not due)");
+    logger.info("All users in batch skipped by precheck (not due)");
     return { charged: 0, skipped: entry.users.length };
   }
 
@@ -281,7 +298,7 @@ function parseDlqFile(filePath: string): DlqEntry[] {
       try {
         return JSON.parse(line) as DlqEntry;
       } catch {
-        log("warn", `Skipping malformed DLQ line ${i + 1}`, { line });
+        logger.warn(`Skipping malformed DLQ line ${i + 1}`, { line });
         return null;
       }
     })
@@ -318,11 +335,11 @@ async function main(): Promise<void> {
   }
 
   if (!CONTRACT_ID) {
-    console.error("FATAL: CONTRACT_ID is required.");
+    logger.error("FATAL: CONTRACT_ID is required.");
     process.exit(1);
   }
   if (!KEEPER_SECRET && !dryRun) {
-    console.error("FATAL: KEEPER_SECRET is required.");
+    logger.error("FATAL: KEEPER_SECRET is required.");
     process.exit(1);
   }
 
@@ -331,7 +348,7 @@ async function main(): Promise<void> {
     try {
       keypair = Keypair.fromSecret(KEEPER_SECRET);
     } catch {
-      console.error("FATAL: KEEPER_SECRET is not a valid Stellar secret key.");
+      logger.error("FATAL: KEEPER_SECRET is not a valid Stellar secret key.");
       process.exit(1);
     }
   }
@@ -339,18 +356,18 @@ async function main(): Promise<void> {
   const entries = parseDlqFile(DLQ_FILE);
 
   if (entries.length === 0) {
-    log("info", "DLQ is empty — nothing to replay.", { dlq_file: DLQ_FILE });
+    logger.info("DLQ is empty — nothing to replay.", { dlq_file: DLQ_FILE });
     process.exit(0);
   }
 
-  log("info", `Found ${entries.length} DLQ entries.`, {
+  logger.info(`Found ${entries.length} DLQ entries.`, {
     dlq_file: DLQ_FILE,
     dry_run: dryRun,
   });
 
   if (dryRun) {
     for (const e of entries) {
-      log("info", "[dry-run] Would replay", {
+      logger.info("[dry-run] Would replay", {
         offset: e.offset,
         limit: e.limit,
         original_error: e.error,
@@ -360,7 +377,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer();
   const contract = new Contract(CONTRACT_ID);
 
   let replayed = 0;
@@ -375,7 +392,7 @@ async function main(): Promise<void> {
 
     // Skip entries whose original error was permanent — they won't succeed now.
     if (isPermanentError(entry.error)) {
-      log("warn", "Skipping permanent-error entry", {
+      logger.warn("Skipping permanent-error entry", {
         offset: entry.offset,
         error: entry.error,
       });
@@ -396,7 +413,7 @@ async function main(): Promise<void> {
         context,
       );
 
-      log("info", "Entry replayed successfully", {
+      logger.info("Entry replayed successfully", {
         offset: entry.offset,
         limit: entry.limit,
         charged: result.charged,
@@ -408,8 +425,12 @@ async function main(): Promise<void> {
       });
       replayed++;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = redactSecrets(
+        err instanceof Error ? err.message : String(err),
+      );
       log("error", "Entry failed after retries — moving to dead-batches", {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error("Entry failed after retries — moving to dead-batches", {
         offset: entry.offset,
         error: msg,
       });
@@ -432,7 +453,7 @@ async function main(): Promise<void> {
     "utf-8",
   );
 
-  log("info", "Replay complete", {
+  logger.info("Replay complete", {
     replayed,
     permanent,
     still_failed: stillFailed,
@@ -447,8 +468,11 @@ main().catch((err: unknown) => {
       ts: new Date().toISOString(),
       level: "error",
       msg: "Fatal unhandled error",
-      error: err instanceof Error ? err.message : String(err),
+      error: redactSecrets(err instanceof Error ? err.message : String(err)),
     }),
   );
+  logger.error("Fatal unhandled error", {
+    error: err instanceof Error ? err.message : String(err),
+  });
   process.exit(1);
 });

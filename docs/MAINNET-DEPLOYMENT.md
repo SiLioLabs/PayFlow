@@ -2,7 +2,7 @@
 
 FlowPay is **currently deployed on Testnet only**. Use this checklist when the protocol is ready for Public Global Stellar Network (Mainnet) after a formal security audit.
 
-For day-to-day Testnet steps, see [`DEPLOYMENT.md`](DEPLOYMENT.md). For audit gates, see [`security/audit-preparation.md`](security/audit-preparation.md), [`SECURITY.md`](SECURITY.md), and the repository [`SECURITY.md`](../SECURITY.md).
+For day-to-day Testnet steps, see [`DEPLOYMENT.md`](DEPLOYMENT.md). For audit gates, see [`security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md), [`SECURITY.md`](SECURITY.md), and the repository [`SECURITY.md`](../SECURITY.md).
 
 This document does **not** authorize a Mainnet deployment. Do not deploy or deposit real funds until every gate below is complete.
 
@@ -97,7 +97,7 @@ HOUR_IN_SECONDS            = 3600
 
 **Operational purpose:** limit protocol-wide transfer volume per rolling hour. Exceeding the cap during charge accounting panics with `GlobalVolumeExceeded` (28).
 
-**Enforcement:** `check_and_update_global_volume` reads the effective cap via `effective_global_volume_cap(env)`, which returns `DataKey::GlobalVolumeCapOverride` when an admin override is set, or `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. `get_global_volume_cap()` and `get_contract_config().global_volume_cap` use the same helper and therefore always agree with what enforcement will apply. Setting `set_global_volume_cap` takes immediate effect on the next charge. See [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap) for the complete model.
+**Enforcement:** `check_and_update_global_volume` reads the effective cap via `effective_global_volume_cap(env)`, which returns `DataKey::GlobalVolumeCapOverride` when an admin override is set, or `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. `get_global_volume_cap()` and `get_contract_config().global_volume_cap` use the same helper and therefore always agree with what enforcement will apply. Setting `set_global_volume_cap` takes immediate effect on the next charge. See [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap) for the complete model.
 
 **Pre-deposit checks:**
 
@@ -197,7 +197,7 @@ npx tsx scripts/snapshot-diff.ts before.json after.json
 
 ### `ALLOW_MAINNET` and network authorization
 
-**This repository does not implement an `ALLOW_MAINNET` environment variable or deploy-time guard.** Network selection is a manual operator control:
+**`scripts/keeper.ts` implements an `ALLOW_MAINNET` runtime gate; there is no deploy-time guard.** The keeper refuses to start when `NETWORK_PASSPHRASE` is the mainnet passphrase unless `ALLOW_MAINNET=true`. Otherwise, network selection is a manual operator control:
 
 - Soroban CLI `--network mainnet`
 - `scripts/health-check.ts`: `NETWORK=mainnet` selects `Networks.PUBLIC`
@@ -380,7 +380,7 @@ VITE_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015
 
 ## Rollback / upgrade
 
-> **Operator playbooks:** Step-by-step timing budgets, verification reads, and abort paths for upgrade and fee rotation ceremonies are in [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md).
+> **Operator playbooks:** Step-by-step timing budgets, verification reads, and abort paths for upgrade and fee rotation ceremonies are in [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md).
 
 FlowPay does **not** auto-rollback. Production WASM replacement is the two-step admin flow in [`contract/src/upgrade.rs`](../contract/src/upgrade.rs):
 
@@ -389,7 +389,7 @@ FlowPay does **not** auto-rollback. Production WASM replacement is the two-step 
 3. `commit_upgrade()` — admin; calls `update_current_contract_wasm`. Panics `NoPendingProposal` (23) if nothing is pending.
 4. Optional: `cancel_pending_upgrade()` — admin; drops the pending hash without swapping WASM.
 
-CLI (also in [`architecture/two-step-auth.md`](architecture/two-step-auth.md)):
+CLI (also in [`architecture/TWO-STEP-AUTH.md`](architecture/TWO-STEP-AUTH.md)):
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network mainnet -- \
@@ -410,7 +410,7 @@ The single-step `upgrade` entrypoint exists **only under `#[cfg(test)]`**. Do no
 2. Restore a prior WASM via `propose_upgrade` / `commit_upgrade` (previous hash from the `upgraded` event or your release notes).
 3. Re-run `contract_health_check` and `scripts/health-check.ts` before `unpause_contract()`.
 
-Further recovery guidance: [`DEPLOYMENT.md`](DEPLOYMENT.md#rollback-procedure) (storage caveat: newer keys remain on-chain), [`ERROR-CODES.md`](ERROR-CODES.md), [`operations/keeper_runbook.md`](operations/keeper_runbook.md).
+Further recovery guidance: [`DEPLOYMENT.md`](DEPLOYMENT.md#rollback-procedure) (storage caveat: newer keys remain on-chain), [`ERROR-CODES.md`](ERROR-CODES.md), [`operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -419,7 +419,7 @@ Further recovery guidance: [`DEPLOYMENT.md`](DEPLOYMENT.md#rollback-procedure) (
 Do not deposit or route real Mainnet funds until every item is checked.
 
 - [ ] **Audit approval** — independent audit complete; remediations merged; report published ([`SECURITY.md`](../SECURITY.md))
-- [ ] **Correct network** — CLI `--network mainnet`, passphrase `Public Global Stellar Network ; September 2015`, Mainnet RPC, Mainnet SAC, Mainnet contract ID (no `ALLOW_MAINNET` flag exists; confirm manually)
+- [ ] **Correct network** — CLI `--network mainnet`, passphrase `Public Global Stellar Network ; September 2015`, Mainnet RPC, Mainnet SAC, Mainnet contract ID (the deploy CLI has no `ALLOW_MAINNET` flag — confirm manually; the keeper's runtime gate requires `ALLOW_MAINNET=true`)
 - [ ] **Fee bounds** — `get_fee_bounds` matches policy; current `get_fee` is inside bounds
 - [ ] **Volume cap** — `get_global_volume_cap` / `get_global_volume_window` recorded; operators understand compile-time enforcement of `GLOBAL_MAX_VOLUME_PER_HOUR`
 - [ ] **Contract health** — `contract_health_check` `is_healthy`; `scripts/health-check.ts` exit 0; not paused; token + admin set
@@ -433,9 +433,9 @@ Do not deposit or route real Mainnet funds until every item is checked.
 ## Related
 
 - Testnet & general deploy: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)
-- Audit preparation: [`docs/security/audit-preparation.md`](security/audit-preparation.md)
+- Audit preparation: [`docs/security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md)
 - Repository security policy: [`SECURITY.md`](../SECURITY.md)
-- Two-step upgrade: [`docs/architecture/two-step-auth.md`](architecture/two-step-auth.md)
+- Two-step upgrade: [`docs/architecture/TWO-STEP-AUTH.md`](architecture/TWO-STEP-AUTH.md)
 - Contract API: [`docs/API.md`](API.md)
 - Keeper operations: [`docs/KEEPER.md`](KEEPER.md)
 - Scripts ops (keeper / indexer / metrics / Compose): [`scripts/README.md`](../scripts/README.md)

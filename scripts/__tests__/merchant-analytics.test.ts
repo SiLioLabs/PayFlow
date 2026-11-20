@@ -7,7 +7,7 @@
  * - Analytics queries work offline against fixture DB
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import assert from "node:assert";
 import * as fs from "fs";
 import * as path from "path";
@@ -149,11 +149,11 @@ function createRealisticFixture(): string {
 describe("merchant-analytics", () => {
   let fixtureDbPath: string;
 
-  before(() => {
+  beforeAll(() => {
     fixtureDbPath = createRealisticFixture();
   });
 
-  after(() => {
+  afterAll(() => {
     if (fs.existsSync(fixtureDbPath)) {
       fs.unlinkSync(fixtureDbPath);
     }

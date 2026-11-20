@@ -57,7 +57,6 @@ pub fn clear_merchant_fee_recipient(env: &Env, merchant: &Address) {
     }
 }
 
-
 /// Proposes a new fee collector and basis points.
 pub fn propose_fee(env: &Env, collector: Address, bps: u32) {
     if bps > 10_000 {
@@ -184,30 +183,36 @@ fn accumulate_protocol_fees(env: &Env, amount: i128) {
 // (error #8) that clients and alerting already map.
 
 /// Transfers subscription charge amounts (fee to collector/merchant fee recipient, net to merchant).
-/// Returns `(fee_amount, net)` so bookkeeping and events reuse the checked
-/// amounts transferred to the fee recipient and merchant.
+/// Returns `(fee_amount, net, paid_to)` so bookkeeping and events reuse the checked
+/// amounts transferred to the fee recipient and merchant along with the fee destination.
 ///
 /// Panics with `InsufficientAllowance` when the contract's allowance over
 /// `user`'s tokens is below the **gross** `sub.amount`, before any transfer runs.
-pub fn transfer_subscription_charge(env: &Env, user: &Address, sub: &Subscription) -> (i128, i128) {
+pub fn transfer_subscription_charge(
+    env: &Env,
+    user: &Address,
+    sub: &Subscription,
+) -> (i128, i128, Option<Address>) {
     // Preflight: one allowance check covering both legs (fee + net == gross).
     validation::check_allowance(env, user, &sub.token, sub.amount);
 
     let bps = get_fee_bps(env);
-    let fee_collector = get_merchant_fee_recipient(env, &sub.merchant)
-        .or_else(|| get_fee_collector(env));
+    let fee_collector =
+        get_merchant_fee_recipient(env, &sub.merchant).or_else(|| get_fee_collector(env));
 
-    let fee_amount = match fee_collector {
+    let (fee_amount, paid_to) = match fee_collector {
         Some(collector) if bps > 0 => {
             let fee = calculate_fee_amount(env, sub.amount, bps);
             if fee > 0 {
                 let token_client = token::Client::new(env, &sub.token);
                 token_client.transfer_from(&env.current_contract_address(), user, &collector, &fee);
                 accumulate_protocol_fees(env, fee);
+                (fee, Some(collector))
+            } else {
+                (0, None)
             }
-            fee
         }
-        _ => 0,
+        _ => (0, None),
     };
     let net = sub
         .amount
@@ -217,7 +222,7 @@ pub fn transfer_subscription_charge(env: &Env, user: &Address, sub: &Subscriptio
     let token_client = token::Client::new(env, &sub.token);
     token_client.transfer_from(&env.current_contract_address(), user, &sub.merchant, &net);
 
-    (fee_amount, net)
+    (fee_amount, net, paid_to)
 }
 
 /// Transfers a pay-per-use amount (fee to collector/merchant fee recipient, net to `recipient`).
@@ -237,8 +242,8 @@ pub fn transfer_pay_per_use(
     validation::check_allowance(env, user, token, amount);
 
     let bps = get_fee_bps(env);
-    let fee_collector = get_merchant_fee_recipient(env, recipient)
-        .or_else(|| get_fee_collector(env));
+    let fee_collector =
+        get_merchant_fee_recipient(env, recipient).or_else(|| get_fee_collector(env));
 
     let fee_amount = match fee_collector {
         Some(collector) if bps > 0 => {
@@ -273,9 +278,7 @@ mod tests {
         let amounts = [
             0, 1, 2, 9, 10, 99, 100, 101, 1000, 10000, 1234567, 10_000_000,
         ];
-        let bps_values = [
-            0, 1, 5, 10, 50, 100, 500, 1000, 5000, 9999, 10000,
-        ];
+        let bps_values = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 9999, 10000];
 
         for &amount in amounts.iter() {
             for &bps in bps_values.iter() {
@@ -292,8 +295,20 @@ mod tests {
                 );
 
                 // 2. Assert non-negative parts
-                assert!(fee >= 0, "Fee is negative: {} for amount={}, bps={}", fee, amount, bps);
-                assert!(net >= 0, "Net is negative: {} for amount={}, bps={}", net, amount, bps);
+                assert!(
+                    fee >= 0,
+                    "Fee is negative: {} for amount={}, bps={}",
+                    fee,
+                    amount,
+                    bps
+                );
+                assert!(
+                    net >= 0,
+                    "Net is negative: {} for amount={}, bps={}",
+                    net,
+                    amount,
+                    bps
+                );
 
                 // 3. Assert fee limits
                 if bps == 0 {

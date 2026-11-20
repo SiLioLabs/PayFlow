@@ -9,6 +9,28 @@ import {
 } from "@stellar/stellar-sdk";
 import { Server, Durability, Api } from "@stellar/stellar-sdk/rpc";
 import { incrementRpcFailovers } from "./metrics-server";
+import { logger as rootLogger } from "./logger.js";
+
+const logger = rootLogger.child({ script: "rpc-client" });
+
+/** Default HTTP timeout for every Soroban RPC request (milliseconds). */
+export const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+
+/**
+ * Extra attempts of an idempotent RPC call against the same endpoint after the
+ * first failure. `sendTransaction` never uses this value (see submit path).
+ */
+export const DEFAULT_RPC_RETRY_COUNT = 2;
+
+export interface RpcClientOptions {
+  /** Per-request timeout in milliseconds. */
+  timeout?: number;
+  /**
+   * Additional retries of idempotent calls on the same endpoint after the
+   * first failure. Must not be applied to `sendTransaction`.
+   */
+  retryCount?: number;
+}
 
 /**
  * Interface representing state of a single RPC endpoint.
@@ -16,8 +38,180 @@ import { incrementRpcFailovers } from "./metrics-server";
 interface EndpointState {
   url: string;
   server: Server;
+  /** Same endpoint, SDK retries disabled — used only for sendTransaction. */
+  submitServer: Server;
   errorCount: number;
   isHealthy: boolean;
+}
+
+export interface FailoverExecuteOptions {
+  /**
+   * When true, a signed transaction may already have been accepted by the
+   * endpoint. Fail over only when the request is known not to have been sent.
+   */
+  submit?: boolean;
+}
+
+function parseNonNegativeInt(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  if (raw == null || raw.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = parseNonNegativeInt(raw, fallback);
+  return parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Script stem used for per-process timeout overrides, e.g. `indexer.ts`
+ * → `INDEXER_RPC_TIMEOUT_MS`.
+ */
+export function runningScriptEnvPrefix(
+  entryPath = process.argv[1],
+): string | undefined {
+  if (!entryPath) {
+    return undefined;
+  }
+  const base = entryPath.split(/[\\/]/).pop() ?? "";
+  const stem = base.replace(/\.(cjs|mjs|js|ts)$/i, "");
+  if (!stem) {
+    return undefined;
+  }
+  return stem.replace(/-/g, "_").toUpperCase();
+}
+
+/**
+ * Resolve RPC HTTP bounds from the environment.
+ *
+ * Precedence for timeout:
+ *   1. `options.timeout`
+ *   2. `<SCRIPT>_RPC_TIMEOUT_MS` (script basename, hyphens → underscores)
+ *   3. `RPC_TIMEOUT_MS`
+ *   4. {@link DEFAULT_RPC_TIMEOUT_MS}
+ *
+ * Retry count uses the same pattern with `RPC_RETRY_COUNT` /
+ * `<SCRIPT>_RPC_RETRY_COUNT`.
+ *
+ * Each operational script is its own process, so operators also configure
+ * timeout per systemd/compose service via `RPC_TIMEOUT_MS` alone.
+ */
+export function resolveRpcClientOptions(
+  options: RpcClientOptions = {},
+  env: NodeJS.ProcessEnv = process.env,
+  entryPath = process.argv[1],
+): Required<RpcClientOptions> {
+  const prefix = runningScriptEnvPrefix(entryPath);
+  const timeout = parsePositiveInt(
+    options.timeout != null
+      ? String(options.timeout)
+      : (prefix && env[`${prefix}_RPC_TIMEOUT_MS`]) || env.RPC_TIMEOUT_MS,
+    DEFAULT_RPC_TIMEOUT_MS,
+  );
+  const retryCount = parseNonNegativeInt(
+    options.retryCount != null
+      ? String(options.retryCount)
+      : (prefix && env[`${prefix}_RPC_RETRY_COUNT`]) || env.RPC_RETRY_COUNT,
+    DEFAULT_RPC_RETRY_COUNT,
+  );
+  return { timeout, retryCount };
+}
+
+/**
+ * Reject if `promise` does not settle within `timeoutMs`. The underlying
+ * request may still be in flight; callers must not retry non-idempotent work
+ * after a timeout.
+ */
+export async function withRpcTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label = "RPC request",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Construct a Soroban RPC `Server` with a bounded timeout and retry count.
+ * This is the only place operational scripts should call `new Server(...)`.
+ *
+ * `retryCount` is forwarded for SDK / HTTP-client compatibility. Idempotent
+ * retries are also enforced in {@link MultiEndpointServer}; submit calls use
+ * retryCount `0` so a signed transaction is not double-submitted.
+ */
+export function createBoundedRpcServer(
+  url: string,
+  options: Required<RpcClientOptions>,
+): Server {
+  const allowHttp = url.startsWith("http://");
+  const server = new Server(url, {
+    timeout: options.timeout,
+    retryCount: options.retryCount,
+    allowHttp,
+  } as ConstructorParameters<typeof Server>[1] & { retryCount: number });
+
+  const httpClient = (
+    server as Server & {
+      httpClient?: { defaults?: { timeout?: number } };
+    }
+  ).httpClient;
+  if (httpClient?.defaults) {
+    httpClient.defaults.timeout = options.timeout;
+  }
+  return server;
+}
+
+/**
+ * Errors that mean the HTTP request never left this process, so retrying
+ * `sendTransaction` on another endpoint cannot double-submit.
+ */
+export function isSafeToFailoverSubmit(err: unknown): boolean {
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code)
+      : "";
+  const message = err instanceof Error ? err.message : String(err);
+  const combined = `${code} ${message}`.toLowerCase();
+
+  if (combined.includes("timed out after")) {
+    return false;
+  }
+  if (
+    combined.includes("timeout") ||
+    combined.includes("aborted") ||
+    combined.includes("econnreset") ||
+    combined.includes("socket hang up")
+  ) {
+    return false;
+  }
+
+  return (
+    combined.includes("enotfound") ||
+    combined.includes("econnrefused") ||
+    combined.includes("eai_again") ||
+    combined.includes("enetunreach") ||
+    combined.includes("ehostunreach") ||
+    combined.includes("getaddrinfo")
+  );
 }
 
 /**
@@ -29,15 +223,29 @@ export class MultiEndpointServer {
   private endpoints: EndpointState[] = [];
   private expectedPassphrase: string;
   private hasValidatedPassphrase = false;
+  private readonly timeout: number;
+  private readonly retryCount: number;
 
   /**
    * Constructor for MultiEndpointServer.
    * Parses RPC_URLS environment variable (comma-separated list of RPC URLs) or falls
-   * back to the single RPC_URL / VITE_RPC_URL environment variables, or a provided URL/URLs.
+   * back to a constructor URL/URLs, then RPC_URL / VITE_RPC_URL.
+   *
+   * When `RPC_URLS` is set it wins over the constructor argument — do not pass
+   * `process.env.RPC_URL` into the constructor (that plumbing is redundant).
+   * Pass a URL only for CLI / manifest overrides when `RPC_URLS` is unset.
    *
    * @param singleOrList - A single URL string or an array of URL strings.
+   * @param options - Optional timeout / retry overrides for this process.
    */
-  constructor(singleOrList?: string | string[]) {
+  constructor(
+    singleOrList?: string | string[],
+    options: RpcClientOptions = {},
+  ) {
+    const resolved = resolveRpcClientOptions(options);
+    this.timeout = resolved.timeout;
+    this.retryCount = resolved.retryCount;
+
     let urls: string[] = [];
 
     // Prioritize RPC_URLS environment variable if present
@@ -74,7 +282,14 @@ export class MultiEndpointServer {
 
     this.endpoints = urls.map((url) => ({
       url,
-      server: new Server(url),
+      server: createBoundedRpcServer(url, {
+        timeout: this.timeout,
+        retryCount: this.retryCount,
+      }),
+      submitServer: createBoundedRpcServer(url, {
+        timeout: this.timeout,
+        retryCount: 0,
+      }),
       errorCount: 0,
       isHealthy: true,
     }));
@@ -104,20 +319,25 @@ export class MultiEndpointServer {
 
     const validationPromises = this.endpoints.map(async (endpoint) => {
       try {
-        const networkInfo = await endpoint.server.getNetwork();
+        const networkInfo = await withRpcTimeout(
+          endpoint.server.getNetwork(),
+          this.timeout,
+          `getNetwork ${endpoint.url}`,
+        );
         if (networkInfo.passphrase !== this.expectedPassphrase) {
-          console.error(
-            `[RPC Failover] Network passphrase mismatch for ${endpoint.url}. ` +
-              `Expected "${this.expectedPassphrase}", got "${networkInfo.passphrase}".`,
-          );
+          logger.error("Network passphrase mismatch — endpoint demoted", {
+            url: endpoint.url,
+            expected: this.expectedPassphrase,
+            got: networkInfo.passphrase,
+          });
           endpoint.isHealthy = false;
           endpoint.errorCount = 999; // Heavily deprioritize
         }
       } catch (err: any) {
-        console.warn(
-          `[RPC Failover] Health check/passphrase validation failed for ${endpoint.url}: ${err?.message || err}. ` +
-            `Demoting this endpoint.`,
-        );
+        logger.warn("Health check / passphrase validation failed — endpoint demoted", {
+          url: endpoint.url,
+          error: err?.message ?? String(err),
+        });
         endpoint.isHealthy = false;
         endpoint.errorCount++;
       }
@@ -127,13 +347,35 @@ export class MultiEndpointServer {
     this.sortEndpoints();
   }
 
+  private async invokeBounded<T>(
+    endpoint: EndpointState,
+    operation: (server: Server) => Promise<T>,
+    label: string,
+    submit = false,
+  ): Promise<T> {
+    return withRpcTimeout(
+      operation(submit ? endpoint.submitServer : endpoint.server),
+      this.timeout,
+      `${label} ${endpoint.url}`,
+    );
+  }
+
   /**
    * Executes an RPC operation across configured endpoints with transparent retry and failover.
+   *
+   * Idempotent calls retry `retryCount` extra times on the same endpoint, then
+   * fail over. Submit calls (`sendTransaction`) never retry the same signed
+   * payload after a possible send — including timeouts.
    */
   private async executeWithFailover<T>(
     operation: (server: Server) => Promise<T>,
+    executeOptions: FailoverExecuteOptions = {},
+    label = "RPC request",
   ): Promise<T> {
     await this.ensurePassphraseValidation();
+
+    const submit = executeOptions.submit === true;
+    const sameEndpointRetries = submit ? 0 : this.retryCount;
 
     let lastError: any = null;
     const attemptedUrls = new Set<string>();
@@ -147,29 +389,56 @@ export class MultiEndpointServer {
 
       attemptedUrls.add(endpoint.url);
 
-      try {
-        const result = await operation(endpoint.server);
-        // Successful call resets error count and restores health
-        endpoint.errorCount = 0;
-        endpoint.isHealthy = true;
-        return result;
-      } catch (err: any) {
-        lastError = err;
-        endpoint.errorCount++;
-        endpoint.isHealthy = false;
+      for (let attempt = 0; attempt <= sameEndpointRetries; attempt++) {
+        try {
+          const result = await this.invokeBounded(
+            endpoint,
+            operation,
+            label,
+            submit,
+          );
+          endpoint.errorCount = 0;
+          endpoint.isHealthy = true;
+          return result;
+        } catch (err: any) {
+          lastError = err;
+          if (attempt < sameEndpointRetries) {
+            console.warn(
+              `[RPC Retry] ${label} on ${endpoint.url} failed (attempt ${attempt + 1}/${sameEndpointRetries + 1}): ${err?.message || err}`,
+            );
+            continue;
+          }
+        }
+      }
 
-        const failedUrl = endpoint.url;
-        this.sortEndpoints();
-        const nextEndpoint = this.endpoints.find(
-          (e) => !attemptedUrls.has(e.url),
-        );
-        const nextUrl = nextEndpoint ? nextEndpoint.url : "none";
+      endpoint.errorCount++;
+      endpoint.isHealthy = false;
 
+      const failedUrl = endpoint.url;
+      const canFailover = submit ? isSafeToFailoverSubmit(lastError) : true;
+      if (!canFailover) {
         console.warn(
-          `[RPC Failover] Endpoint ${failedUrl} failed: ${err?.message || err}. Retrying with ${nextUrl}...`,
+          `[RPC Failover] Endpoint ${failedUrl} failed after a possible submit: ${lastError?.message || lastError}. Not retrying sendTransaction.`,
         );
+        throw lastError || new Error("RPC submit failed.");
+        logger.warn("RPC endpoint failed — failing over", {
+          failed_url: failedUrl,
+          next_url: nextUrl,
+          error: err?.message ?? String(err),
+        });
         incrementRpcFailovers();
       }
+
+      this.sortEndpoints();
+      const nextEndpoint = this.endpoints.find(
+        (e) => !attemptedUrls.has(e.url),
+      );
+      const nextUrl = nextEndpoint ? nextEndpoint.url : "none";
+
+      console.warn(
+        `[RPC Failover] Endpoint ${failedUrl} failed: ${lastError?.message || lastError}. Retrying with ${nextUrl}...`,
+      );
+      incrementRpcFailovers();
     }
 
     throw lastError || new Error("All configured RPC endpoints failed.");
@@ -341,8 +610,10 @@ export class MultiEndpointServer {
   async sendTransaction(
     transaction: Transaction | FeeBumpTransaction,
   ): Promise<Api.SendTransactionResponse> {
-    return this.executeWithFailover((server) =>
-      server.sendTransaction(transaction),
+    return this.executeWithFailover(
+      (server) => server.sendTransaction(transaction),
+      { submit: true },
+      "sendTransaction",
     );
   }
 
@@ -352,8 +623,10 @@ export class MultiEndpointServer {
   async _sendTransaction(
     transaction: Transaction | FeeBumpTransaction,
   ): Promise<Api.RawSendTransactionResponse> {
-    return this.executeWithFailover((server) =>
-      server._sendTransaction(transaction),
+    return this.executeWithFailover(
+      (server) => server._sendTransaction(transaction),
+      { submit: true },
+      "_sendTransaction",
     );
   }
 
@@ -460,7 +733,7 @@ export async function fetchEventsFromRpc(): Promise<ParsedRpcEvent[]> {
     try {
       response = await server.getEvents(params);
     } catch (err: any) {
-      console.error(`Error querying RPC events: ${err?.message || err}`);
+      logger.error("Error querying RPC events", { error: err?.message ?? String(err) });
       throw err;
     }
 

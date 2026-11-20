@@ -39,6 +39,7 @@
  * @returns {Function}        returns.clearNotifications - Empties the notification list
  */
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useToastContext } from "../context/ToastContext";
 
 export type ToastVariant = "success" | "error" | "info";
 
@@ -105,7 +106,7 @@ function saveToSession(notifications: Notification[]): void {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useToast() {
+function createLocalToastState() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>(loadFromSession);
 
@@ -308,4 +309,15 @@ export function useToast() {
     markAllRead,
     clearNotifications,
   };
+}
+
+export function useToast() {
+  // Try to use the shared context first
+  try {
+    return useToastContext();
+  } catch {
+    // Fall back to local state if not within a ToastProvider
+    // This maintains backward compatibility with tests that mock useToast directly
+    return createLocalToastState();
+  }
 }

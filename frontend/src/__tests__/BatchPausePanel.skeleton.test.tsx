@@ -10,7 +10,7 @@
 import React from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, afterEach } from "vitest";
 
 vi.mock("../stellar");
 vi.mock("../hooks/useTransaction", () => ({
@@ -169,7 +169,6 @@ describe("BatchPausePanel — race / stale-response prevention", () => {
     // Expected: panel enters "ready" state from call 2; call 1's late resolve is dropped.
 
     const slowDeferred = deferred();
-    let onInitCallCount = 0;
 
     // We simulate re-mount by using a key prop to force remount after first render
     const SlowThenFast = () => {
@@ -177,13 +176,12 @@ describe("BatchPausePanel — race / stale-response prevention", () => {
 
       // Build a stable onInit reference per key
       const onInit = React.useCallback(
-        async (_signal: AbortSignal) => {
+        async () => {
           if (key === 0) {
             // First mount: slow
             return slowDeferred.promise;
           }
           // Second mount: fast
-          onInitCallCount += 1;
         },
         [key]
       );

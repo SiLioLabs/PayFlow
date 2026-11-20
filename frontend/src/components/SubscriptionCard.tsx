@@ -15,7 +15,7 @@
  *
  * Clicking an amber/red/unknown allowance badge opens IncreaseAllowanceModal.
  */
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import CopyButton from "./CopyButton";
 import NextChargeCountdown from "./NextChargeCountdown";
 import IncreaseAllowanceModal from "./IncreaseAllowanceModal";
@@ -39,6 +39,7 @@ import { useRegisterShortcuts } from "../context/ShortcutRegistry";
 import { useResponsive } from "../hooks/useResponsive";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { useToast } from "../hooks/useToast";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -222,6 +223,7 @@ export default function SubscriptionCard({
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelStatus, setCancelStatus] = useState("");
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // ── Pause / resume via hook ────────────────────────────────────────────────
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
@@ -229,6 +231,54 @@ export default function SubscriptionCard({
   const [pauseUntilInput, setPauseUntilInput] = useState("");
   const [pauseValidationError, setPauseValidationError] = useState<string | null>(null);
   const [scheduledResumeAt, setScheduledResumeAt] = useState<number | null>(null);
+
+  // ── Modal accessibility (dialog semantics, focus trap, focus restore) ──────
+  /** The pause/cancel dialog panels, used by useFocusTrap. */
+  const pauseDialogRef = useRef<HTMLDivElement>(null);
+  const cancelDialogRef = useRef<HTMLDivElement>(null);
+  /**
+   * Elements that opened the pause/cancel dialogs. Focus is returned to the
+   * trigger on close so keyboard users are not dropped at the top of the page.
+   */
+  const pauseTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const cancelTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  /**
+   * Ref-based latches guarding the confirm handlers. The `state === "pending"`
+   * flags only flip on the next render, so a fast double click could otherwise
+   * dispatch two wallet signatures from a single confirmation.
+   */
+  const pauseSubmittingRef = useRef(false);
+  const cancelSubmittingRef = useRef(false);
+
+  const closePauseDialog = useCallback(() => {
+    setShowPauseConfirm(false);
+    // Restore focus to the control that opened the dialog (keyboard continuity).
+    pauseTriggerRef.current?.focus();
+    pauseTriggerRef.current = null;
+  }, []);
+
+  const closeCancelDialog = useCallback(() => {
+    setShowCancelConfirm(false);
+    cancelTriggerRef.current?.focus();
+    cancelTriggerRef.current = null;
+  }, []);
+
+  const openPauseDialog = useCallback((trigger: HTMLButtonElement | null) => {
+    pauseTriggerRef.current = trigger;
+    setShowPauseConfirm(true);
+  }, []);
+
+  const openCancelDialog = useCallback((trigger: HTMLButtonElement | null) => {
+    cancelTriggerRef.current = trigger;
+    setShowCancelConfirm(true);
+  }, []);
+
+  // Only one dialog is ever open, so each trap is active only while its own
+  // modal is mounted; Escape dismisses whichever one is showing.
+  useFocusTrap(pauseDialogRef, showPauseConfirm, closePauseDialog);
+  useFocusTrap(cancelDialogRef, showCancelConfirm, closeCancelDialog);
+
   const { pause, pauseUntil, resume, pauseTx, pauseUntilTx, resumeTx } = usePauseResume(
     userKey,
     onSign,
@@ -256,7 +306,7 @@ export default function SubscriptionCard({
           {
             key: "x",
             description: "Cancel active subscription",
-            action: () => setShowCancelConfirm(true),
+            action: () => openCancelDialog(null),
           },
         ]
       : []
@@ -290,6 +340,10 @@ export default function SubscriptionCard({
   }, [userKey, active]);
 
   const handleCancel = async () => {
+    // Guard against a double-submit: cancelLoading only reflects the previous
+    // render, so without this latch two rapid clicks would sign twice.
+    if (cancelSubmittingRef.current) return;
+    cancelSubmittingRef.current = true;
     setCancelLoading(true);
     setCancelStatus("");
     try {
@@ -302,46 +356,56 @@ export default function SubscriptionCard({
         { active: false }
       );
       setCancelStatus("Cancelled successfully.");
+      setCancelError(null);
       setShowCancelConfirm(false);
       onCancelled?.();
     } catch (e: unknown) {
-      const msg = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      const msg = e instanceof Error ? e.message : String(e);
+      setCancelError(msg);
       setCancelStatus(msg);
-      addToast(msg, "error");
+      addToast(`Error: ${msg}`, "error");
     } finally {
+      cancelSubmittingRef.current = false;
       setCancelLoading(false);
     }
   };
 
   const handlePause = async () => {
-    if (pauseMode === "until") {
-      if (!pauseUntilInput) {
-        setPauseValidationError("Choose a resume date and time.");
+    // Guard against a double-submit from a fast double click / Enter repeat.
+    if (pauseSubmittingRef.current) return;
+    pauseSubmittingRef.current = true;
+    try {
+      if (pauseMode === "until") {
+        if (!pauseUntilInput) {
+          setPauseValidationError("Choose a resume date and time.");
+          return;
+        }
+        const expirySeconds = Math.floor(new Date(pauseUntilInput).getTime() / 1000);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (!Number.isFinite(expirySeconds) || expirySeconds <= nowSeconds) {
+          setPauseValidationError("Resume time must be in the future.");
+          return;
+        }
+        setPauseValidationError(null);
+        try {
+          await pauseUntil(BigInt(expirySeconds));
+          setScheduledResumeAt(expirySeconds);
+          setShowPauseConfirm(false);
+        } catch {
+          // pauseUntilTx.error holds the failure reason
+        }
         return;
       }
-      const expirySeconds = Math.floor(new Date(pauseUntilInput).getTime() / 1000);
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      if (!Number.isFinite(expirySeconds) || expirySeconds <= nowSeconds) {
-        setPauseValidationError("Resume time must be in the future.");
-        return;
-      }
-      setPauseValidationError(null);
+
       try {
-        await pauseUntil(BigInt(expirySeconds));
-        setScheduledResumeAt(expirySeconds);
+        await pause();
+        setScheduledResumeAt(null);
         setShowPauseConfirm(false);
       } catch {
-        // pauseUntilTx.error holds the failure reason
+        // pauseTx.error holds the failure reason
       }
-      return;
-    }
-
-    try {
-      await pause();
-      setScheduledResumeAt(null);
-      setShowPauseConfirm(false);
-    } catch {
-      // pauseTx.error holds the failure reason
+    } finally {
+      pauseSubmittingRef.current = false;
     }
   };
 
@@ -363,15 +427,15 @@ export default function SubscriptionCard({
       ? `Paused until ${new Date(scheduledResumeAt * 1000).toLocaleString()}.`
       : "Paused successfully.";
   } else if (pauseTx.state === "failed") {
-    derivedPauseStatus = `Error: ${pauseTx.error || "Failed to pause"}`;
+    derivedPauseStatus = pauseTx.error || "Failed to pause";
   } else if (pauseUntilTx.state === "failed") {
-    derivedPauseStatus = `Error: ${pauseUntilTx.error || "Failed to pause"}`;
+    derivedPauseStatus = pauseUntilTx.error || "Failed to pause";
   } else if (resumeTx.state === "pending") {
     derivedPauseStatus = "Resuming…";
   } else if (resumeTx.state === "success") {
     derivedPauseStatus = "Resumed successfully.";
   } else if (resumeTx.state === "failed") {
-    derivedPauseStatus = `Error: ${resumeTx.error || "Failed to resume"}`;
+    derivedPauseStatus = resumeTx.error || "Failed to resume";
   }
 
   const isInTrial = trialEndTimestamp !== null && trialEndTimestamp > Math.floor(Date.now() / 1000);
@@ -468,7 +532,7 @@ export default function SubscriptionCard({
         {active && !paused && (
           <>
             <button
-              onClick={() => setShowPauseConfirm(true)}
+              onClick={(e) => openPauseDialog(e.currentTarget)}
               className="btn-secondary pause-btn"
               aria-label="Pause subscription"
               title={healthUnhealthy ? "Subscription needs attention" : undefined}
@@ -476,7 +540,7 @@ export default function SubscriptionCard({
               Pause
             </button>
             <button
-              onClick={() => setShowCancelConfirm(true)}
+              onClick={(e) => openCancelDialog(e.currentTarget)}
               className="btn-danger cancel-btn"
               aria-label="Cancel subscription"
               title={healthUnhealthy ? "Subscription needs attention" : undefined}
@@ -508,7 +572,7 @@ export default function SubscriptionCard({
               {resumeTx.state === "pending" ? "Resuming…" : "Resume"}
             </button>
             <button
-              onClick={() => setShowCancelConfirm(true)}
+              onClick={(e) => openCancelDialog(e.currentTarget)}
               className="btn-danger cancel-btn"
               aria-label="Cancel subscription"
             >
@@ -528,9 +592,17 @@ export default function SubscriptionCard({
 
       {/* Pause confirm modal */}
       {showPauseConfirm && (
-        <div className="modal-overlay" onClick={() => setShowPauseConfirm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Pause subscription?</h3>
+        <div className="modal-overlay" onClick={closePauseDialog}>
+          <div
+            ref={pauseDialogRef}
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pause-modal-title"
+            data-testid="pause-dialog"
+          >
+            <h3 id="pause-modal-title">Pause subscription?</h3>
             <p>You won&apos;t be charged while paused.</p>
 
             <div className="form-group" role="radiogroup" aria-label="Pause duration">
@@ -585,11 +657,12 @@ export default function SubscriptionCard({
             </div>
 
             <div className="modal-actions">
-              <button onClick={() => setShowPauseConfirm(false)} className="btn-secondary">
+              <button onClick={closePauseDialog} className="btn-secondary">
                 Cancel
               </button>
               <button
                 onClick={handlePause}
+                type="button"
                 disabled={pauseTx.state === "pending" || pauseUntilTx.state === "pending"}
                 className="btn-primary"
               >
@@ -604,15 +677,28 @@ export default function SubscriptionCard({
 
       {/* Cancel confirm modal */}
       {showCancelConfirm && (
-        <div className="modal-overlay" onClick={() => setShowCancelConfirm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Cancel subscription?</h3>
+        <div className="modal-overlay" onClick={closeCancelDialog}>
+          <div
+            ref={cancelDialogRef}
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-modal-title"
+            data-testid="cancel-dialog"
+          >
+            <h3 id="cancel-modal-title">Cancel subscription?</h3>
             <p>Are you sure you want to cancel your subscription? This cannot be undone.</p>
             <div className="modal-actions">
-              <button onClick={() => setShowCancelConfirm(false)} className="btn-secondary">
+              <button onClick={closeCancelDialog} className="btn-secondary">
                 Back
               </button>
-              <button onClick={handleCancel} disabled={cancelLoading} className="btn-danger">
+              <button
+                onClick={handleCancel}
+                type="button"
+                disabled={cancelLoading}
+                className="btn-danger"
+              >
                 {cancelLoading ? "Cancelling…" : "Confirm Cancel"}
               </button>
             </div>
@@ -664,35 +750,43 @@ export default function SubscriptionCard({
         />
       )}
 
-      {(derivedPauseStatus || cancelStatus) && (
-        <p
-          className="form-status"
-          style={{
-            color:
-              derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")
-                ? "var(--color-danger)"
-                : "var(--color-success)",
-          }}
-        >
-          {derivedPauseStatus || cancelStatus}
-        </p>
-      )}
+      {(() => {
+        const hasPauseError =
+          pauseTx.state === "failed" || pauseUntilTx.state === "failed" || resumeTx.state === "failed";
+        const pauseErrorMsg = pauseTx.error || pauseUntilTx.error || resumeTx.error;
+        const isError = hasPauseError || cancelError !== null;
+        const displayStatus = hasPauseError ? derivedPauseStatus : (cancelStatus || derivedPauseStatus);
+        const activeError = hasPauseError ? pauseErrorMsg : cancelError;
 
-      {(derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")) && (
-        <ErrorRecovery
-          error={
-            derivedPauseStatus.startsWith("Error")
-              ? pauseTx.error || pauseUntilTx.error || resumeTx.error
-              : cancelStatus
-          }
-          health={subHealth}
-          onIncreaseAllowance={
-            subHealth && !subHealth.has_sufficient_allowance
-              ? () => setShowAllowanceModal(true)
-              : undefined
-          }
-        />
-      )}
+        if (!displayStatus) return null;
+
+        return (
+          <>
+            <p
+              className={`form-status ${isError ? "text-error" : "text-success"}`}
+              role="status"
+              data-testid="subscription-card-status"
+              style={{
+                color: isError ? "var(--color-danger)" : "var(--color-success)",
+              }}
+            >
+              {isError ? `⚠️ ${displayStatus}` : displayStatus}
+            </p>
+
+            {isError && (
+              <ErrorRecovery
+                error={activeError || displayStatus}
+                health={subHealth}
+                onIncreaseAllowance={
+                  subHealth && !subHealth.has_sufficient_allowance
+                    ? () => setShowAllowanceModal(true)
+                    : undefined
+                }
+              />
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

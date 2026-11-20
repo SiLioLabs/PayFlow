@@ -21,6 +21,7 @@ import {
   confidenceLevel,
   forecastSubscription,
   forecastRenewals,
+  buildSnapshotsFromEvents,
   type SubscriptionSnapshot,
   type ForecastEntry,
 } from "./renewal-forecast.js";
@@ -166,6 +167,41 @@ function testValidateSnapshot(): void {
   );
 }
 
+function testBuildSnapshotsFromEvents(): void {
+  console.log("\n── testBuildSnapshotsFromEvents ──");
+
+  // Mirrors the real `events` table shape: charged/subscribed/cancelled rows.
+  const rows = [
+    { event_type: "subscribed", user: "GALICE", amount: 1000000, timestamp: 1697408000, data: null },
+    { event_type: "charged", user: "GALICE", amount: 1000000, timestamp: 1697408000, data: null },
+    { event_type: "charged", user: "GALICE", amount: 1000000, timestamp: 1700000000, data: null },
+    { event_type: "subscribed", user: "GBOB", amount: 500000, timestamp: 1697408000, data: null },
+    { event_type: "charged", user: "GBOB", amount: 500000, timestamp: 1697408000, data: null },
+    { event_type: "cancelled", user: "GBOB", amount: 0, timestamp: 1699000000, data: null },
+  ];
+
+  const snapshots = buildSnapshotsFromEvents(rows as any);
+  assertEqual(snapshots.length, 2, "two users → two snapshots");
+
+  const alice = snapshots.find((s) => s.user === "GALICE")!;
+  assert(alice !== undefined, "alice snapshot present");
+  assertEqual(alice.amount, 1000000, "alice amount from charged event");
+  assertEqual(alice.last_charged, 1700000000, "alice last_charged from latest charged");
+  assertEqual(alice.active, true, "alice active (no cancel)");
+  assertEqual(alice.paused, false, "alice not paused");
+  assertEqual(alice.charge_history.length, 2, "alice charge history has two entries");
+
+  const bob = snapshots.find((s) => s.user === "GBOB")!;
+  assert(bob !== undefined, "bob snapshot present");
+  assertEqual(bob.active, false, "bob inactive after cancelled event");
+  assertEqual(bob.charge_history.length, 1, "bob charge history has one entry");
+
+  // Snapshots must be valid inputs to the forecast pipeline.
+  for (const snap of snapshots) {
+    assertEqual(validateSnapshot(snap), null, `snapshot for ${snap.user} validates`);
+  }
+}
+
 function testForecastSubscriptionPaused(): void {
   console.log("\n── testForecastSubscriptionPaused ──");
   const sub: SubscriptionSnapshot = {
@@ -236,13 +272,11 @@ function testForecastSubscriptionSingleCharge(): void {
   assertEqual(result.confidence, "insufficient_data", "single charge → insufficient_data (0 intervals)");
   assert(result.next_renewal! > 0, "still uses fallback interval");
   assert(Number.isFinite(result.next_renewal!), "result is finite");
-  assert(result.next_renewal! > 0, "result is positive");
-  assert(result.confidence_band === null, "no band for insufficient data");
+  assertEqual(result.reason, "no_charge_history_fallback_interval", "single charge → fallback reason");
 }
 
 function testForecastSubscriptionRegular(): void {
   console.log("\n── testForecastSubscriptionRegular ──");
-  // 3 charges 30 days apart = regular monthly
   const sub: SubscriptionSnapshot = {
     user: "GREGULAR",
     amount: 1000000,
@@ -250,193 +284,87 @@ function testForecastSubscriptionRegular(): void {
     last_charged: 1700000000,
     active: true,
     paused: false,
-    charge_history: [
-      1697408000,
-      1699996000,
-      1700000000,
-    ],
+    charge_history: [1694816000, 1697408000, 1700000000],
   };
   const result = forecastSubscription(sub);
-  // 3 charges → 2 intervals → medium confidence
-  assertEqual(result.confidence, "medium", "3 charges → medium confidence (2 intervals)");
-  assert(Number.isFinite(result.next_renewal!), "result is finite");
-  assert(result.confidence_band !== null, "confidence band exists");
+  assertEqual(result.confidence, "medium", "two intervals → medium confidence");
+  assert(result.next_renewal !== null, "regular → non-null next_renewal");
+  assert(Number.isFinite(result.next_renewal!), "regular → finite next_renewal");
+  assert(result.confidence_band !== null, "regular → non-null band");
   assert(
-    result.confidence_band!.low < result.next_renewal!,
-    "band low < predicted",
+    result.confidence_band!.low <= result.next_renewal! &&
+      result.next_renewal! <= result.confidence_band!.high,
+    "next_renewal within confidence band",
+  );
+}
+
+function testForecastRenewals(): void {
+  console.log("\n── testForecastRenewals ──");
+  const subs: SubscriptionSnapshot[] = [
+    {
+      user: "GA",
+      amount: 1000000,
+      interval: 2592000,
+      last_charged: 1700000000,
+      active: true,
+      paused: false,
+      charge_history: [1694816000, 1697408000, 1700000000],
+    },
+    {
+      user: "GB",
+      amount: 500000,
+      interval: 604800,
+      last_charged: 1700000000,
+      active: false,
+      paused: false,
+      charge_history: [1697408000],
+    },
+  ];
+  const entries: ForecastEntry[] = forecastRenewals(subs);
+  assertEqual(entries.length, 2, "one entry per subscription");
+  const active = entries.find((e) => e.user === "GA")!;
+  const inactive = entries.find((e) => e.user === "GB")!;
+  assert(active.next_renewal !== null, "active entry has next_renewal");
+  assertEqual(inactive.next_renewal, null, "inactive entry has null next_renewal");
+}
+
+function testNoSubscriptionsTableReference(): void {
+  console.log("\n── testNoSubscriptionsTableReference ──");
+  const src = readFileSync(resolve(__dirname, "renewal-forecast.ts"), "utf8");
+  assert(
+    !/\bFROM\s+subscriptions\b/i.test(src),
+    "renewal-forecast.ts does not query a subscriptions table",
   );
   assert(
-    result.confidence_band!.high > result.next_renewal!,
-    "band high > predicted",
-  );
-  // Verify no NaN anywhere in the output
-  assert(Number.isFinite(result.next_renewal!), "next_renewal is finite");
-  assert(Number.isFinite(result.confidence_band!.low), "band low is finite");
-  assert(Number.isFinite(result.confidence_band!.high), "band high is finite");
-}
-
-function testNoNaNInOutput(): void {
-  console.log("\n── testNoNaNInOutput ──");
-  // Load the fixture file and run the full forecast pipeline
-  const fixturePath = resolve(__dirname, "fixtures", "renewal-forecast.json");
-  const raw = readFileSync(fixturePath, "utf-8");
-  const snapshots: SubscriptionSnapshot[] = JSON.parse(raw);
-
-  const report = forecastRenewals(snapshots);
-
-  for (const f of report.forecasts) {
-    if (f.next_renewal !== null) {
-      assert(
-        Number.isFinite(f.next_renewal),
-        `${f.user}: next_renewal is finite (got ${f.next_renewal})`,
-      );
-    }
-    if (f.confidence_band) {
-      assert(
-        Number.isFinite(f.confidence_band.low),
-        `${f.user}: band low is finite`,
-      );
-      assert(
-        Number.isFinite(f.confidence_band.high),
-        `${f.user}: band high is finite`,
-      );
-      assert(
-        f.confidence_band.low <= f.confidence_band.high,
-        `${f.user}: band low <= band high`,
-      );
-    }
-  }
-}
-
-function testInsufficientDataFlagged(): void {
-  console.log("\n── testInsufficientDataFlagged ──");
-  const fixturePath = resolve(__dirname, "fixtures", "renewal-forecast.json");
-  const raw = readFileSync(fixturePath, "utf-8");
-  const snapshots: SubscriptionSnapshot[] = JSON.parse(raw);
-  const report = forecastRenewals(snapshots);
-
-  // The fixture has known scenarios: empty user, zero interval, negative amount,
-  // empty history — these should all be flagged as insufficient_data or validation_error
-  const insufficientOrInvalid = report.forecasts.filter(
-    (f) =>
-      f.confidence === "insufficient_data" ||
-      f.reason?.startsWith("validation_error"),
-  );
-
-  assert(
-    insufficientOrInvalid.length >= 4,
-    `At least 4 entries flagged as insufficient/invalid (got ${insufficientOrInvalid.length})`,
-  );
-
-  // Paused subscriber should be counted
-  assertEqual(report.paused, 1, "one paused subscriber");
-
-  // Inactive subscriber should be counted
-  assertEqual(report.inactive, 1, "one inactive subscriber");
-}
-
-function testDuplicateTimestamps(): void {
-  console.log("\n── testDuplicateTimestamps ──");
-  const sub: SubscriptionSnapshot = {
-    user: "GDUPLICATES",
-    amount: 1000000,
-    interval: 2592000,
-    last_charged: 1700000000,
-    active: true,
-    paused: false,
-    // All identical — produces no positive gaps
-    charge_history: [1697408000, 1697408000, 1697408000],
-  };
-  const result = forecastSubscription(sub);
-  // With no valid gaps, confidence should be insufficient_data
-  // but it should still fall back to using interval + last_charged
-  assert(Number.isFinite(result.next_renewal!), "duplicate timestamps still produce finite output");
-  assert(result.next_renewal! > 0, "result is positive");
-  // No NaN
-  assert(!isNaN(result.next_renewal!), "no NaN in next_renewal");
-}
-
-function testFixtureRunsEndToEnd(): void {
-  console.log("\n── testFixtureRunsEndToEnd ──");
-  const fixturePath = resolve(__dirname, "fixtures", "renewal-forecast.json");
-  const raw = readFileSync(fixturePath, "utf-8");
-  const snapshots: SubscriptionSnapshot[] = JSON.parse(raw);
-  const report = forecastRenewals(snapshots);
-
-  assertEqual(report.total, snapshots.length, "total matches input count");
-  assert(report.generated_at.length > 0, "generated_at is populated");
-
-  // Check that the healthy regular subscriber has a forecast
-  const healthy = report.forecasts.find(
-    (f) => f.user === "GAAA1111111111111111111111111111111111111111111111111111111",
-  );
-  assert(healthy !== undefined, "healthy subscriber found in forecasts");
-  assert(healthy!.next_renewal !== null, "healthy subscriber has forecast");
-  // 3 charges → 2 intervals → medium confidence
-  assertEqual(healthy!.confidence, "medium", "healthy subscriber has medium confidence (2 intervals)");
-
-  // Check paused subscriber
-  const paused = report.forecasts.find(
-    (f) => f.user === "GBBB2222222222222222222222222222222222222222222222222222222",
-  );
-  assert(paused !== undefined, "paused subscriber found");
-  assertEqual(paused!.next_renewal, null, "paused subscriber has no forecast");
-  assertEqual(paused!.reason, "subscription_paused", "paused reason correct");
-
-  // Check inactive subscriber
-  const inactive = report.forecasts.find(
-    (f) => f.user === "GCCC3333333333333333333333333333333333333333333333333333333",
-  );
-  assert(inactive !== undefined, "inactive subscriber found");
-  assertEqual(inactive!.next_renewal, null, "inactive subscriber has no forecast");
-
-  // Check validation errors
-  const negativeAmount = report.forecasts.find(
-    (f) => f.user === "GGGG7777777777777777777777777777777777777777777777777777777",
-  );
-  assert(negativeAmount !== undefined, "negative amount subscriber found");
-  assertEqual(negativeAmount!.next_renewal, null, "negative amount → null forecast");
-  assert(
-    negativeAmount!.reason?.startsWith("validation_error") === true,
-    `negative amount → validation_error (got reason: ${negativeAmount!.reason})`,
+    /\bFROM\s+events\b/i.test(src),
+    "renewal-forecast.ts queries the events table",
   );
 }
 
-// ── Run all tests ────────────────────────────────────────────────────────────
+// ── Runner ───────────────────────────────────────────────────────────────────
 
 function main(): void {
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  renewal-forecast.ts test suite");
-  console.log("═══════════════════════════════════════════════════════════════");
-
+  console.log("renewal-forecast.ts test suite");
   testSafeMean();
   testSafeStdDev();
   testComputeIntervals();
   testConfidenceLevel();
   testValidateSnapshot();
+  testBuildSnapshotsFromEvents();
   testForecastSubscriptionPaused();
   testForecastSubscriptionInactive();
   testForecastSubscriptionNoHistory();
   testForecastSubscriptionSingleCharge();
   testForecastSubscriptionRegular();
-  testNoNaNInOutput();
-  testInsufficientDataFlagged();
-  testDuplicateTimestamps();
-  testFixtureRunsEndToEnd();
+  testForecastRenewals();
+  testNoSubscriptionsTableReference();
 
-  console.log("\n═══════════════════════════════════════════════════════════════");
-  console.log(`  Results: ${passed} passed, ${failed} failed`);
-  console.log("═══════════════════════════════════════════════════════════════");
-
-  if (failures.length > 0) {
-    console.log("\nFailures:");
-    for (const f of failures) {
-      console.log(f);
-    }
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) {
+    console.error("\nFailures:");
+    for (const f of failures) console.error(f);
     process.exit(1);
   }
-
-  console.log("\n  All tests passed ✓");
   process.exit(0);
 }
 

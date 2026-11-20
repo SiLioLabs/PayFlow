@@ -4112,7 +4112,7 @@
                 {
                   "vec": [
                     {
-                      "symbol": "Cancelled"
+                      "symbol": "PausedCancelled"
                     }
                   ]
                 },

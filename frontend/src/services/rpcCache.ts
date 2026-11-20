@@ -10,6 +10,8 @@
  * fetched from one endpoint is never served to a caller on another endpoint.
  */
 
+import { CUSTOM_RPC_URL_KEY } from "../constants";
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /** Default TTL for cached responses (milliseconds). */
@@ -17,9 +19,6 @@ export const DEFAULT_TTL_MS = 5_000;
 
 /** Maximum number of entries kept in the LRU cache. */
 const MAX_CACHE_SIZE = 100;
-
-/** localStorage key under which the custom RPC URL is persisted. */
-const CUSTOM_RPC_KEY = "flowpay_custom_rpc_url";
 
 /** Sentinel used when no custom endpoint is configured. */
 const DEFAULT_ENDPOINT = "__default__";
@@ -37,7 +36,7 @@ const DEFAULT_ENDPOINT = "__default__";
 export function getActiveEndpointId(): string {
   if (typeof window === "undefined") return DEFAULT_ENDPOINT;
   try {
-    const stored = window.localStorage.getItem(CUSTOM_RPC_KEY);
+    const stored = window.localStorage.getItem(CUSTOM_RPC_URL_KEY);
     if (!stored) return DEFAULT_ENDPOINT;
     const parsed = JSON.parse(stored);
     return typeof parsed === "string" && parsed.length > 0 ? parsed : DEFAULT_ENDPOINT;

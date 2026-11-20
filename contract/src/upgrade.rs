@@ -9,13 +9,11 @@ pub fn propose_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
     env.storage()
         .temporary()
         .set(&DataKey::PendingUpgrade, &new_wasm_hash);
-    env.storage()
-        .temporary()
-        .extend_ttl(
-            &DataKey::PendingUpgrade,
-            PENDING_UPGRADE_TTL_LEDGERS,
-            PENDING_UPGRADE_TTL_LEDGERS,
-        );
+    env.storage().temporary().extend_ttl(
+        &DataKey::PendingUpgrade,
+        PENDING_UPGRADE_TTL_LEDGERS,
+        PENDING_UPGRADE_TTL_LEDGERS,
+    );
     events::publish_upgrade_proposed(env, &new_wasm_hash);
 }
 
@@ -48,10 +46,4 @@ pub fn commit_upgrade(env: &Env) {
 /// No auth required — this is a view-only read of temporary storage.
 pub fn get_pending_upgrade(env: &Env) -> Option<BytesN<32>> {
     env.storage().temporary().get(&DataKey::PendingUpgrade)
-}
-
-#[cfg(test)]
-pub fn upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
-    // Keep direct upgrade available for the test environment
-    events::publish_upgraded(env, &new_wasm_hash);
 }

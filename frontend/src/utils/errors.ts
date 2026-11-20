@@ -1,6 +1,9 @@
 /**
  * Customer-facing messages for FlowPay contract errors.
  *
+ * Plain-language Q&A for these messages: `docs/FAQ.md`
+ * (every code below is reachable from an FAQ answer).
+ *
  * CANONICAL SOURCE: `contract/src/errors.rs` — the `ContractError` enum is the
  * wire contract for every numeric code below. This map derives from it and is
  * checked against it: `src/utils/errors.test.ts` parses `errors.rs` at test
@@ -122,6 +125,7 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "already initialized": "Contract is already set up.",
   "amount must be positive": "Amount must be greater than zero.",
   "interval must be positive": "Billing interval must be greater than zero.",
+  intervalexceedsmaximum: "Billing interval must not exceed 400 years.",
   "contract paused": "Payments are temporarily paused by the contract administrator.",
   "contractpaused": "Payments are temporarily paused by the contract administrator.",
   // Pre-`initialize` admin reads now abort with the typed

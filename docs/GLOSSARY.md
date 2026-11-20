@@ -16,11 +16,29 @@ The privileged address authorized to perform administrative actions (initializat
 
 Source: `contract/src/admin.rs`, `DataKey::Admin`, `transfer_admin()` / `accept_admin()`.
 
+See also: [Two-Step Authorization](#two-step-authorization).
+
+### Amount Limits
+
+Hard caps on one-time payment and subscription amounts, expressed in token base units. `MAX_AMOUNT` limits a single `pay_per_use()` call; `MAX_SUBSCRIPTION_AMOUNT` limits a subscription charge.
+
+Source: [`LIMITS.md`](./LIMITS.md), `contract/src/validation.rs`.
+
+See also: [`API.md`](./API.md), [Daily Limit](#daily-limit).
+
 ### Append-only Subscriber Index
 
 A persistent list-like structure used to track subscriber addresses for iteration and paging patterns. It supports reading “subscriber at index” without rewriting the full list each time. The contract keeps an associated size counter.
 
 Source: `contract/src/subscription_count.rs`, `DataKey::SubscriberIndex(i)` and `SubscriberIndexSize`.
+
+### Auto-Resume
+
+A bounded pause set with `pause_until()` is cleared lazily by the next `charge()` or `batch_charge()` after its expiry. Soroban does not run a timer, so an expired pause remains stored until a charge attempt or explicit `resume()`.
+
+Source: [`PAUSE-LIFECYCLE.md`](./architecture/PAUSE-LIFECYCLE.md#auto-resume-on-charge--batch_charge).
+
+See also: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md), [`EVENTS.md`](./EVENTS.md).
 
 ## B
 
@@ -32,13 +50,21 @@ Source: `contract/src/batch.rs`, `batch_charge()`.
 
 ## C
 
+### CancelResult
+
+Per-address outcome returned by `batch_cancel()`. Its append-only variants are encoded as `u32` discriminants; the result describes cancellation without requiring a separate event for each address.
+
+Source: [`API.md`](./API.md), [`CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
+
+See also: [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md).
+
 ### ChargeResult
 
 Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate()`. A non-`Charged` result for one user **never aborts** the rest of the batch. Variants are append-only in the contract (discriminants 0-6); do not reorder when extending.
 
-On the wire each variant is an `scvU32` carrying its discriminant, **not** an `scvSymbol` or a string. See [`charge-results.md`](./charge-results.md) for the byte-level encoding, worked hex examples, and decoders.
+On the wire each variant is an `scvU32` carrying its discriminant, **not** an `scvSymbol` or a string. See [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md) for the byte-level encoding, worked hex examples, and decoders.
 
-Source: `contract/src/batch.rs`, [`charge-results.md`](./charge-results.md).
+Source: `contract/src/batch.rs`, [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md).
 
 | Variant | Meaning |
 | --- | --- |
@@ -52,11 +78,17 @@ Source: `contract/src/batch.rs`, [`charge-results.md`](./charge-results.md).
 
 Canonical table: [`KEEPER.md`](./KEEPER.md#how-a-cycle-works). Type definition: `contract/src/batch.rs`.
 
+`ChargeResult::AllowanceInsufficient` is discriminant 6: the batch checks allowance before token transfer and returns this per-user outcome without aborting the batch. It is distinct from `InsufficientAllowance` (contract error code 8), which is a transaction error on other paths.
+
+See also: [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md), [`KEEPER.md`](./KEEPER.md), [`ERROR-CODES.md`](./ERROR-CODES.md).
+
 ### ChargeSimResult
 
 Read-only simulation enum returned only by `simulate_charge()`. Unlike `ChargeResult`, it distinguishes `ContractPaused`, `NotDue`, and `InsufficientAllowance`, and collapses missing/inactive subscriptions into `Inactive`. Never panics for ordinary eligibility outcomes.
 
 Source: `contract/src/charge_exec.rs`, [`API.md`](./API.md#chargesimresult).
+
+See also: [`PayPerUseSimResult`](#payperusesimresult), [`ChargeResult`](#chargeresult).
 
 ### Contract Paused
 
@@ -86,7 +118,7 @@ Source: `contract/src/migration.rs`, [`ARCHITECTURE.md`](./ARCHITECTURE.md#stora
 
 ### Contract Health Check
 
-On-chain diagnostic via `contract_health_check()` returning [`HealthReport`](#healthreport). Aggregates protocol-level flags (`contract_paused`, token/admin configured, `schema_version`, volume utilization). **`is_healthy`** is `true` when the contract is unpaused, token and admin are set, and `instance_ttl_ledgers > 17_280`. This is **not** the keeper HTTP `/health` endpoint and **not** per-user [`SubscriptionHealth`](#subscription-health).
+On-chain diagnostic via `contract_health_check()` returning [`HealthReport`](#healthreport). Aggregates protocol-level flags (`contract_paused`, token/admin configured, `schema_version`, volume utilization). **`is_healthy`** is `true` when the contract is unpaused, token and admin are set, and `instance_ttl_ledgers > 17_280`. This is **not** the keeper HTTP `/health` endpoint and **not** per-user [`SubscriptionHealth`](#subscriptionhealth).
 
 Source: [`API.md`](./API.md#contract_health_check), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#3-health).
 
@@ -97,6 +129,8 @@ Source: [`API.md`](./API.md#contract_health_check), [`MAINNET-DEPLOYMENT.md`](./
 A temporary per-subscriber cap that restricts total spendable amount via `pay_per_use()` within an approximate 24-hour TTL. It is set by `set_daily_limit()` and enforced on each one-time payment. The contract stores both the configured limit and the accumulated spend.
 
 Source: `contract/src/spending_limit.rs`, `DataKey::DailyLimit(user)`, `DataKey::DailySpent(user)`.
+
+See also: [`DailyLimitStatus`](#dailylimitstatus), [`DAILY-LIMITS.md`](./DAILY-LIMITS.md).
 
 ### Daily Limit Window
 
@@ -110,11 +144,19 @@ The running total of stroops spent “today” via `pay_per_use()` for a specifi
 
 Source: `contract/src/spending_limit.rs`, `DataKey::DailySpent(user)`.
 
+### DailyLimitStatus
+
+Snapshot returned by `get_daily_limit_status()` containing the configured limit, current-window spend, window start, and remaining allowance.
+
+Source: [`API.md`](./API.md#dailylimitstatus), [`DAILY-LIMITS.md`](./DAILY-LIMITS.md).
+
+See also: [Daily Limit](#daily-limit), [Daily Limit Window](#daily-limit-window).
+
 ### Dead-Letter Queue (DLQ)
 
 Off-chain queue (Redis list, SQS, or JSONL file) where keepers place `batch_charge` pages or addresses that exhausted retries. Operators drain transient failures via replay scripts; permanent failures (e.g. `GracePeriodElapsed`) are archived. Not an on-chain contract type.
 
-Source: [`operations/keeper_runbook.md`](./operations/keeper_runbook.md#dead-letter-queue-recovery), [`KEEPER.md`](./KEEPER.md).
+Source: [`operations/KEEPER-RUNBOOK.md`](./operations/KEEPER-RUNBOOK.md#dead-letter-queue-recovery), [`KEEPER.md`](./KEEPER.md).
 
 ## E
 
@@ -124,6 +166,8 @@ The contract emits structured events for key lifecycle operations and state tran
 
 Source: `contract/src/events.rs`, `docs/EVENTS.md`, `docs/EVENT-DRIVEN-GUIDE.md`.
 
+See also: [Indexer](#indexer), [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md).
+
 ## F
 
 ### Fee BPS
@@ -132,11 +176,23 @@ Fee configuration expressed in basis points (BPS). The contract uses fee BPS to 
 
 Source: `contract/src/fee.rs`, `DataKey::FeeBps`, `propose_fee()` / `commit_fee()`.
 
+See also: [Fee Bounds](#fee-bounds), [Fee Collector](#fee-collector).
+
+### Fee Bounds
+
+Admin-configured minimum and maximum fee rates (`MinFeeBps` and `MaxFeeBps`). The bounds are checked when set and again when a proposed fee is committed; violations are errors 34 and 35.
+
+Source: [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#1-fee-bounds), [`API.md`](./API.md).
+
+See also: [Fee BPS](#fee-bps), [Protocol Fee](#protocol-fee).
+
 ### Fee Collector
 
 The address that receives protocol-fee transfers (when a fee is configured). It is paired with Fee BPS in fee configuration. The keeper or payment execution path may transfer funds to this address.
 
 Source: `contract/src/fee.rs`, `DataKey::FeeCollector`.
+
+See also: [Merchant Fee Recipient](#merchant-fee-recipient), [Protocol Fee](#protocol-fee).
 
 ## G
 
@@ -152,6 +208,14 @@ Two-step workflow for updating the grace period, similar to other admin-configur
 
 Source: `contract/src/grace.rs`, `DataKey::PendingGracePeriod`.
 
+### Global Volume Cap
+
+A protocol-wide hourly transfer-volume limit. `GLOBAL_MAX_VOLUME_PER_HOUR` is the default; `set_global_volume_cap()` stores an instance `GlobalVolumeCapOverride`. `get_global_volume_cap()` and `get_global_volume_window()` expose the effective cap and current window. Exceeding the cap raises error 28, a non-positive override raises error 33, and updates emit `global_volume_cap_set`.
+
+Source: [`LIMITS.md`](./LIMITS.md#global-hourly-volume-cap), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap), `contract/src/events.rs`.
+
+See also: [`API.md`](./API.md#contractconfig), [`ERROR-CODES.md`](./ERROR-CODES.md).
+
 ## H
 
 ### HealthReport
@@ -159,6 +223,18 @@ Source: `contract/src/grace.rs`, `DataKey::PendingGracePeriod`.
 Struct returned by `contract_health_check()`. Fields include `is_healthy`, `contract_paused`, `schema_version`, `fee_collector_set`, and `global_volume_utilization_pct`. **`instance_ttl_ledgers` is a hardcoded lower-bound estimate (100_000) on-chain** — not a precise remaining TTL. `fee_collector_set` and volume utilization are informational and do **not** affect `is_healthy`.
 
 Source: [`API.md`](./API.md#healthreport), `contract/src/lib.rs`.
+
+See also: [`SubscriptionHealth`](#subscriptionhealth), [`DailyLimitStatus`](#dailylimitstatus).
+
+## I
+
+### Indexer
+
+Off-chain service that persists contract events in the SQLite `events` table for queries, reporting, and compliance workflows. The schema and event-to-column mapping are documented separately from the on-chain event definitions.
+
+Source: [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md), [`COMPLIANCE.md`](./COMPLIANCE.md).
+
+See also: [Events](#events), [`EVENT-DRIVEN-GUIDE.md`](./EVENT-DRIVEN-GUIDE.md).
 
 ## K
 
@@ -192,6 +268,14 @@ Source: `contract/src/whitelist.rs`, `contract/src/merchant_stats.rs`.
 
 See also: [Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md).
 
+### Merchant Fee Recipient
+
+Optional per-merchant destination for that merchant's protocol-fee share. If unset, fees use the global fee collector; charge events record the actual destination in `paid_to`.
+
+Source: [`MULTI-TOKEN.md`](./MULTI-TOKEN.md), [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md).
+
+See also: [Fee Collector](#fee-collector), [Protocol Fee](#protocol-fee).
+
 ### Merchant Frozen
 
 A merchant-level state that prevents charges to a frozen merchant. This is independent of the global contract pause. When enabled, attempts to charge such merchants fail with merchant freeze related errors/panics.
@@ -224,17 +308,37 @@ A design choice where charging for recurring payments can be invoked without `us
 
 Source: `docs/API.md` (Auth lines), `contract/src/charge_exec.rs`.
 
+### PayPerUseSimResult
+
+Read-only outcome returned by `simulate_pay_per_use()` and `simulate_pay_per_use_to()`. Its ten variants describe whether a one-time payment would succeed or which eligibility check would prevent it.
+
+Source: [`API.md`](./API.md#payperusesimresult), `contract/src/charge_exec.rs`.
+
+See also: [`ChargeSimResult`](#chargesimresult), [DailyLimitStatus](#dailylimitstatus).
+
 ### pause_until
 
 Subscriber-initiated bounded pause: `pause_until(user, expiry)` sets `paused = true` with a ledger `expiry`. When `now >= expiry`, the next `charge()` or `batch_charge()` **auto-resumes** the subscription before eligibility checks. Distinct from indefinite `pause()` (expiry stored as `u64::MAX`). Requires `expiry > now` or the contract panics `InvalidPauseExpiry`.
 
 Source: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#bounded-pause--pause_untiluser-expiry), `contract/src/lib.rs`.
 
+See also: [Auto-Resume](#auto-resume), [`PAUSE-LIFECYCLE.md`](./architecture/PAUSE-LIFECYCLE.md).
+
+### Prorated Refund
+
+Refund issued by `cancel_and_refund_prorated()` for the unused portion of a subscription period. The merchant must match the subscription, the refund must be positive, and the merchant must have enough balance; failures use errors 38-40.
+
+Source: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#cancellation-and-prorated-refund), [`ERROR-CODES.md`](./ERROR-CODES.md).
+
+See also: [`API.md`](./API.md), [`CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
+
 ### Protocol Fee
 
 The protocol-level fee charged on recurring billing flows, expressed using fee BPS and transferred to the configured fee collector address. Fees may be skipped based on configuration or special cases (e.g., 0 BPS). Fee behavior is part of the `charge()` execution.
 
 Source: `contract/src/fee.rs`, `docs/API.md` describing protocol fee accounting.
+
+See also: [Fee Bounds](#fee-bounds), [Fee Collector](#fee-collector), [Merchant Fee Recipient](#merchant-fee-recipient).
 
 ### Protocol Stats
 
@@ -270,11 +374,13 @@ See [Contract Schema Version](#contract-schema-version). The `schema_version` fi
 
 Source: `contract/src/lib.rs` (`ProtocolStats`, `HealthReport`), `contract/src/migration.rs`.
 
-### Subscription Health
+### SubscriptionHealth
 
 Per-subscriber diagnostic returned by `get_subscription_health(user)` as `SubscriptionHealth` (`active`, `charge_due`, `within_grace`, `has_sufficient_allowance`, `is_paused`, `trial_active`, `daily_limit_set`). Used by the frontend widget and `scripts/subscriber-health-dashboard.ts`. **Not** the same as [`HealthReport`](#healthreport) (protocol-wide) or keeper HTTP health.
 
 Source: `contract/src/lib.rs`, [`API.md`](./API.md).
+
+See also: [`HealthReport`](#healthreport), [DailyLimitStatus](#dailylimitstatus).
 
 ### Subscription
 
@@ -282,11 +388,21 @@ A stored record representing a subscriber’s recurring billing agreement. It in
 
 Source: `contract/src/lib.rs` (`Subscription` struct), `DataKey::Subscription(user)`.
 
+See also: [Subscription Transfer](#subscription-transfer), [Subscription Metadata](#subscription-metadata).
+
 ### Subscription Metadata
 
 A short, human-readable label attached to a subscription (e.g., plan name). It’s set via `set_metadata()` and read via `get_metadata()` / `get_subscription_label()`. Metadata is stored separately from the core subscription record.
 
 Source: `contract/src/subscription_metadata.rs`, `DataKey::SubscriptionMeta(user)`.
+
+### Subscription Transfer
+
+`transfer_subscription()` moves a caller's subscription to a new address, subject to the target not already having an active subscription. Related subscription data is moved with it.
+
+Source: [`API.md`](./API.md#transfer_subscription), [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md).
+
+See also: [Subscription](#subscription), [`EVENTS.md`](./EVENTS.md).
 
 ### Subscriber
 
@@ -295,6 +411,14 @@ A user address that owns a subscription record and may authorize one-time or rec
 Source: `docs/API.md` (parameter naming), `contract/src/lib.rs` (`Subscription(Address)` keys).
 
 ## T
+
+### Two-Step Authorization
+
+Sensitive admin changes are staged and then applied in a second call. Fee, grace-period, and upgrade flows use Propose → Commit; admin transfer uses Propose → Accept, requiring the proposed admin to authorize acceptance.
+
+Source: [`TWO-STEP-AUTH.md`](./architecture/TWO-STEP-AUTH.md), [`API.md`](./API.md).
+
+See also: [Admin](#admin), [Grace Period Proposal / Commit](#grace-period-proposal--commit).
 
 ### Trial Duration / Trial Period
 

@@ -348,4 +348,166 @@ describe("WalletSelectModal", () => {
       expect(screen.getByTestId("wallet-connection-error")).toBeInTheDocument();
     });
   });
+
+  it("closes modal on Escape key press", async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <WalletSelectModal adapters={mockAdapters} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Freighter")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches dialog semantics to the modal-card and presentation to overlay", async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    const { container } = render(
+      <WalletSelectModal adapters={mockAdapters} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Freighter")).toBeInTheDocument();
+    });
+
+    const overlay = container.querySelector(".modal-overlay");
+    expect(overlay).toHaveAttribute("role", "presentation");
+
+    const card = container.querySelector(".modal-card");
+    expect(card).toHaveAttribute("role", "dialog");
+    expect(card).toHaveAttribute("aria-modal", "true");
+    expect(card).toHaveAttribute("aria-labelledby", "wallet-modal-title");
+  });
+
+  it("manages focus inside the dialog with initial focus and tab wrapping", async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <WalletSelectModal adapters={mockAdapters} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wallet-option-freighter")).toBeInTheDocument();
+    });
+
+    const freighterBtn = screen.getByTestId("wallet-option-freighter");
+    const cancelBtn = screen.getByText("Cancel");
+
+    // Initial focus is placed on the first focusable element inside the modal
+    expect(document.activeElement).toBe(freighterBtn);
+
+    // Tab wrap from last element (cancel button) to first element (freighterBtn)
+    cancelBtn.focus();
+    expect(document.activeElement).toBe(cancelBtn);
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(freighterBtn);
+
+    // Shift+Tab wrap from first element (freighterBtn) to last element (cancelBtn)
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
+  it("restores focus to previous element when closed", async () => {
+    const button = document.createElement("button");
+    button.textContent = "Open Modal";
+    document.body.appendChild(button);
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    const { unmount } = render(
+      <WalletSelectModal adapters={mockAdapters} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wallet-option-freighter")).toBeInTheDocument();
+    });
+
+    expect(document.activeElement).not.toBe(button);
+
+    unmount();
+    expect(document.activeElement).toBe(button);
+    document.body.removeChild(button);
+  });
+
+  it("handles empty wallet adapters without checking indefinitely", async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <WalletSelectModal adapters={[]} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No wallets available.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Checking for available wallets/i)).not.toBeInTheDocument();
+  });
+
+  it("preserves healthy adapters if an individual adapter check fails", async () => {
+    const failingAdapter = createMockAdapter("broken", "BrokenWallet", false);
+    failingAdapter.isInstalled = vi.fn().mockRejectedValue(new Error("Adapter check failed"));
+
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <WalletSelectModal
+        adapters={[mockAdapters[0], failingAdapter]}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Freighter")).toBeInTheDocument();
+      expect(screen.getByText("BrokenWallet")).toBeInTheDocument();
+    });
+
+    // The failing adapter is preserved with "Not Installed" rather than crashing/hiding all
+    expect(screen.getAllByText("Not Installed")).toHaveLength(1);
+    expect(screen.queryByTestId("wallet-discovery-error")).not.toBeInTheDocument();
+  });
+
+  it("displays recoverable error state when all adapter checks fail", async () => {
+    const fail1 = createMockAdapter("w1", "Wallet1", false);
+    fail1.isInstalled = vi.fn().mockRejectedValue(new Error("Fail 1"));
+    const fail2 = createMockAdapter("w2", "Wallet2", false);
+    fail2.isInstalled = vi.fn().mockRejectedValue(new Error("Fail 2"));
+
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <WalletSelectModal adapters={[fail1, fail2]} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wallet-discovery-error")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Discovery Failed:/i)).toBeInTheDocument();
+    expect(screen.getByTestId("wallet-discovery-retry-button")).toBeInTheDocument();
+
+    // Clicking retry attempts check again
+    fail1.isInstalled = vi.fn().mockResolvedValue(true);
+    fail2.isInstalled = vi.fn().mockResolvedValue(true);
+
+    fireEvent.click(screen.getByTestId("wallet-discovery-retry-button"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("wallet-discovery-error")).not.toBeInTheDocument();
+    });
+  });
 });

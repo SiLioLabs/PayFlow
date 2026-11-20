@@ -1,7 +1,8 @@
 ﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dedupedCall, clearCache, getActiveEndpointId } from "../services/rpcCache";
+import { CUSTOM_RPC_URL_KEY } from "../constants";
 
-const CUSTOM_RPC_KEY = "flowpay_custom_rpc_url";
+const CUSTOM_RPC_KEY = CUSTOM_RPC_URL_KEY;
 
 function setEndpoint(url: string | null) {
   if (url === null) {

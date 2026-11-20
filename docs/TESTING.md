@@ -6,7 +6,7 @@ This document explains how to run the FlowPay test suite, how the benchmark file
 - Cross-system and live-network testing: [Integration Testing](#integration-testing), [End-to-End Testing](#end-to-end-testing), [Keeper Testing](#keeper-testing), [Test Data Management](#test-data-management)
 - [CI](#ci) — what's automated vs. manual
 
-For deep dives on specific contract test patterns (ledger time manipulation, mocking, panic testing), see [`docs/development/testing_runbook.md`](development/testing_runbook.md). For contract testing conventions specifically, see [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md#testing-conventions). For benchmark interpretation and regression detection in depth, see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md).
+For deep dives on specific contract test patterns (ledger time manipulation, mocking, panic testing), see [`docs/development/TESTING-RUNBOOK.md`](development/TESTING-RUNBOOK.md). For contract testing conventions specifically, see [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md#testing-conventions). For benchmark interpretation and regression detection in depth, see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md).
 
 ---
 
@@ -220,7 +220,7 @@ VITE_RPC_URL=https://soroban-testnet.stellar.org
 VITE_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 ```
 
-You need a contract already deployed to testnet — see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md#testnet-deployment) if you don't have one, or use [Test Data Management](#test-data-management) below to get funded test accounts against an existing deployment.
+You need a contract already deployed to testnet — see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md#deploy-pipeline-testnet) if you don't have one, or use [Test Data Management](#test-data-management) below to get funded test accounts against an existing deployment.
 
 ### Running
 
@@ -438,14 +438,16 @@ npx tsx watch-events.ts
 
 ### What runs in CI today
 
-| Workflow                                          | Steps                                                                | Covers                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Backend (Rust)`](../.github/workflows/rust.yml) | `cargo clippy -- -D warnings`, `cargo build`, `cargo test --verbose` | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md#ci-integration) for adding a dedicated `--nocapture` reporting step) |
-| [`Frontend`](../.github/workflows/frontend.yml)   | `npm ci`, `npm run lint`, `npx prettier --check .`, `npm run build`  | Linting, formatting, and a production build — note this workflow does **not** currently run `npx vitest run` (the Vitest suite) as a separate step; `npm run build` only type-checks and bundles                                                                                                        |
+Nothing. This repository does not ship any GitHub Actions workflow files, so run the local equivalents before opening a PR (full checklist in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
+
+| Area     | Command                                                              | Covers                                                                                                                                                                                                                            |
+| -------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract | `cd contract && cargo clippy -- -D warnings && cargo test`           | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
+| Frontend | `npm run typecheck`, then `cd frontend && npm run lint && npm run test` | Type-checking, linting, and the Vitest suite                                                                                                                                                                                     |
 
 ### What requires manual testing
 
-Nothing in CI touches a real network — there is no testnet RPC access from GitHub Actions today. That means the following are **manual-only**, run by a contributor or reviewer before merging changes that could affect them:
+None of the local checks above touch a real network. That means the following are **manual-only**, run by a contributor or reviewer before merging changes that could affect them:
 
 - [Integration Testing](#integration-testing) — frontend against a live testnet contract
 - [End-to-End Testing](#end-to-end-testing) — the full subscriber → keeper → charge → direct settlement checklist
@@ -453,10 +455,6 @@ Nothing in CI touches a real network — there is no testnet RPC access from Git
 
 ### Adding a new CI test
 
-- **A new contract unit or benchmark test**: add it to `contract/src/test.rs` (or `bench.rs`) — it's picked up automatically by the existing `cargo test --verbose` step, no workflow change needed.
-- **A new frontend unit test**: add it under `frontend/src/__tests__/` — picked up automatically by Vitest's default discovery, but remember the `Frontend` workflow doesn't currently invoke Vitest at all (see table above); if you want frontend unit tests enforced in CI, add a step to [`.github/workflows/frontend.yml`](../.github/workflows/frontend.yml):
-  ```yaml
-  - name: Test
-    run: npx vitest run
-  ```
+- **A new contract unit or benchmark test**: add it to `contract/src/test.rs` (or `bench.rs`) — it's picked up automatically by `cargo test`.
+- **A new frontend unit test**: add it under `frontend/src/__tests__/` — picked up automatically by Vitest's default discovery when you run `cd frontend && npm run test`.
 - **A new integration/E2E/keeper check**: these require live testnet access and a funded account, which GitHub Actions doesn't have configured today. Automating any of them means provisioning a CI secret for a funded testnet keypair and accepting real network flakiness in CI — treat this as a deliberate infrastructure decision, not a drop-in workflow step, and discuss it in an issue before implementing it.

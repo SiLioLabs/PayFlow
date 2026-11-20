@@ -13,10 +13,11 @@
  *   npx tsx scripts/renewal-forecast.ts [--db <path> | --stdin] [--json] [--out <file>]
  *
  * Modes:
- *   --db   <path>   Read subscriptions from a SQLite DB containing a
- *                    `subscriptions` table (user, amount, interval, last_charged,
- *                    active, paused, charge_history as a JSON array).
- *                    Defaults to DB_FILE / DATA_DIR/events.db when it exists.
+ *   --db   <path>   Read subscriptions from the indexer SQLite DB (`events`
+ *                    table). `charged` events supply amount, user and
+ *                    timestamp; `subscribed` / `cancelled` events supply
+ *                    lifecycle state. Defaults to DB_FILE / DATA_DIR/events.db
+ *                    when it exists.
  *   --stdin         Read a JSON array of SubscriptionSnapshot from stdin.
  *                    Useful for piping from subscription-snapshot.ts or fixtures.
  *
@@ -34,7 +35,7 @@
  */
 
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { resolve, basename } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   forecastRenewals,
@@ -47,19 +48,24 @@ export * from "./lib/forecast.js";
 
 // ── DB adapter ───────────────────────────────────────────────────────────────
 
-interface SubscriptionRow {
+/**
+ * Default assumed billing interval (seconds) for dry-run fixtures when no
+ * real interval is available from the indexer events.
+ */
+const DEFAULT_DRY_RUN_INTERVAL_SECONDS = 86400;
+
+interface EventRow {
+  event_type: string;
   user: string;
-  amount: number;
-  interval: number;
-  last_charged: number;
-  active: number;
-  paused: number;
-  charge_history: string | null;
+  amount: string | number | null;
+  timestamp: number;
 }
 
 /**
- * Read subscription snapshots from the `subscriptions` table of a SQLite DB.
- * node:sqlite is loaded lazily so --stdin mode works without it.
+ * Read subscription snapshots from the indexer `events` table of a SQLite DB.
+ * `charged` events carry amount, user and timestamp; `subscribed` / `cancelled`
+ * events carry lifecycle state. node:sqlite is loaded lazily so --stdin mode
+ * works without it.
  */
 export async function loadSnapshotsFromDb(dbPath: string): Promise<SubscriptionSnapshot[]> {
   if (!existsSync(dbPath)) {
@@ -70,18 +76,65 @@ export async function loadSnapshotsFromDb(dbPath: string): Promise<SubscriptionS
   try {
     const rows = db
       .prepare(
-        "SELECT user, amount, interval, last_charged, active, paused, charge_history FROM subscriptions",
+        "SELECT event_type, user, amount, timestamp FROM events " +
+          "WHERE event_type IN ('charged', 'subscribed', 'cancelled') " +
+          "ORDER BY timestamp ASC",
       )
-      .all() as unknown as SubscriptionRow[];
-    return rows.map((r) => ({
-      user: r.user,
-      amount: Number(r.amount),
-      interval: Number(r.interval),
-      last_charged: Number(r.last_charged),
-      active: Boolean(r.active),
-      paused: Boolean(r.paused),
-      charge_history: r.charge_history ? (JSON.parse(r.charge_history) as number[]) : [],
-    }));
+      .all() as unknown as EventRow[];
+
+    const byUser = new Map<string, SubscriptionSnapshot>();
+
+    for (const row of rows) {
+      const user = row.user;
+      if (!user) continue;
+      const ts = Number(row.timestamp);
+
+      let snap = byUser.get(user);
+      if (!snap) {
+        snap = {
+          user,
+          amount: 0,
+          interval: 0,
+          last_charged: 0,
+          active: false,
+          paused: false,
+          charge_history: [],
+        };
+        byUser.set(user, snap);
+      }
+
+      switch (row.event_type) {
+        case "charged": {
+          const amount = Number(row.amount ?? 0);
+          snap.amount = amount;
+          snap.last_charged = ts;
+          snap.charge_history.push(ts);
+          break;
+        }
+        case "subscribed":
+          snap.active = true;
+          break;
+        case "cancelled":
+          snap.active = false;
+          break;
+      }
+    }
+
+    return Array.from(byUser.values()).map((snap) => {
+      // Derive the billing interval from the observed charge cadence when we
+      // have at least two charges; otherwise leave it unset (0) so the
+      // forecaster reports insufficient data rather than guessing.
+      const history = snap.charge_history;
+      if (history.length >= 2) {
+        const gaps: number[] = [];
+        for (let i = 1; i < history.length; i++) {
+          gaps.push(history[i] - history[i - 1]);
+        }
+        gaps.sort((a, b) => a - b);
+        snap.interval = gaps[Math.floor(gaps.length / 2)];
+      }
+      return snap;
+    });
   } finally {
     db.close();
   }
@@ -147,11 +200,15 @@ async function main(): Promise<void> {
       {
         user: "GUSER1111111111111111111111111111111111111111111111111111111",
         amount: 1000,
-        interval: 86400,
-        last_charged: now - 86400,
+        interval: DEFAULT_DRY_RUN_INTERVAL_SECONDS,
+        last_charged: now - DEFAULT_DRY_RUN_INTERVAL_SECONDS,
         active: true,
         paused: false,
-        charge_history: [now - 3 * 86400, now - 2 * 86400, now - 86400],
+        charge_history: [
+          now - 3 * DEFAULT_DRY_RUN_INTERVAL_SECONDS,
+          now - 2 * DEFAULT_DRY_RUN_INTERVAL_SECONDS,
+          now - DEFAULT_DRY_RUN_INTERVAL_SECONDS,
+        ],
       },
     ];
   } else {
@@ -233,17 +290,17 @@ function formatHumanReadable(report: ForecastReport): string {
   }
 
   if (grouped.paused.length > 0) {
-    lines.push("── Paused ──────────────────────────────────────────────────────");
+    lines.push("── Paused ───────────────────────────────────────────────────────");
     for (const f of grouped.paused) {
-      lines.push(`  ${f.user}`);
+      lines.push(`  ${f.user}  →  paused`);
     }
     lines.push("");
   }
 
   if (grouped.inactive.length > 0) {
-    lines.push("── Inactive ────────────────────────────────────────────────────");
+    lines.push("── Inactive ─────────────────────────────────────────────────────");
     for (const f of grouped.inactive) {
-      lines.push(`  ${f.user}`);
+      lines.push(`  ${f.user}  →  inactive`);
     }
     lines.push("");
   }
@@ -252,12 +309,24 @@ function formatHumanReadable(report: ForecastReport): string {
 }
 
 // Only run main() when THIS file is the entry point (not when imported for testing)
-const _thisFile = basename(fileURLToPath(import.meta.url));
-const _entryFile = basename(process.argv[1] ?? "");
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
-if (_entryFile === _thisFile) {
+if (isMain) {
   main().catch((err: unknown) => {
     console.error(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+// ── Entry point ──────────────────────────────────────────────────────────────
+
+const isMain = (() => {
+  try {
+    return process.argv[1] === fileURLToPath(import.meta.url);
+  } catch {
+    return basename(process.argv[1] ?? "") === "renewal-forecast.ts";
+  }
+})();
+
+if (isMain) {
+  main().catch((err) => {
+    console.error(`Fatal: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   });
 }

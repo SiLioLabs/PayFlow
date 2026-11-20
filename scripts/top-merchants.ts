@@ -39,7 +39,7 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { fileURLToPath } from "node:url";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ export function validateParams(limit: number, pageSize: number): void {
 export async function fetchTopMerchants(
   limit: number,
   contractId: string,
-  server: Server,
+  server: MultiEndpointServer,
   networkPassphrase: string,
   callerKey: string
 ): Promise<MerchantRank[]> {
@@ -357,7 +357,7 @@ async function main() {
     return;
   }
 
-  const server = new Server(rpcUrl);
+  const server = new MultiEndpointServer(rpcUrl);
 
   // We need any funded account as TX source for the simulation.
   const READ_ONLY_ACCOUNT =

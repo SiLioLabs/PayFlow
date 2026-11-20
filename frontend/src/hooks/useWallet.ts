@@ -8,7 +8,6 @@ import { XBullAdapter } from "../services/wallets/XBullAdapter";
 import { LobstrAdapter } from "../services/wallets/LobstrAdapter";
 import { HanaAdapter } from "../services/wallets/HanaAdapter";
 import { useWalletStatus } from "./useWalletStatus";
-import type { WalletStatus } from "./useWalletStatus";
 
 const STORAGE_KEY_PK = "pf_wallet_pk";
 const STORAGE_KEY_ID = "pf_wallet_id";

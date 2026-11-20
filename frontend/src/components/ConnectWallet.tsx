@@ -1,4 +1,5 @@
 import React from "react";
+import ThemeToggle from "./ThemeToggle";
 import Spinner from "./Spinner";
 
 interface Props {
@@ -10,7 +11,10 @@ interface Props {
 export default function ConnectWallet({ onConnect, error, loading = false }: Props) {
   return (
     <div className="card connect-wallet">
-      <p className="connect-wallet__hint">Connect a wallet to get started.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <p className="connect-wallet__hint" style={{ margin: 0 }}>Connect a wallet to get started.</p>
+        <ThemeToggle />
+      </div>
 
       <button
         onClick={onConnect}

@@ -2,7 +2,57 @@ import { describe, it, expect } from "vitest";
 import { validateStroopInput } from "../../components/StroopInput";
 import { validatePayPerUseInput } from "../../components/PayPerUseForm";
 import { validateStroopAmount } from "../../hooks/useFormValidation";
-import { STROOPS_PER_XLM } from "../../constants";
+import { formatInterval } from "../../components/MerchantSubscriberTable";
+import { stroopsToXlm, xlmToStroops, formatXlm } from "../format";
+import {
+  BILLING_INTERVALS,
+  CONTRACT_LIMITS,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+  SECONDS_PER_WEEK,
+  STROOPS_PER_XLM,
+  STROOPS_PER_XLM_BIGINT,
+} from "../../constants";
+
+describe("Shared constants drive amount formatting", () => {
+  it("keeps the BigInt and Number stroop divisors in sync", () => {
+    expect(STROOPS_PER_XLM_BIGINT).toBe(BigInt(STROOPS_PER_XLM));
+    expect(STROOPS_PER_XLM_BIGINT).toBe(10_000_000n);
+  });
+
+  it("converts stroops using STROOPS_PER_XLM_BIGINT", () => {
+    expect(stroopsToXlm(STROOPS_PER_XLM_BIGINT)).toBe("1.0000000");
+    expect(stroopsToXlm(1n)).toBe("0.0000001");
+    expect(xlmToStroops("1")).toBe(STROOPS_PER_XLM_BIGINT);
+    expect(xlmToStroops("0.0000001")).toBe(1n);
+    expect(formatXlm(STROOPS_PER_XLM_BIGINT)).toBe("1.0000000 XLM");
+  });
+});
+
+describe("Shared interval constants drive interval formatting", () => {
+  it("exposes day/week/month seconds", () => {
+    expect(SECONDS_PER_DAY).toBe(86_400);
+    expect(SECONDS_PER_WEEK).toBe(7 * SECONDS_PER_DAY);
+    expect(SECONDS_PER_MONTH).toBe(30 * SECONDS_PER_DAY);
+    expect(CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).toBe(SECONDS_PER_DAY);
+  });
+
+  it("builds BILLING_INTERVALS from the shared constants", () => {
+    expect(BILLING_INTERVALS.map((i) => i.value)).toEqual([
+      SECONDS_PER_DAY,
+      SECONDS_PER_WEEK,
+      SECONDS_PER_MONTH,
+    ]);
+  });
+
+  it("formats intervals against the shared constants", () => {
+    expect(formatInterval(SECONDS_PER_DAY)).toBe("1d");
+    expect(formatInterval(SECONDS_PER_WEEK)).toBe("1w");
+    expect(formatInterval(SECONDS_PER_MONTH)).toBe("1mo");
+    expect(formatInterval(2 * SECONDS_PER_DAY)).toBe("2d");
+    expect(formatInterval(30)).toBe("30s");
+  });
+});
 
 describe("Amount Validation & Rounding Edges", () => {
   const ONE_STROOP_XLM = "0.0000001";
