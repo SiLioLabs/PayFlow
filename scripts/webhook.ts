@@ -17,9 +17,22 @@
  *   WEBHOOK_TIMEOUT Optional. Per-attempt timeout in ms (default: 10 000).
  *   DLQ_PATH        Optional. Path to the DLQ NDJSON file (default: dlq.ndjson).
  *   MAX_RETRIES     Optional. Maximum delivery attempts (default: 3).
+ *   WEBHOOK_LEGACY_SIGNATURE  Optional. "false" stops sending the legacy
+ *                   body-only signature headers (default: sent).
+ *
+ * Signing (replay protection, #1486)
+ *   Every attempt sends:
+ *     X-PayFlow-Timestamp:    unix seconds at send time
+ *     X-PayFlow-Signature-V2: hex HMAC-SHA256(secret, "<timestamp>.<raw body>")
+ *   Receivers must recompute the V2 signature and reject requests whose
+ *   timestamp is outside their tolerance window (default 300s); see
+ *   verifyWebhookSignature() and docs/MERCHANT-INTEGRATION.md.
+ *   The legacy body-only headers (X-PayFlow-Signature / X-Signature-SHA256)
+ *   are still sent during the transition and can be replayed — receivers
+ *   should migrate to V2.
  */
 
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
@@ -33,6 +46,53 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "";
 const TIMEOUT_MS     = parseInt(process.env.WEBHOOK_TIMEOUT ?? "10000", 10);
 const DLQ_PATH       = process.env.DLQ_PATH ?? "dlq.ndjson";
 const MAX_RETRIES    = parseInt(process.env.MAX_RETRIES ?? "3", 10);
+const SEND_LEGACY_SIGNATURE = process.env.WEBHOOK_LEGACY_SIGNATURE !== "false";
+
+/** Default receiver tolerance for X-PayFlow-Timestamp, in seconds. */
+export const DEFAULT_SIGNATURE_TOLERANCE_SECONDS = 300;
+
+// ── Timestamped signatures (#1486) ───────────────────────────────────────────
+
+const hmacHex = (secret: string, data: string): string =>
+  createHmac("sha256", secret).update(data).digest("hex");
+
+/**
+ * Headers proving `body` was sent by the secret holder at `timestamp`.
+ * Signs "<timestamp>.<body>" so a captured request cannot be replayed
+ * outside the receiver's tolerance window.
+ */
+export function signWebhookPayload(
+  secret: string,
+  body: string,
+  timestamp: number = Math.floor(Date.now() / 1000),
+): { "X-PayFlow-Timestamp": string; "X-PayFlow-Signature-V2": string } {
+  return {
+    "X-PayFlow-Timestamp": String(timestamp),
+    "X-PayFlow-Signature-V2": hmacHex(secret, `${timestamp}.${body}`),
+  };
+}
+
+/**
+ * Receiver-side check: valid V2 signature AND timestamp within
+ * `toleranceSeconds` of `now` (both in unix seconds).
+ */
+export function verifyWebhookSignature(params: {
+  secret: string;
+  body: string;
+  timestamp: string | undefined;
+  signature: string | undefined;
+  toleranceSeconds?: number;
+  now?: number;
+}): boolean {
+  const { secret, body, timestamp, signature } = params;
+  if (!timestamp || !signature || !/^\d+$/.test(timestamp)) return false;
+  const now = params.now ?? Math.floor(Date.now() / 1000);
+  const tolerance = params.toleranceSeconds ?? DEFAULT_SIGNATURE_TOLERANCE_SECONDS;
+  if (Math.abs(now - Number(timestamp)) > tolerance) return false;
+  const expected = Buffer.from(hmacHex(secret, `${timestamp}.${body}`));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
 
 // ── HMAC Signing ─────────────────────────────────────────────────────────────
 
@@ -73,7 +133,12 @@ function writeToDlq(entry: DlqEntry): void {
  * @returns `true` on HTTP 2xx, `false` otherwise.
  */
 async function attemptDelivery(url: string, body: string): Promise<boolean> {
-  const signature = signPayload(body);
+  // Signed per attempt so retries carry a fresh timestamp.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...signWebhookPayload(WEBHOOK_SECRET, body),
+  };
+  if (SEND_LEGACY_SIGNATURE) headers["X-Signature-SHA256"] = `sha256=${signPayload(body)}`;
 
   let response: Response;
   try {
@@ -83,10 +148,7 @@ async function attemptDelivery(url: string, body: string): Promise<boolean> {
       url,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Signature-SHA256": `sha256=${signature}`,
-        },
+        headers,
         body,
       },
       TIMEOUT_MS
@@ -160,7 +222,7 @@ export interface WebhookConfig {
  */
 export async function sendWebhook(payload: unknown, config: WebhookConfig): Promise<void> {
   const body = JSON.stringify(payload);
-  const signature = createHmac("sha256", config.secret).update(body).digest("hex");
+  const legacySignature = createHmac("sha256", config.secret).update(body).digest("hex");
   const maxRetries = config.maxRetries ?? 5;
   const maxAttempts = 1 + maxRetries;
 
@@ -176,7 +238,9 @@ export async function sendWebhook(payload: unknown, config: WebhookConfig): Prom
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-PayFlow-Signature": signature,
+          // Signed per attempt so retries carry a fresh timestamp.
+          ...signWebhookPayload(config.secret, body),
+          ...(SEND_LEGACY_SIGNATURE ? { "X-PayFlow-Signature": legacySignature } : {}),
           "Connection": "close",
         },
         body,
