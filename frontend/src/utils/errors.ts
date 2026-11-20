@@ -1,6 +1,9 @@
 /**
  * Customer-facing messages for FlowPay contract errors.
  *
+ * Plain-language Q&A for these messages: `docs/FAQ.md`
+ * (every code below is reachable from an FAQ answer).
+ *
  * CANONICAL SOURCE: `contract/src/errors.rs` — the `ContractError` enum is the
  * wire contract for every numeric code below. This map derives from it and is
  * checked against it: `src/utils/errors.test.ts` parses `errors.rs` at test

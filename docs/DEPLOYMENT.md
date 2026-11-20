@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md).
+Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md). New here? Start with the copy-paste [`TESTNET-QUICKSTART.md`](TESTNET-QUICKSTART.md) (deploy → subscribe → charge → withdraw in ~10 minutes).
 
 ---
 
@@ -103,7 +103,7 @@ The pipeline, in order:
 5. **Fee** — `propose_fee` then `commit_fee` when the on-chain fee does not already match config.
 6. **Merchants** — `whitelist_batch_add` for addresses in `initialMerchants` that are not yet whitelisted.
 
-It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md) and [`limits.md` — Global Hourly Volume Cap](limits.md#global-hourly-volume-cap)).
+It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md) and [`LIMITS.md` — Global Hourly Volume Cap](LIMITS.md#global-hourly-volume-cap)).
 
 Save the printed contract ID.
 
@@ -297,7 +297,7 @@ There is also [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts) (`
 
 ## Contract Upgrade (WASM)
 
-Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. Direct `upgrade()` exists only under `#[cfg(test)]`. Full ceremony: [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md).
+Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. Direct `upgrade()` exists only under `#[cfg(test)]`. Full ceremony: [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md).
 
 ### Pre-upgrade health gate
 
@@ -415,6 +415,6 @@ Source: [`frontend/.env.example`](../frontend/.env.example).
 ## Related operations
 
 - Keeper bot setup and cadence: [`docs/KEEPER.md`](KEEPER.md)
-- Advanced keeper scenarios (DLQ replay, multi-instance locks, RPC failover, incident pause): [`docs/operations/keeper_runbook.md`](operations/keeper_runbook.md)
-- Two-step upgrade and fee ceremonies: [`docs/operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md)
+- Advanced keeper scenarios (DLQ replay, multi-instance locks, RPC failover, incident pause): [`docs/operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md)
+- Two-step upgrade and fee ceremonies: [`docs/operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md)
 - Script catalog: [`scripts/README.md`](../scripts/README.md)

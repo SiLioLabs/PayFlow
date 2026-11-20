@@ -1,6 +1,6 @@
 # Frontend Component Reference
 
-Component-by-component reference for PayFlow’s React UI (props and signatures). For **canonical vs orphan** status, validation-rule owners, and `stellarBatchCharge.ts`, see [`frontend/components.md`](./frontend/components.md). Architecture and contribution workflow: [FRONTEND.md](./FRONTEND.md) and [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md).
+Component-by-component reference for PayFlow’s React UI (props and signatures). For **canonical vs orphan** status, validation-rule owners, and `stellarBatchCharge.ts`, see [`frontend/COMPONENTS.md`](./frontend/COMPONENTS.md). Architecture and contribution workflow: [FRONTEND.md](./FRONTEND.md) and [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md).
 
 Props and signatures below are taken from TypeScript sources under `frontend/src/`. Amounts are generally in **stroops** unless noted.
 
@@ -646,7 +646,7 @@ These components exist in `frontend/src/components/` but are not currently wired
 | `admin/BatchWhitelistPanel`     | Batch whitelist add/remove                                  |
 | `admin/AddressListInput`        | Multiline address textarea                                  |
 
-Batch size caps (pause 25, whitelist 50, charge/cancel contract defaults) are tabulated in [`limits.md`](limits.md). Do not change those numbers in the UI without updating the table and the contract constants together.
+Batch size caps (pause 25, whitelist 50, charge/cancel contract defaults) are tabulated in [`LIMITS.md`](LIMITS.md). Do not change those numbers in the UI without updating the table and the contract constants together.
 
 ### Pages
 

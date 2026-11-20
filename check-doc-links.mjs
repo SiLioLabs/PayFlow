@@ -11,6 +11,10 @@
  * point and is never an orphan. Orphans under docs/ are errors (docs/README.md
  * is the index that must reach them); orphans elsewhere are warnings.
  *
+ * Also enforces the docs naming convention (issue #1500): every Markdown
+ * file under docs/ must be UPPER-KEBAB.md (`^[A-Z0-9]+(-[A-Z0-9]+)*\.md$`).
+ * Non-conforming filenames are errors, like broken links and docs/ orphans.
+ *
  * Usage: node check-doc-links.mjs [rootDir]
  * Exits 1 if any broken link or docs/ orphan is found.
  */
@@ -142,6 +146,15 @@ const orphans = files
   .sort();
 const docOrphans = orphans.filter((o) => o.startsWith("docs/"));
 
+// Docs naming convention (issue #1500): every Markdown file under docs/
+// must be UPPER-KEBAB.md.
+const nameRe = /^[A-Z0-9]+(-[A-Z0-9]+)*\.md$/;
+const nameViolations = files
+  .map((f) => relative(ROOT, f).replace(/\\/g, "/"))
+  .filter((rel) => rel.startsWith("docs/") && rel.endsWith(".md"))
+  .filter((rel) => !nameRe.test(rel.split("/").pop()))
+  .sort();
+
 console.log(`Scanned ${files.length} markdown file(s), checked ${checked} link(s).`);
 const warnOrphans = orphans.filter((o) => !o.startsWith("docs/"));
 if (warnOrphans.length) {
@@ -156,5 +169,9 @@ if (broken.length) {
   console.log(`\nBROKEN LINKS (${broken.length}):`);
   for (const b of broken) console.log("  " + b);
 }
-if (broken.length || docOrphans.length) process.exit(1);
-console.log("No broken relative links or anchors, and no orphans under docs/.");
+if (nameViolations.length) {
+  console.log(`\nNON-CONFORMING DOC FILENAMES (${nameViolations.length}) — rename to UPPER-KEBAB.md (see CONTRIBUTING.md):`);
+  for (const v of nameViolations) console.log("  " + v);
+}
+if (broken.length || docOrphans.length || nameViolations.length) process.exit(1);
+console.log("No broken relative links or anchors, no orphans under docs/, and all docs filenames are UPPER-KEBAB.");

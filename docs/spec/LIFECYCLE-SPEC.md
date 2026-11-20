@@ -279,6 +279,41 @@ Subscription {
 
 ## State Transition Diagram
 
+> Rendered version. The ASCII fallback below it shows the same transitions for plain-text readers. Verified against `contract/src/lib.rs` (`subscribe_inner`, `charge`, `pause`, `pause_until`, `resume`, `cancel`), `contract/src/charge_exec.rs` (`try_auto_resume`, `precheck_charge`) and `contract/src/storage.rs` (`is_cancelled`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Nonexistent
+    Nonexistent --> ActiveStandard : subscribe() / subscribe_with_metadata()\ntrial_period = None
+    Nonexistent --> ActiveTrial : subscribe() / subscribe_with_metadata()\ntrial_period = Some(t)
+    ActiveTrial --> ActiveStandard : trial expires\nnow >= last_charged
+    ActiveStandard --> Chargeable : interval elapses\nnow >= last_charged + interval
+    ActiveTrial --> Chargeable : trial + interval elapse\nnow >= last_charged + interval
+    Chargeable --> ActiveStandard : charge()\nlast_charged = now
+    Chargeable --> GraceExpired : grace expires\ngrace_period > 0 && now > next + grace
+    ActiveStandard --> Paused : pause() / pause_until()
+    Chargeable --> Paused : pause() / pause_until()
+    GraceExpired --> Paused : pause() / pause_until()
+    Paused --> ActiveStandard : resume() / auto-resume\ncharge() when expiry passed
+    Paused --> Chargeable : resume() when now >= next
+    ActiveStandard --> Cancelled : cancel() / cancel_and_refund_prorated()
+    Chargeable --> Cancelled : cancel() / cancel_and_refund_prorated()
+    GraceExpired --> Cancelled : cancel()
+    Paused --> Cancelled : cancel()
+    Cancelled --> ActiveStandard : subscribe() / subscribe_with_metadata()\noverwrites record
+    Cancelled --> ActiveTrial : subscribe() with trial_period
+
+    note right of Chargeable
+        pay_per_use() allowed in
+        ActiveStandard / ActiveTrial /
+        Chargeable / GraceExpired.
+        Blocked when Paused or Cancelled.
+    end note
+```
+
+<details>
+<summary>ASCII fallback (same transitions)</summary>
+
 ```
                     ┌─────────────┐
                     │ Nonexistent │
@@ -344,6 +379,8 @@ Subscription {
                  │ (Standard)  │
                  └─────────────┘
 ```
+
+</details>
 
 ---
 

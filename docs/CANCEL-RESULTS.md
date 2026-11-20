@@ -124,7 +124,7 @@ This priority order ensures that the most critical state (merchant frozen) is al
 
 ## Related Documentation
 
-- `docs/charge-results.md` - Similar wire encoding for `ChargeResult`
+- `docs/CHARGE-RESULTS.md` - Similar wire encoding for `ChargeResult`
 - `scripts/EVENT-MAPPING.md` - Event and result type mappings
 - `contract/src/batch.rs:20-27` - ChargeResult discriminant stability note
 
@@ -139,14 +139,14 @@ See `contract/src/test.rs`:
 
 `CancelResult` uses an append-only discriminant scheme to maintain backward compatibility with off-chain parsers. New variants distinguish unusual cancellation states (paused subscriptions, frozen merchants) that admins need to review.
 Reference for the `CancelResult` outcome values that `batch_cancel` returns.
-Similar to `ChargeResult` (documented in [`charge-results.md`](charge-results.md)),
+Similar to `ChargeResult` (documented in [`CHARGE-RESULTS.md`](CHARGE-RESULTS.md)),
 but simpler: no aggregate event, and fewer variants.
 
 **Scope.** Byte-level encoding and variant semantics. For batch cancellation
 workflow see [`API.md`](API.md) (`batch_cancel`).
 
 **Related docs:**
-[`charge-results.md`](charge-results.md) (ChargeResult encoding) |
+[`CHARGE-RESULTS.md`](CHARGE-RESULTS.md) (ChargeResult encoding) |
 [`ERROR-CODES.md`](ERROR-CODES.md) (contract errors) |
 [`API.md`](API.md) (API reference)
 
@@ -225,7 +225,7 @@ base64:
 AAAAEAAAAAEAAAADAAAAAwAAAAAAAAADAAAAAQAAAAMAAAAE
 ```
 
-See [`charge-results.md`](charge-results.md) for the full XDR breakdown. The
+See [`CHARGE-RESULTS.md`](CHARGE-RESULTS.md) for the full XDR breakdown. The
 layout is the same; only the discriminant meanings differ.
 
 Single elements:

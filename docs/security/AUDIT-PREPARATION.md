@@ -5,7 +5,7 @@ This guide prepares the FlowPay protocol team for a formal Soroban smart-contrac
 **Related**
 
 - Security overview: [`docs/SECURITY.md`](../SECURITY.md)
-- Threat matrix: [`docs/security/threat_matrix.md`](threat_matrix.md)
+- Threat matrix: [`docs/security/THREAT-MATRIX.md`](THREAT-MATRIX.md)
 - Error recovery: [`docs/ERROR-CODES.md`](../ERROR-CODES.md)
 - Contract source: [`contract/src/`](../../contract/src/)
 
@@ -18,7 +18,7 @@ Complete these items **before** kickoff with an external auditor.
 ### Documents to assemble
 
 - [ ] This guide (invariants, scope, known limitations)
-- [ ] [`threat_matrix.md`](threat_matrix.md) with current mitigations
+- [ ] [`THREAT-MATRIX.md`](THREAT-MATRIX.md) with current mitigations
 - [ ] [`SECURITY.md`](../SECURITY.md) auth model table
 - [ ] [`ARCHITECTURE.md`](../ARCHITECTURE.md) and storage/TTL notes
 - [ ] [`API.md`](../API.md) public ABI reference
@@ -81,7 +81,7 @@ Auditors should treat the following as **required properties** of a correct depl
 
 ## 3. Threat Model Summary
 
-Mapped from [`threat_matrix.md`](threat_matrix.md) and [`SECURITY.md`](../SECURITY.md). Ratings are qualitative for briefing (Likelihood × Impact: L/M/H).
+Mapped from [`THREAT-MATRIX.md`](THREAT-MATRIX.md) and [`SECURITY.md`](../SECURITY.md). Ratings are qualitative for briefing (Likelihood × Impact: L/M/H).
 
 | Threat                                         | Category       | L   | I   | Primary mitigations                                                              |
 | ---------------------------------------------- | -------------- | --- | --- | -------------------------------------------------------------------------------- |

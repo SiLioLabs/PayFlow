@@ -696,7 +696,7 @@ redis-cli LLEN keeper:dlq
 
 ## Related Documentation
 
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](troubleshooting.md)
+- Troubleshooting runbook: [`docs/operations/TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
 - Error codes reference: [`docs/ERROR-CODES.md`](../ERROR-CODES.md)
 - Testing guide: [`docs/TESTING.md`](../TESTING.md)
 - Keeper guide: [`docs/KEEPER.md`](../KEEPER.md)

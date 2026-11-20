@@ -249,22 +249,22 @@ docs/
 ├── SUBSCRIBER-LIFECYCLE.md
 ├── TESTING.md
 ├── architecture/
-│   ├── storage_and_ttl.md
-│   └── two-step-auth.md
+│   ├── STORAGE-AND-TTL.md
+│   └── TWO-STEP-AUTH.md
 ├── development/
-│   ├── ci-workflows.md
-│   ├── network-matrix.md
-│   ├── performance-benchmarking.md
-│   └── testing_runbook.md
+│   ├── CI-WORKFLOWS.md
+│   ├── NETWORK-MATRIX.md
+│   ├── PERFORMANCE-BENCHMARKING.md
+│   └── TESTING-RUNBOOK.md
 ├── operations/
-│   ├── keeper_runbook.md
-│   ├── troubleshooting.md
-│   └── two_step_admin_playbooks.md
+│   ├── KEEPER-RUNBOOK.md
+│   ├── TROUBLESHOOTING.md
+│   └── TWO-STEP-ADMIN-PLAYBOOKS.md
 ├── security/
-│   ├── audit-preparation.md
-│   └── threat_matrix.md
+│   ├── AUDIT-PREPARATION.md
+│   └── THREAT-MATRIX.md
 └── spec/
-    └── lifecycle_spec.md
+    └── LIFECYCLE-SPEC.md
 ```
 
 ---
