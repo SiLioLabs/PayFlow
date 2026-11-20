@@ -79,6 +79,7 @@ Many scripts accept a `VITE_`-prefixed fallback (`VITE_CONTRACT_ID`, `VITE_RPC_U
 | `LOG_FORMAT` | No | string | `"json"` for JSON lines | keeper, indexer, health-check, alert-failed-charges | Log output format |
 | `DATA_DIR` | No | string | Default `data` | indexer, query-events | SQLite database directory |
 | `DB_FILE` | No | string | Default `DATA_DIR/events.db` | indexer, query-events | SQLite database path override |
+| `DATABASE_URL` | No | string | `postgres://` or `postgresql://` URL | indexer | Index into PostgreSQL instead of SQLite (see operations/indexer-postgres.md) |
 | `POLL_INTERVAL_MS` | No | integer | Default `10000` | indexer | Event polling interval (ms) |
 | `START_LEDGER` | No | integer | Unset → latest ledger | indexer | First-run start ledger |
 | `METRICS_PORT` | No | integer | Default `9090` | metrics-server | HTTP listen port for `/metrics` |
