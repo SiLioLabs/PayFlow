@@ -673,6 +673,12 @@ The indexer and the backfill can run at the same time.
   against `getEvents` before relying on it for accounting.
 - Prevention: alert on `indexer_open_ledger_gaps` and on indexer downtime well before the
   retention window elapses.
+### HTTP API
+
+`indexer-api.ts` (`npm run api`) serves a read-only HTTP API over the indexer database:
+events by user/merchant, merchant revenue and churn, with pagination, bounded limits,
+configurable CORS and an OpenAPI spec (`docs/openapi/indexer-api.json`). See
+[docs/INDEXER-API.md](../docs/INDEXER-API.md).
 
 ## Metrics server
 
