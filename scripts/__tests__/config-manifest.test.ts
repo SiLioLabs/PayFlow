@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
-import { ManifestSchema } from "./config.js";
+import { it } from "vitest";
+import { ManifestSchema } from "../config.js";
 
 function assertThrows(fn: () => void, messageIncludes: string) {
   try {
@@ -37,4 +38,6 @@ function runTests() {
   console.log("All manifest tests passed!");
 }
 
-runTests();
+it("validates the manifest schema", () => {
+  runTests();
+});
