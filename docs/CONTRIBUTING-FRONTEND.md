@@ -1,31 +1,82 @@
-# Contributing to FlowPay — Frontend
+# Contributing to PayFlow — Frontend
 
-This guide helps contributors add new React components/hooks and ship changes safely.
+This guide covers developer setup, coding conventions, testing guidelines, styling standards, and accessibility requirements for contributing to the PayFlow web application.
+
+> **Architecture Guide**: For application architecture, data flow, `stellar.ts` design, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
+> **Component Reference**: For component prop signatures, types, and component-level APIs, see [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).  
+> **Component Inventory**: For the canonical vs. unmounted component map and single-source validation rules, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
 
 ---
 
-## Component file structure
+## Table of Contents
 
-Frontend code lives under `frontend/src/`.
+- [Local Development Setup](#local-development-setup)
+- [Component Authoring Guidelines](#component-authoring-guidelines)
+- [Hook Authoring Conventions](#hook-authoring-conventions)
+- [Testing with Vitest & React Testing Library](#testing-with-vitest--react-testing-library)
+  - [What to Test](#what-to-test)
+  - [Example Test Snippet](#example-test-snippet)
+  - [Running Tests](#running-tests)
+- [Styling & CSS Design Tokens](#styling--css-design-tokens)
+- [Accessibility Requirements (a11y)](#accessibility-requirements-a11y)
+- [Pull Request Checklist](#pull-request-checklist)
+- [Related Documentation](#related-documentation)
 
-### Folder conventions
+---
 
-- `frontend/src/components/`
-  - UI components (rendering + user interactions)
-  - Typically **no** direct blockchain calls (see `stellar.ts` rule below)
-- `frontend/src/hooks/`
-  - Reusable logic: state, effects, formatting of contract data, calling hooks/services
-  - Components compose hooks
-- `frontend/src/services/`
-  - Shared non-React utilities (RPC caching, request queues, etc.)
-- `frontend/src/stellar.ts`
-  - **Single entry point** for all contract interactions
+## Local Development Setup
 
-### Recommended component pattern
+### Prerequisites
+- Node.js 18+ (Node 20+ recommended)
+- npm 9+
+- A Stellar wallet browser extension for testing (Freighter recommended)
 
-Keep components focused: receive data via props, call hooks for logic, and render markup.
+### Quick Start
 
-**Example**: `frontend/src/components/MyComponent.tsx`
+```bash
+# 1. Navigate to the frontend workspace
+cd frontend
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env with your VITE_CONTRACT_ID and VITE_NETWORK_PASSPHRASE
+
+# 4. Start the Vite development server
+npm run dev
+
+# 5. Execute test suites and typecheck
+npm test
+npm run typecheck
+```
+
+### Common Scripts
+
+| Command | Action |
+| --- | --- |
+| `npm run dev` | Starts local dev server at `http://localhost:5173` with HMR |
+| `npm run build` | Compiles TypeScript and builds production assets to `dist/` |
+| `npm test` | Runs Vitest test suites |
+| `npm run lint` | Runs ESLint static analysis |
+| `npm run format` | Formats codebase with Prettier |
+| `npm run typecheck` | Runs `tsc --noEmit` to verify type safety |
+
+---
+
+## Component Authoring Guidelines
+
+All UI components live under `frontend/src/components/` (or `frontend/src/components/admin/`).
+
+### Rules of Thumb
+
+1. **Keep Components Presentational**: Components should focus on rendering JSX and receiving user interactions. Business logic, timers, and polling belong in hooks.
+2. **Never Call Stellar SDK Directly**: Components must **never** import `@stellar/stellar-sdk`. Route all blockchain state queries and transaction building through hooks that consume `src/stellar.ts`.
+3. **Use Memoization Judiciously**: Prefer derived values via `useMemo` for computationally expensive transforms or object/array prop stability.
+4. **Avoid Render Side Effects**: Never trigger asynchronous network requests directly within a component's render body; use `useEffect` or hook action handlers.
+
+### Recommended Pattern
 
 ```tsx
 import { useMemo } from "react";
@@ -33,238 +84,160 @@ import type { FC } from "react";
 
 type Props = {
   title: string;
+  onAction?: () => void;
 };
 
-export const MyComponent: FC<Props> = ({ title }) => {
+export const MyComponent: FC<Props> = ({ title, onAction }) => {
   const heading = useMemo(() => title.trim(), [title]);
 
   return (
-    <section aria-label="my-component">
+    <section className="card" aria-label="my-component">
       <h2>{heading}</h2>
+      {onAction && (
+        <button type="button" className="btn-primary" onClick={onAction}>
+          Execute Action
+        </button>
+      )}
     </section>
   );
 };
 ```
 
-**Rules of thumb**
-
-- Prefer small components (one responsibility).
-- Prefer derived values via `useMemo`.
-- Avoid side effects in render (no async calls directly in the component body).
-- Do not import `@stellar/stellar-sdk` directly from components.
-- If you need contract data or tx submission, add/extend a hook that uses `stellar.ts`.
-
 ---
 
-## Hook conventions
+## Hook Authoring Conventions
 
-Hooks under `frontend/src/hooks/` should follow consistent conventions so contributors can compose them confidently.
+Custom hooks live under `frontend/src/hooks/` and encapsulate business logic, subscription sync, and contract mutations.
 
 ### Naming
+- Use standard React hook naming (`useSomething`).
+- Name hooks around the resource or workflow they manage (e.g. `useWallet`, `useSubscriptionSync`, `useDailyLimit`).
 
-- Use the React hook naming convention: `useSomething`.
-- If a hook manages a resource, name it around the resource: `useWallet`, `useSubscriptions`, `useContractEvents`.
-
-### Return shape
-
-Prefer a clear, stable return object containing:
-
-- state values (e.g. `loading`, `error`, `data`)
-- action functions (e.g. `refresh`, `submit`, `cancel`)
-
-Example shape:
+### Return Shape
+Return a stable, predictable object separating state values and callable action functions:
 
 ```ts
-type UseXReturn = {
-  data: X | null;
+type UseResourceReturn = {
+  data: Resource | null;
   loading: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
+  submit: (params: SubmitParams) => Promise<string>;
 };
 ```
 
-Guidelines:
-
-- Keep return keys stable; avoid reordering or conditional return types.
-- For async actions, either:
-  - return a Promise directly from the action function, or
-  - expose `loading`/`error` updated by the action.
-
-### Cleanup & effects
-
-- If you attach listeners (window events, timers, subscriptions), always remove them in `useEffect` cleanup.
-- Avoid stale closures: put functions in dependency arrays or use `useCallback` when returning callbacks.
-- Do not start network requests in multiple places; centralize in hooks and expose `refresh`/`sync` actions.
-
-### Side-effect boundary
-
-- Components should be mostly presentational.
-- Hooks should own side effects:
-  - `useEffect` for subscriptions/polling
-  - calling `stellar.ts` via service functions
+### Effect Boundaries & Cleanup
+- Always clear listeners (timers, interval polls, window events, wallet subscribers) in `useEffect` cleanup callbacks.
+- Prevent stale closures by including referenced state/functions in dependency arrays or wrapping returned callbacks with `useCallback`.
+- Centralize network calls to prevent duplicate requests across sibling components.
 
 ---
 
-## Testing with Vitest + React Testing Library (RTL)
+## Testing with Vitest & React Testing Library
 
-Frontend tests use Vitest configured with `jsdom` and RTL helpers.
+Frontend testing is powered by [Vitest](https://vitest.dev/) with `jsdom` and [React Testing Library](https://testing-library.com/docs/react-testing-library/intro).
 
-- Vitest config: `frontend/vitest.config.ts`
-- RTL setup: `frontend/src/setupTests.ts`
+- **Config**: `frontend/vitest.config.ts`
+- **Global Setup**: `frontend/src/setupTests.ts`
 
-### What to test
+### What to Test
+- Component rendering and state changes in response to user events.
+- Error and recovery UI display.
+- Form validation error messaging (e.g. invalid addresses or amount boundaries).
+- Accessibility attributes (ARIA roles, keyboard operability, accessible names).
 
-- Component behavior that depends on props/state
-- Hook behavior that exposes actions/state (prefer testing the resulting UI)
-- Accessibility-critical UI: buttons/inputs have labels and interactive elements are reachable
-
-### Example test snippet
-
-**Component test**: `frontend/src/components/__tests__/MyComponent.test.tsx`
+### Example Test Snippet
 
 ```tsx
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect } from "vitest";
-
+import { describe, it, expect, vi } from "vitest";
 import { MyComponent } from "../MyComponent";
 
 describe("MyComponent", () => {
-  it("renders the title", () => {
-    render(<MyComponent title="  Hello  " />);
-
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Hello",
-    );
-  });
-
-  it("is keyboard operable (example)", async () => {
-    // If your component includes buttons/links, prefer testing keyboard interaction.
+  it("renders the heading and handles clicks", async () => {
+    const handleAction = vi.fn();
     const user = userEvent.setup();
 
-    render(<button aria-label="example">Click</button>);
-    await user.tab();
-    await user.keyboard("{Enter}");
+    render(<MyComponent title="Subscription Manager" onAction={handleAction} />);
+
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Subscription Manager"
+    );
+
+    const button = screen.getByRole("button", { name: /execute action/i });
+    await user.click(button);
+
+    expect(handleAction).toHaveBeenCalledTimes(1);
   });
 });
 ```
 
-Notes:
-
-- Prefer queries by role/label/text (`getByRole`, `getByLabelText`) rather than `getByTestId`.
-- For async UI, use `await screen.findBy*` or `await waitFor(...)`.
-
-### Running tests
-
-From repo root:
+### Running Tests
 
 ```bash
-cd frontend
-npm test
+# Run all frontend tests
+cd frontend && npm test
+
+# Run a specific test file
+cd frontend && npm test -- src/__tests__/SubscribeForm.test.tsx
 ```
 
 ---
 
-## CSS custom properties usage
+## Styling & CSS Design Tokens
 
-The app uses CSS custom properties (design tokens) defined in `frontend/src/index.css`.
+The application uses vanilla CSS design tokens defined in `frontend/src/index.css`.
 
-### Required conventions
-
-- Use tokens via `var(--token-name)` instead of hard-coded colors/sizes.
-- Prefer existing tokens (`--color-*`, `--space-*`, `--text-*`, `--radius-*`, `--transition-*`).
-- For theme-aware styling, ensure your CSS works with:
-  - `:root` (default)
-  - `[data-theme="light"]` overrides
-
-### Styling components
-
-- Use existing utility classes/util patterns where possible.
-- If you introduce new styles, keep them token-based (no hard-coded theme-dependent values).
-
-### Accessibility-related CSS utilities
-
-- Use the `.sr-only` utility class for non-visual text when necessary (e.g., describing status changes).
+### Guidelines
+- **Use Tokens**: Always use `var(--token-name)` instead of hardcoded hex colors or pixel sizes.
+- **Theme Awareness**: Styles must support both default dark mode (`:root`) and light mode (`[data-theme="light"]`).
+- **Standard Tokens**:
+  - Colors: `--color-primary`, `--color-success`, `--color-danger`, `--color-warning`, `--color-bg`, `--color-surface`
+  - Spacing: `--space-1`, `--space-2`, `--space-4`, `--space-6`
+  - Typography: `--font-family`, `--text-sm`, `--text-base`, `--text-lg`
+  - Radii: `--radius-sm`, `--radius-md`, `--radius-lg`
+- **Screen Reader Utility**: Use `.sr-only` for visually hidden text intended for assistive technology.
 
 ---
 
-## Accessibility requirements (ARIA, keyboard nav)
+## Accessibility Requirements (a11y)
 
-Frontend changes must remain accessible.
+All frontend components must be accessible (WCAG AA compliant):
 
-### Interaction & keyboard navigation
-
-- Every interactive element must be reachable and operable via keyboard:
-  - Buttons should be `<button>` (not clickable `<div>`).
-  - Links should be `<a href=...>`.
-- Visible focus is required for keyboard users. If you style focus, do not remove it.
-
-### Labels & ARIA
-
-- Form controls must have accessible names:
-  - `label` + `htmlFor` (preferred)
-  - or `aria-label` / `aria-labelledby`
-- Use ARIA only when native semantics are insufficient.
-- For dynamic status updates, prefer:
-  - `role="status"` / `aria-live="polite"`
-  - and/or existing patterns such as the accessibility announcement hook.
-
-### Modal/dialog requirements
-
-- Ensure modal content is:
-  - labeled (e.g., `aria-labelledby`)
-  - keyboard dismissible per existing behavior
-  - does not trap focus incorrectly (follow existing modal component patterns)
-
-### Practical checklist
-
-Before merging, verify:
-
-- [ ] Interactive controls have accessible names
-- [ ] Keyboard users can reach all actions
-- [ ] Images/icons have appropriate `aria-label` or are marked decorative
-- [ ] Screen reader users get meaningful announcements for important state changes
+1. **Keyboard Operability**:
+   - Every interactive element must be reachable and operable via keyboard.
+   - Do not use clickable `<div>` elements; use `<button>` or `<a>`.
+   - Never remove visible focus outlines (`:focus-visible`).
+2. **Accessible Names**:
+   - Every form input must have a corresponding `<label htmlFor="...">` or `aria-label`.
+   - Buttons containing only icons must have an `aria-label`.
+3. **Modal Focus Management**:
+   - Modals must trap focus while open (via `useFocusTrap`).
+   - Pressing the Escape key must dismiss the modal.
+4. **Dynamic Announcements**:
+   - Asynchronous status updates and network state changes must be announced through the ARIA live region (`useAccessibility().announce`).
 
 ---
 
-## PR checklist for frontend changes
+## Pull Request Checklist
 
-Before opening a PR, confirm:
+Before submitting a frontend PR, confirm:
 
-### Code & architecture
-
-- [ ] Components do not import `@stellar/stellar-sdk` directly
-- [ ] Contract interactions go through `src/stellar.ts` (via hooks/services)
-- [ ] New hooks follow conventions (stable return shape, cleanup of side effects)
-
-### Tests
-
-- [ ] Added/updated Vitest + RTL tests for new or changed behavior
-- [ ] Queries in tests prefer role/label/text
-
-### Styling
-
-- [ ] New styles use CSS custom properties (`var(--*)`)
-- [ ] Theme-aware styling works with `[data-theme="light"]`
-
-### Accessibility
-
-- [ ] Keyboard navigation works for all new interactive UI
-- [ ] ARIA/labels are correct (no unlabeled controls)
-
-### CI / quality gates
-
-- [ ] `npm run lint` passes
-- [ ] `npm run format` (Prettier) has been applied
-- [ ] `npm run build` passes
+- [ ] **Architecture**: Components do not import `@stellar/stellar-sdk` directly; all on-chain logic uses `src/stellar.ts`.
+- [ ] **Single Source of Truth**: Validation rules and limits respect `constants.ts` and `useFormValidation.ts`.
+- [ ] **Tests**: Added or updated Vitest + RTL tests covering new behavior.
+- [ ] **Styling**: Styling uses CSS custom properties (`var(--*)`) and renders correctly in light and dark themes.
+- [ ] **Accessibility**: Interactive elements are keyboard navigable and properly labeled for screen readers.
+- [ ] **Quality Gates**: `npm run lint`, `npm run typecheck`, and `npm test` pass with zero errors.
 
 ---
 
-## Reference: Frontend architecture
+## Related Documentation
 
-For architectural background (hook composition, `stellar.ts` responsibilities), see:
-
-- `docs/FRONTEND.md`
-- `docs/frontend/COMPONENTS.md` — canonical vs orphan components; validation-rule owners
-- `docs/FRONTEND-COMPONENTS.md`
-- `docs/LIMITS.md` — admin batch UI vs contract caps (do not change caps in a docs-only change)
+| Document | Purpose |
+| --- | --- |
+| [`docs/FRONTEND.md`](FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
+| [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md) | Component API specifications, prop types, and usage examples |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |

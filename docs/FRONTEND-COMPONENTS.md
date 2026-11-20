@@ -1,41 +1,109 @@
 # Frontend Component Reference
 
-Component-by-component reference for PayFlow’s React UI (props and signatures). For **canonical vs orphan** status, validation-rule owners, and `stellarBatchCharge.ts`, see [`frontend/COMPONENTS.md`](./frontend/COMPONENTS.md). Architecture and contribution workflow: [FRONTEND.md](./FRONTEND.md) and [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md).
+This document provides the component-by-component API reference for PayFlow's React UI, including props, types, states, hooks, and usage examples.
 
-Props and signatures below are taken from TypeScript sources under `frontend/src/`. Amounts are generally in **stroops** unless noted.
-
----
-
-## Table of contents
-
-- [Components](#components)
-- [Hooks](#hooks)
-- [Services](#services)
-- [Extending common surfaces](#extending-common-surfaces)
+> **Component Inventory & Status**: For the complete inventory of canonical vs. unmounted status and validation-rule ownership, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
+> **Architecture Guide**: For application architecture, data flow, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
+> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
 
 ---
 
-## Components
+## Table of Contents
+
+- [Components Reference](#components-reference)
+  - [AddressBook](#addressbook)
+  - [AddressInput](#addressinput)
+  - [AllowanceDisplay](#allowancedisplay)
+  - [AmountUnitToggle](#amountunittoggle)
+  - [BalanceDisplay](#balancedisplay)
+  - [ConfirmModal](#confirmmodal)
+  - [ConnectWallet](#connectwallet)
+  - [ContractPauseBanner](#contractpausebanner)
+  - [CopyButton](#copybutton)
+  - [DailyLimitCard](#dailylimitcard)
+  - [DailyLimitModal](#dailylimitmodal)
+  - [Dashboard](#dashboard)
+  - [ErrorBoundary](#errorboundary)
+  - [ErrorRecovery](#errorrecovery)
+  - [EventFeed](#eventfeed)
+  - [IncreaseAllowanceModal](#increaseallowancemodal)
+  - [IntervalSelector](#intervalselector)
+  - [LastUpdated](#lastupdated)
+  - [MerchantDashboard](#merchantdashboard)
+  - [MerchantSubscriberTable](#merchantsubscribertable)
+  - [NetworkBadge](#networkbadge)
+  - [NextChargeCountdown](#nextchargecountdown)
+  - [NotificationCenter](#notificationcenter)
+  - [OfflineBanner](#offlinebanner)
+  - [PayPerUseForm](#payperuseform)
+  - [ReferralPanel](#referralpanel)
+  - [RevenueSparkline](#revenuesparkline)
+  - [RpcSettings](#rpcsettings)
+  - [ShortcutHelpOverlay](#shortcuthelpoverlay)
+  - [Skeleton](#skeleton)
+  - [Spinner](#spinner)
+  - [StroopInput](#stroopinput)
+  - [SubscribeForm](#subscribeform)
+  - [SubscriberRecoveryPanel](#subscriberrecoverypanel)
+  - [SubscriptionCard](#subscriptioncard)
+  - [SubscriptionExport](#subscriptionexport)
+  - [SubscriptionHealthWidget](#subscriptionhealthwidget)
+  - [SubscriptionHistory](#subscriptionhistory)
+  - [TabBar](#tabbar)
+  - [ThemeToggle](#themetoggle)
+  - [Toast](#toast)
+  - [TransferSubscriptionModal](#transfersubscriptionmodal)
+  - [TxQueuePanel](#txqueuepanel)
+  - [WalletBar](#walletbar)
+  - [WalletSelectModal](#walletselectmodal)
+- [Admin Components Reference](#admin-components-reference)
+  - [AddressListInput](#addresslistinput)
+  - [AdminRepairPanel](#adminrepairpanel)
+  - [BatchPausePanel](#batchpausepanel)
+  - [BatchWhitelistPanel](#batchwhitelistpanel)
+  - [ProtocolStatsPanel](#protocolstatspanel)
+- [Hooks Reference](#hooks-reference)
+- [Services Reference](#services-reference)
+- [Extending Common Surfaces](#extending-common-surfaces)
+- [Related Documentation](#related-documentation)
+
+---
+
+## Components Reference
+
+### AddressBook
+
+**File:** `frontend/src/components/AddressBook.tsx`
+
+Modal-based address book allowing subscribers to save, search, select, import, and export frequently used Stellar addresses.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `onSelect` | `(address: string) => void` | yes | Callback invoked when an address is chosen. |
+| `onClose` | `() => void` | yes | Callback invoked when the modal is closed without selection. |
+
+- **State**: `entries`, `query`, `newName`, `newAddress`, `addError`, `pendingDelete`, `importError`
+- **Hooks**: `useLocalStorage(STORAGE_KEY, [])`, `useFocusTrap(modalRef, true, onClose)`
+- **Edge cases**: Enforces `MAX_ADDRESS_BOOK_ENTRIES` (default 50); validates Ed25519 format before adding; prevents duplicate entries.
+
+---
 
 ### AddressInput
 
 **File:** `frontend/src/components/AddressInput.tsx`
 
-Debounced Stellar address field with Ed25519 validation and valid/error CSS states.
+Debounced Stellar address text input with inline Ed25519 checksum validation and accessible error feedback.
 
-| Prop       | Type                      | Required | Description             |
-| ---------- | ------------------------- | -------- | ----------------------- |
-| `label`    | `string`                  | yes      | Form label              |
-| `value`    | `string`                  | yes      | Current address         |
-| `onChange` | `(value: string) => void` | yes      | Fires on each keystroke |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | yes | Form field label copy. |
+| `value` | `string` | yes | Current address string value. |
+| `onChange` | `(value: string) => void` | yes | Change handler invoked on input mutations. |
+| `id` | `string` | no | Optional HTML id attribute (defaults to generated id). |
 
-**State:** `error`  
-**Hooks:** `useDebounce(value, 300)`  
-**Edge cases:** Empty clears error; blur validates immediately; mid-typing errors wait for debounce.
-
-```tsx
-<AddressInput label="Merchant" value={addr} onChange={setAddr} />
-```
+- **State**: `error`
+- **Hooks**: `useDebounce(value, 300)`
+- **Edge cases**: Empty input clears error state; blur event triggers instant validation; mid-typing validation waits for the 300ms debounce.
 
 ---
 
@@ -43,16 +111,31 @@ Debounced Stellar address field with Ed25519 validation and valid/error CSS stat
 
 **File:** `frontend/src/components/AllowanceDisplay.tsx`
 
-Shows SAC allowance vs subscription amount with Healthy / Warning / Critical badges.
+Displays current SAC token allowance compared to the subscription recurring amount with contextual health badges (Healthy, Warning, Critical).
 
-| Prop                 | Type     | Required | Description             |
-| -------------------- | -------- | -------- | ----------------------- |
-| `userKey`            | `string` | yes      | Subscriber public key   |
-| `subscriptionAmount` | `bigint` | yes      | Period amount (stroops) |
-| `refreshTrigger`     | `number` | yes      | Bump to re-fetch        |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber's public key (G…). |
+| `subscriptionAmount` | `bigint` | yes | Periodic billing amount in stroops. |
+| `refreshTrigger` | `number` | yes | Numeric counter incremented to trigger allowance re-fetch. |
 
-**State:** `allowance`, `loading`  
-**Edge cases:** Fetch failure → “Unavailable”; Critical if `allowance < amount`; Warning if `< 3× amount`.
+- **State**: `allowance`, `loading`
+- **Edge cases**: Critical badge when `allowance < amount`; Warning badge when `allowance < 3 * amount`; returns "Unavailable" on RPC failure.
+
+---
+
+### AmountUnitToggle
+
+**File:** `frontend/src/components/AmountUnitToggle.tsx`
+
+Accessible switch button that toggles global amount formatting between "XLM" and "STROOP".
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `className` | `string` | no | Optional additional CSS classes. |
+
+- **Hooks**: `useAmountDisplay()`
+- **Accessibility**: Rendered as `role="switch"` with `aria-checked` reflecting XLM unit state.
 
 ---
 
@@ -60,14 +143,14 @@ Shows SAC allowance vs subscription amount with Healthy / Warning / Critical bad
 
 **File:** `frontend/src/components/BalanceDisplay.tsx`
 
-Compact XLM balance for the wallet bar; skeleton while first load.
+Compact XLM balance indicator designed for header bars and form headers.
 
-| Prop      | Type     | Required | Description        |
-| --------- | -------- | -------- | ------------------ |
-| `address` | `string` | yes      | Account public key |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `address` | `string` | yes | Stellar public key whose balance is rendered. |
 
-**Hooks:** `useStellarBalance(address)`  
-**Edge cases:** Skeleton only when `loading && !stale`.
+- **Hooks**: `useStellarBalance(address)`
+- **Edge cases**: Renders a skeleton loader only when initial load is in progress and no stale cached balance exists.
 
 ---
 
@@ -75,16 +158,15 @@ Compact XLM balance for the wallet bar; skeleton while first load.
 
 **File:** `frontend/src/components/ConfirmModal.tsx`
 
-Accessible confirm/cancel dialog with focus trap.
+Accessible confirmation modal with backdrop and keyboard focus trap.
 
-| Prop        | Type         | Required | Description       |
-| ----------- | ------------ | -------- | ----------------- |
-| `message`   | `string`     | yes      | Confirmation copy |
-| `onConfirm` | `() => void` | yes      | Confirm           |
-| `onCancel`  | `() => void` | yes      | Cancel / dismiss  |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `message` | `string` | yes | Confirmation message copy displayed to the user. |
+| `onConfirm` | `() => void` | yes | Handler called when the confirm action button is clicked. |
+| `onCancel` | `() => void` | yes | Handler called when cancelled, dismissed, or Escape key pressed. |
 
-**Hooks:** `useFocusTrap`  
-**Edge cases:** Overlay click cancels; Esc via focus trap.
+- **Hooks**: `useFocusTrap(modalRef, true, onCancel)`
 
 ---
 
@@ -92,15 +174,26 @@ Accessible confirm/cancel dialog with focus trap.
 
 **File:** `frontend/src/components/ConnectWallet.tsx`
 
-Freighter connect CTA, or install link when the extension is missing.
+Wallet connection call-to-action button rendered when no wallet is currently connected.
 
-| Prop        | Type             | Required             | Description                    |
-| ----------- | ---------------- | -------------------- | ------------------------------ |
-| `onConnect` | `() => void`     | yes                  | Connect handler                |
-| `error`     | `string \| null` | yes                  | Error to display               |
-| `loading`   | `boolean`        | no (default `false`) | Disables button; shows spinner |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `onConnect` | `() => void` | yes | Opens the multi-wallet selection modal. |
+| `error` | `string \| null` | yes | Error message from wallet provider, or null. |
+| `loading` | `boolean` | no | Shows button loading spinner while connecting. |
 
-**Hooks:** `useFreighterAvailable`
+---
+
+### ContractPauseBanner
+
+**File:** `frontend/src/components/ContractPauseBanner.tsx`
+
+Full-width banner rendered at the top of the application when the contract circuit breaker is engaged.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `paused` | `boolean` | yes | Whether the contract is currently paused. |
+| `contractStatus` | `string` | no | Optional detail string from contract health check. |
 
 ---
 
@@ -108,14 +201,15 @@ Freighter connect CTA, or install link when the extension is missing.
 
 **File:** `frontend/src/components/CopyButton.tsx`
 
-Copies text with short-lived success/error icon feedback.
+Accessible clipboard copy button with transient "Copied!" visual and ARIA feedback.
 
-| Prop        | Type     | Required                      | Description       |
-| ----------- | -------- | ----------------------------- | ----------------- |
-| `text`      | `string` | yes                           | Clipboard payload |
-| `ariaLabel` | `string` | no (default `"Copy address"`) | Accessible name   |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `text` | `string` | yes | Text to copy to system clipboard. |
+| `ariaLabel` | `string` | no | Accessible label (default: `"Copy to clipboard"`). |
+| `title` | `string` | no | Tooltip title attribute. |
 
-**Hooks:** `useClipboard`
+- **Hooks**: `useClipboard()`
 
 ---
 
@@ -123,16 +217,15 @@ Copies text with short-lived success/error icon feedback.
 
 **File:** `frontend/src/components/DailyLimitCard.tsx`
 
-Displays daily PPU limit, today’s spend, and remaining; opens the limit modal via `onOpen`.
+Dashboard card displaying the subscriber's daily spending limit, current day's spend, and window reset timer.
 
-| Prop             | Type         | Required | Description       |
-| ---------------- | ------------ | -------- | ----------------- |
-| `userKey`        | `string`     | yes      | Subscriber key    |
-| `refreshTrigger` | `number`     | yes      | Re-fetch trigger  |
-| `onOpen`         | `() => void` | yes      | “Set limit” click |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `refreshTrigger` | `number` | yes | Counter to trigger limit re-fetch. |
+| `onConfigure` | `() => void` | yes | Opens `DailyLimitModal`. |
 
-**State:** `dailyLimit`, `dailySpent`, `loading`, `error`  
-**Edge cases:** Remaining `"Exceeded"` if negative; null limit → “Not set”.
+- **State**: `dailyLimit`, `dailySpent`, `loading`
 
 ---
 
@@ -140,18 +233,15 @@ Displays daily PPU limit, today’s spend, and remaining; opens the limit modal 
 
 **File:** `frontend/src/components/DailyLimitModal.tsx`
 
-Modal to set the daily PPU spending cap (`buildSetDailyLimitTx` + wallet sign).
+Modal dialog allowing subscribers to configure or clear their 24-hour spending limit.
 
-| Prop        | Type                               | Required | Description      |
-| ----------- | ---------------------------------- | -------- | ---------------- |
-| `userKey`   | `string`                           | yes      | Subscriber key   |
-| `onSign`    | `(xdr: string) => Promise<string>` | yes      | Sign & submit    |
-| `onClose`   | `() => void`                       | yes      | Dismiss          |
-| `onSuccess` | `() => void`                       | yes      | After success    |
-| `announce`  | `(message: string) => void`        | yes      | A11y live region |
-
-**State:** `currentLimit`, `amount`, `submitting`, `error`  
-**Hooks:** `useToast`, `useFocusTrap`
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `currentLimit` | `bigint \| null` | yes | Active daily limit in stroops, or null. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onClose` | `() => void` | yes | Modal dismissal handler. |
+| `onSuccess` | `() => void` | yes | Callback invoked after successful limit update. |
 
 ---
 
@@ -159,40 +249,58 @@ Modal to set the daily PPU spending cap (`buildSetDailyLimitTx` + wallet sign).
 
 **File:** `frontend/src/components/Dashboard.tsx`
 
-Subscriber hub: subscription card, allowance/daily limit, charge history, pay-per-use, RPC warnings, and related modals.
+Subscriber dashboard view rendering active subscription status, health, daily limits, and action modals.
 
-| Prop             | Type                               | Required | Description            |
-| ---------------- | ---------------------------------- | -------- | ---------------------- |
-| `userKey`        | `string`                           | yes      | Connected subscriber   |
-| `onSign`         | `(xdr: string) => Promise<string>` | yes      | Wallet sign helper     |
-| `refreshTrigger` | `number`                           | yes      | External re-fetch bump |
-| `announce`       | `(message: string) => void`        | yes      | Screen-reader announce |
-| `onCancelled`    | `() => void`                       | no       | After cancel           |
-| `onPayPerUse`    | `(amount: bigint) => void`         | no       | After PPU success      |
-
-**State:** `showDailyLimit`, `showIncreaseAllowance`, `allowanceRefresh`, `dailyLimitRefresh`, `ppuInputRef`  
-**Hooks:** `useSubscriptionSync`, `usePolling` (30s if active), `useToast`, `useRpcHealth`, `useTransaction`, `useRegisterShortcuts`  
-**Edge cases:** Lazy-loads `SubscriptionHistory`; skeleton while loading; PPU shortcut `p` only if active; degraded/unreachable RPC banners.
-
-```tsx
-<Dashboard userKey={pk} onSign={sign} refreshTrigger={t} announce={announce} />
-```
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Connected subscriber public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `refreshTrigger` | `number` | yes | Counter triggering data re-fetches. |
+| `announce` | `(msg: string) => void` | yes | Screen reader announcement callback. |
+| `isPaused` | `boolean` | no | Disables mutating actions when contract/network is gated. |
+| `isOffline` | `boolean` | no | Disables mutating actions when browser is offline. |
 
 ---
 
 ### ErrorBoundary
 
-**File:** `frontend/src/components/ErrorBoundary.tsx` (class component)
+**File:** `frontend/src/components/ErrorBoundary.tsx`
 
-Catches render errors in a subtree; optional custom fallback.
+Class-based React error boundary catching render crashes in subtrees and presenting a recovery button.
 
-| Prop       | Type        | Required | Description     |
-| ---------- | ----------- | -------- | --------------- |
-| `children` | `ReactNode` | yes      | Wrapped tree    |
-| `fallback` | `ReactNode` | no       | Custom error UI |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `children` | `ReactNode` | yes | Child components to wrap. |
+| `fallback` | `ReactNode` | no | Optional custom fallback UI. |
 
-**State:** `error` (+ `reset()`)  
-**Edge cases:** Logs `componentStack` in development; default UI reloads the page.
+---
+
+### ErrorRecovery
+
+**File:** `frontend/src/components/ErrorRecovery.tsx`
+
+Inline retry component displaying user-friendly error messages with an actionable retry button.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `error` | `string \| Error \| null` | yes | Error details to display. |
+| `onRetry` | `() => void` | yes | Callback invoked when the user clicks Retry. |
+| `title` | `string` | no | Optional card title. |
+
+---
+
+### EventFeed
+
+**File:** `frontend/src/components/EventFeed.tsx`
+
+Real-time activity stream displaying contract events (charges, subscriptions, pauses, cancellations).
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | no | Filter events by user address (optional). |
+| `limit` | `number` | no | Maximum events to fetch (default: 20). |
+
+- **Hooks**: `useContractEvents(eventName, userKey)`
 
 ---
 
@@ -200,18 +308,16 @@ Catches render errors in a subtree; optional custom fallback.
 
 **File:** `frontend/src/components/IncreaseAllowanceModal.tsx`
 
-Approves SAC allowance for the FlowPay contract (recommended ≈ 6 billing cycles).
+Modal for approving token allowances to the FlowPay contract using SAC `approve`.
 
-| Prop                 | Type                               | Required | Description   |
-| -------------------- | ---------------------------------- | -------- | ------------- |
-| `userKey`            | `string`                           | yes      | Owner key     |
-| `subscriptionAmount` | `bigint`                           | yes      | Period amount |
-| `onSign`             | `(xdr: string) => Promise<string>` | yes      | Sign helper   |
-| `onClose`            | `() => void`                       | yes      | Dismiss       |
-| `onSuccess`          | `() => void`                       | yes      | After approve |
-| `announce`           | `(message: string) => void`        | yes      | A11y announce |
-
-**Edge cases:** Errors if `VITE_TOKEN_CONTRACT_ID` / `VITE_CONTRACT_ID` unset; failed fetch treats allowance as `0n`.
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `currentAllowance` | `bigint` | yes | Current allowance in stroops. |
+| `suggestedAmount` | `bigint` | yes | Recommended allowance amount in stroops. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onClose` | `() => void` | yes | Modal dismissal callback. |
+| `onSuccess` | `() => void` | yes | Callback invoked upon successful approval. |
 
 ---
 
@@ -219,15 +325,27 @@ Approves SAC allowance for the FlowPay contract (recommended ≈ 6 billing cycle
 
 **File:** `frontend/src/components/IntervalSelector.tsx`
 
-Billing interval select from `BILLING_INTERVALS`, plus custom days → seconds.
+Billing interval preset picker (Daily, Weekly, Monthly, Annual) based on `BILLING_INTERVALS`.
 
-| Prop       | Type                        | Required | Description         |
-| ---------- | --------------------------- | -------- | ------------------- |
-| `value`    | `number`                    | yes      | Interval in seconds |
-| `onChange` | `(seconds: number) => void` | yes      | New interval        |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `value` | `number` | yes | Currently selected interval in seconds. |
+| `onChange` | `(seconds: number) => void` | yes | Selection change callback. |
+| `disabled` | `boolean` | no | Disables option selection. |
 
-**State:** `isCustom`, `customDays`  
-**Edge cases:** Non-preset `value` starts in custom mode; custom only emits when `seconds > 0`.
+---
+
+### LastUpdated
+
+**File:** `frontend/src/components/LastUpdated.tsx`
+
+Displays cache timestamp and relative freshness with a manual refresh button.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `timestamp` | `number \| null` | yes | Unix timestamp of the last successful cache fetch. |
+| `onRefresh` | `() => void` | yes | Callback invoked when the user clicks refresh. |
+| `loading` | `boolean` | no | Indicates active refresh in progress. |
 
 ---
 
@@ -235,21 +353,30 @@ Billing interval select from `BILLING_INTERVALS`, plus custom days → seconds.
 
 **File:** `frontend/src/components/MerchantDashboard.tsx`
 
-Merchant view: revenue, 7-day sparkline, virtualized subscribers, batch charge of due subs.
+Merchant portal for inspecting subscriber metrics, revenue history, batch charging, and data export.
 
-| Prop             | Type                               | Required | Description         |
-| ---------------- | ---------------------------------- | -------- | ------------------- |
-| `merchantKey`    | `string`                           | yes      | Merchant public key |
-| `onSign`         | `(xdr: string) => Promise<string>` | yes      | Sign helper         |
-| `refreshTrigger` | `number`                           | yes      | External refresh    |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `merchantKey` | `string` | yes | Merchant's Stellar public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper for batch charging. |
+| `refreshTrigger` | `number` | yes | Counter to trigger merchant data re-fetch. |
+| `isPaused` | `boolean` | no | Disables batch charge actions when contract is paused. |
 
-**State:** `subscribers`, `revenue`, `revenueHistory`, `loading`, `error`, `outcomes`  
-**Hooks:** `useTransaction`, `useVirtualList`, `usePolling` (30s)  
-**Edge cases:** Due = `nextChargeAt <= now`; simulates before submit; refreshes ~2s after success; list height 400px / row 72px.
+---
 
-```tsx
-<MerchantDashboard merchantKey={pk} onSign={sign} refreshTrigger={t} />
-```
+### MerchantSubscriberTable
+
+**File:** `frontend/src/components/MerchantSubscriberTable.tsx`
+
+Sortable, filterable table for viewing merchant subscribers with status badges and search.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `subscribers` | `MerchantSubscriber[]` | yes | Array of subscriber records. |
+| `onCharge` | `(sub: MerchantSubscriber) => void`| no | Individual subscriber charge callback. |
+| `debounceMs` | `number` | no | Search input debounce delay in ms (default: 300). |
+
+- **Status**: Unmounted in production (covered by Vitest unit tests; `MerchantDashboard` renders its own virtualized row list).
 
 ---
 
@@ -257,7 +384,13 @@ Merchant view: revenue, 7-day sparkline, virtualized subscribers, batch charge o
 
 **File:** `frontend/src/components/NetworkBadge.tsx`
 
-Testnet vs Mainnet badge from `NETWORK_PASSPHRASE` (“Public Global” → Mainnet). No props.
+Persistent badge displaying the active Stellar network (Testnet, Mainnet, Futurenet, Custom).
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `className` | `string` | no | Optional extra CSS classes. |
+
+- **Hooks**: `useNetworkStatus()`
 
 ---
 
@@ -265,45 +398,98 @@ Testnet vs Mainnet badge from `NETWORK_PASSPHRASE` (“Public Global” → Main
 
 **File:** `frontend/src/components/NextChargeCountdown.tsx`
 
-Live countdown to next charge; “Overdue” when past.
+Live countdown timer indicating time remaining until the next scheduled recurring charge.
 
-| Prop                  | Type     | Required | Description  |
-| --------------------- | -------- | -------- | ------------ |
-| `nextChargeTimestamp` | `number` | yes      | Unix seconds |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `nextChargeAt` | `number` | yes | Unix timestamp (in seconds) of next charge. |
+| `isPaused` | `boolean` | no | Renders "Paused" instead of countdown when true. |
 
-**State:** `countdown` (`days`, `hours`, `minutes`, `overdue`)  
-**Edge cases:** Updates every 60s; minute precision only.
+---
+
+### NotificationCenter
+
+**File:** `frontend/src/components/NotificationCenter.tsx`
+
+Notification bell icon with badge count and dropdown drawer showing transient toast history.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `notifications` | `Notification[]` | yes | Array of recorded notification objects. |
+| `unreadCount` | `number` | yes | Count of unread notifications. |
+| `onMarkAllRead` | `() => void` | yes | Handler to mark all notifications as read. |
+| `onClearAll` | `() => void` | yes | Handler to clear notification history. |
+| `explorerBase` | `string` | no | Explorer URL prefix for transaction links. |
+
+---
+
+### OfflineBanner
+
+**File:** `frontend/src/components/OfflineBanner.tsx`
+
+Accessible alert banner displayed when the browser loses network connectivity.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `visible` | `boolean` | yes | Whether to render the offline notification. |
 
 ---
 
 ### PayPerUseForm
 
-**File:** `frontend/src/components/PayPerUseForm.tsx` (`forwardRef`, `React.memo`)
+**File:** `frontend/src/components/PayPerUseForm.tsx`
 
-PPU amount input with local + contract max validation.
+Instant metered payment form allowing one-off microtransactions against an active subscription.
 
-| Prop      | Type                                | Required | Description       |
-| --------- | ----------------------------------- | -------- | ----------------- |
-| `onPay`   | `(amount: bigint) => Promise<void>` | yes      | Submit handler    |
-| `loading` | `boolean`                           | yes      | Disables controls |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `merchantKey` | `string` | yes | Merchant public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onSuccess` | `() => void` | yes | Callback invoked upon payment success. |
+| `disabled` | `boolean` | no | Disables submission during loading or pause. |
 
-**State:** `amount`, `error`, `lastValue`, `convertedStroops`  
-**Hooks:** `useDebounce(300)`  
-**Edge cases:** Max 7 decimals; min/max stroops; clears input after pay; ref focuses the amount field.
+---
+
+### ReferralPanel
+
+**File:** `frontend/src/components/ReferralPanel.tsx`
+
+Referral program interface displaying subscriber referral links and partner attribution.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Current user's public key. |
+| `referrer` | `string \| null` | no | Optional active referrer address. |
+| `onSetReferrer` | `(ref: string) => void` | no | Callback to set a referral partner. |
 
 ---
 
 ### RevenueSparkline
 
-**File:** `frontend/src/components/RevenueSparkline.tsx` (`React.memo`)
+**File:** `frontend/src/components/RevenueSparkline.tsx`
 
-Accessible SVG sparkline for 7-day revenue `bigint[]` with a hidden data table.
+Lightweight SVG sparkline chart visualizing 7-day revenue trends.
 
-| Prop      | Type       | Required | Description          |
-| --------- | ---------- | -------- | -------------------- |
-| `history` | `bigint[]` | yes      | Daily revenue points |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `bigint[]` | yes | Array of daily revenue numbers in stroops. |
+| `height` | `number` | no | Chart height in pixels (default: 40). |
+| `width` | `number` | no | Chart width in pixels (default: 160). |
 
-**Edge cases:** Empty → “No data”; `maxVal === 0` uses `1n` to avoid division by zero.
+---
+
+### RpcSettings
+
+**File:** `frontend/src/components/RpcSettings.tsx`
+
+Modal allowing users to configure custom Soroban RPC endpoints and test network connectivity.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `onClose` | `() => void` | yes | Modal dismissal callback. |
+
+- **Hooks**: `useRpcHealthContext()`
 
 ---
 
@@ -311,20 +497,22 @@ Accessible SVG sparkline for 7-day revenue `bigint[]` with a hidden data table.
 
 **File:** `frontend/src/components/ShortcutHelpOverlay.tsx`
 
-Modal listing registered shortcuts (+ Esc); focus-trapped.
+Modal overlay displaying registered keyboard shortcuts, triggered by pressing `?`.
 
-| Prop        | Type                 | Required | Description                    |
-| ----------- | -------------------- | -------- | ------------------------------ |
-| `shortcuts` | `KeyboardShortcut[]` | yes      | `{ key, description, action }` |
-| `onClose`   | `() => void`         | yes      | Dismiss                        |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `shortcuts` | `KeyboardShortcut[]` | yes | List of registered keyboard shortcuts. |
+| `onClose` | `() => void` | yes | Modal dismissal callback. |
 
 ---
 
-### Skeleton (`SubscriptionCardSkeleton`)
+### Skeleton
 
 **File:** `frontend/src/components/Skeleton.tsx`
 
-Loading placeholder mirroring `SubscriptionCard` (`aria-busy`). Default export is `SubscriptionCardSkeleton` (no props).
+Loading placeholder skeletons for cards, tables, and rows with animated pulse effects.
+
+- **Exports**: `SubscriptionCardSkeleton`, `MerchantSubscriberSkeleton`, `AdminAddressListSkeleton`, `AdminRepairSkeleton`, `ChargeHistorySkeleton`
 
 ---
 
@@ -332,12 +520,12 @@ Loading placeholder mirroring `SubscriptionCard` (`aria-busy`). Default export i
 
 **File:** `frontend/src/components/Spinner.tsx`
 
-CSS spinner.
+Accessible CSS activity spinner.
 
-| Prop        | Type                   | Required            | Description   |
-| ----------- | ---------------------- | ------------------- | ------------- |
-| `size`      | `"sm" \| "md" \| "lg"` | no (default `"md"`) | Size class    |
-| `className` | `string`               | no                  | Extra classes |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `size` | `"sm" \| "md" \| "lg"` | no | Spinner size dimension (default: `"md"`). |
+| `className` | `string` | no | Extra CSS classes. |
 
 ---
 
@@ -345,16 +533,15 @@ CSS spinner.
 
 **File:** `frontend/src/components/StroopInput.tsx`
 
-XLM amount input debounced to stroops via `onChange`.
+Dual-unit amount input allowing users to enter amounts in XLM with real-time conversion to stroops.
 
-| Prop       | Type                                | Required | Description            |
-| ---------- | ----------------------------------- | -------- | ---------------------- |
-| `label`    | `string`                            | yes      | Label                  |
-| `onChange` | `(stroops: bigint \| null) => void` | yes      | Parsed stroops or null |
-| `disabled` | `boolean`                           | no       | Disable input          |
-
-**Hooks:** `useDebounce(300)`  
-**Edge cases:** Same min/max/decimal rules as PPU; blur validates immediately.
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | yes | Input label text. |
+| `value` | `bigint` | yes | Amount value in stroops. |
+| `onChange` | `(val: bigint) => void`| yes | Mutation callback returning stroops. |
+| `maxAmount` | `bigint` | no | Maximum permissible value in stroops. |
+| `error` | `string` | no | Validation error string to display. |
 
 ---
 
@@ -362,19 +549,29 @@ XLM amount input debounced to stroops via `onChange`.
 
 **File:** `frontend/src/components/SubscribeForm.tsx`
 
-New subscription form: merchant, amount, interval; builds and signs subscribe tx.
+Checkout form for creating a new recurring subscription.
 
-| Prop           | Type                               | Required | Description            |
-| -------------- | ---------------------------------- | -------- | ---------------------- |
-| `userKey`      | `string`                           | yes      | Subscriber             |
-| `onSign`       | `(xdr: string) => Promise<string>` | yes      | Sign helper            |
-| `onSuccess`    | `() => void`                       | yes      | After subscribe        |
-| `announce`     | `(message: string) => void`        | yes      | A11y                   |
-| `onSubscribed` | `() => void`                       | no       | Extra success callback |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Connected subscriber's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onSuccess` | `() => void` | yes | Callback invoked upon successful subscription. |
+| `isPaused` | `boolean` | no | Disables form submission when contract is paused. |
+| `isOffline` | `boolean` | no | Disables form submission when browser is offline. |
 
-**State:** `merchant`, `amount`, `interval`  
-**Hooks:** `useFormValidation`, `useDebounce(merchant, 500)`, `useToast`, `useTransaction`  
-**Edge cases:** Async merchant account check; disabled while `pending || validating || !isValid`.
+---
+
+### SubscriberRecoveryPanel
+
+**File:** `frontend/src/components/SubscriberRecoveryPanel.tsx`
+
+Subscriber self-service data integrity diagnostic panel to detect orphaned states and trigger repairs.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `refreshTrigger` | `number` | yes | Re-fetch counter. |
 
 ---
 
@@ -382,30 +579,42 @@ New subscription form: merchant, amount, interval; builds and signs subscribe tx
 
 **File:** `frontend/src/components/SubscriptionCard.tsx`
 
-Active subscription summary with pause/resume/cancel, countdown, trial badge, and copy merchant.
+Detailed card displaying an active subscription, trial badges, allowance health, and management actions (pause, resume, cancel, transfer).
 
-Declared `SubscriptionCardProps` plus required `userKey` at the call site:
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `subscription` | `Subscription` | yes | Subscription record object. |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onCancelled` | `() => void` | yes | Callback invoked when subscription is cancelled. |
+| `refreshTrigger` | `number` | yes | Counter to trigger card data re-fetch. |
+| `isPaused` | `boolean` | no | Disables mutation actions when protocol paused. |
 
-| Prop           | Type                               | Required | Description                                                    |
-| -------------- | ---------------------------------- | -------- | -------------------------------------------------------------- |
-| `subscription` | `Subscription`                     | yes      | On-chain subscription                                          |
-| `userKey`      | `string`                           | yes      | Subscriber key (`SubscriptionCardProps & { userKey: string }`) |
-| `onSign`       | `(xdr: string) => Promise<string>` | yes      | Sign helper                                                    |
-| `onRefresh`    | `() => void`                       | yes      | Refresh after mutations                                        |
-| `onCancelled`  | `() => void`                       | no       | After cancel                                                   |
+---
 
-**State:** `showPauseConfirm`, `showCancelConfirm`, `cancelLoading`, `cancelStatus`  
-**Hooks:** `useSubscriptionSync`, `usePauseResume`, `useRegisterShortcuts`  
-**Edge cases:** Trial badge when `now < last_charged + trial_duration`; next charge `"—"` if inactive/paused; cancel uses optimistic `mutate`; shortcut `x` opens cancel.
+### SubscriptionExport
 
-```tsx
-<SubscriptionCard
-  subscription={sub}
-  userKey={pk}
-  onSign={sign}
-  onRefresh={refresh}
-/>
-```
+**File:** `frontend/src/components/SubscriptionExport.tsx`
+
+Export component generating CSV and JSON files of subscriber records with spreadsheet formula injection protection.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `subscribers` | `MerchantSubscriber[]` | yes | Array of subscriber records to export. |
+| `filenamePrefix` | `string` | no | Custom filename prefix (default: `"subscriptions"`). |
+
+---
+
+### SubscriptionHealthWidget
+
+**File:** `frontend/src/components/SubscriptionHealthWidget.tsx`
+
+Visual indicator displaying on-chain subscription health score and risk level.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `refreshTrigger` | `number` | no | Refresh counter. |
 
 ---
 
@@ -413,28 +622,12 @@ Declared `SubscriptionCardProps` plus required `userKey` at the call site:
 
 **File:** `frontend/src/components/SubscriptionHistory.tsx`
 
-Paginated charge history from `charged` events; CSV export; stale-while-revalidate UI.
+Lazy-loaded historical ledger table showing past recurring charges, dates, amounts, and transaction links.
 
-| Prop      | Type     | Required | Description    |
-| --------- | -------- | -------- | -------------- |
-| `userKey` | `string` | yes      | Filter address |
-
-**Hooks:** `useContractEvents("charged", userKey)`  
-**Edge cases:** Parses nested `_value`; `PAGE_SIZE=20`; explorer links hardcode **testnet**.
-
----
-
-### SystemHealthCard
-
-**File:** `frontend/src/components/SystemHealthCard.tsx`
-
-Contract health: RPC, pause, token config, active subscription count.
-
-| Prop        | Type     | Required | Description                    |
-| ----------- | -------- | -------- | ------------------------------ |
-| `callerKey` | `string` | yes      | Caller for `getContractHealth` |
-
-**Edge cases:** Token not configured → yellow; pause → red; retry on error.
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Subscriber public key. |
+| `limit` | `number` | no | Max charges to render (default: 10). |
 
 ---
 
@@ -442,28 +635,65 @@ Contract health: RPC, pause, token config, active subscription count.
 
 **File:** `frontend/src/components/TabBar.tsx`
 
-Main nav among dashboard / subscribe / merchant / admin.
+Main application navigation tab bar with keyboard arrow key navigation and ARIA role="tablist" support.
 
-| Prop          | Type                 | Required | Description                                           |
-| ------------- | -------------------- | -------- | ----------------------------------------------------- |
-| `tabs`        | `readonly Tab[]`     | yes      | `"dashboard" \| "subscribe" \| "merchant" \| "admin"` |
-| `activeTab`   | `Tab`                | yes      | Current tab                                           |
-| `onTabChange` | `(tab: Tab) => void` | yes      | Tab change                                            |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `tabs` | `readonly Tab[]` | yes | Array of visible tab identifiers. |
+| `activeTab` | `Tab` | yes | Currently active tab identifier. |
+| `onTabChange` | `(tab: Tab) => void` | yes | Tab selection change handler. |
 
 ---
 
-### Toast (`ToastContainer`)
+### ThemeToggle
+
+**File:** `frontend/src/components/ThemeToggle.tsx`
+
+Dark / light mode toggle button persisted via `localStorage` and applied via `[data-theme]` on the root HTML element.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `className` | `string` | no | Optional extra CSS classes. |
+
+- **Hooks**: `useTheme()`
+
+---
+
+### Toast
 
 **File:** `frontend/src/components/Toast.tsx`
 
-Renders the toast queue; optional explorer link for `txHash`.
+Container displaying transient toast alerts (success, error, info) with auto-dismissal.
 
-| Prop       | Type                   | Required | Description     |
-| ---------- | ---------------------- | -------- | --------------- |
-| `toasts`   | `Toast[]`              | yes      | From `useToast` |
-| `onRemove` | `(id: number) => void` | yes      | Dismiss         |
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `toasts` | `ToastMessage[]` | yes | Array of active toast messages. |
+| `onDismiss` | `(id: string) => void` | yes | Callback to dismiss an individual toast. |
 
-**Edge cases:** Returns `null` if empty.
+---
+
+### TransferSubscriptionModal
+
+**File:** `frontend/src/components/TransferSubscriptionModal.tsx`
+
+Modal dialog allowing a subscriber to transfer subscription ownership to another Stellar address.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userKey` | `string` | yes | Current subscriber's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `onClose` | `() => void` | yes | Modal dismissal callback. |
+| `onSuccess` | `() => void` | yes | Callback invoked upon successful ownership transfer. |
+
+---
+
+### TxQueuePanel
+
+**File:** `frontend/src/components/TxQueuePanel.tsx`
+
+Collapsible drawer displaying recent in-flight and completed transactions from `txQueue`.
+
+- **Hooks**: Subscribes to the `txQueue` singleton service.
 
 ---
 
@@ -471,226 +701,176 @@ Renders the toast queue; optional explorer link for `txHash`.
 
 **File:** `frontend/src/components/WalletBar.tsx`
 
-Connected wallet strip: address, copy, balance, network, disconnect, tx queue depth.
+Top account chrome displaying connected wallet adapter, address, balance, network badge, notification center, and disconnect action.
 
-| Prop           | Type         | Required | Description   |
-| -------------- | ------------ | -------- | ------------- |
-| `publicKey`    | `string`     | yes      | Connected key |
-| `onDisconnect` | `() => void` | yes      | Disconnect    |
-
-**Hooks:** `useTxQueue`  
-**Edge cases:** Queue badge only if `queueDepth > 0`.
-
----
-
-### SubscriptionRepairPanel (admin)
-
-**File:** `frontend/src/components/admin/SubscriptionRepairPanel.tsx`
-
-Admin tool to validate subscription integrity and submit repair transactions.
-
-| Prop       | Type                               | Required | Description                               |
-| ---------- | ---------------------------------- | -------- | ----------------------------------------- |
-| `adminKey` | `string`                           | yes      | Connected wallet (must be contract admin) |
-| `onSign`   | `(xdr: string) => Promise<string>` | yes      | Sign helper                               |
-
-**State:** `userAddress`, `validatedAddress`, `report`, `validationPhase`, `validationError`, `showRepairConfirm`, `repairResultCount`, `subscriptionRefresh`  
-**Hooks:** `useAdmin`, `useToast`, `useTransaction`, `useSubscription`  
-**Edge cases:** Repair gated by `isAdmin && hasFailures`; phases `idle|loading|success|error`; non-admin warning.
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `publicKey` | `string` | yes | Connected account public key. |
+| `activeAdapter` | `WalletAdapter \| null` | yes | Active wallet adapter instance. |
+| `onDisconnect` | `() => void` | yes | Disconnection handler. |
+| `notifications` | `Notification[]` | no | Active toast notifications. |
+| `unreadCount` | `number` | no | Unread notifications count. |
+| `onMarkAllRead` | `() => void` | no | Mark notifications read handler. |
+| `onClearNotifications` | `() => void` | no | Clear notifications handler. |
 
 ---
 
-## Hooks
+### WalletSelectModal
 
-| Hook                    | Purpose                                       | Signature (summary)                                                                           | Edge cases                                                     |
-| ----------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `useAccessibility`      | ARIA live-region announcer                    | `() => { announcement, announce }`                                                            | Clears then re-sets via `rAF` so the same message re-announces |
-| `useKeyboardShortcuts`  | Global key handlers                           | `(options?) => KeyboardShortcut[]`                                                            | Ignores events in inputs / contentEditable                     |
-| `useFocusTrap`          | Trap Tab focus; Esc → `onEscape`              | `(ref, active, onEscape?) => void`                                                            | No-op if inactive or no focusables                             |
-| `useErrorBoundary`      | Manual error state for async handlers         | `() => { error, captureError, reset }`                                                        | Does **not** catch render errors                               |
-| `useResponsive`         | Breakpoints via `matchMedia`                  | `() => { isMobile, isTablet, isDesktop }`                                                     | Mobile ≤639, tablet 640–1023, desktop ≥1024                    |
-| `useContractId`         | Validate `VITE_CONTRACT_ID`                   | `() => { contractId, valid, error }`                                                          | Missing/invalid → empty id, `valid: false`                     |
-| `useRpcHealth`          | Poll RPC with backoff / circuit breaker       | `() => UseRpcHealthResult`                                                                    | 3 failures open circuit; latency >2s → `degraded`              |
-| `useSubscription`       | Fetch one subscription                        | `(userKey, refreshTrigger?) => { subscription, loading, error, refresh }`                     | Circuit open → `"RPC unavailable"`                             |
-| `usePolling`            | Interval callback with fresh ref              | `({ callback, interval, enabled? }) => void`                                                  | Disabled clears interval; no immediate call on mount           |
-| `useFormValidation`     | Subscribe-form sync + async validation        | `() => { errors, validate, isValid, validating, validateAsync }`                              | Aborts prior async with `AbortController`                      |
-| `useTheme`              | Dark/light via localStorage                   | `() => { theme, toggle }`                                                                     | Default `"dark"`; sets `data-theme` on `<html>`                |
-| `useToast`              | Toast queue (auto-dismiss 5s)                 | `() => { toasts, addToast, removeToast }`                                                     | Duplicate messages allowed; default variant `"info"`           |
-| `useTransaction`        | Queue + submit signed tx; poll confirmation   | `() => { status, hash, error, submit }`                                                       | Circuit open rejects; 30s poll timeout                         |
-| `useWallet`             | Freighter connect / persist / sign            | `() => { publicKey, connect, signAndSubmit, disconnect, error, connecting, ready }`           | Polls Freighter 3×300ms on restore                             |
-| `useVirtualList`        | Windowed list (3-row overscan)                | `<T>(items, itemHeight, containerHeight) => { visibleItems, totalHeight, offsetY, onScroll }` | Empty / non-positive heights → empty visible set               |
-| `useAnalytics`          | Opt-in event track + batch flush              | `() => { isOptedIn, setOptIn, track }`                                                        | No-op if opted out; flush at 10 events / 5s / hidden           |
-| `useNetworkStatus`      | Connectivity + Freighter vs app passphrase    | `() => { status, isOnline, networkMatch, walletNetwork, … }`                                  | `status`: online/offline/unknown/checking                      |
-| `usePauseResume`        | Pause/resume txs                              | `(userKey, onSign, onRefresh) => { pause, resume, pauseTx, resumeTx }`                        | Calls `onRefresh` after success                                |
-| `useSubscriberCount`    | Active count from subscribed−cancelled events | `() => { count, loading, stale }`                                                             | Caps pages (`MAX_PAGES=50`)                                    |
-| `useSubscriptionSync`   | Fetch + optimistic `mutate` with rollback     | `(userKey, refreshTrigger?) => { subscription, loading, status, error, mutate, refresh }`     | Failed cancel rolls optimistic `active: false` back            |
-| `useStellarBalance`     | Cached/deduped XLM balance                    | `(address, staleAfterMs?) => UseStellarBalanceResult`                                         | Min fetch interval 5s; module cache                            |
-| `useAdmin`              | Compare wallet to on-chain admin              | `(publicKey \| null) => UseAdminResult`                                                       | Null key clears state                                          |
-| `useLocalStorage`       | `useState` synced to `localStorage` JSON      | `<T>(key, initial) => [value, setValue]`                                                      | Parse errors → initial                                         |
-| `useFreighterAvailable` | Detect `window.freighter` after mount         | `() => { available, installUrl }`                                                             | Starts `false` until effect                                    |
-| `useClipboard`          | `navigator.clipboard.writeText`               | `(timeout?) => { copied, error, copy }`                                                       | Failure sets boolean `error`                                   |
-| `useContractEvents`     | Fetch/paginate contract events                | `(eventName, address?, maxEvents?) => { events, loading, error, refresh, loadMore, hasMore }` | Keeps last `maxEvents` (default 50)                            |
-| `useDebounce`           | Debounce any value                            | `<T>(value, delay?) => T`                                                                     | Clears timer on change/unmount                                 |
+**File:** `frontend/src/components/WalletSelectModal.tsx`
 
-Also related: `useRegisterShortcuts` from `frontend/src/context/ShortcutRegistry` (used by Dashboard / SubscriptionCard; not under `hooks/`).
+Modal dialog presenting installed and supported wallet providers (Freighter, xBull, Albedo).
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `adapters` | `WalletAdapter[]` | yes | Array of supported wallet adapters. |
+| `onSelect` | `(adapter: WalletAdapter) => void` | yes | Selection callback. |
+| `onClose` | `() => void` | yes | Modal dismissal callback. |
+| `connectionStatus` | `string` | no | Connection status message. |
+| `error` | `string \| null` | no | Connection error string. |
 
 ---
 
-## Services
+## Admin Components Reference
+
+### AddressListInput
+
+**File:** `frontend/src/components/admin/AddressListInput.tsx`
+
+Multiline textarea for pasting and validating multiple Stellar addresses for batch operations.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `value` | `string` | yes | Raw textarea string value. |
+| `onChange` | `(val: string) => void` | yes | Change handler. |
+| `maxBatch` | `number` | yes | Maximum permissible batch size. |
+| `label` | `string` | no | Form field label. |
+
+---
+
+### AdminRepairPanel
+
+**File:** `frontend/src/components/admin/AdminRepairPanel.tsx`
+
+Diagnostics panel for contract administrators to validate and repair on-chain subscription integrity violations.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `adminKey` | `string` | yes | Connected wallet address (must be contract admin). |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `gatePassed` | `boolean` | no | Network and configuration gate status. |
+
+---
+
+### BatchPausePanel
+
+**File:** `frontend/src/components/admin/BatchPausePanel.tsx`
+
+Admin tool for pasting multiple subscriber addresses and executing `batch_pause_subscriptions`.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `adminKey` | `string` | yes | Admin's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `isAdmin` | `boolean` | yes | Whether connected wallet is authorized admin. |
+| `onInit` | `(signal: AbortSignal) => Promise<void>` | no | Async initialization hook. |
+
+---
+
+### BatchWhitelistPanel
+
+**File:** `frontend/src/components/admin/BatchWhitelistPanel.tsx`
+
+Admin tool for adding or removing multiple merchant addresses from the contract whitelist in batches.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `adminKey` | `string` | yes | Admin's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `isAdmin` | `boolean` | yes | Whether connected wallet is authorized admin. |
+| `onInit` | `(signal: AbortSignal) => Promise<void>` | no | Async initialization hook. |
+
+---
+
+### ProtocolStatsPanel
+
+**File:** `frontend/src/components/admin/ProtocolStatsPanel.tsx`
+
+Read-only aggregate metrics panel displaying protocol volume, subscriber counts, fee recipient, and health status.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `callerKey` | `string` | yes | Caller's Stellar public key. |
+
+---
+
+## Hooks Reference
+
+| Hook | Purpose | Signature |
+| --- | --- | --- |
+| `useAccessibility` | ARIA live-region screen reader announcer | `() => { announcement, announce }` |
+| `useAdmin` | Verifies whether an address is contract administrator | `(publicKey: string \| null) => { isAdmin, adminAddress, loading }` |
+| `useAmountDisplay` | Global Stroop vs XLM formatting preferences | `() => { unit, toggleUnit, formatAmount }` |
+| `useClipboard` | Copies text to clipboard with feedback | `(timeout?: number) => { copied, error, copy }` |
+| `useContractEvents` | Polls and paginates Soroban contract events | `(eventName, address?, maxEvents?) => { events, loading, error, refresh }` |
+| `useDebounce` | Debounces any value across a specified delay | `<T>(value: T, delay?: number) => T` |
+| `useFocusTrap` | Traps keyboard Tab navigation inside modals | `(ref, active, onEscape?) => void` |
+| `useFormValidation` | Validates subscription amounts, intervals, and addresses | `() => { errors, validate, isValid, validating, validateAsync }` |
+| `useNetworkStatus` | Validates wallet network against contract configuration | `() => { isOnline, networkMatch, walletNetwork, isMainnet, ... }` |
+| `usePauseResume` | Handles subscription pause and resume transactions | `(userKey, onSign, onRefresh) => { pause, resume, isPending }` |
+| `usePolling` | Runs periodic callbacks with automatic cleanup | `({ callback, interval, enabled }) => void` |
+| `useResponsive` | Responsive breakpoints matching CSS media queries | `() => { isMobile, isTablet, isDesktop }` |
+| `useRpcHealth` | Tracks RPC endpoint availability and circuit breaker | `() => { healthy, circuitOpen, latencyMs, ... }` |
+| `useStellarBalance` | Fetches and caches XLM account balance | `(address: string) => { balance, loading, stale, refresh }` |
+| `useSubscriptionSync` | Synchronizes on-chain subscription state with cache | `(userKey, refreshTrigger?) => { subscription, loading, refresh }` |
+| `useToast` | Enqueues and manages transient toast notifications | `() => { notifications, unreadCount, markAllRead, clearNotifications }` |
+| `useTransaction` | Submits transactions through queue and polls status | `() => { status, hash, error, submit }` |
+| `useVirtualList` | Windowed virtualization for long subscriber tables | `<T>(items, rowHeight, containerHeight) => { visibleItems, ... }` |
+| `useWallet` | Connects, persists, and signs via wallet adapters | `() => { publicKey, connect, disconnect, signAndSubmit, ... }` |
+
+---
+
+## Services Reference
 
 ### rpcCache.ts
-
-**File:** `frontend/src/services/rpcCache.ts`
-
-In-flight dedupe + TTL LRU cache for RPC reads (cap 100; default TTL 5s).
-
-| Export                  | Signature                            | Notes                                       |
-| ----------------------- | ------------------------------------ | ------------------------------------------- |
-| `DEFAULT_TTL_MS`        | `number` (= `5000`)                  | Default cache window                        |
-| `dedupedCall`           | `<T>(key, fn, ttlMs?) => Promise<T>` | Concurrent same-key calls share one Promise |
-| `_clearCacheForTesting` | `() => void`                         | Tests only                                  |
-
-Failures are not cached. Encode all args in the key (e.g. `"getSubscription:G…"`).
-
----
+**File:** `frontend/src/services/rpcCache.ts`  
+In-flight deduplication and TTL LRU cache for RPC read operations (capacity 100 entries, default TTL 5000ms). Concurrent identical queries share a single active Promise.
 
 ### scval.ts
-
-**File:** `frontend/src/services/scval.ts`
-
-Typed Soroban `xdr.ScVal` decoders; throws `ScValDecodeError` on mismatch.
-
-| Export                                                                                                     | Notes                                                                  |
-| ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `ScValDecodeError`                                                                                         | Fields `expectedType`, `actualType`                                    |
-| `ScValDecoder.decodeI128` / `decodeU64` / `decodeBool` / `decodeAddress` / `decodeString` / `decodeSymbol` | Primitive decoders                                                     |
-| `decodeOption` / `decodeVec` / `decodeStruct`                                                              | Composite; `scvVoid` → `null` for options; unknown struct keys skipped |
-
-Prefer for contract read decoding; struct schema keys must match on-chain field names.
-
----
+**File:** `frontend/src/services/scval.ts`  
+Type-safe Soroban `xdr.ScVal` decoders (`decodeI128`, `decodeU64`, `decodeAddress`, `decodeStruct`, etc.). Throws descriptive `ScValDecodeError` instances when wire data types diverge from expected schemas.
 
 ### txQueue.ts
-
-**File:** `frontend/src/services/txQueue.ts`
-
-Serialize wallet/tx submissions so only one build/sign runs at a time.
-
-| Export               | Signature                                | Notes                          |
-| -------------------- | ---------------------------------------- | ------------------------------ |
-| `enqueueTransaction` | `<T>(buildAndSign, label) => Promise<T>` | Queue continues after failures |
-| `useTxQueue`         | `() => { pendingLabel, queueDepth }`     | Used by `WalletBar`            |
-
-`useTransaction` wraps submits with label `"Transaction"`.
+**File:** `frontend/src/services/txQueue.ts`  
+Serialized transaction queue ensuring wallet signing requests do not collide. Tracks transaction states (`pending`, `submitted`, `confirmed`, `failed`) and powers `TxQueuePanel`.
 
 ---
 
-## Component Status
+## Extending Common Surfaces
 
-### Active (mounted in the application tree)
+### Adding a Field to `SubscriptionCard`
+1. Update `Subscription` interface in `frontend/src/types.ts` if adding an on-chain property.
+2. In `frontend/src/components/SubscriptionCard.tsx`, extract the field from `subscription`.
+3. Wrap values in formatting helpers (`formatAmount`, `formatAddress`) and provide accessible labels.
 
-These components are imported and rendered via `App.tsx` → `Dashboard` or `SubscribeForm`:
+### Adding a Widget to `Dashboard`
+1. Create the widget in `frontend/src/components/`.
+2. Import the widget in `frontend/src/components/Dashboard.tsx`.
+3. Pass required context props (`userKey`, `onSign`, `refreshTrigger`).
+4. Wrap in `ErrorBoundary` if the widget performs independent asynchronous network fetching.
 
-| Component                             | Mount path                  |
-| ------------------------------------- | --------------------------- |
-| `Dashboard`                           | App.tsx → tab "dashboard"   |
-| `SubscribeForm`                       | App.tsx → tab "subscribe"   |
-| `ErrorBoundary`                       | main.tsx (provider wrapper) |
-| `SubscriptionCard`                    | Dashboard                   |
-| `SubscriptionCardSkeleton` (Skeleton) | Dashboard                   |
-| `ErrorRecovery`                       | Dashboard                   |
-| `AllowanceDisplay`                    | Dashboard, SubscribeForm    |
-| `IncreaseAllowanceModal`              | Dashboard                   |
-| `DailyLimitCard`                      | Dashboard                   |
-| `DailyLimitModal`                     | Dashboard                   |
-| `PayPerUseForm`                       | Dashboard                   |
-| `ReferralPanel`                       | Dashboard                   |
-| `SubscriptionHistory`                 | Dashboard (lazy)            |
-| `EventFeed`                           | Dashboard                   |
-| `SubscriptionExport`                  | Dashboard                   |
-| `ToastContainer` (Toast)              | Dashboard, SubscribeForm    |
-| `IntervalSelector`                    | SubscribeForm               |
-| `BalanceDisplay`                      | SubscribeForm               |
-| `AddressBook`                         | SubscribeForm               |
-
-### Orphaned (available but not mounted)
-
-These components exist in `frontend/src/components/` but are not currently wired into the application tree. See [FRONTEND.md — Orphaned / Ready-to-Wire Components](./FRONTEND.md#orphaned--ready-to-wire-components) for wiring instructions:
-
-| Component                       | Purpose                                                     |
-| ------------------------------- | ----------------------------------------------------------- |
-| `MerchantDashboard`             | Merchant revenue & subscribers view                         |
-| `MerchantSubscriberTable`       | Sortable subscriber table (used by MerchantDashboard)       |
-| `ConnectWallet`                 | Freighter connect CTA with install link                     |
-| `WalletBar`                     | Connected wallet strip with balance/network                 |
-| `WalletSelectModal`             | Multi-wallet selection modal                                |
-| `TabBar`                        | Main navigation tabs                                        |
-| `ThemeToggle`                   | Dark/light mode toggle                                      |
-| `NetworkBadge`                  | Testnet/Mainnet badge                                       |
-| `ContractPauseBanner`           | Maintenance banner when contract paused                     |
-| `OfflineBanner`                 | Full-width offline warning                                  |
-| `SystemHealthCard`              | Contract health status card                                 |
-| `SubscriptionHealthWidget`      | Health indicator widget                                     |
-| `TxQueuePanel`                  | Transaction queue panel                                     |
-| `NotificationCenter`            | Bell icon + notification dropdown                           |
-| `StroopInput`                   | XLM amount input debounced to stroops                       |
-| `AmountUnitToggle`              | Toggle XLM/STROOP display                                   |
-| `ShortcutHelpOverlay`           | Keyboard shortcuts overlay (triggered via ShortcutRegistry) |
-| `ConfirmModal`                  | Accessible confirm/cancel dialog (used by sub-components)   |
-| `CopyButton`                    | Clipboard copy with feedback (used by sub-components)       |
-| `NextChargeCountdown`           | Live countdown to next charge (used by SubscriptionCard)    |
-| `Spinner`                       | CSS spinner (used by sub-components)                        |
-| `AddressInput`                  | Debounced Stellar address field (used by admin panels)      |
-| `admin/SubscriptionRepairPanel` | Admin subscription repair tool                              |
-| `admin/BatchPausePanel`         | Batch pause subscriptions                                   |
-| `admin/BatchWhitelistPanel`     | Batch whitelist add/remove                                  |
-| `admin/AddressListInput`        | Multiline address textarea                                  |
-
-Batch size caps (pause 25, whitelist 50, charge/cancel contract defaults) are tabulated in [`LIMITS.md`](LIMITS.md). Do not change those numbers in the UI without updating the table and the contract constants together.
-
-### Pages
-
-| File                       | Purpose                                | Mount path                                              |
-| -------------------------- | -------------------------------------- | ------------------------------------------------------- |
-| `pages/AdminDashboard.tsx` | Admin dashboard (imports admin panels) | Not currently mounted — wire via "admin" tab in App.tsx |
+### Extending `MerchantDashboard`
+1. Use `getMerchantSubscribers` or add new query helpers in `frontend/src/stellar.ts`.
+2. Follow virtual list guidelines if rendering collections exceeding 50 items.
+3. Batch operations must enforce limits from `frontend/src/constants.ts` (`CONTRACT_LIMITS`).
 
 ---
 
-## Extending common surfaces
+## Related Documentation
 
-Complexity ranking for the surfaces contributors change most often:
-
-| Rank | Component             | Why                                                                                 |
-| ---: | --------------------- | ----------------------------------------------------------------------------------- |
-|    1 | **MerchantDashboard** | Virtualized list, multi-source refresh, batch-charge simulation + outcomes, polling |
-|    2 | **Dashboard**         | Orchestrates many children, RPC banners, shortcuts, lazy history, refresh counters  |
-|    3 | **SubscriptionCard**  | Pause/resume/cancel confirm flow, optimistic mutate, trial badge, shortcut `x`      |
-
-### Adding a field to SubscriptionCard
-
-1. Extend the `Subscription` type in `frontend/src/types` if the value comes from the contract.
-2. Ensure `stellar.ts` / `ScValDecoder` decode the new field.
-3. Add a `Row` (or badge) in `SubscriptionCard.tsx`; keep formatting helpers next to existing `formatInterval` / trial helpers.
-4. Update unit tests under `frontend/src/**/*.test.*` that assert card copy.
-
-### Adding a widget to Dashboard
-
-1. Prefer a child component that takes `userKey`, `onSign`, and a `refreshTrigger` (or its own fetch).
-2. Wire state in `Dashboard.tsx` (modal open flags / refresh counters) the same way `DailyLimitCard` and `IncreaseAllowanceModal` are wired.
-3. Register any new shortcut via `useRegisterShortcuts` and document it in `ShortcutHelpOverlay` consumers.
-4. Keep blockchain builds in `stellar.ts` — do not import the SDK in the new component.
-
-### Extending MerchantDashboard
-
-1. New merchant metrics: fetch beside existing revenue/history effects; bump the shared refresh path used by `usePolling`.
-2. Subscriber row fields: adjust `SUBSCRIBER_ROW_HEIGHT` if row layout grows (virtual list assumes fixed height).
-3. Batch actions: follow the simulate-then-submit pattern already used for batch charge; surface per-user outcomes in the `outcomes` map.
-4. Prefer `useVirtualList` for large subscriber lists rather than rendering the full array.
-
----
-
-## Related docs
-
-- [FRONTEND.md](./FRONTEND.md) — architecture overview
-- [CONTRIBUTING-FRONTEND.md](./CONTRIBUTING-FRONTEND.md) — contribution patterns
-- [API.md](./API.md) — contract entry points the UI calls through `stellar.ts`
+| Document | Purpose |
+| --- | --- |
+| [`docs/FRONTEND.md`](FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md) | Contributor workflows, testing conventions, and accessibility |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |

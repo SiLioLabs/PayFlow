@@ -1,151 +1,153 @@
-# Frontend component inventory
+# Frontend Component Inventory
 
-Maintainer map of `frontend/src/components` (and the related modules named in #1123). Use this to decide **what to wire into the app** versus what is a known orphan. Prop-level API details remain in [`FRONTEND-COMPONENTS.md`](../FRONTEND-COMPONENTS.md). Architecture: [`FRONTEND.md`](../FRONTEND.md).
+This document provides the maintainer map and status classification for all components located in `frontend/src/components/` and `frontend/src/components/admin/`. It also establishes the single-source ownership of validation rules across the frontend.
 
-**Do not resurrect orphans by importing them “to restore a missing feature” without checking this file.** Deletion of dead code is tracked separately as [SiLioLabs/PayFlow#1053](https://github.com/SiLioLabs/PayFlow/issues/1053) (tooling is **not** in the repo yet).
+> **Component Prop Reference**: For prop interfaces, types, and component-level code examples, see [`docs/FRONTEND-COMPONENTS.md`](../FRONTEND-COMPONENTS.md).  
+> **Architecture Guide**: For application architecture, data flow, and provider hierarchies, see [`docs/FRONTEND.md`](../FRONTEND.md).  
+> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](../CONTRIBUTING-FRONTEND.md).
 
 ---
 
-## How status is decided
+## Table of Contents
+
+- [Status Classifications](#status-classifications)
+- [Directory Map](#directory-map)
+- [Component Inventory (`frontend/src/components/`)](#component-inventory-frontendsrccomponents)
+- [Admin Component Inventory (`frontend/src/components/admin/`)](#admin-component-inventory-frontendsrccomponentsadmin)
+- [Page Shells (`frontend/src/pages/`)](#page-shells-frontendsrcpages)
+- [Single-Source Validation Rule Ownership](#single-source-validation-rule-ownership)
+- [Related Documentation](#related-documentation)
+
+---
+
+## Status Classifications
+
+Every component in the repository is categorized under one of two statuses:
 
 | Status | Meaning |
-| ------ | ------- |
-| **Canonical** | Imported from production `App.tsx` / `main.tsx` or from a canonical parent (Dashboard, MerchantDashboard, AdminDashboard, WalletBar, SubscriptionCard, SubscribeForm). Safe to extend. |
-| **Orphan (known)** | Present on disk, **not** imported from production sources. Flagged below with evidence. Tests may still import the file. |
-| **Unmounted / check #1053** | No production import found at documentation time, but not named in the issue as a required orphan flag. Confirm with dead-code tooling once #1053 lands rather than treating this list as a deletion license. |
+| --- | --- |
+| **Canonical** | Actively mounted in the production application tree via `src/App.tsx`, `src/main.tsx`, or imported by a canonical parent component. Safe to extend and maintain. |
+| **Unmounted** | Present on disk and covered by unit/component tests, but not currently imported in the production application graph. |
 
-Production import graph was checked against `frontend/src/**/*.ts(x)` excluding `__tests__`.
-
----
-
-## Known orphans (explicit)
-
-| Module | Location | Domain | Evidence | Canonical replacement |
-| ------ | -------- | ------ | -------- | --------------------- |
-| **stellarBatchCharge.ts** | `frontend/src/stellarBatchCharge.ts` | Merchant / charge | File body is only `// Batch charge UI helper (unused).` Zero production or test imports. | Live batch charge is `simulateBatchCharge` / `buildBatchChargeTx` in [`stellar.ts`](../../frontend/src/stellar.ts), used by [`MerchantDashboard.tsx`](../../frontend/src/components/MerchantDashboard.tsx). |
-| **SubscriptionRepairPanel (root)** | `frontend/src/components/SubscriptionRepairPanel.tsx` | Subscriber TTL restore | Duplicate name. **Not** imported by `App`, `Dashboard`, or `AdminDashboard`. Covered only by `SubscriptionRepairPanel.ttl.test.tsx`. | **Canonical:** [`components/admin/AdminRepairPanel.tsx`](../../frontend/src/components/admin/AdminRepairPanel.tsx), mounted from [`pages/AdminDashboard.tsx`](../../frontend/src/pages/AdminDashboard.tsx) (`validate_subscription` / `repair_subscription`). |
-
-The root panel is a TTL/`extend_subscription_ttl` UI. The admin panel is on-chain **integrity repair**. They are not interchangeable. Do not import the root file into AdminDashboard.
+> [!NOTE]
+> All 50 component files currently located under `frontend/src/components/` and `frontend/src/components/admin/` have been audited against production import graphs. 49 components are **Canonical**; 1 component (`MerchantSubscriberTable.tsx`) is currently **Unmounted** (covered by Vitest test suites while `MerchantDashboard` uses virtualized list rendering).
 
 ---
 
-## Dead-code tooling
+## Directory Map
 
-There is **no** knip / unimported / ts-prune / CI dead-code job in this repository today. The planned mechanism is issue **#1053** (“Remove orphaned frontend modules and add dead-code detection”). Until that ships:
-
-- Treat the **Known orphans** table as the only modules this issue requires you to flag.
-- For other unmounted files, re-grep production imports or wait for #1053 rather than deleting by guesswork.
-
----
-
-## Directories
-
-| Path | Purpose | Owner / domain | Status |
-| ---- | ------- | -------------- | ------ |
-| `frontend/src/components/` | Subscriber, merchant, and shared UI | Product UI | Mix of canonical + orphans (see tables) |
-| `frontend/src/components/admin/` | Admin-only panels | Protocol admin | Canonical via `pages/AdminDashboard.tsx` |
-| `frontend/src/pages/` | Route-level shells | Admin | `AdminDashboard.tsx` canonical (`App` admin tab) |
-| `frontend/src/hooks/` | Wallet, forms, network, toasts | Shared | Canonical; form rules in `useFormValidation.ts` |
-| `frontend/src/utils/` | Address lists, repair messages, format | Shared | Canonical |
-| `frontend/src/stellar.ts` | Contract SDK wrappers | Chain I/O | Canonical (do not add a second SDK layer) |
-| `frontend/src/constants.ts` | Amount/interval numeric limits for the UI | Shared | Canonical for **numeric** subscribe/PPU rules |
+| Directory | Purpose | Domain / Scope | Status |
+| --- | --- | --- | --- |
+| `frontend/src/components/` | Subscriber, merchant, and shared UI | Core application features | Canonical + 1 unmounted component |
+| `frontend/src/components/admin/` | Protocol administration panels | Admin operations | Canonical (via `pages/AdminDashboard.tsx`) |
+| `frontend/src/pages/` | Route-level page shells | Admin | Canonical (`AdminDashboard.tsx` in `App.tsx`) |
+| `frontend/src/context/` | Application-wide React contexts | RPC health, shortcuts, toasts | Canonical (`main.tsx` and `App.tsx`) |
+| `frontend/src/hooks/` | Reusable state and contract workflows | Shared business logic | Canonical |
+| `frontend/src/services/` | Shared non-React utilities and adapters | Network, wallet adapters, txQueue | Canonical |
+| `frontend/src/utils/` | Formatting, validation, and error helpers | Shared | Canonical |
+| `frontend/src/stellar.ts` | Central Soroban contract and RPC gateway | Blockchain communication | Canonical |
+| `frontend/src/constants.ts` | Numeric contract limits, interval presets | Shared configuration | Canonical single source |
 
 ---
 
-## `components/` files
+## Component Inventory (`frontend/src/components/`)
 
-| Component | Location | Purpose | Owner | Status |
-| --------- | -------- | ------- | ----- | ------ |
-| AddressBook | `components/AddressBook.tsx` | Saved addresses | Subscriber | Canonical (imported from production graph) |
-| AddressInput | `components/AddressInput.tsx` | G… field + Ed25519 check | Shared / admin | Canonical; **local** address validity (see validation) |
-| AllowanceDisplay | `components/AllowanceDisplay.tsx` | SAC allowance vs amount | Subscriber | Canonical (`Dashboard`) |
-| AmountUnitToggle | `components/AmountUnitToggle.tsx` | XLM/stroop display toggle | Shared | Unmounted — tests only (`useAmountDisplay.test.tsx`). Use `useAmountDisplay` / `StroopInput` instead. Confirm via #1053. |
-| BalanceDisplay | `components/BalanceDisplay.tsx` | XLM balance | Wallet | Canonical (`WalletBar`) |
-| ConfirmModal | `components/ConfirmModal.tsx` | Confirm dialog | Shared | Canonical |
-| ConnectWallet | `components/ConnectWallet.tsx` | Alternate connect button | Wallet | Unmounted — `App` uses inline connect + `WalletSelectModal`. Confirm via #1053. |
-| ContractPauseBanner | `components/ContractPauseBanner.tsx` | Protocol pause banner | Shell | Canonical (`App`) |
-| CopyButton | `components/CopyButton.tsx` | Clipboard | Shared | Canonical |
-| DailyLimitCard | `components/DailyLimitCard.tsx` | Daily cap summary | Subscriber | Canonical (`Dashboard`) |
-| DailyLimitModal | `components/DailyLimitModal.tsx` | Set/clear daily cap | Subscriber | Canonical (`Dashboard`) |
-| Dashboard | `components/Dashboard.tsx` | Subscriber home | Subscriber | Canonical (`App`) |
-| ErrorBoundary | `components/ErrorBoundary.tsx` | React error boundary | Shell | Canonical (`main.tsx`, `Dashboard`) |
-| ErrorRecovery | `components/ErrorRecovery.tsx` | Retry/error UI | Shared | Canonical |
-| EventFeed | `components/EventFeed.tsx` | Contract events | Shared | Canonical |
-| IncreaseAllowanceModal | `components/IncreaseAllowanceModal.tsx` | Token approve | Subscriber | Canonical |
-| IntervalSelector | `components/IntervalSelector.tsx` | Billing interval picker | Subscribe | Canonical (`SubscribeForm`) |
-| MerchantDashboard | `components/MerchantDashboard.tsx` | Merchant home + batch charge | Merchant | Canonical (`App`) |
-| MerchantSubscriberTable | `components/MerchantSubscriberTable.tsx` | Sortable subscriber table | Merchant | Unmounted — `MerchantDashboard` renders its own list. Tests only. Confirm via #1053. |
-| NetworkBadge | `components/NetworkBadge.tsx` | Testnet/Mainnet badge | Shell | Canonical |
-| NextChargeCountdown | `components/NextChargeCountdown.tsx` | Next charge timer | Subscriber | Canonical (`SubscriptionCard`) |
-| NotificationCenter | `components/NotificationCenter.tsx` | Toasts/notifications | Shell | Canonical (`WalletBar`) |
-| OfflineBanner | `components/OfflineBanner.tsx` | Offline warning | Shell | Canonical (`App`) |
-| PayPerUseForm | `components/PayPerUseForm.tsx` | Metered payment | Subscriber | Canonical (`Dashboard`) |
-| ReferralPanel | `components/ReferralPanel.tsx` | Referrer | Subscriber | Canonical (`Dashboard`) |
-| RevenueSparkline | `components/RevenueSparkline.tsx` | Revenue sparkline | Merchant | Canonical (`MerchantDashboard`) |
-| RpcSettings | `components/RpcSettings.tsx` | RPC endpoint UI | Shell | Canonical (`App`) |
-| ShortcutHelpOverlay | `components/ShortcutHelpOverlay.tsx` | Shortcut help modal | Shell | Unmounted (registry exists in `context/ShortcutRegistry.tsx`). Confirm via #1053. |
-| Skeleton | `components/Skeleton.tsx` | Loading placeholders | Shared | Canonical |
-| Spinner | `components/Spinner.tsx` | Spinner | Shared | Canonical |
-| StroopInput | `components/StroopInput.tsx` | Amount field (XLM/stroops) | Shared | Canonical where used; has **its own** amount parse rules |
-| SubscribeForm | `components/SubscribeForm.tsx` | Create subscription | Subscriber | Canonical (`App`) |
-| SubscriptionCard | `components/SubscriptionCard.tsx` | Active sub card | Subscriber | Canonical (`Dashboard`) |
-| SubscriptionExport | `components/SubscriptionExport.tsx` | CSV/JSON export; formula-like CSV text is apostrophe-prefixed for spreadsheet safety | Shared | Canonical |
-| SubscriptionHealthWidget | `components/SubscriptionHealthWidget.tsx` | Health badge | Subscriber | Canonical (`SubscriptionCard`) |
-| SubscriptionHistory | `components/SubscriptionHistory.tsx` | Charge history | Subscriber | Canonical (lazy from `Dashboard`) |
-| **SubscriptionRepairPanel** | `components/SubscriptionRepairPanel.tsx` | TTL restore UI | Subscriber | **Orphan (duplicate)** — see above |
-| SystemHealthCard | `components/SystemHealthCard.tsx` | `contract_health_check` card | Ops / UI | Unmounted. Confirm via #1053. |
-| TabBar | `components/TabBar.tsx` | App tabs | Shell | Canonical (`App`) |
-| ThemeToggle | `components/ThemeToggle.tsx` | Dark/light toggle | Shell | Unmounted (doc comment only). Confirm via #1053. |
-| Toast | `components/Toast.tsx` | Toast container | Shared | Canonical |
-| TransferSubscriptionModal | `components/TransferSubscriptionModal.tsx` | Transfer sub | Subscriber | Canonical (`SubscriptionCard`) |
-| TxQueuePanel | `components/TxQueuePanel.tsx` | Tx queue drawer | Wallet | Unmounted — `WalletBar` uses `useTxQueue` directly. Confirm via #1053. |
-| WalletBar | `components/WalletBar.tsx` | Connected wallet chrome | Shell | Canonical (`App`) |
-| WalletSelectModal | `components/WalletSelectModal.tsx` | Wallet picker | Shell | Canonical (`App`) |
+The table below lists all 45 components in the root `components/` directory:
 
----
-
-## `components/admin/`
-
-| Component | Location | Purpose | Owner | Status |
-| --------- | -------- | ------- | ----- | ------ |
-| AddressListInput | `admin/AddressListInput.tsx` | Multiline address textarea | Admin | Canonical (pause/whitelist panels) |
-| BatchPausePanel | `admin/BatchPausePanel.tsx` | `batch_pause_subscriptions` | Admin | Canonical (`AdminDashboard`) |
-| BatchWhitelistPanel | `admin/BatchWhitelistPanel.tsx` | `whitelist_batch_add` / `remove` | Admin | Canonical (`AdminDashboard`) |
-| ProtocolStatsPanel | `admin/ProtocolStatsPanel.tsx` | Protocol stats | Admin | Canonical (`AdminDashboard`) |
-| **SubscriptionRepairPanel** | `admin/SubscriptionRepairPanel.tsx` | `validate_subscription` / `repair_subscription` | Admin | **Canonical** |
+| Component | Location | Purpose | Mounted By | Status |
+| --- | --- | --- | --- | --- |
+| **AddressBook** | `components/AddressBook.tsx` | Saved recipient address book | `SubscribeForm`, `TransferSubscriptionModal` | Canonical |
+| **AddressInput** | `components/AddressInput.tsx` | Debounced G… address input with Ed25519 validation | `admin/AdminRepairPanel.tsx` | Canonical |
+| **AllowanceDisplay** | `components/AllowanceDisplay.tsx` | SAC allowance vs subscription amount badge | `Dashboard`, `SubscribeForm` | Canonical |
+| **AmountUnitToggle** | `components/AmountUnitToggle.tsx` | XLM vs Stroop display unit toggle | `WalletBar` | Canonical |
+| **BalanceDisplay** | `components/BalanceDisplay.tsx` | Native XLM account balance display | `WalletBar`, `SubscribeForm` | Canonical |
+| **ConfirmModal** | `components/ConfirmModal.tsx` | Accessible confirmation dialog with focus trap | `AddressBook`, `SubscriberRecoveryPanel` | Canonical |
+| **ConnectWallet** | `components/ConnectWallet.tsx` | Connect wallet CTA button | `App` (when `!publicKey`) | Canonical |
+| **ContractPauseBanner** | `components/ContractPauseBanner.tsx` | Emergency maintenance circuit-breaker banner | `App` | Canonical |
+| **CopyButton** | `components/CopyButton.tsx` | Clipboard copy helper with feedback | `WalletBar`, `SubscriptionCard`, `TxQueuePanel`, `MerchantDashboard` | Canonical |
+| **DailyLimitCard** | `components/DailyLimitCard.tsx` | Daily spending cap summary card | `Dashboard` | Canonical |
+| **DailyLimitModal** | `components/DailyLimitModal.tsx` | Modal to configure or clear daily limits | `Dashboard` | Canonical |
+| **Dashboard** | `components/Dashboard.tsx` | Subscriber dashboard view | `App` (tab: `"dashboard"`) | Canonical |
+| **ErrorBoundary** | `components/ErrorBoundary.tsx` | React error boundary with fallback recovery UI | `main.tsx`, `Dashboard` | Canonical |
+| **ErrorRecovery** | `components/ErrorRecovery.tsx` | Inline retry and friendly error display | `Dashboard`, `MerchantDashboard`, `SubscriptionCard` | Canonical |
+| **EventFeed** | `components/EventFeed.tsx` | Real-time contract event activity stream | `Dashboard`, `MerchantDashboard` | Canonical |
+| **IncreaseAllowanceModal** | `components/IncreaseAllowanceModal.tsx` | SAC token allowance approval modal | `Dashboard`, `SubscriptionCard` | Canonical |
+| **IntervalSelector** | `components/IntervalSelector.tsx` | Billing frequency selector presets | `SubscribeForm` | Canonical |
+| **LastUpdated** | `components/LastUpdated.tsx` | Cache freshness and timestamp indicator | `Dashboard`, `MerchantDashboard` | Canonical |
+| **MerchantDashboard** | `components/MerchantDashboard.tsx` | Merchant revenue tracking and batch charging | `App` (tab: `"merchant"`) | Canonical |
+| **MerchantSubscriberTable** | `components/MerchantSubscriberTable.tsx` | Sortable and filterable subscriber table | Tests only (`MerchantSubscriberTable.test.tsx`) | Unmounted |
+| **NetworkBadge** | `components/NetworkBadge.tsx` | Persistent Testnet / Mainnet status badge | `App` header, `WalletBar` | Canonical |
+| **NextChargeCountdown** | `components/NextChargeCountdown.tsx` | Countdown timer to next scheduled billing cycle | `SubscriptionCard` | Canonical |
+| **NotificationCenter** | `components/NotificationCenter.tsx` | Toast notification bell and history drawer | `WalletBar` | Canonical |
+| **OfflineBanner** | `components/OfflineBanner.tsx` | Full-width network connectivity banner | `App` | Canonical |
+| **PayPerUseForm** | `components/PayPerUseForm.tsx` | Instant metered micro-payment form | `Dashboard` | Canonical |
+| **ReferralPanel** | `components/ReferralPanel.tsx` | Referral link display and attribution input | `Dashboard`, `SubscribeForm` | Canonical |
+| **RevenueSparkline** | `components/RevenueSparkline.tsx` | 7-day revenue trend SVG visualization | `MerchantDashboard` | Canonical |
+| **RpcSettings** | `components/RpcSettings.tsx` | RPC endpoint configuration modal | `App` (via RPC failure banner) | Canonical |
+| **ShortcutHelpOverlay** | `components/ShortcutHelpOverlay.tsx` | Keyboard shortcuts cheat sheet ('?' key) | `App` | Canonical |
+| **Skeleton** | `components/Skeleton.tsx` | Skeleton loading state placeholders | `Dashboard`, `MerchantDashboard`, `SubscriptionHistory` | Canonical |
+| **Spinner** | `components/Spinner.tsx` | CSS loading spinner | `ConnectWallet`, `DailyLimitCard`, `PayPerUseForm`, `SubscriptionExport`, etc. | Canonical |
+| **StroopInput** | `components/StroopInput.tsx` | Dual-unit amount input field (XLM / Stroops) | `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
+| **SubscribeForm** | `components/SubscribeForm.tsx` | New subscription checkout form | `App` (tab: `"subscribe"`) | Canonical |
+| **SubscriberRecoveryPanel** | `components/SubscriberRecoveryPanel.tsx` | Subscription data integrity diagnostic panel | `Dashboard` | Canonical |
+| **SubscriptionCard** | `components/SubscriptionCard.tsx` | Active subscription details, health, and actions | `Dashboard` | Canonical |
+| **SubscriptionExport** | `components/SubscriptionExport.tsx` | CSV and JSON export utility for subscriptions | `Dashboard`, `MerchantDashboard` | Canonical |
+| **SubscriptionHealthWidget** | `components/SubscriptionHealthWidget.tsx` | Subscription health status indicator | `SubscriptionCard` | Canonical |
+| **SubscriptionHistory** | `components/SubscriptionHistory.tsx` | Lazy-loaded historical charge ledger | `Dashboard` | Canonical |
+| **TabBar** | `components/TabBar.tsx` | Navigation tab bar with keyboard support | `App` | Canonical |
+| **ThemeToggle** | `components/ThemeToggle.tsx` | Dark / light theme toggle switch | `WalletBar`, `ConnectWallet` | Canonical |
+| **Toast** | `components/Toast.tsx` | Floating toast notifications container | `Dashboard`, `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
+| **TransferSubscriptionModal** | `components/TransferSubscriptionModal.tsx` | Subscription ownership transfer modal | `SubscriptionCard` | Canonical |
+| **TxQueuePanel** | `components/TxQueuePanel.tsx` | Pending background transaction drawer | `WalletBar` | Canonical |
+| **WalletBar** | `components/WalletBar.tsx` | Connected wallet bar with balance and utilities | `App` (when `publicKey` connected) | Canonical |
+| **WalletSelectModal** | `components/WalletSelectModal.tsx` | Multi-wallet provider selection modal | `App` | Canonical |
 
 ---
 
-## Pages
+## Admin Component Inventory (`frontend/src/components/admin/`)
 
-| Module | Location | Purpose | Status |
-| ------ | -------- | ------- | ------ |
-| AdminDashboard | `pages/AdminDashboard.tsx` | Admin tab shell | Canonical (`App` when `useAdmin` is true) |
+The table below lists all 5 components in `frontend/src/components/admin/`:
 
----
-
-## Validation-rule ownership (single sources)
-
-Change rules in the **owner** file, not in a one-off copy inside a screen.
-
-| Rule | Owner (edit here) | Consumers | Notes |
-| ---- | ----------------- | --------- | ----- |
-| Max subscription amount, max pay-per-use amount, min interval (UI numbers) | [`frontend/src/constants.ts`](../../frontend/src/constants.ts) `CONTRACT_LIMITS` | `useFormValidation`, `SubscribeForm`, `PayPerUseForm` | Must stay consistent with contract `MAX_AMOUNT` / `MAX_SUBSCRIPTION_AMOUNT` / min interval. |
-| Subscribe / checkout field validation (merchant, amount, interval, token) | [`frontend/src/hooks/useFormValidation.ts`](../../frontend/src/hooks/useFormValidation.ts) (`validateStroopAmount`, `validateInterval`, `useFormValidation`) | `SubscribeForm`, tests | Async account checks live in this hook. |
-| Pay-per-use amount | `validateStroopAmount` + `CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT` | `PayPerUseForm` | Do not fork a third amount parser here. |
-| Generic stroop text field (decimals, MAX_STROOPS) | [`StroopInput.tsx`](../../frontend/src/components/StroopInput.tsx) local `validate` | Direct StroopInput users | Separate from `validateStroopAmount` (known duplication; consolidation is #1059, not this doc). |
-| Single G-address (Ed25519) in AddressInput | [`AddressInput.tsx`](../../frontend/src/components/AddressInput.tsx) (`StrKey.isValidEd25519PublicKey`) | Admin repair + others | Does **not** accept federated `user*domain` addresses. |
-| Address lists (parse, duplicate, federated OR G…) | [`frontend/src/utils/addressValidation.ts`](../../frontend/src/utils/addressValidation.ts) | Admin batch panels, `AddressListInput` | Includes `chunkAddresses` for batch caps. |
-| Repair-report violation copy | [`frontend/src/utils/subscriptionValidation.ts`](../../frontend/src/utils/subscriptionValidation.ts) | **Canonical** admin `SubscriptionRepairPanel` only | Maps contract violation codes to operator text. |
-| Billing interval presets (labels) | `BILLING_INTERVALS` in `constants.ts` | `SubscribeForm`, `SubscriptionCard` | Preset list, not the min-interval rule. |
-
-If you need a new subscribe rule, add it to `useFormValidation` + `CONTRACT_LIMITS`, then call it from `SubscribeForm`. Do not add a parallel validator on the form.
+| Component | Location | Purpose | Mounted By | Status |
+| --- | --- | --- | --- | --- |
+| **AddressListInput** | `admin/AddressListInput.tsx` | Multiline address input with validation and chunking | `admin/BatchPausePanel`, `admin/BatchWhitelistPanel` | Canonical |
+| **AdminRepairPanel** | `admin/AdminRepairPanel.tsx` | On-chain contract subscription repair tool | `pages/AdminDashboard.tsx` | Canonical |
+| **BatchPausePanel** | `admin/BatchPausePanel.tsx` | Admin batch subscription pause interface | `pages/AdminDashboard.tsx` | Canonical |
+| **BatchWhitelistPanel** | `admin/BatchWhitelistPanel.tsx` | Admin batch merchant whitelist management | `pages/AdminDashboard.tsx` | Canonical |
+| **ProtocolStatsPanel** | `admin/ProtocolStatsPanel.tsx` | Protocol volume, fee, and merchant statistics | `pages/AdminDashboard.tsx` | Canonical |
 
 ---
 
-## Related
+## Page Shells (`frontend/src/pages/`)
 
-- Props and examples: [`docs/FRONTEND-COMPONENTS.md`](../FRONTEND-COMPONENTS.md)
-- Architecture: [`docs/FRONTEND.md`](../FRONTEND.md)
-- Contribution: [`docs/CONTRIBUTING-FRONTEND.md`](../CONTRIBUTING-FRONTEND.md)
-- Dead-code deletion + CI: [issue #1053](https://github.com/SiLioLabs/PayFlow/issues/1053)
+| Page | Location | Purpose | Mounted By | Status |
+| --- | --- | --- | --- | --- |
+| **AdminDashboard** | `pages/AdminDashboard.tsx` | Top-level admin tab containing repair and batch tools | `App.tsx` (tab: `"admin"`, visible to contract admin) | Canonical |
+
+---
+
+## Single-Source Validation Rule Ownership
+
+To prevent contradictory validation logic between forms, components, and the contract, validation rules must always be modified in their authoritative owner files:
+
+| Rule Domain | Authoritative Owner File | Consumers | Invariant / Boundary |
+| --- | --- | --- | --- |
+| **Contract Limits** (Max subscription amount, max pay-per-use, min interval) | [`frontend/src/constants.ts`](../../frontend/src/constants.ts) (`CONTRACT_LIMITS`) | `useFormValidation`, `SubscribeForm`, `PayPerUseForm` | Kept in lockstep with contract constants in `contract/src/caps.rs`. |
+| **Checkout & Subscribe Validation** (Merchant address, amount, interval, token) | [`frontend/src/hooks/useFormValidation.ts`](../../frontend/src/hooks/useFormValidation.ts) | `SubscribeForm`, `SubscribeForm.test.tsx` | Owns `validateStroopAmount`, `validateInterval`, and account balance checks. |
+| **Pay-Per-Use Amount Validation** | [`frontend/src/hooks/useFormValidation.ts`](../../frontend/src/hooks/useFormValidation.ts) (`validateStroopAmount`) | `PayPerUseForm` | Reuses canonical stroop amount validation against `CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT`. |
+| **Stroop / XLM Text Field Formatting** | [`frontend/src/components/StroopInput.tsx`](../../frontend/src/components/StroopInput.tsx) | `DailyLimitModal`, `IncreaseAllowanceModal`, `SubscribeForm` | Parses decimal fractions up to 7 decimal places and prevents numeric overflow. |
+| **Single Stellar Ed25519 Address** | [`frontend/src/components/AddressInput.tsx`](../../frontend/src/components/AddressInput.tsx) | `admin/AdminRepairPanel.tsx`, tests | Validates base32 public keys using `StrKey.isValidEd25519PublicKey`. |
+| **Multi-Address Lists & Chunking** | [`frontend/src/utils/addressValidation.ts`](../../frontend/src/utils/addressValidation.ts) | `admin/AddressListInput.tsx`, `admin/BatchPausePanel.tsx` | Splits line breaks/commas, removes duplicates, and chunks arrays to batch caps (`LIMITS.md`). |
+| **Admin Repair Report Mappings** | [`frontend/src/utils/subscriptionValidation.ts`](../../frontend/src/utils/subscriptionValidation.ts) | `admin/AdminRepairPanel.tsx` | Translates smart contract data integrity violation codes into operator explanations. |
+| **Billing Interval Presets** | [`frontend/src/constants.ts`](../../frontend/src/constants.ts) (`BILLING_INTERVALS`) | `SubscribeForm`, `SubscriptionCard` | Defines UI interval labels and seconds (Daily, Weekly, Monthly, Annual). |
+
+---
+
+## Related Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [`docs/FRONTEND.md`](../FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
+| [`docs/FRONTEND-COMPONENTS.md`](../FRONTEND-COMPONENTS.md) | Component API specifications, prop types, and usage examples |
+| [`docs/CONTRIBUTING-FRONTEND.md`](../CONTRIBUTING-FRONTEND.md) | Contributor workflows, testing conventions, and accessibility |
+| [`docs/LIMITS.md`](../LIMITS.md) | Admin batch operation caps and contract limits |

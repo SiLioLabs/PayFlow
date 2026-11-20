@@ -443,7 +443,7 @@ npx tsx scripts/watch-events.ts
 
 ### 4.2 Webhook Notifications
 
-`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks.
+`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks. For exhaustive payload schemas for every event type, verification examples in multiple languages, and DLQ replay details, see the dedicated reference [`docs/WEBHOOKS.md`](WEBHOOKS.md).
 
 #### Configuration
 Set the following environment variables (e.g. in `scripts/.env`):

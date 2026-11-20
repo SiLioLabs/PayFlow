@@ -1,347 +1,315 @@
 # Frontend Architecture Guide
 
-## Overview
+This document provides the high-level architecture, technology stack, directory organization, and design patterns for the PayFlow web application.
 
-The PayFlow frontend is a React + TypeScript application built with Vite. It provides the user interface for interacting with the Stellar smart contract through a centralized contract wrapper while keeping UI components focused on presentation and user interaction.
-
-The architecture separates responsibilities into:
-
-- Components for rendering the UI
-- Hooks for reusable business logic
-- `stellar.ts` for all blockchain communication
-- Services for utility functionality
-- Local state and custom hooks for application state
+> **Component Reference**: For detailed prop signatures, types, and component-level API documentation, see [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).  
+> **Component Inventory**: For the full inventory of canonical vs. unmounted components and single-source validation rules, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
+> **Contributing Guide**: For development setup, coding standards, styling tokens, accessibility requirements, and testing conventions, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
 
 ---
 
-# Technology Stack
+## Table of Contents
 
-| Technology       | Purpose                                   |
-| ---------------- | ----------------------------------------- |
-| React            | Component based UI                        |
-| TypeScript       | Static typing                             |
-| Vite             | Development server and bundler            |
-| Stellar SDK      | Building and signing Stellar transactions |
-| Soroban RPC      | Smart contract communication              |
-| Freighter Wallet | Wallet connection and transaction signing |
+- [Overview & Principles](#overview--principles)
+- [Technology Stack](#technology-stack)
+- [Directory Structure](#directory-structure)
+- [Blockchain Integration (`stellar.ts`)](#blockchain-integration-stellarts)
+  - [Read Operations](#read-operations)
+  - [Write Operations](#write-operations)
+- [Hook Composition Pattern](#hook-composition-pattern)
+- [Wallet Architecture & Multi-Wallet Support](#wallet-architecture--multi-wallet-support)
+- [Component Tree & Application Hierarchy](#component-tree--application-hierarchy)
+  - [Provider Hierarchy](#provider-hierarchy)
+  - [Complete Mounted Tree](#complete-mounted-tree)
+  - [Tab Navigation & Admin View](#tab-navigation--admin-view)
+- [State Management Strategy](#state-management-strategy)
+  - [Local State](#local-state)
+  - [Custom Hooks](#custom-hooks)
+  - [Context Providers](#context-providers)
+- [Related Documentation](#related-documentation)
 
 ---
 
-# Project Structure
+## Overview & Principles
+
+The PayFlow frontend is a client-side React + TypeScript single-page application built with [Vite](https://vitejs.dev/). It provides a non-custodial interface for recurring payments and subscriptions on the Stellar network using Soroban smart contracts.
+
+The frontend is architected around strict separation of concerns:
+
+- **Presentation**: UI components in `src/components/` focus exclusively on rendering and user interaction. Components do not call `@stellar/stellar-sdk` directly.
+- **Business Logic**: Reusable state, asynchronous workflows, and contract data transformations are encapsulated in custom React hooks under `src/hooks/`.
+- **Blockchain Gateway**: All smart contract and Soroban RPC interactions route through `src/stellar.ts`.
+- **Service Utilities**: Network caching, transaction queuing, and wallet adapters live under `src/services/`.
+
+---
+
+## Technology Stack
+
+| Technology | Purpose |
+| --- | --- |
+| **React 18** | Declarative component-based user interface |
+| **TypeScript 5** | End-to-end static typing and contract type definitions |
+| **Vite** | Fast development server and production bundler |
+| **@stellar/stellar-sdk** | Soroban transaction building, XDR serialization, and RPC client |
+| **Wallet Adapters** | Multi-wallet support (Freighter, xBull, Albedo) via modular adapters |
+| **Vanilla CSS** | Token-driven styling (`index.css`) with CSS custom properties and light/dark theme support |
+| **Vitest & RTL** | Unit, component, and integration testing with jsdom |
+
+---
+
+## Directory Structure
 
 ```
-frontend/
-│
-├── components/
-├── hooks/
-├── services/
-├── types/
-├── stellar.ts
-├── App.tsx
-└── main.tsx
+frontend/src/
+├── components/          # Reusable UI components
+│   └── admin/           # Administrative panels (batch pause, whitelist, repair)
+├── context/             # React context providers (RPC health, shortcuts, toasts)
+├── hooks/               # Custom hooks encapsulating state & business logic
+├── pages/               # Route-level page shells (AdminDashboard)
+├── services/            # Shared utilities, RPC cache, txQueue, and wallet adapters
+│   └── wallets/         # Modular wallet adapter implementations
+├── utils/               # Formatting, error translation, and validation helpers
+├── App.tsx              # Main application shell and tab router
+├── constants.ts         # Numeric limits, contract defaults, and interval presets
+├── index.css            # Global design tokens and component styling
+├── main.tsx             # Application bootstrap and root provider tree
+├── stellar.ts           # Centralized blockchain and Soroban contract gateway
+└── types.ts             # Core frontend TypeScript interfaces
 ```
 
-Each directory has a dedicated responsibility.
+Each directory has a dedicated responsibility:
+- **components** contain reusable presentation UI.
+- **hooks** encapsulate business logic and contract side effects.
+- **services** provide shared utilities, RPC caching, and wallet adapters.
+- **stellar.ts** acts as the centralized blockchain gateway.
 
-- **components** contain reusable UI.
-- **hooks** encapsulate business logic.
-- **services** provide shared utilities.
-- **stellar.ts** acts as the blockchain gateway.
-
-Canonical vs orphan modules and validation-rule owners: [`frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
+Canonical vs unmounted component modules and single-source validation-rule owners: [`frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
 
 ---
 
-# stellar.ts Architecture
+## Blockchain Integration (`stellar.ts`)
 
-`stellar.ts` is the single entry point for all smart contract interactions.
+`frontend/src/stellar.ts` is the single source of truth for all on-chain interactions. Components never import `@stellar/stellar-sdk` directly; all queries and mutations flow through `stellar.ts` functions.
 
-Instead of allowing components to call the Stellar SDK directly, every blockchain operation is routed through this file.
-
-Benefits include:
-
-- Single source of truth
-- Easier maintenance
-- Easier testing
-- Consistent transaction handling
-- Reduced duplication
-
-## Function Categories
+```mermaid
+flowchart TD
+    UI["React Component\n(e.g., SubscribeForm)"] -->|"Calls Action"| Hook["Custom Hook\n(e.g., useWallet)"]
+    Hook -->|"Requests XDR / Data"| Gateway["stellar.ts\n(Central Gateway)"]
+    Gateway -->|"RPC getLedgerEntries / simulate"| RPC["Soroban RPC Server"]
+    Gateway -->|"Builds Unsigned Tx XDR"| Wallet["Wallet Adapter\n(Freighter / xBull)"]
+    Wallet -->|"Signs Tx XDR"| Gateway
+    Gateway -->|"sendTransaction"| RPC
+```
 
 ### Read Operations
 
-Read functions fetch blockchain data without requiring a signed transaction.
+Read operations query contract state without spending gas or prompting for wallet signatures:
 
-Typical responsibilities include:
-
-- Reading contract state
-- Loading subscriptions
-- Retrieving balances
-- Querying events
-- Reading configuration values
-
-These operations are safe because they do not modify blockchain state.
-
----
+- Querying subscriber records (`getSubscription(user)`)
+- Checking token allowances (`getAllowance(user, contractId)`)
+- Reading trial period metadata (`getTrialEnd(user)`)
+- Fetching merchant revenue and daily history (`getMerchantRevenue`, `getMerchantRevenueHistory`)
+- Verifying contract pause status (`isContractPaused`)
+- Reading daily spending limits and window status (`getDailyLimit`, `getDailySpent`)
 
 ### Write Operations
 
-Write functions submit transactions that modify contract state.
+Write operations construct, simulate, and request signatures for transactions that modify ledger state:
 
-Typical responsibilities include:
-
-- Creating subscriptions
-- Updating subscriptions
-- Cancelling subscriptions
-- Charging customers
-- Administrative contract actions
-
-Write operations generally:
-
-1. Build the transaction
-2. Request a signature from Freighter
-3. Submit the signed transaction
-4. Wait for confirmation
-5. Return the parsed result
+1. **Build Transaction**: Create an unsigned Stellar transaction using `@stellar/stellar-sdk` and contract invocation operations.
+2. **Simulate**: Simulate the transaction against Soroban RPC to calculate resource fees and verify preconditions.
+3. **Sign**: Request signing from the user's connected wallet adapter (e.g. Freighter).
+4. **Submit & Poll**: Submit the transaction envelope to the network and poll until confirmation.
+5. **Parse Results**: Decode return values and error codes, returning a typed result to the calling hook.
 
 ---
 
-# Hook Composition Pattern
+## Hook Composition Pattern
 
-The application follows a hook composition pattern.
-
-Rather than placing blockchain logic inside components, components compose multiple focused hooks.
-
-For example, `App.tsx` combines hooks including:
-
-- useWallet()
-- useTheme()
-- useResponsive()
-- useAccessibility()
-- useFreighterAvailable()
-- useNetworkStatus()
-- useContractId()
-
-Each hook owns one responsibility.
-
-Example:
+Components remain presentational by delegating complex state and effects to custom hooks. Rather than managing wallet connections, intervals, and responsive layouts inline, components compose specialized hooks:
 
 ```tsx
-const wallet = useWallet();
-const theme = useTheme();
-const responsive = useResponsive();
+export default function Dashboard({ userKey, onSign, refreshTrigger }: DashboardProps) {
+  const { isMobile } = useResponsive();
+  const { toast } = useToast();
+  const { subscription, loading, refresh } = useSubscriptionSync(userKey, refreshTrigger);
+  const { pause, resume, isPending } = usePauseResume(userKey, onSign);
+
+  // Component focuses entirely on JSX rendering and event routing
+}
 ```
 
-This approach improves:
+Key architectural hooks:
 
-- readability
-- reusability
-- testing
-- separation of concerns
-
----
-
-# Wallet Connection Flow (Freighter)
-
-Wallet connectivity is handled through the custom `useWallet` hook together with Freighter detection.
-
-Connection flow:
-
-1. Application loads.
-2. `useFreighterAvailable()` checks whether `window.freighter` exists.
-3. If available, `useWallet()` attempts to restore the previously connected wallet from local storage.
-4. The cached public key is validated with Freighter.
-5. The hook exposes a `ready` state once validation completes.
-6. If the user is not connected, the UI presents the Connect Wallet action.
-7. When the user connects:
-   - Freighter returns the public key.
-   - The public key is stored locally.
-8. Any contract write operation requests transaction signing through Freighter.
-9. The signed transaction is submitted through `stellar.ts`.
-10. The UI updates after confirmation.
-
-This design allows wallet persistence across page reloads while ensuring the cached account remains valid.
+- `useWallet()`: Connects, disconnects, tracks public keys, and handles signing across wallet adapters.
+- `useNetworkStatus()`: Validates that the connected wallet's network passphrase matches the app configuration.
+- `useAdmin(publicKey)`: Checks whether the connected account is the contract administrator.
+- `useContractPaused()`: Monitors protocol pause status and circuit-breaker conditions.
+- `useRpcHealthContext()`: Tracks RPC endpoint latency, failure rates, and circuit breaker status.
+- `useSubscriptionSync(userKey)`: Synchronizes on-chain subscription state with automatic polling and cache invalidation.
 
 ---
 
-# Component Tree
+## Wallet Architecture & Multi-Wallet Support
 
-The exact tree evolves as features are added, but the overall structure is:
+Wallet management is decoupled from specific browser extensions through the `WalletAdapter` interface (`src/services/wallets/WalletAdapter.ts`):
+
+1. **Detection**: `AVAILABLE_WALLETS` detects supported extensions (Freighter, xBull, Albedo).
+2. **Connection Flow**:
+   - The user selects a wallet in `WalletSelectModal`.
+   - The adapter requests account authorization.
+   - The active public key is persisted to `localStorage` for session resumption.
+3. **Network Gating**: `useNetworkStatus` compares the wallet network against `VITE_NETWORK_PASSPHRASE`. If mismatched, an actionable gate banner prompts the user to switch networks before executing writes.
+4. **Transaction Signing**: When a write transaction is initiated, the active adapter prompts the user to sign the transaction XDR.
+
+---
+
+## Component Tree & Application Hierarchy
+
+### Provider Hierarchy
+
+The root provider hierarchy is established in `src/main.tsx` and `src/App.tsx`:
 
 ```
 React.StrictMode
-└── RpcHealthProvider                    (context/RpcHealthContext.tsx)
-    └── ShortcutRegistryProvider         (context/ShortcutRegistry.tsx)
-        └── ErrorBoundary                (components/ErrorBoundary.tsx)
-            └── App                      (App.tsx)
-                ├── [ARIA live region]    (role="status", aria-live="polite")
-                ├── Header               (<h1>FlowPay</h1>)
-                ├── Wallet connect prompt (inline; shown when !publicKey)
-                │   └── Connect Wallet button → connect(AVAILABLE_WALLETS[0])
-                ├── Connected bar         (inline; truncated public key)
-                ├── Tab buttons           (inline; "Dashboard" | "Subscribe")
-                │
-                ├── [Tab: "dashboard"]
-                │   └── Dashboard         (components/Dashboard.tsx)
-                │       ├── SubscriptionCard
-                │       ├── SubscriptionCardSkeleton (loading)
-                │       ├── ErrorBoundary
-                │       ├── ErrorRecovery
-                │       ├── AllowanceDisplay
-                │       ├── IncreaseAllowanceModal
-                │       ├── DailyLimitCard
-                │       ├── DailyLimitModal
-                │       ├── PayPerUseForm
-                │       ├── ReferralPanel
-                │       ├── SubscriptionHistory (lazy-loaded)
-                │       ├── EventFeed
-                │       ├── SubscriptionExport
-                │       └── ToastContainer
-                │
-                └── [Tab: "subscribe"]
-                    └── SubscribeForm     (components/SubscribeForm.tsx)
-                        ├── IntervalSelector
-                        ├── BalanceDisplay
-                        ├── AllowanceDisplay
-                        ├── AddressBook
-                        └── ToastContainer
+└── RpcHealthProvider            (src/context/RpcHealthContext.tsx)
+    └── ShortcutRegistryProvider (src/context/ShortcutRegistry.tsx)
+        └── ErrorBoundary        (src/components/ErrorBoundary.tsx)
+            └── ToastProvider    (src/context/ToastContext.tsx)
+                └── App          (src/App.tsx)
 ```
 
-Heavy views are lazy loaded where appropriate to reduce initial bundle size.
+### Complete Mounted Tree
 
-## Provider Hierarchy
+The diagram below reflects the production component hierarchy mounted by `App.tsx`:
 
-The provider tree in `main.tsx` wraps the entire application:
+```
+App
+├── ContractPauseBanner          # Top-level emergency pause banner
+├── [ARIA Live Region]           # Screen reader status announcements
+├── OfflineBanner                # Full-width browser offline warning
+├── Header
+│   └── NetworkBadge             # Testnet / Mainnet network status badge
+├── [Gate Warning Card]          # Rendered when contract ID or network is invalid
+├── [RPC Failure Banner]         # Rendered when RPC circuit breaker trips
+│   └── RpcSettings              # RPC endpoint configuration modal
+├── [Mainnet Safety Gate]        # Explicit user confirmation for Mainnet funds
+│
+├── [When Disconnected: !publicKey]
+│   └── ConnectWallet            # Primary connection CTA button
+│       ├── ThemeToggle          # Dark/light theme switch
+│       └── Spinner              # Loading indicator
+│
+├── [When Connected: publicKey]
+│   ├── WalletBar                # Sticky account status and utility strip
+│   │   ├── BalanceDisplay       # XLM balance display with skeleton loading
+│   │   ├── NetworkBadge         # Network badge
+│   │   ├── AmountUnitToggle     # Stroop / XLM unit toggle
+│   │   ├── ThemeToggle          # Theme toggle
+│   │   ├── NotificationCenter   # Bell icon with toast notifications drawer
+│   │   ├── TxQueuePanel         # Background transaction queue panel
+│   │   └── CopyButton           # Clipboard copy helper
+│   │
+│   ├── TabBar                   # Tab navigation (dashboard | subscribe | merchant | admin)
+│   │
+│   └── Tab Panels (role="tabpanel")
+│       ├── [Tab: "subscribe"]
+│       │   └── SubscribeForm
+│       │       ├── IntervalSelector
+│       │       ├── BalanceDisplay
+│       │       ├── AllowanceDisplay
+│       │       ├── AddressBook
+│       │       │   └── ConfirmModal
+│       │       ├── ReferralPanel
+│       │       ├── StroopInput
+│       │       └── ToastContainer
+│       │
+│       ├── [Tab: "dashboard"]
+│       │   └── Dashboard
+│       │       ├── SubscriptionCard
+│       │       │   ├── CopyButton
+│       │       │   ├── NextChargeCountdown
+│       │       │   ├── IncreaseAllowanceModal (with StroopInput, ToastContainer)
+│       │       │   ├── TransferSubscriptionModal (with AddressBook)
+│       │       │   ├── ErrorRecovery
+│       │       │   └── SubscriptionHealthWidget
+│       │       ├── SubscriptionCardSkeleton (Skeleton)
+│       │       ├── ErrorBoundary
+│       │       ├── ErrorRecovery
+│       │       ├── SubscriberRecoveryPanel (with ConfirmModal, ToastContainer)
+│       │       ├── AllowanceDisplay
+│       │       ├── IncreaseAllowanceModal
+│       │       ├── DailyLimitCard
+│       │       ├── DailyLimitModal (with StroopInput, ToastContainer)
+│       │       ├── PayPerUseForm
+│       │       ├── ReferralPanel
+│       │       ├── SubscriptionHistory (lazy-loaded chunk)
+│       │       ├── EventFeed
+│       │       ├── SubscriptionExport
+│       │       ├── LastUpdated
+│       │       └── ToastContainer
+│       │
+│       ├── [Tab: "merchant"]
+│       │   └── MerchantDashboard
+│       │       ├── CopyButton
+│       │       ├── RevenueSparkline
+│       │       ├── EventFeed
+│       │       ├── SubscriptionExport
+│       │       ├── MerchantSubscriberSkeleton
+│       │       ├── ErrorRecovery
+│       │       └── LastUpdated
+│       │
+│       └── [Tab: "admin" (Admin-only)]
+│           └── AdminDashboard (src/pages/AdminDashboard.tsx)
+│               ├── Spinner
+│               ├── AdminRepairPanel (src/components/admin/AdminRepairPanel.tsx)
+│               │   └── AddressInput
+│               ├── ProtocolStatsPanel
+│               ├── BatchPausePanel
+│               │   └── AddressListInput
+│               └── BatchWhitelistPanel
+│                   └── AddressListInput
+│
+└── Overlay Modals
+    ├── WalletSelectModal        # Multi-wallet selection dialog
+    └── ShortcutHelpOverlay      # Keyboard shortcut overlay ('?' key)
+```
 
-| Provider                   | Source                         | Purpose                                           |
-| -------------------------- | ------------------------------ | ------------------------------------------------- |
-| `React.StrictMode`         | React built-in                 | Development warnings and double-render checks     |
-| `RpcHealthProvider`        | `context/RpcHealthContext.tsx` | Polls RPC with backoff / circuit breaker          |
-| `ShortcutRegistryProvider` | `context/ShortcutRegistry.tsx` | Keyboard shortcut registration and dispatch       |
-| `ErrorBoundary`            | `components/ErrorBoundary.tsx` | Catches render errors in subtree with fallback UI |
+### Tab Navigation & Admin View
 
-## Tab Routing
-
-There is no router library. `App.tsx` uses a `useState<"subscribe" | "dashboard">` with inline tab buttons. To add a new tab:
-
-1. Add the tab value to the `useState` union type.
-2. Add a new tab button in the tab button group.
-3. Add a conditional render block for the new tab content.
-4. Import and render the component (or page) for that tab.
-
-## Orphaned / Ready-to-Wire Components
-
-The following components exist in `frontend/src/components/` but are **not** currently mounted in the application tree. They are built and ready for use but need to be wired into `App.tsx` or a parent component:
-
-| Component                      | Purpose                                                  | How to wire                                                                                                          |
-| ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `MerchantDashboard.tsx`        | Merchant revenue & subscribers view                      | Add a "merchant" tab in App.tsx and render `<MerchantDashboard merchantKey={pk} onSign={sign} refreshTrigger={t} />` |
-| `MerchantSubscriberTable.tsx`  | Sortable/filterable subscriber table                     | Used inside `MerchantDashboard` — auto-wired when MerchantDashboard is added                                         |
-| `ConnectWallet.tsx`            | Freighter connect CTA with install link                  | Replace the inline connect button in App.tsx                                                                         |
-| `WalletBar.tsx`                | Connected wallet strip with balance, network, disconnect | Replace the inline connected bar in App.tsx                                                                          |
-| `WalletSelectModal.tsx`        | Multi-wallet selection modal                             | Wire into `WalletBar` or as a standalone wallet picker                                                               |
-| `TabBar.tsx`                   | Main nav tabs (dashboard/subscribe/merchant/admin)       | Replace the inline tab buttons in App.tsx                                                                            |
-| `ThemeToggle.tsx`              | Dark/light mode toggle                                   | Add to the header or connected bar                                                                                   |
-| `NetworkBadge.tsx`             | Testnet/Mainnet badge                                    | Add to the header or `WalletBar`                                                                                     |
-| `ContractPauseBanner.tsx`      | Maintenance banner when contract paused                  | Add near the top of `App.tsx`                                                                                        |
-| `OfflineBanner.tsx`            | Full-width offline warning                               | Add near the top of `App.tsx`                                                                                        |
-| `SystemHealthCard.tsx`         | Contract health status card                              | Add to a merchant or admin dashboard tab                                                                             |
-| `SubscriptionHealthWidget.tsx` | Health indicator widget                                  | Add to `Dashboard` or `SubscriptionCard`                                                                             |
-| `TxQueuePanel.tsx`             | Transaction queue panel                                  | Add to `WalletBar` or as a sidebar widget                                                                            |
-| `NotificationCenter.tsx`       | Bell icon + notification dropdown                        | Add to `WalletBar` or header                                                                                         |
-| `StroopInput.tsx`              | XLM amount input debounced to stroops                    | Use in forms that need XLM input (alternative to PayPerUseForm)                                                      |
-| `AmountUnitToggle.tsx`         | Toggle XLM/STROOP display                                | Add to forms displaying amounts                                                                                      |
-| `ShortcutHelpOverlay.tsx`      | Keyboard shortcuts overlay                               | Already available via ShortcutRegistry context — trigger with `?` key                                                |
-
-### Admin components (in `components/admin/`)
-
-These are wired into `pages/AdminDashboard.tsx` which is not currently mounted:
-
-| Component                     | Purpose                                  |
-| ----------------------------- | ---------------------------------------- |
-| `SubscriptionRepairPanel.tsx` | Admin subscription validation and repair |
-| `BatchPausePanel.tsx`         | Batch pause subscriptions                |
-| `BatchWhitelistPanel.tsx`     | Batch whitelist add/remove               |
-
-To wire admin features, add an "admin" tab in `App.tsx` and render `<AdminDashboard />` (from `pages/AdminDashboard.tsx`).
-
-## How to Add a New Tab
-
-1. **Choose the component** from the orphaned list above (or create a new one).
-2. **Update `App.tsx`:**
-   - Extend the tab state type: `useState<"dashboard" | "subscribe" | "merchant">("dashboard")`
-   - Add a tab button in the tab group.
-   - Add a conditional render: `{activeTab === "merchant" && <MerchantDashboard ... />}`.
-3. **Pass required props** (typically `userKey`, `onSign`, `refreshTrigger`).
-4. **Test** that the component renders and interacts correctly.
-
----
-
-# State Management
-
-The frontend primarily uses React hooks instead of a dedicated global state library.
-
-## Local State
-
-Component-specific state uses:
-
-- useState
-- useReducer (where appropriate)
-
-Examples include:
-
-- modal visibility
-- form values
-- loading states
-
----
-
-## Custom Hooks
-
-Reusable application logic is extracted into hooks.
-
-Examples include:
-
-- wallet management
-- network validation
-- accessibility
-- responsive layout
-- theme management
-- local storage persistence
-
-This keeps components lightweight.
-
----
-
-## Context
-
-Context is used only when shared application state must be accessible by multiple components.
-
-Business logic remains inside custom hooks rather than Context itself.
+`App.tsx` controls navigation via `useState<Tab>("dashboard")`:
+- **Subscriber views**: `dashboard` and `subscribe` are visible to all users.
+- **Merchant view**: `merchant` tab renders `MerchantDashboard` for batch charging, revenue tracking, and subscriber exports.
+- **Admin view**: `admin` tab is conditionally visible only when `useAdmin(publicKey).isAdmin` evaluates to true. It renders `AdminDashboard` from `src/pages/AdminDashboard.tsx`.
 
 ---
 
-# Why This Architecture
+## State Management Strategy
 
-This architecture provides:
+PayFlow avoids external state stores (such as Redux or Zustand) in favor of idiomatic React primitives:
 
-- Clear separation between UI and blockchain logic
-- Reusable business logic through hooks
-- Centralized smart contract communication
-- Easier maintenance
-- Better scalability
-- Cleaner React components
+### Local State
+Components use `useState` and `useReducer` for UI-local concerns:
+- Modal open/close toggles
+- Form field values and validation feedback
+- Accordion and tab selection
+
+### Custom Hooks
+Shared business logic and on-chain state synchronization are packaged into custom hooks. Hooks manage their own effects, subscriptions, and polling intervals, exposing clean state and action functions to components.
+
+### Context Providers
+React Context is reserved for application-wide infrastructure:
+- **`RpcHealthContext`**: Manages endpoint health checks, fallback RPC rotation, and latency metrics.
+- **`ShortcutRegistry`**: Coordinates keyboard shortcut listeners and global key combinations.
+- **`ToastContext`**: Manages the transient notification queue displayed by `ToastContainer` and `NotificationCenter`.
 
 ---
 
-# Summary
+## Related Documentation
 
-The frontend is organized around a simple principle:
-
-- Components render the UI.
-- Hooks manage application logic.
-- `stellar.ts` owns blockchain communication.
-- Freighter signs transactions.
-- React state and hooks manage application state efficiently.
-
-Admin batch size caps (pause, whitelist, charge, cancel) vs the contract: [`LIMITS.md`](LIMITS.md). Component catalog: [`FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).
+| Document | Purpose |
+| --- | --- |
+| [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md) | Component API specifications, props, states, and hooks |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md) | Contributor workflow, testing guide, styling, and a11y checklist |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |
