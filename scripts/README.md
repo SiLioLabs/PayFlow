@@ -602,6 +602,21 @@ tsx query-events.ts --ledger 500000 --to 510000
 
 ---
 
+
+### Database schema and migrations
+
+The indexer's SQLite schema is defined **only** by the numbered, forward-only
+migrations in `db/migrations/` (`001_initial_schema.ts`, `002_add_event_columns.ts`,
+listed in `db/migrations/index.ts`). `db/migrate.ts` applies pending migrations at
+startup (`initSchema` in `indexer.ts`), each in its own transaction together with the
+`meta.schema_version` bump. `db/schema.ts` defines no tables; it exposes `SCHEMA_VERSION`
+and read-only introspection helpers (`getSchemaVersion`, `getTableColumns`, `listIndexes`).
+
+To change the schema, add `NNN_description.ts` (idempotent `up(db)`), append it to
+`db/migrations/index.ts`, and extend `db/migrations.test.ts`. Existing databases upgrade in
+place with no data loss; a database whose `schema_version` is newer than the running
+indexer is refused rather than modified.
+
 ## Metrics server
 
 ### Purpose
@@ -926,7 +941,7 @@ Every script in this directory falls into one of three categories:
 | RPC client with failover | `rpc-client.ts` | Multi-endpoint RPC client (`RPC_URLS`) |
 | Dry-run statistics | `lib/dry-run-stats.ts` | Aggregation of `ChargeResult` pages for keeper dry-run reports |
 | Forecasting utilities | `lib/forecast.ts` | Renewal forecasting math |
-| Database schema | `db/schema.ts` | SQLite schema for indexer |
+| Database schema | `db/migrations/`, `db/migrate.ts` | Single source of truth for the indexer SQLite schema (numbered migrations + runner); `db/schema.ts` holds read-only helpers |
 | Node SQLite mock | `__tests__/support/node-sqlite.ts` | Test mock for `node:sqlite` |
 
 ---
