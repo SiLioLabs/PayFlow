@@ -1,4 +1,4 @@
-// Verifies the per-entrypoint claims in docs/limits.md against the source.
+// Verifies the per-entrypoint claims in docs/LIMITS.md against the source.
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -290,7 +290,7 @@ export const CHARGE_RESULT_NAMES = CHARGE_RESULT_NAMES_EXPORT;
  *
  * Each enum variant is encoded as an `scvU32` discriminant, so the discriminant
  * is mapped back to its variant name here. See `lib/charge-results.ts` and
- * `docs/charge-results.md`.
+ * `docs/CHARGE-RESULTS.md`.
  */
 export function decodeEnumVec(retval: xdr.ScVal): string[] {
   return decodeChargeResults(retval);

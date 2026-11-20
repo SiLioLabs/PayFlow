@@ -60,7 +60,7 @@ The indexer maintains the following indexes on `events`:
 **Note:** As of the latest contract version, `batch_cancel` distinguishes between
 routine cancels (`Cancelled`), paused subscription cancels (`PausedCancelled`),
 and merchant-frozen cancels (`MerchantFrozen`). All three emit the same `cancelled`
-event; the distinction is in the return value discriminant. See `docs/cancel-results.md`.
+event; the distinction is in the return value discriminant. See `docs/CANCEL-RESULTS.md`.
 
 ### Charging & Pay-Per-Use
 

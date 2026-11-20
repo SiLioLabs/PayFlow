@@ -2,7 +2,7 @@
 
 Common ChargeResult errors, wallet failures, and operational issues with diagnosis steps and resolutions.
 
-For full error code documentation, see [`docs/ERROR-CODES.md`](../ERROR-CODES.md). For merchant-specific issues, see [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md).
+For full error code documentation, see [`docs/ERROR-CODES.md`](../ERROR-CODES.md). For merchant-specific issues, see [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md). Subscribers and merchants: start with the plain-language [`docs/FAQ.md`](../FAQ.md).
 
 ---
 
@@ -267,7 +267,7 @@ soroban contract invoke \
 ### Prevention
 
 - Announce maintenance windows.
-- Use the keeper incident response pattern from [`docs/operations/keeper_runbook.md`](keeper_runbook.md).
+- Use the keeper incident response pattern from [`docs/operations/KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md).
 - Set up `ContractPause` event alerts.
 
 ---
@@ -517,5 +517,5 @@ Wallet integration issues (Freighter not installed, wrong network, stale session
 | [`docs/TESTING.md`](../TESTING.md)                           | Test suite execution and CI                     |
 | [`docs/MERCHANT-INTEGRATION.md`](../MERCHANT-INTEGRATION.md) | Merchant-specific troubleshooting               |
 | [`docs/KEEPER.md`](../KEEPER.md)                             | Keeper setup and monitoring                     |
-| [`docs/operations/keeper_runbook.md`](keeper_runbook.md)     | Keeper incident response                        |
+| [`docs/operations/KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md)     | Keeper incident response                        |
 | [`docs/INTEGRATION-GUIDE.md`](../INTEGRATION-GUIDE.md)       | Integration troubleshooting                     |

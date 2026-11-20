@@ -1,6 +1,6 @@
 # Subscriber Lifecycle Guide
 
-A narrative walkthrough of everything that can happen to a PayFlow subscription, from the first `subscribe()` call to a final `cancel()`. This guide is written for developers integrating PayFlow who want the story in plain language, with concrete timestamps and stroop amounts. For the formal state-transition rules this guide is based on, see [`docs/spec/lifecycle_spec.md`](./spec/lifecycle_spec.md) — that document is the technical reference; this one is the tour.
+A narrative walkthrough of everything that can happen to a PayFlow subscription, from the first `subscribe()` call to a final `cancel()`. This guide is written for developers integrating PayFlow who want the story in plain language, with concrete timestamps and stroop amounts. For the formal state-transition rules this guide is based on, see [`docs/spec/LIFECYCLE-SPEC.md`](./spec/LIFECYCLE-SPEC.md) — that document is the technical reference; this one is the tour. Mermaid state diagram: [`spec/LIFECYCLE-SPEC.md`](./spec/LIFECYCLE-SPEC.md#state-transition-diagram); charge sequence: [`ARCHITECTURE.md`](./ARCHITECTURE.md#recurring-charge). Subscriber/merchant Q&A: [`FAQ.md`](./FAQ.md).
 
 ---
 
@@ -257,7 +257,7 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- \
 
 ## Grace Period, In Depth
 
-The grace period is a single contract-wide setting (`DataKey::GracePeriod`, default `0`), not a per-subscription value, changed via the [two-step propose/commit flow](./architecture/two-step-auth.md) (`propose_grace_period` → `commit_grace_period`).
+The grace period is a single contract-wide setting (`DataKey::GracePeriod`, default `0`), not a per-subscription value, changed via the [two-step propose/commit flow](./architecture/TWO-STEP-AUTH.md) (`propose_grace_period` → `commit_grace_period`).
 
 With `grace_period == 0` (the default), there is effectively no grace window: `charge()` succeeds any time `now >= last_charged + interval`, forever, until someone calls it — a late keeper never causes a hard failure, only a late charge.
 
@@ -429,4 +429,4 @@ A single numbered example tying every section above together. Dana subscribes to
 
 ---
 
-For the exact storage keys, TTLs, and validation-constraint tables behind every rule above, see [`docs/spec/lifecycle_spec.md`](./spec/lifecycle_spec.md).
+For the exact storage keys, TTLs, and validation-constraint tables behind every rule above, see [`docs/spec/LIFECYCLE-SPEC.md`](./spec/LIFECYCLE-SPEC.md).

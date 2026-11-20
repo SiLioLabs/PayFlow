@@ -247,4 +247,4 @@ Failing on any regression (rather than only on crossing the absolute threshold) 
 - [`contract/src/bench.rs`](../../contract/src/bench.rs) — the benchmark suite itself
 - [`docs/TESTING.md`](../TESTING.md) — general test suite guide, including snapshot files
 - [`docs/CONTRIBUTING-CONTRACT.md`](../CONTRIBUTING-CONTRACT.md#benchmarks) — contribution checklist requirement to run benchmarks when touching hot-path functions
-- [`docs/development/ci-workflows.md`](ci-workflows.md) — local checks to run before opening a PR
+- [`docs/development/CI-WORKFLOWS.md`](CI-WORKFLOWS.md) — local checks to run before opening a PR

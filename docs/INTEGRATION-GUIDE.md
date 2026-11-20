@@ -2,7 +2,7 @@
 
 This guide is designed for third-party applications (such as SaaS billing dashboards, merchants, and mobile apps) that want to integrate the PayFlow recurring billing and `pay_per_use` microtransaction protocol on the Stellar network.
 
-> **Merchants:** This document focuses on the subscriber path (approve, subscribe, charge). For accepting revenue, monitoring subscribers, handling merchant events, and tracking earnings, see the **[Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md)**.
+> **Merchants:** This document focuses on the subscriber path (approve, subscribe, charge). For accepting revenue, monitoring subscribers, handling merchant events, and tracking earnings, see the **[Merchant Integration Cookbook](./MERCHANT-INTEGRATION.md)**. Subscriber and merchant Q&A: **[FAQ](./FAQ.md)**.
 
 ---
 

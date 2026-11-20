@@ -2,7 +2,7 @@
 
 [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) covers the **subscriber** side of PayFlow (subscribe, approve allowance, listen for charges). This cookbook is the companion for **merchants** — developers who want to accept subscription revenue, monitor their subscriber base, react to billing events, and track earned revenue.
 
-If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md).
+If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md). Common merchant questions are answered in [`docs/FAQ.md`](FAQ.md#merchant-questions).
 
 ---
 
@@ -443,7 +443,7 @@ npx tsx scripts/watch-events.ts
 
 ### 4.2 Webhook Notifications
 
-`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks.
+`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks. For exhaustive payload schemas for every event type, verification examples in multiple languages, and DLQ replay details, see the dedicated reference [`docs/WEBHOOKS.md`](WEBHOOKS.md).
 
 #### Configuration
 Set the following environment variables (e.g. in `scripts/.env`):
@@ -569,4 +569,4 @@ The `recipient` address is the contract address itself. Both `pay_per_use_to` an
 | [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
 | [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
-| [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |
+| [`operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)            | Common ChargeResult errors, wallet failures, and ops issues |

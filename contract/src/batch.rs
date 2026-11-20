@@ -24,7 +24,7 @@ use crate::{DataKey, Subscription};
 //   GracePeriodElapsed  = 5
 //   AllowanceInsufficient = 6
 //
-// The full wire-format description lives in `docs/charge-results.md`.
+// The full wire-format description lives in `docs/CHARGE-RESULTS.md`.
 //
 // When adding new variants ALWAYS append at the end so existing
 // off-chain parsers continue to recognise the original codes.
@@ -43,7 +43,7 @@ use crate::{DataKey, Subscription};
 /// **APPEND-ONLY INVARIANT:** New variants must always be appended at the end
 /// so existing off-chain parsers that know 0-2 continue to work.
 /// Renaming or reordering discriminants is a breaking change for all consumers.
-/// See `docs/cancel-results.md` for the complete wire encoding specification.
+/// See `docs/CANCEL-RESULTS.md` for the complete wire encoding specification.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum CancelResult {

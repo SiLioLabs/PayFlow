@@ -273,7 +273,7 @@ Soroban's temporary storage entries become inaccessible once their TTL lapses â€
 
 ## Operator playbooks
 
-For timed step-by-step ceremonies (TTL budgets, verification reads such as `get_pending_upgrade` and `get_fee`, abort/cancel paths, and keeper coordination), see [`operations/two_step_admin_playbooks.md`](../operations/two_step_admin_playbooks.md).
+For timed step-by-step ceremonies (TTL budgets, verification reads such as `get_pending_upgrade` and `get_fee`, abort/cancel paths, and keeper coordination), see [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](../operations/TWO-STEP-ADMIN-PLAYBOOKS.md).
 
 ---
 

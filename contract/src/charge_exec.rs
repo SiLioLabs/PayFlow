@@ -16,7 +16,7 @@ use crate::{extend_subscription_ttl, DataKey, Subscription, MAX_AMOUNT};
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
 ///
 /// Full comparison of estimate vs live differences:
-/// docs/architecture/batch-estimate-vs-live.md
+/// docs/architecture/BATCH-ESTIMATE-VS-LIVE.md
 /// ─────────────────────────────────────────────────────────────
 ///
 /// Both `simulate_charge` and `get_batch_charge_estimate` are

@@ -73,7 +73,7 @@ with that file, the file is right and this page is a bug.
 [`DEPLOYMENT.md`](DEPLOYMENT.md) (post-deploy gates) |
 [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md#2-volume-cap) (volume cap operational checklist) |
 [`DAILY-LIMITS.md`](DAILY-LIMITS.md) (per-user `pay_per_use` daily cap - a different topic) |
-[`charge-results.md`](charge-results.md) (what a capped batch returns)
+[`CHARGE-RESULTS.md`](CHARGE-RESULTS.md) (what a capped batch returns)
 
 ---
 
@@ -363,5 +363,5 @@ soroban contract invoke \
 - [`ERROR-CODES.md`](ERROR-CODES.md) - `BatchTooLarge` (20), `InvalidBatchSize` (29)
 - [`DAILY-LIMITS.md`](DAILY-LIMITS.md) - the per-user `pay_per_use` daily cap
 - [`ARCHITECTURE.md`](ARCHITECTURE.md#storage-strategy) - storage tiers, and where the two batch-size keys live
-- [`architecture/storage_and_ttl.md`](architecture/storage_and_ttl.md#3-complete-datakey-reference) - per-key TTL behaviour of the capped keys
+- [`architecture/STORAGE-AND-TTL.md`](architecture/STORAGE-AND-TTL.md#3-complete-datakey-reference) - per-key TTL behaviour of the capped keys
 - [`scripts/README.md`](../scripts/README.md) - keeper and off-chain tooling

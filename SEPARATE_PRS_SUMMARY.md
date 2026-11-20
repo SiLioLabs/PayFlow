@@ -66,7 +66,7 @@ from those hitting paused or frozen subscriptions.
 
 ## Changes
 - contract/src/batch.rs (enum + logic)
-- docs/cancel-results.md (new documentation)
+- docs/CANCEL-RESULTS.md (new documentation)
 - scripts/EVENT-MAPPING.md (updated)
 - contract_tests_addon.rs (3 new tests)
 

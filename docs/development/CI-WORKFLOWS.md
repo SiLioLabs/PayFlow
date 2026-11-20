@@ -13,7 +13,7 @@ This repository does **not** ship any GitHub Actions workflow files (there is no
 | `scripts/` | `npm run typecheck:scripts` and `npm run test:scripts` |
 | Any `*.md` file | `node check-doc-links.mjs` (see [docs/README.md § Documentation tooling](../README.md#documentation-tooling)) |
 
-`cargo test` also runs the benchmark tests in `contract/src/bench.rs` (they are plain `#[test]` functions), so a benchmark that exceeds its `MAX_*_INSTRUCTIONS` threshold fails the local test run. See [performance-benchmarking.md](performance-benchmarking.md).
+`cargo test` also runs the benchmark tests in `contract/src/bench.rs` (they are plain `#[test]` functions), so a benchmark that exceeds its `MAX_*_INSTRUCTIONS` threshold fails the local test run. See [PERFORMANCE-BENCHMARKING.md](PERFORMANCE-BENCHMARKING.md).
 
 ---
 

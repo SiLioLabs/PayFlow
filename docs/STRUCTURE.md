@@ -249,22 +249,22 @@ docs/
 ├── SUBSCRIBER-LIFECYCLE.md
 ├── TESTING.md
 ├── architecture/
-│   ├── storage_and_ttl.md
-│   └── two-step-auth.md
+│   ├── STORAGE-AND-TTL.md
+│   └── TWO-STEP-AUTH.md
 ├── development/
-│   ├── ci-workflows.md
-│   ├── network-matrix.md
-│   ├── performance-benchmarking.md
-│   └── testing_runbook.md
+│   ├── CI-WORKFLOWS.md
+│   ├── NETWORK-MATRIX.md
+│   ├── PERFORMANCE-BENCHMARKING.md
+│   └── TESTING-RUNBOOK.md
 ├── operations/
-│   ├── keeper_runbook.md
-│   ├── troubleshooting.md
-│   └── two_step_admin_playbooks.md
+│   ├── KEEPER-RUNBOOK.md
+│   ├── TROUBLESHOOTING.md
+│   └── TWO-STEP-ADMIN-PLAYBOOKS.md
 ├── security/
-│   ├── audit-preparation.md
-│   └── threat_matrix.md
+│   ├── AUDIT-PREPARATION.md
+│   └── THREAT-MATRIX.md
 └── spec/
-    └── lifecycle_spec.md
+    └── LIFECYCLE-SPEC.md
 ```
 
 ---
@@ -295,8 +295,7 @@ Root `package.json` `npm test` runs `tsx --test tests/*.test.ts`.
 | `config.ts`                        | Config for the root `alert-failed-charges.ts` script (canonical keeper/indexer live in `scripts/`) |
 | `AGENTS.md`                         | High-level architecture for agents                                          |
 | `CHANGELOG.md`, `TODO.md`, `UIDesign.md` | Project notes                                                          |
-| `issue.md`, `Issue.md`, `Issues.md` | Tracked issue dumps                                                         |
-| `code.md`, `md`, `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
+| `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
 | `test_migration.rs`                 | Root-level migration test file (canonical tests live in `contract/src/`)    |
 | `alert-failed-charges.ts`          | Root webhook alert script (`query-events.ts` / `replay-events.ts` live in `scripts/`) |
 
