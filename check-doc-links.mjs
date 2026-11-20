@@ -86,7 +86,7 @@ function anchorsFor(file) {
 
 const linkRe = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const broken = [];
-const linked = new Set();
+const linkTargets = new Set(); // resolved .md paths that at least one link points to
 let checked = 0;
 
 /** Records `target` as linked to, ignoring self-links. */
@@ -110,6 +110,7 @@ for (const file of files) {
       if (anchor && !anchorsFor(file).has(decodeURIComponent(anchor).toLowerCase())) {
         broken.push(`${rel}  ->  #${anchor}   (no such heading in this file)`);
       }
+      linkTargets.add(rel);
       continue;
     }
 
@@ -124,18 +125,22 @@ for (const file of files) {
       continue;
     }
 
+    // Bare directory link: fine.
+    if (extname(resolved) !== ".md") { continue; }
     // Bare directory link: fine; GitHub renders its README.md.
     if (extname(resolved) !== ".md") {
       if (statSync(resolved).isDirectory()) markLinked(join(resolved, "README.md"), file);
       continue;
     }
 
+    const targetRel = relative(ROOT, resolved).replace(/\\/g, "/");
     if (anchor) {
       const want = decodeURIComponent(anchor).toLowerCase();
       if (!anchorsFor(resolved).has(want)) {
-        broken.push(`${rel}  ->  ${target}   (no heading '${anchor}' in ${relative(ROOT, resolved).replace(/\\/g, "/")})`);
+        broken.push(`${rel}  ->  ${target}   (no heading '${anchor}' in ${targetRel})`);
       }
     }
+    linkTargets.add(targetRel);
     markLinked(resolved, file);
   }
 }
@@ -169,6 +174,21 @@ if (broken.length) {
   console.log(`\nBROKEN LINKS (${broken.length}):`);
   for (const b of broken) console.log("  " + b);
 }
+
+// Orphans: markdown files that nothing links to. README.md files are index
+// entry points, so exclude them from the orphan list.
+const orphanRel = new Set();
+for (const file of files) {
+  const rel = relative(ROOT, file).replace(/\\/g, "/");
+  if (rel.toLowerCase().endsWith("/readme.md") || rel === "README.md") continue;
+  if (!linkTargets.has(rel)) orphanRel.add(rel);
+}
+if (orphanRel.size) {
+  console.log(`\nORPHAN DOCS (nothing links to these, ${orphanRel.size}):`);
+  for (const rel of [...orphanRel].sort()) console.log("  " + rel);
+  process.exit(1);
+}
+console.log("No broken relative links or anchors.");
 if (nameViolations.length) {
   console.log(`\nNON-CONFORMING DOC FILENAMES (${nameViolations.length}) — rename to UPPER-KEBAB.md (see CONTRIBUTING.md):`);
   for (const v of nameViolations) console.log("  " + v);
