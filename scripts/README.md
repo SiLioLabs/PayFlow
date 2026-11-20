@@ -602,6 +602,14 @@ tsx query-events.ts --ledger 500000 --to 510000
 
 ---
 
+
+### HTTP API
+
+`indexer-api.ts` (`npm run api`) serves a read-only HTTP API over the indexer database:
+events by user/merchant, merchant revenue and churn, with pagination, bounded limits,
+configurable CORS and an OpenAPI spec (`docs/openapi/indexer-api.json`). See
+[docs/INDEXER-API.md](../docs/INDEXER-API.md).
+
 ## Metrics server
 
 ### Purpose
