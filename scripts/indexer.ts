@@ -42,6 +42,14 @@
  *   LOG_LEVEL          Optional. "debug" | "info" | "error" (default: info).
  *   EVENT_DEDUP_CACHE_SIZE  Optional. Max EventDedupCache entries (default: 1000).
  *   EVENT_DEDUP_TTL_MS      Optional. EventDedupCache entry TTL in ms (default: 0 = no TTL).
+ *   INDEXER_METRICS_ENABLED Optional. "true" to serve Prometheus metrics (incl. ledger-gap metrics).
+ *
+ * Ledger gaps
+ * ───────────
+ * Before each poll the indexer compares its cursor with the RPC's oldest
+ * available ledger (getHealth). If the RPC has pruned ledgers the indexer never
+ * read, the range is stored in `ledger_gaps`, logged, exported as metrics, and
+ * indexing resumes from the oldest available ledger. See horizon-backfill.ts.
  *
  * Deduplication
  * ─────────────
@@ -68,7 +76,12 @@ import { logger as rootLogger } from "./logger.js";
 import { fileURLToPath } from "node:url";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { EventDedupCache, type DedupStats } from "./event-dedup.js";
-import { recordIndexerDedupStats } from "./metrics-server.js";
+import {
+  recordIndexerDedupStats,
+  setIndexerLedgerPosition,
+  startMetricsServer,
+} from "./metrics-server.js";
+import { checkForGap, refreshOpenGapMetric } from "./ledger-gaps.js";
 import { runMigrations, readSchemaVersion } from "./db/migrate.js";
 import { SCHEMA_VERSION } from "./db/migrations/index.js";
 
@@ -522,6 +535,9 @@ async function main(): Promise<void> {
   const db = openDatabase(DB_FILE);
   initSchema(db);
 
+  if (process.env.INDEXER_METRICS_ENABLED === "true") startMetricsServer();
+  refreshOpenGapMetric(db);
+
   const dedup = new EventDedupCache();
   logger.info("Dedup cache ready", {
     max_size: dedup.stats.maxSize,
@@ -552,11 +568,21 @@ async function main(): Promise<void> {
   logger.info("Indexer running. Press Ctrl-C to stop.");
 
   while (!shutdown) {
+    // If we were down longer than RPC retention, record the gap and resume
+    // from the oldest ledger RPC still serves instead of failing forever.
+    const resumeFrom = await checkForGap(db, currentLedger, server);
+    if (resumeFrom !== currentLedger) {
+      currentLedger = resumeFrom;
+      setMeta(db, "last_ledger", String(currentLedger));
+    }
+
     const nextLedger = await pollOnce(db, currentLedger, dedup);
 
     if (nextLedger !== currentLedger) {
       currentLedger = nextLedger;
       setMeta(db, "last_ledger", String(currentLedger));
+      setMeta(db, "last_processed_ledger", String(currentLedger - 1));
+      setIndexerLedgerPosition({ lastProcessed: currentLedger - 1 });
     }
 
     if (!shutdown) {

@@ -118,6 +118,41 @@ const indexerDedupEvictionsTotal = new Counter({
   registers: [registry],
 });
 
+/** Ledger gaps detected (RPC retention pruned ledgers the indexer had not read). */
+const indexerLedgerGapsTotal = new Counter({
+  name: "indexer_ledger_gaps_total",
+  help: "Total number of ledger gaps detected by the indexer",
+  registers: [registry],
+});
+
+/** Ledgers skipped across all detected gaps. */
+const indexerLedgerGapLedgersTotal = new Counter({
+  name: "indexer_ledger_gap_ledgers_total",
+  help: "Total number of ledgers lost to detected gaps",
+  registers: [registry],
+});
+
+/** Gaps not yet backfilled. */
+const indexerOpenLedgerGaps = new Gauge({
+  name: "indexer_open_ledger_gaps",
+  help: "Number of detected ledger gaps that have not been backfilled",
+  registers: [registry],
+});
+
+/** Highest ledger the indexer has fully processed. */
+const indexerLastProcessedLedger = new Gauge({
+  name: "indexer_last_processed_ledger",
+  help: "Last ledger successfully processed by the indexer",
+  registers: [registry],
+});
+
+/** Oldest ledger the RPC provider currently serves. */
+const indexerOldestAvailableLedger = new Gauge({
+  name: "indexer_oldest_available_ledger",
+  help: "Oldest ledger available from the RPC provider (retention boundary)",
+  registers: [registry],
+});
+
 /** Total RPC failovers across multiple endpoints. */
 const rpcFailoversTotal = new Counter({
   name: "keeper_rpc_failovers_total",
@@ -225,6 +260,26 @@ export function recordIndexerDedupStats(stats: {
   lastDedupEvictions = stats.evictions;
 
   indexerDedupCacheSize.set(stats.size);
+}
+
+/** Record a newly detected ledger gap of `ledgerCount` ledgers. */
+export function recordLedgerGap(ledgerCount: number): void {
+  indexerLedgerGapsTotal.inc();
+  indexerLedgerGapLedgersTotal.inc(ledgerCount);
+}
+
+/** Set the current number of un-backfilled gaps. */
+export function setOpenLedgerGaps(count: number): void {
+  indexerOpenLedgerGaps.set(count);
+}
+
+/** Record indexer progress and the RPC retention boundary (either may be omitted). */
+export function setIndexerLedgerPosition(pos: {
+  lastProcessed?: number;
+  oldestAvailable?: number;
+}): void {
+  if (pos.lastProcessed !== undefined) indexerLastProcessedLedger.set(pos.lastProcessed);
+  if (pos.oldestAvailable !== undefined) indexerOldestAvailableLedger.set(pos.oldestAvailable);
 }
 
 /**

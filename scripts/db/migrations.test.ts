@@ -62,7 +62,7 @@ describe("fresh database", () => {
   it("is built entirely by the migrations", () => {
     const db = open();
     expect(getSchemaVersion(db)).toBe(0);
-    expect(runMigrations(db)).toEqual([1, 2]);
+    expect(runMigrations(db)).toEqual([1, 2, 3]);
     expect(getSchemaVersion(db)).toBe(SCHEMA_VERSION);
     expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
     expect(listIndexes(db, "events")).toEqual(INDEXES);
@@ -92,9 +92,9 @@ describe("legacy databases", () => {
   it("upgrades a v1 database without losing data", () => {
     const db = open();
     createLegacyV1(db);
-    expect(runMigrations(db)).toEqual([2]);
+    expect(runMigrations(db)).toEqual([2, 3]);
 
-    expect(getSchemaVersion(db)).toBe(2);
+    expect(getSchemaVersion(db)).toBe(SCHEMA_VERSION);
     expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
     expect(getMeta(db, "last_ledger")).toBe("4242");
     const rows = db.prepare("SELECT * FROM events ORDER BY id").all() as Array<Record<string, unknown>>;
@@ -111,7 +111,7 @@ describe("legacy databases", () => {
     }
     db.exec("DELETE FROM meta WHERE key = 'schema_version'");
 
-    expect(runMigrations(db)).toEqual([1, 2]);
+    expect(runMigrations(db)).toEqual([1, 2, 3]);
     expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
     expect((db.prepare("SELECT COUNT(*) AS c FROM events").get() as { c: number }).c).toBe(2);
   });

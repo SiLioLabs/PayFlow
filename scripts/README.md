@@ -606,7 +606,7 @@ tsx query-events.ts --ledger 500000 --to 510000
 ### Database schema and migrations
 
 The indexer's SQLite schema is defined **only** by the numbered, forward-only
-migrations in `db/migrations/` (`001_initial_schema.ts`, `002_add_event_columns.ts`,
+migrations in `db/migrations/` (`001_initial_schema.ts`, `002_add_event_columns.ts`, `003_ledger_gaps.ts`,
 listed in `db/migrations/index.ts`). `db/migrate.ts` applies pending migrations at
 startup (`initSchema` in `indexer.ts`), each in its own transaction together with the
 `meta.schema_version` bump. `db/schema.ts` defines no tables; it exposes `SCHEMA_VERSION`
@@ -616,6 +616,63 @@ To change the schema, add `NNN_description.ts` (idempotent `up(db)`), append it 
 `db/migrations/index.ts`, and extend `db/migrations.test.ts`. Existing databases upgrade in
 place with no data loss; a database whose `schema_version` is newer than the running
 indexer is refused rather than modified.
+
+
+### Ledger gaps and backfill
+
+Soroban RPC keeps only a limited window of ledgers (the *retention window*, typically
+a few days on public providers; see `oldestLedger` in `getHealth`). If the indexer is
+down longer than that, the ledgers between its cursor and the RPC's oldest ledger can
+no longer be read through `getEvents`.
+
+**Detection.** Before every poll the indexer compares its cursor
+(`meta.last_ledger`, the next ledger to fetch; `meta.last_processed_ledger` is the last
+fully processed one) with the RPC's `oldestLedger`. If `oldestLedger > cursor` it
+1. logs an `ERROR` "Ledger gap detected" line with `start_ledger`, `end_ledger`, `missed_ledgers`;
+2. stores the range in the `ledger_gaps` table (status `open`; one row per range, idempotent);
+3. bumps Prometheus metrics, and
+4. resumes indexing from the RPC's oldest ledger instead of failing on every poll.
+
+If `getHealth` does not report the retention window, the check is skipped (no false gaps).
+
+| Metric (set `INDEXER_METRICS_ENABLED=true`, port `METRICS_PORT`) | Meaning |
+|---|---|
+| `indexer_ledger_gaps_total` | Gaps detected |
+| `indexer_ledger_gap_ledgers_total` | Ledgers lost to detected gaps |
+| `indexer_open_ledger_gaps` | Gaps not yet backfilled — alert on `> 0` |
+| `indexer_last_processed_ledger` | Last fully processed ledger |
+| `indexer_oldest_available_ledger` | RPC retention boundary |
+
+**Backfill.** `horizon-backfill.ts` recovers a gap from a Horizon instance that still has
+the history: it reads each ledger's transactions, decodes the contract's Soroban events
+from the transaction result meta, and writes them through the normal indexer path.
+
+```bash
+npx tsx horizon-backfill.ts --list                         # show recorded gaps (no network)
+CONTRACT_ID=C... HORIZON_URL=https://<full-history-horizon> npx tsx horizon-backfill.ts
+CONTRACT_ID=C... HORIZON_URL=... npx tsx horizon-backfill.ts --gap-id 3   # one gap
+```
+
+Safety: events are keyed by their on-chain position (`tx_hash:op:event index`) and
+upserted, so re-running, overlapping gaps, or events the indexer already stored never
+create duplicates. Progress is saved after every ledger (`backfilled_through`); a
+transient Horizon error leaves the gap `open` and the next run resumes where it stopped.
+The indexer and the backfill can run at the same time.
+
+**Limitations / recovery.**
+- Horizon must retain the gap's ledgers. Public Horizons often do not; use a provider or
+  your own Horizon with full history. If Horizon answers 404 the gap becomes
+  `unrecoverable` (see `detail`); recovery then needs a history archive, which is not
+  automated here.
+- Only events from successful transactions with Soroban meta v3 are decoded; other meta
+  versions are skipped with a warning.
+- Backfill reads one ledger at a time (roughly one request per ledger); large gaps take time.
+- Event ids are derived from the transaction TOID plus the event's index in the
+  transaction's contract events. This follows the Soroban RPC id format but has only been
+  verified against synthetic fixtures, not a live RPC — spot-check a recovered range
+  against `getEvents` before relying on it for accounting.
+- Prevention: alert on `indexer_open_ledger_gaps` and on indexer downtime well before the
+  retention window elapses.
 
 ## Metrics server
 
