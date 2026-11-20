@@ -140,52 +140,45 @@ Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
 
 ---
 
-### backup-indexer-db.ts
+### backup-indexer-db.ts / restore-indexer-db.ts
 
-Online-safe backup and restore helper for the indexer SQLite database (`data/events.db`).
+Online-safe backup and verified restore for the indexer SQLite database (`data/events.db`).
+Full procedure: **[docs/operations/indexer-backup-restore.md](../docs/operations/indexer-backup-restore.md)**.
 
-The backup uses SQLite's `backup()` API (hot copy — no write lock on source).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file.  Restore verifies integrity of the backup before touching the live database.
+The backup uses SQLite's `VACUUM INTO` (consistent hot snapshot — the indexer can keep running).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file and a SHA-256 checksum is written next to it (`<backup>.sha256`, `sha256sum` format).
+
+`restore-indexer-db.ts` verifies the backup (file header, checksum, integrity check, indexer tables/columns, `schema_version`) **before** touching anything, refuses to overwrite an existing database without `--force`, refuses if the destination is locked by another process, keeps a `<db>.pre-restore-<timestamp>` safety copy of the database it replaces, removes stale `-wal`/`-shm` files, installs the backup with an atomic rename, and re-verifies the result by hash.  `backup-indexer-db.ts restore` now delegates to it.
 
 #### Backup
 
 ```bash
-# Default: backup to data/backups/events-<timestamp>.db
-npx ts-node scripts/backup-indexer-db.ts backup
+# Default: backup to data/backups/events-<timestamp>.db (+ .sha256)
+npx tsx scripts/backup-indexer-db.ts backup
 
 # Custom paths
-npx ts-node scripts/backup-indexer-db.ts backup \
+npx tsx scripts/backup-indexer-db.ts backup \
   --db data/events.db \
   --out /mnt/backups/events-2026-08-29.db
 
-# Overwrite if destination exists
-npx ts-node scripts/backup-indexer-db.ts backup --force
-
-# Dry-run
-npx ts-node scripts/backup-indexer-db.ts backup --dry-run
+# Overwrite if destination exists / dry-run
+npx tsx scripts/backup-indexer-db.ts backup --force
+npx tsx scripts/backup-indexer-db.ts backup --dry-run
 ```
 
 #### Restore
 
+Stop the indexer first.
+
 ```bash
-# Restore from a backup
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db
+# Verify only: checks the backup and prints the plan, writes nothing
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --dry-run
 
-# Overwrite live DB
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --force
+# Restore to a new path (refuses if the path already exists)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --db data/events-restored.db
 
-# Dry-run (verify backup integrity, print plan, do not overwrite)
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --dry-run
+# Replace the live database (previous one is kept as events.db.pre-restore-<ts>)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --force
 ```
-
-**Restore safety rules:**
-1. Backup integrity check (`PRAGMA integrity_check`) must return `ok`.
-2. If destination exists, `--force` is required.
-3. Destination directory is created if it does not exist.
 
 **Options (backup):**
 
@@ -202,16 +195,18 @@ npx ts-node scripts/backup-indexer-db.ts restore \
 | --- | --- | --- |
 | `--from <path>` | — (required) | Backup file to restore from |
 | `--db <path>` | `$INDEXER_DB_PATH` or `data/events.db` | Restore destination |
-| `--force` | `false` | Overwrite destination if it exists |
+| `--force` | `false` | Replace the destination if it exists |
 | `--dry-run` | `false` | Verify + print plan without writing |
+| `--require-checksum` | `false` | Fail (instead of warn) if `<backup>.sha256` is missing |
 
 **Optional: S3 lifecycle policies**
 
 For production deployments you may want to ship backups to S3 and apply lifecycle rules to expire old backups automatically.  This is not implemented in the script but can be added by piping the backup output to `aws s3 cp`:
 
 ```bash
-npx ts-node scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
+npx tsx scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
 aws s3 cp /tmp/events-backup.db s3://my-bucket/flowpay-backups/
+aws s3 cp /tmp/events-backup.db.sha256 s3://my-bucket/flowpay-backups/   # keep the checksum next to the backup
 ```
 
 Closes [issue #898](https://github.com/SiLioLabs/PayFlow/issues/898).
