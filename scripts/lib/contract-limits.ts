@@ -7,7 +7,7 @@
  *
  *   node scripts/emit-caps-table.mjs --check
  *
- * to verify that docs/limits.md is still consistent.
+ * to verify that docs/LIMITS.md is still consistent.
  *
  * Source cross-references
  * ───────────────────────

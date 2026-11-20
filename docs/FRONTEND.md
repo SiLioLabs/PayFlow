@@ -3,7 +3,7 @@
 This document provides the high-level architecture, technology stack, directory organization, and design patterns for the PayFlow web application.
 
 > **Component Reference**: For detailed prop signatures, types, and component-level API documentation, see [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).  
-> **Component Inventory**: For the full inventory of canonical vs. unmounted components and single-source validation rules, see [`docs/frontend/components.md`](frontend/components.md).  
+> **Component Inventory**: For the full inventory of canonical vs. unmounted components and single-source validation rules, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
 > **Contributing Guide**: For development setup, coding standards, styling tokens, accessibility requirements, and testing conventions, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
 
 ---
@@ -76,6 +76,14 @@ frontend/src/
 ├── stellar.ts           # Centralized blockchain and Soroban contract gateway
 └── types.ts             # Core frontend TypeScript interfaces
 ```
+
+Each directory has a dedicated responsibility:
+- **components** contain reusable presentation UI.
+- **hooks** encapsulate business logic and contract side effects.
+- **services** provide shared utilities, RPC caching, and wallet adapters.
+- **stellar.ts** acts as the centralized blockchain gateway.
+
+Canonical vs unmounted component modules and single-source validation-rule owners: [`frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
 
 ---
 
@@ -302,6 +310,6 @@ React Context is reserved for application-wide infrastructure:
 | Document | Purpose |
 | --- | --- |
 | [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md) | Component API specifications, props, states, and hooks |
-| [`docs/frontend/components.md`](frontend/components.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
 | [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md) | Contributor workflow, testing guide, styling, and a11y checklist |
-| [`docs/limits.md`](limits.md) | Admin batch operation caps and contract limits |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |

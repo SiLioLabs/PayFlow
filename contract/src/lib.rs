@@ -162,7 +162,7 @@ pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s block
 /// derived, recomputable cache tied to the merchant's lifetime, while the
 /// subscription is the source of truth and must persist for the full billing
 /// cycle. If this value is ever retuned, every writer below must change with
-/// it; it is not a separate runtime knob. See docs/architecture/storage_and_ttl.md.
+/// it; it is not a separate runtime knob. See docs/architecture/STORAGE-AND-TTL.md.
 pub const MERCHANT_STATE_TTL_LEDGERS: u32 = 1_555_200; // ~90 days (assuming 5s blocks)
 
 pub use caps::{
@@ -1060,7 +1060,7 @@ impl FlowPay {
         admin::require_admin(&env);
 
         // Deliberately not configurable and not the same knob as
-        // `get_max_batch_size`. See docs/limits.md.
+        // `get_max_batch_size`. See docs/LIMITS.md.
         let max_batch: u32 = caps::MAX_BATCH_PAUSE_SUBSCRIPTIONS;
         if users.len() > max_batch {
             env.panic_with_error(ContractError::BatchTooLarge);

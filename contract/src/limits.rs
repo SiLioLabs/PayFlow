@@ -14,4 +14,4 @@
 //! - **Configurable minimum billing interval**: [`crate::min_interval`] (`min_interval.rs`)
 //!   - Enforces contract-wide minimum billing interval requirements.
 //!
-//! For protocol and UI limit documentation, refer to `docs/limits.md` and `docs/DAILY-LIMITS.md`.
+//! For protocol and UI limit documentation, refer to `docs/LIMITS.md` and `docs/DAILY-LIMITS.md`.

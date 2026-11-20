@@ -13260,7 +13260,7 @@ fn test_migration_v2_to_v3_populates_referrer() {
 // discriminant layout so a reorder or rename is caught in CI.
 //
 // The wire encoding is `scvU32(discriminant)`, in the order the
-// variants are declared in `batch.rs`. See `docs/charge-results.md`.
+// variants are declared in `batch.rs`. See `docs/CHARGE-RESULTS.md`.
 
 /// The number of ChargeResult variants. If you add a new variant,
 /// update this count AND append the new variant at the end of the enum.
@@ -13304,7 +13304,7 @@ fn test_charge_result_variant_count() {
     // This count plus the declaration order in `batch.rs` *is* the on-the-wire
     // contract: a `#[contracttype]` unit-only enum serialises as an scvU32
     // holding the variant index, so off-chain decoders map 0..6 to the variant
-    // names in `docs/charge-results.md`. Reordering the enum is therefore a
+    // names in `docs/CHARGE-RESULTS.md`. Reordering the enum is therefore a
     // wire-breaking change even though the Rust still compiles. The exact
     // discriminants are asserted off-chain by that doc's decoders.
     let total_variants = 7;

@@ -10,9 +10,9 @@
     "",
     "The `single_xdr_base64` values are the base64 XDR of one `scvU32`; the",
     "`xdr_base64` values are the base64 XDR of the whole `scvVec`.",
-    "See docs/charge-results.md for the full wire-format reference."
+    "See docs/CHARGE-RESULTS.md for the full wire-format reference."
   ],
-  "source": "contract/src/batch.rs (ChargeResult) + docs/charge-results.md",
+  "source": "contract/src/batch.rs (ChargeResult) + docs/CHARGE-RESULTS.md",
   "variants": [
     {
       "discriminant": 0,
@@ -74,7 +74,7 @@
     },
     {
       "name": "documented_example",
-      "description": "The worked example from docs/charge-results.md: Charged, Skipped, AllowanceInsufficient.",
+      "description": "The worked example from docs/CHARGE-RESULTS.md: Charged, Skipped, AllowanceInsufficient.",
       "xdr_base64": "AAAAEAAAAAEAAAADAAAAAwAAAAAAAAADAAAAAQAAAAMAAAAG",
       "expected": ["Charged", "Skipped", "AllowanceInsufficient"]
     },

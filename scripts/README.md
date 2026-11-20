@@ -140,52 +140,45 @@ Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
 
 ---
 
-### backup-indexer-db.ts
+### backup-indexer-db.ts / restore-indexer-db.ts
 
-Online-safe backup and restore helper for the indexer SQLite database (`data/events.db`).
+Online-safe backup and verified restore for the indexer SQLite database (`data/events.db`).
+Full procedure: **[docs/operations/indexer-backup-restore.md](../docs/operations/indexer-backup-restore.md)**.
 
-The backup uses SQLite's `backup()` API (hot copy — no write lock on source).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file.  Restore verifies integrity of the backup before touching the live database.
+The backup uses SQLite's `VACUUM INTO` (consistent hot snapshot — the indexer can keep running).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file and a SHA-256 checksum is written next to it (`<backup>.sha256`, `sha256sum` format).
+
+`restore-indexer-db.ts` verifies the backup (file header, checksum, integrity check, indexer tables/columns, `schema_version`) **before** touching anything, refuses to overwrite an existing database without `--force`, refuses if the destination is locked by another process, keeps a `<db>.pre-restore-<timestamp>` safety copy of the database it replaces, removes stale `-wal`/`-shm` files, installs the backup with an atomic rename, and re-verifies the result by hash.  `backup-indexer-db.ts restore` now delegates to it.
 
 #### Backup
 
 ```bash
-# Default: backup to data/backups/events-<timestamp>.db
-npx ts-node scripts/backup-indexer-db.ts backup
+# Default: backup to data/backups/events-<timestamp>.db (+ .sha256)
+npx tsx scripts/backup-indexer-db.ts backup
 
 # Custom paths
-npx ts-node scripts/backup-indexer-db.ts backup \
+npx tsx scripts/backup-indexer-db.ts backup \
   --db data/events.db \
   --out /mnt/backups/events-2026-08-29.db
 
-# Overwrite if destination exists
-npx ts-node scripts/backup-indexer-db.ts backup --force
-
-# Dry-run
-npx ts-node scripts/backup-indexer-db.ts backup --dry-run
+# Overwrite if destination exists / dry-run
+npx tsx scripts/backup-indexer-db.ts backup --force
+npx tsx scripts/backup-indexer-db.ts backup --dry-run
 ```
 
 #### Restore
 
+Stop the indexer first.
+
 ```bash
-# Restore from a backup
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db
+# Verify only: checks the backup and prints the plan, writes nothing
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --dry-run
 
-# Overwrite live DB
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --force
+# Restore to a new path (refuses if the path already exists)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --db data/events-restored.db
 
-# Dry-run (verify backup integrity, print plan, do not overwrite)
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --dry-run
+# Replace the live database (previous one is kept as events.db.pre-restore-<ts>)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --force
 ```
-
-**Restore safety rules:**
-1. Backup integrity check (`PRAGMA integrity_check`) must return `ok`.
-2. If destination exists, `--force` is required.
-3. Destination directory is created if it does not exist.
 
 **Options (backup):**
 
@@ -202,16 +195,18 @@ npx ts-node scripts/backup-indexer-db.ts restore \
 | --- | --- | --- |
 | `--from <path>` | — (required) | Backup file to restore from |
 | `--db <path>` | `$INDEXER_DB_PATH` or `data/events.db` | Restore destination |
-| `--force` | `false` | Overwrite destination if it exists |
+| `--force` | `false` | Replace the destination if it exists |
 | `--dry-run` | `false` | Verify + print plan without writing |
+| `--require-checksum` | `false` | Fail (instead of warn) if `<backup>.sha256` is missing |
 
 **Optional: S3 lifecycle policies**
 
 For production deployments you may want to ship backups to S3 and apply lifecycle rules to expire old backups automatically.  This is not implemented in the script but can be added by piping the backup output to `aws s3 cp`:
 
 ```bash
-npx ts-node scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
+npx tsx scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
 aws s3 cp /tmp/events-backup.db s3://my-bucket/flowpay-backups/
+aws s3 cp /tmp/events-backup.db.sha256 s3://my-bucket/flowpay-backups/   # keep the checksum next to the backup
 ```
 
 Closes [issue #898](https://github.com/SiLioLabs/PayFlow/issues/898).
@@ -236,7 +231,7 @@ npm run typecheck
 
 ## Environment Variables
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 The keeper's signing key is `SECRET_KEY` (deprecated alias `KEEPER_SECRET`), read by [`keeper.ts`](keeper.ts) in this directory. `PAGE_SIZE` is the subscriber page size used by `batch-optimizer.ts` (default and max `50`), not the `batch_charge` batch size.
 
@@ -539,7 +534,7 @@ so the same events are not re-fetched as duplicates (upsert key
 `subscription_auto_resumed` events to maintain accurate pause state for each
 subscriber. `pause_until` subscriptions auto-resume on the next `charge` or
 `batch_charge` after their expiry — the expiry timestamp is in the `paused`
-event payload. See [docs/architecture/pause-lifecycle.md](../docs/architecture/pause-lifecycle.md#keeper-and-indexer-guidance) for the full event-driven
+event payload. See [docs/architecture/PAUSE-LIFECYCLE.md](../docs/architecture/PAUSE-LIFECYCLE.md#keeper-and-indexer-guidance) for the full event-driven
 tracking guide.
 
 ### Prerequisites
@@ -563,7 +558,7 @@ tracking guide.
 
 `indexer.ts` does not read `NETWORK_PASSPHRASE` itself, but its RPC client
 (`rpc-client.ts`) does, along with `RPC_URLS` — see
-[`docs/scripts-environment.md`](../docs/scripts-environment.md).
+[`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ### Startup
 
@@ -601,6 +596,85 @@ tsx query-events.ts --ledger 500000 --to 510000
 ```
 
 ---
+
+
+### HTTP API
+
+`indexer-api.ts` (`npm run api`) serves a read-only HTTP API over the indexer database:
+events by user/merchant, merchant revenue and churn, with pagination, bounded limits,
+configurable CORS and an OpenAPI spec (`docs/openapi/indexer-api.json`). See
+[docs/INDEXER-API.md](../docs/INDEXER-API.md).
+
+### Database schema and migrations
+
+The indexer's SQLite schema is defined **only** by the numbered, forward-only
+migrations in `db/migrations/` (`001_initial_schema.ts`, `002_add_event_columns.ts`, `003_ledger_gaps.ts`,
+listed in `db/migrations/index.ts`). `db/migrate.ts` applies pending migrations at
+startup (`initSchema` in `indexer.ts`), each in its own transaction together with the
+`meta.schema_version` bump. `db/schema.ts` defines no tables; it exposes `SCHEMA_VERSION`
+and read-only introspection helpers (`getSchemaVersion`, `getTableColumns`, `listIndexes`).
+
+To change the schema, add `NNN_description.ts` (idempotent `up(db)`), append it to
+`db/migrations/index.ts`, and extend `db/migrations.test.ts`. Existing databases upgrade in
+place with no data loss; a database whose `schema_version` is newer than the running
+indexer is refused rather than modified.
+
+
+### Ledger gaps and backfill
+
+Soroban RPC keeps only a limited window of ledgers (the *retention window*, typically
+a few days on public providers; see `oldestLedger` in `getHealth`). If the indexer is
+down longer than that, the ledgers between its cursor and the RPC's oldest ledger can
+no longer be read through `getEvents`.
+
+**Detection.** Before every poll the indexer compares its cursor
+(`meta.last_ledger`, the next ledger to fetch; `meta.last_processed_ledger` is the last
+fully processed one) with the RPC's `oldestLedger`. If `oldestLedger > cursor` it
+1. logs an `ERROR` "Ledger gap detected" line with `start_ledger`, `end_ledger`, `missed_ledgers`;
+2. stores the range in the `ledger_gaps` table (status `open`; one row per range, idempotent);
+3. bumps Prometheus metrics, and
+4. resumes indexing from the RPC's oldest ledger instead of failing on every poll.
+
+If `getHealth` does not report the retention window, the check is skipped (no false gaps).
+
+| Metric (set `INDEXER_METRICS_ENABLED=true`, port `METRICS_PORT`) | Meaning |
+|---|---|
+| `indexer_ledger_gaps_total` | Gaps detected |
+| `indexer_ledger_gap_ledgers_total` | Ledgers lost to detected gaps |
+| `indexer_open_ledger_gaps` | Gaps not yet backfilled — alert on `> 0` |
+| `indexer_last_processed_ledger` | Last fully processed ledger |
+| `indexer_oldest_available_ledger` | RPC retention boundary |
+
+**Backfill.** `horizon-backfill.ts` recovers a gap from a Horizon instance that still has
+the history: it reads each ledger's transactions, decodes the contract's Soroban events
+from the transaction result meta, and writes them through the normal indexer path.
+
+```bash
+npx tsx horizon-backfill.ts --list                         # show recorded gaps (no network)
+CONTRACT_ID=C... HORIZON_URL=https://<full-history-horizon> npx tsx horizon-backfill.ts
+CONTRACT_ID=C... HORIZON_URL=... npx tsx horizon-backfill.ts --gap-id 3   # one gap
+```
+
+Safety: events are keyed by their on-chain position (`tx_hash:op:event index`) and
+upserted, so re-running, overlapping gaps, or events the indexer already stored never
+create duplicates. Progress is saved after every ledger (`backfilled_through`); a
+transient Horizon error leaves the gap `open` and the next run resumes where it stopped.
+The indexer and the backfill can run at the same time.
+
+**Limitations / recovery.**
+- Horizon must retain the gap's ledgers. Public Horizons often do not; use a provider or
+  your own Horizon with full history. If Horizon answers 404 the gap becomes
+  `unrecoverable` (see `detail`); recovery then needs a history archive, which is not
+  automated here.
+- Only events from successful transactions with Soroban meta v3 are decoded; other meta
+  versions are skipped with a warning.
+- Backfill reads one ledger at a time (roughly one request per ledger); large gaps take time.
+- Event ids are derived from the transaction TOID plus the event's index in the
+  transaction's contract events. This follows the Soroban RPC id format but has only been
+  verified against synthetic fixtures, not a live RPC — spot-check a recovered range
+  against `getEvents` before relying on it for accounting.
+- Prevention: alert on `indexer_open_ledger_gaps` and on indexer downtime well before the
+  retention window elapses.
 
 ## Metrics server
 
@@ -845,7 +919,7 @@ uses `RPC_URL` to probe the Soroban RPC endpoint.
 
 ## Environment matrix
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 Compose itself declares no `environment:` keys; it only loads `.env`. The Docker image additionally sets `NODE_ENV=production` and `NODE_OPTIONS=--unhandled-rejections=throw`.
 
@@ -871,11 +945,11 @@ This ops guide does not reproduce those playbooks:
 | Topic                             | Where                                                                                                              |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Keeper overview + runbook pointer | [`docs/KEEPER.md`](../docs/KEEPER.md)                                                                              |
-| Dead-letter queue recovery        | [`docs/operations/keeper_runbook.md`](../docs/operations/keeper_runbook.md) (section “Dead-Letter Queue Recovery”) |
+| Dead-letter queue recovery        | [`docs/operations/KEEPER-RUNBOOK.md`](../docs/operations/KEEPER-RUNBOOK.md) (section “Dead-Letter Queue Recovery”) |
 | RPC failover (runbook)            | Same file, section “RPC Failover Configuration”                                                                    |
 | TS DLQ replay helper              | [`replay-dlq.ts`](replay-dlq.ts) (default `DLQ_FILE=dlq/failed-batches.jsonl`)                                     |
 | Event backfill                    | [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md), [`replay-events.ts`](replay-events.ts)              |
-| **Charge outcome encoding**       | **[`docs/charge-results.md`](../docs/charge-results.md)** - `scvU32` discriminants, event `scvSymbol` keys, DLQ row schema, `null` vs failure |
+| **Charge outcome encoding**       | **[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md)** - `scvU32` discriminants, event `scvSymbol` keys, DLQ row schema, `null` vs failure |
 | Multi-endpoint RPC helper         | [`rpc-client.ts`](rpc-client.ts) (`RPC_URLS`) — **not** imported by the current keeper/indexer entrypoints         |
 
 `replay-dlq.ts` states that `keeper.ts` writes the JSONL DLQ. Confirm that path
@@ -884,7 +958,7 @@ against the keeper you actually run before relying on it in production.
 ### Reading charge outcomes
 
 If you are building anything that needs to know *which subscribers were charged*,
-read [`docs/charge-results.md`](../docs/charge-results.md) first. The short
+read [`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) first. The short
 version, because it is easy to get wrong:
 
 - `batch_charge` returns a `Vec<ChargeResult>` where **each element is an
@@ -926,7 +1000,7 @@ Every script in this directory falls into one of three categories:
 | RPC client with failover | `rpc-client.ts` | Multi-endpoint RPC client (`RPC_URLS`) |
 | Dry-run statistics | `lib/dry-run-stats.ts` | Aggregation of `ChargeResult` pages for keeper dry-run reports |
 | Forecasting utilities | `lib/forecast.ts` | Renewal forecasting math |
-| Database schema | `db/schema.ts` | SQLite schema for indexer |
+| Database schema | `db/migrations/`, `db/migrate.ts` | Single source of truth for the indexer SQLite schema (numbered migrations + runner); `db/schema.ts` holds read-only helpers |
 | Node SQLite mock | `__tests__/support/node-sqlite.ts` | Test mock for `node:sqlite` |
 
 ---
@@ -943,7 +1017,7 @@ Out of scope for this ops-guide revision. Existing helpers include (non-exhausti
 indexer's stored events, so they work from the `batch_charge_skips` aggregate
 rather than from per-subscriber results. If you need per-subscriber outcomes,
 read the return value, and get the encoding right:
-[`docs/charge-results.md`](../docs/charge-results.md). The two spellings of the
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md). The two spellings of the
 same outcome differ (`Charged` vs `charged`, `Skipped` vs `not_due`), and mixing
 them up is the usual cause of an export that reports every subscriber as
 unpaid.
@@ -1213,7 +1287,7 @@ disappears.
 Scans live subscriptions and warns about token allowances that are about to
 expire, so subscribers can be nudged before a charge starts failing with
 `AllowanceInsufficient`. See
-[`docs/charge-results.md`](../docs/charge-results.md) for what that outcome
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) for what that outcome
 means.
 
 ```bash
@@ -1298,7 +1372,7 @@ npx tsx keeper-benchmark.ts --fixture data/benchmarks/keeper-dryrun-report-sampl
 | `RPC_URL` | Also read from `VITE_RPC_URL`. |
 
 Use `--fixture` to iterate on keeper changes with no network dependency, and
-[`docs/limits.md`](../docs/limits.md) to check the result against the caps
+[`docs/LIMITS.md`](../docs/LIMITS.md) to check the result against the caps
 the contract actually enforces.
 
 ### metrics-server.ts
@@ -1378,7 +1452,7 @@ npx tsx onboard-merchant.ts GABC... --contractId C... --rpcUrl https://soroban-t
 By default the contract ID, RPC URL and network come from
 `deployments/manifest.json`; the flags override that. The merchant key must
 authorize the write. The batch size is bounded by the contract's whitelist cap
-- see [`docs/limits.md`](../docs/limits.md#batch-operations) - and the script
+- see [`docs/LIMITS.md`](../docs/LIMITS.md#batch-operations) - and the script
 chunks to it.
 
 ### renewal-forecast.ts
@@ -1459,7 +1533,7 @@ Delivers HMAC-SHA256-signed webhook payloads with retries; exhausted deliveries 
 
 ## Environment variable reference
 
-Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/scripts-environment.md`](../docs/scripts-environment.md).
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ## Related
 

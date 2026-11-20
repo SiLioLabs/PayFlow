@@ -137,7 +137,7 @@ To prevent contradictory validation logic between forms, components, and the con
 | **Pay-Per-Use Amount Validation** | [`frontend/src/hooks/useFormValidation.ts`](../../frontend/src/hooks/useFormValidation.ts) (`validateStroopAmount`) | `PayPerUseForm` | Reuses canonical stroop amount validation against `CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT`. |
 | **Stroop / XLM Text Field Formatting** | [`frontend/src/components/StroopInput.tsx`](../../frontend/src/components/StroopInput.tsx) | `DailyLimitModal`, `IncreaseAllowanceModal`, `SubscribeForm` | Parses decimal fractions up to 7 decimal places and prevents numeric overflow. |
 | **Single Stellar Ed25519 Address** | [`frontend/src/components/AddressInput.tsx`](../../frontend/src/components/AddressInput.tsx) | `admin/AdminRepairPanel.tsx`, tests | Validates base32 public keys using `StrKey.isValidEd25519PublicKey`. |
-| **Multi-Address Lists & Chunking** | [`frontend/src/utils/addressValidation.ts`](../../frontend/src/utils/addressValidation.ts) | `admin/AddressListInput.tsx`, `admin/BatchPausePanel.tsx` | Splits line breaks/commas, removes duplicates, and chunks arrays to batch caps (`limits.md`). |
+| **Multi-Address Lists & Chunking** | [`frontend/src/utils/addressValidation.ts`](../../frontend/src/utils/addressValidation.ts) | `admin/AddressListInput.tsx`, `admin/BatchPausePanel.tsx` | Splits line breaks/commas, removes duplicates, and chunks arrays to batch caps (`LIMITS.md`). |
 | **Admin Repair Report Mappings** | [`frontend/src/utils/subscriptionValidation.ts`](../../frontend/src/utils/subscriptionValidation.ts) | `admin/AdminRepairPanel.tsx` | Translates smart contract data integrity violation codes into operator explanations. |
 | **Billing Interval Presets** | [`frontend/src/constants.ts`](../../frontend/src/constants.ts) (`BILLING_INTERVALS`) | `SubscribeForm`, `SubscriptionCard` | Defines UI interval labels and seconds (Daily, Weekly, Monthly, Annual). |
 
@@ -150,4 +150,4 @@ To prevent contradictory validation logic between forms, components, and the con
 | [`docs/FRONTEND.md`](../FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
 | [`docs/FRONTEND-COMPONENTS.md`](../FRONTEND-COMPONENTS.md) | Component API specifications, prop types, and usage examples |
 | [`docs/CONTRIBUTING-FRONTEND.md`](../CONTRIBUTING-FRONTEND.md) | Contributor workflows, testing conventions, and accessibility |
-| [`docs/limits.md`](../limits.md) | Admin batch size caps and contract limits |
+| [`docs/LIMITS.md`](../LIMITS.md) | Admin batch operation caps and contract limits |

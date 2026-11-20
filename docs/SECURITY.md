@@ -13,12 +13,12 @@ FlowPay is deployed on Testnet only and has not been formally audited. Treat the
 
 ### Audit roadmap
 
-1. Complete the internal preparation checklist in [`docs/security/audit-preparation.md`](security/audit-preparation.md).
+1. Complete the internal preparation checklist in [`docs/security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md).
 2. Freeze and tag an audit candidate commit; publish the WASM hash.
 3. Engage an independent Soroban-focused auditor with the in-scope contract sources.
 4. Remediate findings, re-test, and publish the report (or summary) before Mainnet.
 
-Use the [Security Audit Preparation Guide](security/audit-preparation.md) for invariants, threat mapping, scope, and known limitations to brief auditors.
+Use the [Security Audit Preparation Guide](security/AUDIT-PREPARATION.md) for invariants, threat mapping, scope, and known limitations to brief auditors.
 
 ---
 

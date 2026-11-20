@@ -2,7 +2,7 @@
 
 This document provides the component-by-component API reference for PayFlow's React UI, including props, types, states, hooks, and usage examples.
 
-> **Component Inventory & Status**: For the complete inventory of canonical vs. unmounted status and validation-rule ownership, see [`docs/frontend/components.md`](frontend/components.md).  
+> **Component Inventory & Status**: For the complete inventory of canonical vs. unmounted status and validation-rule ownership, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
 > **Architecture Guide**: For application architecture, data flow, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
 > **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
 
@@ -871,6 +871,6 @@ Serialized transaction queue ensuring wallet signing requests do not collide. Tr
 | Document | Purpose |
 | --- | --- |
 | [`docs/FRONTEND.md`](FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
-| [`docs/frontend/components.md`](frontend/components.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
 | [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md) | Contributor workflows, testing conventions, and accessibility |
-| [`docs/limits.md`](limits.md) | Admin batch operation caps and contract limits |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |

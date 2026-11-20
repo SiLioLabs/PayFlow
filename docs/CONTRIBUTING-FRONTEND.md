@@ -4,7 +4,7 @@ This guide covers developer setup, coding conventions, testing guidelines, styli
 
 > **Architecture Guide**: For application architecture, data flow, `stellar.ts` design, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
 > **Component Reference**: For component prop signatures, types, and component-level APIs, see [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).  
-> **Component Inventory**: For the canonical vs. unmounted component map and single-source validation rules, see [`docs/frontend/components.md`](frontend/components.md).
+> **Component Inventory**: For the canonical vs. unmounted component map and single-source validation rules, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).
 
 ---
 
@@ -239,5 +239,5 @@ Before submitting a frontend PR, confirm:
 | --- | --- |
 | [`docs/FRONTEND.md`](FRONTEND.md) | High-level frontend architecture, data flow, and provider tree |
 | [`docs/FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md) | Component API specifications, prop types, and usage examples |
-| [`docs/frontend/components.md`](frontend/components.md) | Component inventory, canonical status, and validation rule owners |
-| [`docs/limits.md`](limits.md) | Admin batch operation caps and contract limits |
+| [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md) | Component inventory, canonical status, and validation rule owners |
+| [`docs/LIMITS.md`](LIMITS.md) | Admin batch operation caps and contract limits |
