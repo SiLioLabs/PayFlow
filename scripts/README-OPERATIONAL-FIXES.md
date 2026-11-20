@@ -20,7 +20,7 @@ The contract emits `batch_charge_skips` events (in `contract/src/events.rs`) whi
    - Added logic to filter for `allowance_insufficient > 0`
    - Updated docstring to document the actual event shape and failure modes
 
-3. **Schema documentation** (`scripts/db/schema.ts`): Re-exports indexer helpers for test access
+3. **Schema documentation** (`scripts/db/schema.ts`): Read-only schema helpers and re-exports of indexer helpers for test access. The schema itself lives in `scripts/db/migrations/`
 
 4. **Fixture test** (`scripts/__tests__/alert-failed-charges.test.ts`):
    - Simulates a batch_charge_skips event with allowance_insufficient > 0
