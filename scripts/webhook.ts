@@ -21,7 +21,10 @@
 
 import { createHmac } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
+import { appendJsonLine } from "./soroban-admin.js";
+import { logger } from "./logger.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -135,31 +138,7 @@ export async function deliverWebhook(url: string, payload: unknown): Promise<voi
   throw new Error(`[webhook] All ${MAX_RETRIES} attempts failed. Payload in DLQ.`);
 }
 
-// ── CLI Entry-point ───────────────────────────────────────────────────────────
-
-if (process.argv[1]?.endsWith("webhook.ts") || process.argv[1]?.endsWith("webhook.js")) {
-  if (!WEBHOOK_URL) {
-    console.error("Error: WEBHOOK_URL environment variable is required");
-    process.exit(1);
-  }
-  if (!WEBHOOK_SECRET) {
-    console.error("Error: WEBHOOK_SECRET environment variable is required");
-    process.exit(1);
-  }
-
-  const samplePayload = {
-    event: "test",
-    generated_at: new Date().toISOString(),
-    message: "Webhook test from PayFlow scripts",
-  };
-
-  deliverWebhook(WEBHOOK_URL, samplePayload).catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  });
-import { createHmac } from "node:crypto";
-import { appendJsonLine } from "./soroban-admin.js";
-import { logger } from "./logger.js";
+// ── Config-based delivery (used by watch-events.ts) ──────────────────────────
 
 // Exported to allow injecting a mock fetch during tests
 export let _webhookFetch = global.fetch;
@@ -247,7 +226,7 @@ export async function sendWebhook(payload: unknown, config: WebhookConfig): Prom
 
   // Reached permanent failure or exhausted retries
   logger.error(`Webhook delivery failed permanently after ${attempt - 1} attempts. Writing to DLQ.`);
-  await writeToDlq(payload, config, lastError, attempt - 1);
+  await writeConfigDlq(payload, config, lastError, attempt - 1);
 }
 
 // Exported for overriding in tests
@@ -256,7 +235,7 @@ export function setSleep(mock: (ms: number) => Promise<void>) {
   sleep = mock;
 }
 
-async function writeToDlq(payload: unknown, config: WebhookConfig, error: string | null, attempts: number): Promise<void> {
+async function writeConfigDlq(payload: unknown, config: WebhookConfig, error: string | null, attempts: number): Promise<void> {
   const dlqEntry = {
     timestamp: new Date().toISOString(),
     destination: config.url, // Only save URL context, never the secret
@@ -269,4 +248,29 @@ async function writeToDlq(payload: unknown, config: WebhookConfig, error: string
   } catch (dlqErr) {
     logger.error(`Failed to write to DLQ (${config.dlqFile}): ${dlqErr}`);
   }
+}
+
+// ── CLI Entry-point ───────────────────────────────────────────────────────────
+
+// Exact entry-point check: `endsWith("webhook.ts")` also matched test-webhook.ts.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (!WEBHOOK_URL) {
+    console.error("Error: WEBHOOK_URL environment variable is required");
+    process.exit(1);
+  }
+  if (!WEBHOOK_SECRET) {
+    console.error("Error: WEBHOOK_SECRET environment variable is required");
+    process.exit(1);
+  }
+
+  const samplePayload = {
+    event: "test",
+    generated_at: new Date().toISOString(),
+    message: "Webhook test from PayFlow scripts",
+  };
+
+  deliverWebhook(WEBHOOK_URL, samplePayload).catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
 }
