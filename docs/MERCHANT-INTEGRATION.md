@@ -450,26 +450,65 @@ Set the following environment variables (e.g. in `scripts/.env`):
 * `WEBHOOK_URL`: The HTTP POST endpoint of your server.
 * `WEBHOOK_SECRET`: A shared secret string used to sign request bodies.
 * `WEBHOOK_DLQ_FILE`: Optional path to write failed deliveries after retry exhaustion (default: `data/webhook-dlq.jsonl`).
+* `WEBHOOK_LEGACY_SIGNATURE`: Optional. Set to `false` to stop sending the legacy body-only signature header once receivers verify `X-PayFlow-Signature-V2` (default: sent).
 
 #### Signature Verification
-Each request is signed with a deterministic HMAC-SHA256 signature calculated over the exact raw JSON request body bytes using `WEBHOOK_SECRET` as the key. The signature is sent as a hexadecimal string in the `X-PayFlow-Signature` header.
+
+Each request carries a **timestamped** HMAC-SHA256 signature. Verifying both the
+signature and the timestamp stops a captured request from being replayed later.
+
+| Header | Value |
+|---|---|
+| `X-PayFlow-Timestamp` | Unix time in seconds when the attempt was sent. Each retry is re-signed with a fresh timestamp. |
+| `X-PayFlow-Signature-V2` | Hex HMAC-SHA256 of `"<X-PayFlow-Timestamp>.<raw request body>"`, keyed with `WEBHOOK_SECRET`. |
+| `X-PayFlow-Signature` | **Legacy** (transition only). Hex HMAC-SHA256 of the raw body alone. It can be replayed indefinitely, so don't rely on it. |
 
 To verify a webhook delivery:
-1. Read the raw request body buffer.
-2. Compute the HMAC-SHA256 hash using your configured shared secret.
-3. Compare the computed signature to the value in the `X-PayFlow-Signature` header using constant-time comparison.
+1. Read the raw request body bytes, before any JSON parsing.
+2. Reject the request if `X-PayFlow-Timestamp` is missing or more than your
+   tolerance (recommended **300 seconds**) away from your server clock.
+3. Compute `HMAC-SHA256(secret, timestamp + "." + rawBody)` as hex.
+4. Compare it to `X-PayFlow-Signature-V2` using a constant-time comparison.
 
-Example verification in Node.js:
+Node.js:
 ```typescript
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-function verifyWebhook(body: string, secret: string, headerSignature: string): boolean {
-  const computed = createHmac("sha256", secret).update(body).digest("hex");
-  const a = Buffer.from(computed);
-  const b = Buffer.from(headerSignature);
-  return a.length === b.length && timingSafeEqual(a, b);
+const TOLERANCE_SECONDS = 300;
+
+function verifyWebhook(rawBody: string, secret: string, timestamp?: string, signature?: string): boolean {
+  if (!timestamp || !signature || !/^\d+$/.test(timestamp)) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > TOLERANCE_SECONDS) return false; // replay / stale
+  const expected = Buffer.from(createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex"));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && timingSafeEqual(expected, given);
 }
+
+// verifyWebhook(rawBody, process.env.WEBHOOK_SECRET!, req.headers["x-payflow-timestamp"], req.headers["x-payflow-signature-v2"])
 ```
+
+Python:
+```python
+import hashlib, hmac, time
+
+TOLERANCE_SECONDS = 300
+
+def verify_webhook(raw_body: bytes, secret: str, timestamp: str | None, signature: str | None) -> bool:
+    if not timestamp or not signature or not timestamp.isdigit():
+        return False
+    if abs(time.time() - int(timestamp)) > TOLERANCE_SECONDS:
+        return False  # replay / stale
+    expected = hmac.new(secret.encode(), timestamp.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```
+
+The same check ships as `verifyWebhookSignature()` in `scripts/webhook.ts`.
+
+**Migrating from the legacy header:** switch your receiver to
+`X-PayFlow-Signature-V2` + `X-PayFlow-Timestamp`. Once every receiver has
+switched, set `WEBHOOK_LEGACY_SIGNATURE=false` to stop sending the body-only
+`X-PayFlow-Signature` (and `X-Signature-SHA256` from the `webhook.ts` CLI).
+The legacy headers will be removed in a future release.
 
 #### Reliability & Retry Logic
 Webhook delivery handles network/server errors automatically:
