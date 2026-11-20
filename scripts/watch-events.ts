@@ -11,7 +11,7 @@ import { STROOPS_PER_XLM } from "./lib/contract-limits.js";
 import { EventDedupCache, createCacheKey } from "./event-dedup.js";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger";
-import { sendWebhook, WebhookConfig } from "./webhook.js";
+import { sendWebhook, WebhookConfig, loadWebhookEndpoints, dispatchWebhookEvent, type WebhookEndpoint } from "./webhook.js";
 import { resolve } from "node:path";
 
 // ── Configuration ────────────────────────────────────────────────────────────────
@@ -33,6 +33,19 @@ if (WEBHOOK_URL && !WEBHOOK_SECRET) {
 const webhookConfig: WebhookConfig | null = WEBHOOK_URL && WEBHOOK_SECRET
   ? { url: WEBHOOK_URL, secret: WEBHOOK_SECRET, dlqFile: WEBHOOK_DLQ_FILE }
   : null;
+
+// Issue #1485: multiple endpoints with event filters and key rotation.
+// When set, WEBHOOK_ENDPOINTS_FILE replaces WEBHOOK_URL / WEBHOOK_SECRET.
+const WEBHOOK_ENDPOINTS_FILE = process.env.WEBHOOK_ENDPOINTS_FILE;
+let webhookEndpoints: WebhookEndpoint[] | null = null;
+if (WEBHOOK_ENDPOINTS_FILE) {
+  try {
+    webhookEndpoints = loadWebhookEndpoints(WEBHOOK_ENDPOINTS_FILE);
+  } catch (err) {
+    logger.error(`Error: invalid WEBHOOK_ENDPOINTS_FILE (${WEBHOOK_ENDPOINTS_FILE}): ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+}
 
 if (!CONTRACT_ID) {
   logger.error("Error: CONTRACT_ID environment variable is required");
@@ -299,7 +312,9 @@ async function fetchAndPrintEvents(): Promise<void> {
       printEvent(event);
 
       // Issue #894: Reliable Signed Webhook Delivery
-      if (webhookConfig) {
+      if (webhookEndpoints) {
+        void dispatchWebhookEvent(event.type, event, webhookEndpoints, WEBHOOK_DLQ_FILE);
+      } else if (webhookConfig) {
         sendWebhook(event, webhookConfig).catch(err => {
           logger.error(`Failed to trigger webhook for event ${event.id}: ${err}`);
         });
