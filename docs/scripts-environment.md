@@ -71,6 +71,8 @@ Many scripts accept a `VITE_`-prefixed fallback (`VITE_CONTRACT_ID`, `VITE_RPC_U
 | `WEBHOOK_URL` | No | string | Valid http/https URL | alert-expiring-allowances, alert-failed-charges | Webhook POST target |
 | `WEBHOOK_SECRET` | No | string | Non-empty if provided | alert-expiring-allowances, alert-failed-charges | HMAC-SHA256 signing key for webhooks |
 | `WEBHOOK_DLQ_FILE` | No | string | File path | alert-expiring-allowances, alert-failed-charges | Dead-letter queue for failed webhooks |
+| `WEBHOOK_ENDPOINTS_FILE` | No | string | Path to a JSON endpoints file (see `scripts/webhook-endpoints.example.json`) | watch-events | Multiple webhook endpoints with event filters and key-id secret rotation; replaces `WEBHOOK_URL`/`WEBHOOK_SECRET` when set |
+| `WEBHOOK_LEGACY_SIGNATURE` | No | string | `false` to disable; default sends | webhook, watch-events | Also send the legacy body-only signature header (transition, see MERCHANT-INTEGRATION.md) |
 | `NETWORK_PASSPHRASE` | No | string | Default: `Test SDF Network ; September 2015` | keeper, check-allowances | Stellar network passphrase |
 | `ALLOW_MAINNET` | No | boolean | `"true"` required to use the mainnet passphrase; default `false` | keeper | Mainnet safety gate — startup fails if the mainnet passphrase is selected without it |
 | `DRY_RUN` | No | boolean | `"true"` enables; default `false` | keeper | Simulation mode (no live submissions) |
