@@ -15,6 +15,8 @@ export class FreighterAdapter implements WalletAdapter {
   id = "freighter";
   name = "Freighter";
   icon = "🚢";
+  installUrl = "https://freighter.app";
+  installHint = "Install the Freighter browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.freighter;
