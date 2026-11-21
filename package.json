@@ -7,7 +7,9 @@
     "build:frontend": "cd frontend && npm ci && npm run build",
     "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
     "backend:typecheck": "cd contract && cargo check",
-    "backend:test": "cd contract && cargo test"
+    "backend:test": "cd contract && cargo test",
+    "keeper:typecheck": "cd scripts && npm install --ignore-scripts && npx tsc --noEmit --project tsconfig.json",
+    "keeper:test": "cd scripts && npm install --ignore-scripts && npm test"
   },
   "devDependencies": {
     "husky": "^9.1.7",

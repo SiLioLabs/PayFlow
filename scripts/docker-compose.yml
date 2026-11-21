@@ -1,0 +1,121 @@
+# PayFlow local observability stack
+#
+# docker compose up
+#
+# Services:
+#   keeper      — PayFlow keeper service (charges subscriptions)
+#   prometheus  — scrapes keeper metrics on :9091/metrics
+#   grafana     — pre-provisioned with the PayFlow dashboard
+#
+# Ports (all bound to 127.0.0.1 — local-only by default):
+#   localhost:9091  → keeper /metrics
+#   localhost:9090  → Prometheus UI
+#   localhost:3000  → Grafana UI  (admin / admin — change on first login)
+#
+# Quick start:
+#   cp scripts/.env.example scripts/.env
+#   # Edit .env — set CONTRACT_ID and KEEPER_SECRET_FILE or KEEPER_SECRET
+#   docker compose -f scripts/docker-compose.yml up
+#
+# Docker secret (recommended for mainnet):
+#   echo "SXXXXXXXX..." > /run/secrets/keeper_secret
+#   Set KEEPER_SECRET_FILE=/run/secrets/keeper_secret in .env
+
+version: "3.9"
+
+networks:
+  payflow:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
+
+services:
+  # ── Keeper ────────────────────────────────────────────────────────────────
+  keeper:
+    build:
+      context: ..
+      dockerfile: scripts/Dockerfile.keeper
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      METRICS_PORT: "9091"
+    ports:
+      # Metrics — local only
+      - "127.0.0.1:9091:9091"
+    networks:
+      - payflow
+    # Mount a Docker secret for the signing key (preferred over env var)
+    # secrets:
+    #   - keeper_secret
+    # Uncomment and adjust if using Docker secrets:
+    # volumes:
+    #   - /run/secrets:/run/secrets:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      # Prometheus UI — local only
+      - "127.0.0.1:9090:9090"
+    networks:
+      - payflow
+    depends_on:
+      keeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.3
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Only allow access from localhost
+      GF_SERVER_HTTP_ADDR: "127.0.0.1"
+      GF_SERVER_HTTP_PORT: "3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      # Grafana UI — local only
+      - "127.0.0.1:3000:3000"
+    networks:
+      - payflow
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# Docker secrets (uncomment to use file-based secret for mainnet)
+# secrets:
+#   keeper_secret:
+#     file: /run/secrets/keeper_secret
