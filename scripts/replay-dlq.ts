@@ -1,0 +1,478 @@
+#!/usr/bin/env tsx
+/**
+ * replay-dlq.ts — Retry dead-letter queue entries for FlowPay keeper
+ *
+ * Reads dlq/failed-batches.jsonl (written by keeper.ts) line by line and
+ * resubmits each failed batch_charge. Successfully replayed entries are moved
+ * to dlq/replayed-batches.jsonl; permanently-failed entries are moved to
+ * dlq/dead-batches.jsonl so the file shrinks on each run.
+ *
+ * Usage
+ * ─────
+ *   CONTRACT_ID=C... KEEPER_SECRET=S... tsx replay-dlq.ts [--dry-run]
+ *
+ * Options
+ * ───────
+ *   --dry-run     Print what would be retried without submitting any transactions.
+ *   --help, -h    Show this help.
+ *
+ * Environment variables
+ * ─────────────────────
+ *   CONTRACT_ID          Required. Deployed FlowPay contract ID.
+ *   KEEPER_SECRET        Required. Stellar secret key (S…).
+ *                       The key is never logged: every log line and every
+ *                       error string this script writes is scrubbed by
+ *                       `redactSecrets` (`logger.ts`) before it is emitted.
+ *   RPC_URL              Soroban RPC endpoint (default: testnet).
+ *   NETWORK_PASSPHRASE   Stellar network passphrase (default: testnet).
+ *   KEEPER_MAX_RETRIES   Retry attempts per entry (default: 3).
+ *   KEEPER_RETRY_BASE_MS Base delay in ms (default: 1000).
+ *   DLQ_FILE             Path to the input JSONL file (default: dlq/failed-batches.jsonl).
+ *   LOG_LEVEL            debug | info | warn | error (default: info).
+ *
+ * Exit codes
+ * ──────────
+ *   0 — all entries replayed (or DLQ empty, or --dry-run)
+ *   1 — one or more entries could not be replayed (moved to dead-batches.jsonl)
+ *
+ * DLQ row schema
+ * ──────────────
+ *   Each line of the JSONL file is:
+ *   { timestamp, offset, limit, users, error, tx_xdr, attempts, ledger }
+ *
+ *   A row records that a *transaction* aborted. It carries no per-subscriber
+ *   charge outcome: `tx_xdr` is always null (replay rebuilds the transaction
+ *   from `users`), and `error` is free-form text. A batch that succeeded while
+ *   leaving one subscriber unpaid -- `ChargeResult::AllowanceInsufficient` --
+ *   is not a DLQ entry at all.
+ *
+ *   See docs/CHARGE-RESULTS.md for the full outcome encoding, including the
+ *   `scvU32` discriminants this script's `parseChargeResults` is meant to read.
+ */
+
+import {
+  Contract,
+  Keypair,
+  Networks,
+  TransactionBuilder,
+  BASE_FEE,
+  nativeToScVal,
+  xdr,
+  Address,
+} from "@stellar/stellar-sdk";
+import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  mkdirSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
+import { isChargeDue } from "./batch-optimizer";
+import { decodeChargeResults } from "./lib/charge-results.js";
+import { redactSecrets } from "./logger.js";
+import { logger as rootLogger } from "./logger.js";
+
+const logger = rootLogger.child({ script: "replay-dlq" });
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
+const KEEPER_SECRET = process.env.KEEPER_SECRET ?? "";
+const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ??
+  Networks.TESTNET) as string;
+const KEEPER_MAX_RETRIES = parseInt(process.env.KEEPER_MAX_RETRIES ?? "3", 10);
+const KEEPER_RETRY_BASE_MS = parseInt(
+  process.env.KEEPER_RETRY_BASE_MS ?? "1000",
+  10,
+);
+const DLQ_FILE = resolve(process.env.DLQ_FILE ?? "dlq/failed-batches.jsonl");
+
+const DLQ_DIR = dirname(DLQ_FILE);
+const REPLAYED_FILE = resolve(DLQ_DIR, "replayed-batches.jsonl");
+const DEAD_FILE = resolve(DLQ_DIR, "dead-batches.jsonl");
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+
+const LEVEL_ORDER: Record<string, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+const activeLevel = LEVEL_ORDER[LOG_LEVEL] ?? 1;
+
+/**
+ * JSON log sink.
+ *
+ * Every message and metadata value is passed through `redactSecrets` before
+ * it is written, so the keeper secret can never end up in the DLQ replay log
+ * or in an error string that came from the RPC layer.
+ */
+function log(
+  level: "debug" | "info" | "warn" | "error",
+  msg: string,
+  meta?: Record<string, unknown>,
+): void {
+  if ((LEVEL_ORDER[level] ?? 0) < activeLevel) return;
+  const safeMeta: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta ?? {})) {
+    safeMeta[redactSecrets(key)] =
+      typeof value === "string" ? redactSecrets(value) : value;
+  }
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    msg: redactSecrets(msg),
+    ...safeMeta,
+  };
+  (level === "error" || level === "warn"
+    ? process.stderr
+    : process.stdout
+  ).write(JSON.stringify(entry) + "\n");
+}
+
+// ── Types (mirror DlqEntry from keeper.ts) ────────────────────────────────────
+
+interface DlqEntry {
+  timestamp: string;
+  offset: number;
+  limit: number;
+  users?: string[]; // Make it optional for backward compatibility
+  error: string;
+  tx_xdr: string | null;
+  attempts: number;
+  ledger?: number;
+}
+
+// ── Permanent-failure detection ───────────────────────────────────────────────
+
+const PERMANENT_ERROR_PATTERNS: readonly string[] = [
+  "NoSubscriptionFound",
+  "SubscriptionInactive",
+  "ContractPaused",
+  "ContractPausedError",
+  "Unauthorized",
+];
+
+function isPermanentError(msg: string): boolean {
+  return PERMANENT_ERROR_PATTERNS.some((p) => msg.includes(p));
+}
+
+// ── Retry helper ──────────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number,
+  baseMs: number,
+  context: string,
+): Promise<T> {
+  let lastError: Error = new Error("unknown");
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (isPermanentError(lastError.message)) throw lastError;
+      if (attempt < maxAttempts) {
+        const delay = baseMs * Math.pow(2, attempt - 1);
+        logger.warn(`${context} attempt ${attempt}/${maxAttempts} failed`, {
+          error: lastError.message,
+          retry_in_ms: delay,
+        });
+        await sleep(delay);
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ── RPC helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Tally the per-address outcomes of a replayed batch.
+ *
+ * `ChargeResult` travels as an `scvU32` discriminant inside an `scvVec`, so
+ * the decoder in `lib/charge-results.ts` is used here. The previous
+ * implementation branched on `scvVec`/`scvMap`, neither of which is ever
+ * reachable, so `charged` was always 0 and `skipped` always equalled the
+ * batch size. See docs/CHARGE-RESULTS.md.
+ */
+function parseChargeResults(retval: xdr.ScVal): {
+  charged: number;
+  skipped: number;
+} {
+  const names = decodeChargeResults(retval);
+  let charged = 0;
+  for (const name of names) {
+    if (name === "Charged") charged++;
+  }
+  return { charged, skipped: names.length - charged };
+}
+
+async function replayEntry(
+  server: MultiEndpointServer,
+  contract: Contract,
+  keypair: Keypair,
+  entry: DlqEntry,
+): Promise<{ charged: number; skipped: number }> {
+  if (!entry.users || entry.users.length === 0) {
+    throw new Error("No users provided in DLQ entry for batch_charge");
+  }
+
+  const account = await server.getAccount(keypair.publicKey());
+  
+  // Precheck: skip users that are not due
+  const dueUsers: string[] = [];
+  for (const user of entry.users) {
+    try {
+      if (await isChargeDue(user)) {
+        dueUsers.push(user);
+      }
+    } catch (err) {
+      logger.warn(`Precheck failed for user ${user}`, { error: String(err) });
+      dueUsers.push(user); // Assume due on failure to not falsely skip
+    }
+  }
+
+  if (dueUsers.length === 0) {
+    logger.info("All users in batch skipped by precheck (not due)");
+    return { charged: 0, skipped: entry.users.length };
+  }
+
+  const usersVec = xdr.ScVal.scvVec(
+    dueUsers.map((u) => nativeToScVal(Address.fromString(u), { type: "address" }))
+  );
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call("batch_charge", usersVec)
+    )
+    .setTimeout(60)
+    .build();
+
+  const simResult = await server.simulateTransaction(tx);
+  if ("error" in simResult)
+    throw new Error(`Simulation failed: ${simResult.error}`);
+
+  const assembled = assembleTransaction(tx, simResult).build();
+  assembled.sign(keypair);
+
+  const sendResult = await server.sendTransaction(assembled);
+  if (sendResult.status === "ERROR")
+    throw new Error(`Transaction rejected: ${JSON.stringify(sendResult)}`);
+
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    await sleep(2_000);
+    const status = await server.getTransaction(sendResult.hash);
+    if (status.status === "SUCCESS") {
+      const retval = (status as { returnValue?: xdr.ScVal }).returnValue;
+      if (!retval) return { charged: 0, skipped: 0 };
+      return parseChargeResults(retval);
+    }
+    if (status.status === "FAILED")
+      throw new Error(`Transaction failed on-chain: ${sendResult.hash}`);
+  }
+  throw new Error(`Transaction ${sendResult.hash} not confirmed within 30 s`);
+}
+
+// ── DLQ file helpers ──────────────────────────────────────────────────────────
+
+function parseDlqFile(filePath: string): DlqEntry[] {
+  if (!existsSync(filePath)) return [];
+  return readFileSync(filePath, "utf-8")
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((line, i) => {
+      try {
+        return JSON.parse(line) as DlqEntry;
+      } catch {
+        logger.warn(`Skipping malformed DLQ line ${i + 1}`, { line });
+        return null;
+      }
+    })
+    .filter((e): e is DlqEntry => e !== null);
+}
+
+function appendToFile(filePath: string, entry: DlqEntry): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  appendFileSync(filePath, JSON.stringify(entry) + "\n", "utf-8");
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  const dryRun = argv.includes("--dry-run");
+
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(
+      [
+        "",
+        "Usage: tsx replay-dlq.ts [--dry-run]",
+        "",
+        "  --dry-run   Print entries that would be retried without submitting txns.",
+        "  --help      Show this help.",
+        "",
+        "Environment variables:",
+        "  CONTRACT_ID, KEEPER_SECRET, RPC_URL, NETWORK_PASSPHRASE,",
+        "  KEEPER_MAX_RETRIES, KEEPER_RETRY_BASE_MS, DLQ_FILE, LOG_LEVEL",
+        "",
+      ].join("\n"),
+    );
+    process.exit(0);
+  }
+
+  if (!CONTRACT_ID) {
+    logger.error("FATAL: CONTRACT_ID is required.");
+    process.exit(1);
+  }
+  if (!KEEPER_SECRET && !dryRun) {
+    logger.error("FATAL: KEEPER_SECRET is required.");
+    process.exit(1);
+  }
+
+  let keypair: Keypair | null = null;
+  if (!dryRun) {
+    try {
+      keypair = Keypair.fromSecret(KEEPER_SECRET);
+    } catch {
+      logger.error("FATAL: KEEPER_SECRET is not a valid Stellar secret key.");
+      process.exit(1);
+    }
+  }
+
+  const entries = parseDlqFile(DLQ_FILE);
+
+  if (entries.length === 0) {
+    logger.info("DLQ is empty — nothing to replay.", { dlq_file: DLQ_FILE });
+    process.exit(0);
+  }
+
+  logger.info(`Found ${entries.length} DLQ entries.`, {
+    dlq_file: DLQ_FILE,
+    dry_run: dryRun,
+  });
+
+  if (dryRun) {
+    for (const e of entries) {
+      logger.info("[dry-run] Would replay", {
+        offset: e.offset,
+        limit: e.limit,
+        original_error: e.error,
+        original_ts: e.timestamp,
+      });
+    }
+    process.exit(0);
+  }
+
+  const server = new MultiEndpointServer();
+  const contract = new Contract(CONTRACT_ID);
+
+  let replayed = 0;
+  let permanent = 0;
+  let stillFailed = 0;
+
+  // Remaining entries that were not successfully replayed.
+  const remaining: DlqEntry[] = [];
+
+  for (const entry of entries) {
+    const context = `DLQ entry offset=${entry.offset}`;
+
+    // Skip entries whose original error was permanent — they won't succeed now.
+    if (isPermanentError(entry.error)) {
+      logger.warn("Skipping permanent-error entry", {
+        offset: entry.offset,
+        error: entry.error,
+      });
+      appendToFile(DEAD_FILE, {
+        ...entry,
+        error: `[permanent] ${entry.error}`,
+        timestamp: new Date().toISOString(),
+      });
+      permanent++;
+      continue;
+    }
+
+    try {
+      const result = await retryWithBackoff(
+        () => replayEntry(server, contract, keypair!, entry),
+        KEEPER_MAX_RETRIES,
+        KEEPER_RETRY_BASE_MS,
+        context,
+      );
+
+      logger.info("Entry replayed successfully", {
+        offset: entry.offset,
+        limit: entry.limit,
+        charged: result.charged,
+        skipped: result.skipped,
+      });
+      appendToFile(REPLAYED_FILE, {
+        ...entry,
+        timestamp: new Date().toISOString(),
+      });
+      replayed++;
+    } catch (err) {
+      const msg = redactSecrets(
+        err instanceof Error ? err.message : String(err),
+      );
+      log("error", "Entry failed after retries — moving to dead-batches", {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error("Entry failed after retries — moving to dead-batches", {
+        offset: entry.offset,
+        error: msg,
+      });
+      appendToFile(DEAD_FILE, {
+        ...entry,
+        error: msg,
+        timestamp: new Date().toISOString(),
+      });
+      stillFailed++;
+      remaining.push(entry);
+    }
+  }
+
+  // Rewrite the DLQ to contain only entries that still need attention.
+  mkdirSync(DLQ_DIR, { recursive: true });
+  writeFileSync(
+    DLQ_FILE,
+    remaining.map((e) => JSON.stringify(e)).join("\n") +
+      (remaining.length ? "\n" : ""),
+    "utf-8",
+  );
+
+  logger.info("Replay complete", {
+    replayed,
+    permanent,
+    still_failed: stillFailed,
+  });
+
+  process.exit(stillFailed > 0 ? 1 : 0);
+}
+
+main().catch((err: unknown) => {
+  console.error(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      level: "error",
+      msg: "Fatal unhandled error",
+      error: redactSecrets(err instanceof Error ? err.message : String(err)),
+    }),
+  );
+  logger.error("Fatal unhandled error", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+  process.exit(1);
+});

@@ -1,0 +1,205 @@
+{
+  "_description": "Fixture for audit-trail reconciliation tests. Contains two scenarios: a 'matching' set where the audit export and indexer DB agree on all days, and a 'mismatch' set where one day has a divergent charge count, volume, and fee.",
+
+  "matching_export_entries": [
+    {
+      "event_type": "charged",
+      "timestamp": "2026-03-01T10:00:00.000Z",
+      "subscriber": "GAAA1111111111111111111111111111111111111111111111111111111",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "10000000",
+      "fee_stroops":    "100000",
+      "net_stroops":    "9900000",
+      "tx_hash": "txhash001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ledger": 100001
+    },
+    {
+      "event_type": "charged",
+      "timestamp": "2026-03-01T14:00:00.000Z",
+      "subscriber": "GCCC3333333333333333333333333333333333333333333333333333333",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "5000000",
+      "fee_stroops":    "50000",
+      "net_stroops":    "4950000",
+      "tx_hash": "txhash002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ledger": 100002
+    },
+    {
+      "event_type": "pay_per_use",
+      "timestamp": "2026-03-02T09:00:00.000Z",
+      "subscriber": "GAAA1111111111111111111111111111111111111111111111111111111",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "2000000",
+      "fee_stroops":    "20000",
+      "net_stroops":    "1980000",
+      "tx_hash": "txhash003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ledger": 100100
+    },
+    {
+      "event_type": "subscribed",
+      "timestamp": "2026-03-02T11:00:00.000Z",
+      "subscriber": "GDDD4444444444444444444444444444444444444444444444444444444",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "10000000",
+      "fee_stroops":    "0",
+      "net_stroops":    "10000000",
+      "tx_hash": "txhash004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ledger": 100101
+    }
+  ],
+
+  "matching_indexer_rows": [
+    {
+      "id":         "txhash001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:charged",
+      "event_name": "charged",
+      "address":    "GAAA1111111111111111111111111111111111111111111111111111111",
+      "amount":     "10000000",
+      "fee_amount": "100000",
+      "ledger":     100001,
+      "timestamp":  1740826800,
+      "tx_hash":    "txhash001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    },
+    {
+      "id":         "txhash002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:charged",
+      "event_name": "charged",
+      "address":    "GCCC3333333333333333333333333333333333333333333333333333333",
+      "amount":     "5000000",
+      "fee_amount": "50000",
+      "ledger":     100002,
+      "timestamp":  1740841200,
+      "tx_hash":    "txhash002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    },
+    {
+      "id":         "txhash003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:pay_per_use",
+      "event_name": "pay_per_use",
+      "address":    "GAAA1111111111111111111111111111111111111111111111111111111",
+      "amount":     "2000000",
+      "fee_amount": "20000",
+      "ledger":     100100,
+      "timestamp":  1740909600,
+      "tx_hash":    "txhash003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    },
+    {
+      "id":         "txhash004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:subscribed",
+      "event_name": "subscribed",
+      "address":    "GDDD4444444444444444444444444444444444444444444444444444444",
+      "amount":     null,
+      "fee_amount": null,
+      "ledger":     100101,
+      "timestamp":  1740916800,
+      "tx_hash":    "txhash004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    }
+  ],
+
+  "_note_matching": "2026-03-01 → export: 2 charged (15000000 vol, 150000 fee); indexer: same. 2026-03-02 → export: 1 pay_per_use (2000000 vol, 20000 fee); indexer: same. Both days should PASS.",
+
+  "mismatch_export_entries": [
+    {
+      "event_type": "charged",
+      "timestamp": "2026-04-10T08:00:00.000Z",
+      "subscriber": "GAAA1111111111111111111111111111111111111111111111111111111",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "20000000",
+      "fee_stroops":    "200000",
+      "net_stroops":    "19800000",
+      "tx_hash": "txhash005bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ledger": 200001
+    },
+    {
+      "event_type": "charged",
+      "timestamp": "2026-04-10T12:00:00.000Z",
+      "subscriber": "GCCC3333333333333333333333333333333333333333333333333333333",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "7000000",
+      "fee_stroops":    "70000",
+      "net_stroops":    "6930000",
+      "tx_hash": "txhash006bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ledger": 200002
+    },
+    {
+      "event_type": "charged",
+      "timestamp": "2026-04-11T09:00:00.000Z",
+      "subscriber": "GAAA1111111111111111111111111111111111111111111111111111111",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "amount_stroops": "3000000",
+      "fee_stroops":    "30000",
+      "net_stroops":    "2970000",
+      "tx_hash": "txhash007bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ledger": 200100
+    }
+  ],
+
+  "mismatch_indexer_rows": [
+    {
+      "id":         "txhash005bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:charged",
+      "event_name": "charged",
+      "address":    "GAAA1111111111111111111111111111111111111111111111111111111",
+      "amount":     "20000000",
+      "fee_amount": "200000",
+      "ledger":     200001,
+      "timestamp":  1744272000,
+      "tx_hash":    "txhash005bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    },
+    {
+      "_note": "txhash006 is MISSING from the indexer — simulates a gap/dropped event",
+      "id":         "txhash007bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:charged",
+      "event_name": "charged",
+      "address":    "GAAA1111111111111111111111111111111111111111111111111111111",
+      "amount":     "3000000",
+      "fee_amount": "30000",
+      "ledger":     200100,
+      "timestamp":  1744362600,
+      "tx_hash":    "txhash007bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "merchant":   "GBBB2222222222222222222222222222222222222222222222222222222",
+      "raw_data":   "{}"
+    }
+  ],
+
+  "_note_mismatch": "2026-04-10 → export: 2 charged (27000000 vol, 270000 fee); indexer: 1 charged (20000000 vol, 200000 fee) — txhash006 missing → FAIL. 2026-04-11 → both agree (3000000 vol, 30000 fee) → PASS.",
+
+  "expected_results": {
+    "matching_scenario": {
+      "overall_matched": true,
+      "days_checked": 2,
+      "days_mismatched": 0,
+      "day_2026-03-01": {
+        "matched": true,
+        "export_charge_count": 2,
+        "export_volume_stroops": "15000000",
+        "export_fees_stroops": "150000"
+      },
+      "day_2026-03-02": {
+        "matched": true,
+        "export_charge_count": 1,
+        "export_volume_stroops": "2000000",
+        "export_fees_stroops": "20000"
+      }
+    },
+    "mismatch_scenario": {
+      "overall_matched": false,
+      "days_checked": 2,
+      "days_mismatched": 1,
+      "day_2026-04-10": {
+        "matched": false,
+        "diffs": [
+          "charge_count: export=2 indexer=1",
+          "volume_stroops: export=27000000 indexer=20000000",
+          "fees_stroops: export=270000 indexer=200000"
+        ]
+      },
+      "day_2026-04-11": {
+        "matched": true
+      }
+    }
+  }
+}

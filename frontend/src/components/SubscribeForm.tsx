@@ -1,120 +1,402 @@
-import React, { useMemo, useState } from "react";
-import { StrKey } from "@stellar/stellar-sdk";
+import React, { useEffect, useState } from "react";
 import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
-import { friendlyError } from "../utils/errors";
-import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
-import { useFormValidation } from "../hooks/useFormValidation";
-import { useToast } from "../hooks/useToast";
-import { useTransaction } from "../hooks/useTransaction";
+import {
+  useFormValidation,
+  validateAddress,
+  validateInterval,
+  validateStroopAmount,
+  type FormFields,
+} from "../hooks/useFormValidation";
+import { isValidStellarAddress } from "../utils/addressValidation";
+import { BILLING_INTERVALS, CONTRACT_LIMITS, STROOPS_PER_XLM } from "../constants";
+import IntervalSelector from "./IntervalSelector";
+import BalanceDisplay from "./BalanceDisplay";
 import AllowanceDisplay from "./AllowanceDisplay";
+import AddressBook from "./AddressBook";
+import ReferralPanel from "./ReferralPanel";
 import ToastContainer from "./Toast";
+import { useToast } from "../hooks/useToast";
+import { friendlyError } from "../utils/errors";
+import { useDirtyPreroute } from "../hooks/useDirtyPreroute";
+import StroopInput from "./StroopInput";
 
 interface Props {
   userKey: string;
   onSign: (xdr: string) => Promise<string>;
   onSuccess: () => void;
-  announce: (message: string) => void;
+  announce?: (message: string) => void;
+  isPaused?: boolean;
+  /** When true, wallet mutations are disabled because the browser is offline. */
+  isOffline?: boolean;
 }
 
-export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: Props) {
-  const [merchant, setMerchant] = useState("");
-  const [amount, setAmount] = useState("");
-  const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const { errors, validate } = useFormValidation();
-  const { toasts, addToast, removeToast } = useToast();
-  const tx = useTransaction();
+type TouchedFields = {
+  merchant: boolean;
+  amount: boolean;
+  interval: boolean;
+  referrer: boolean;
+  tokenAddress: boolean;
+};
 
-  function validateReferrer(value: string): string | null {
-    if (!value) return null; // Optional field
-    if (!StrKey.isValidEd25519PublicKey(value)) {
-      return "Invalid Stellar address format";
+function validateReferrer(referrer: string, userKey: string): { valid: boolean; error?: string } {
+  if (!referrer.trim()) {
+    // Referrer is optional
+    return { valid: true };
+  }
+
+  const trimmed = referrer.trim();
+
+  // Check if it's a valid Stellar address
+  if (!isValidStellarAddress(trimmed)) {
+    return { valid: false, error: "Invalid Stellar address format" };
+  }
+
+  // Check for self-referral client-side
+  if (trimmed === userKey) {
+    return { valid: false, error: "Cannot refer yourself — the contract will reject this" };
+  }
+
+  return { valid: true };
+}
+
+function fieldsAreValid(fields: FormFields, referrerValid: boolean): boolean {
+  return (
+    validateAddress(fields.merchant).valid &&
+    validateStroopAmount(fields.amount, CONTRACT_LIMITS.MAX_SUBSCRIPTION_AMOUNT).valid &&
+    validateInterval(fields.interval, CONTRACT_LIMITS.MIN_INTERVAL_SECONDS).valid &&
+    referrerValid
+  );
+}
+
+export default function SubscribeForm({
+  userKey,
+  onSign,
+  onSuccess,
+  announce,
+  isPaused = false,
+  isOffline = false,
+}: Props) {
+  const [merchant, setMerchant] = useState("");
+  const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
+  const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
+  const [referrer, setReferrer] = useState("");
+  const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
+  const [touched, setTouched] = useState<TouchedFields>({
+    merchant: false,
+    amount: false,
+    interval: false,
+    referrer: false,
+    tokenAddress: false,
+  });
+  const [showAddressBook, setShowAddressBook] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const { errors, validate, validateAsync, isValidating, cancelValidation } = useFormValidation();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
+
+  const amountString =
+    amountStroops !== null ? (Number(amountStroops) / STROOPS_PER_XLM).toString() : "";
+  const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
+  const referrerValidation = validateReferrer(referrer, userKey);
+  const canSubmit =
+    fieldsAreValid(fields, referrerValidation.valid) &&
+    !pending &&
+    !isValidating &&
+    !isPaused &&
+    !isOffline;
+
+  const isDirty =
+    merchant.trim() !== "" ||
+    amountStroops !== null ||
+    referrer.trim() !== "" ||
+    interval !== BILLING_INTERVALS[2].value ||
+    tokenAddress !== DEFAULT_TOKEN;
+
+  useDirtyPreroute(isDirty && !pending);
+
+  // Re-validate when touched fields change so errors clear as the user corrects them.
+  useEffect(() => {
+    if (touched.merchant || touched.amount || touched.interval || touched.tokenAddress) {
+      validate(fields);
     }
-    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on field values + touched
+  }, [
+    merchant,
+    amountStroops,
+    interval,
+    touched.merchant,
+    touched.amount,
+    touched.interval,
+    tokenAddress,
+    touched.tokenAddress,
+    validate,
+  ]);
+
+  // Any edit makes an in-flight server check stale: abort it so a submit that awaited it
+  // bails out instead of sending the values captured before the edit.
+  useEffect(() => {
+    cancelValidation();
+  }, [merchant, amountStroops, interval, tokenAddress, referrer, cancelValidation]);
+
+  function handleBlur(field: keyof TouchedFields) {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    validate(fields);
+  }
+
+  function handleMerchantChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setMerchant(e.target.value);
+  }
+
+  function handleReferrerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setReferrer(e.target.value);
+  }
+
+  function handleReferrerBlur() {
+    setTouched((prev) => ({ ...prev, referrer: true }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate({ merchant, amount, interval })) return;
-
-    announce("Transaction submitted");
-    const hash = await tx.submit(async () => {
-      const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
-      const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval), DEFAULT_TOKEN, null, "");
-      return onSign(xdr);
+    // Implicit (Enter-key) submission can bypass the disabled button; never race a running check.
+    if (pending || isValidating) return;
+    setTouched({
+      merchant: true,
+      amount: true,
+      interval: true,
+      referrer: true,
+      tokenAddress: true,
     });
+    setStatus(null);
 
-    if (hash) {
+    if (!validate(fields) || amountStroops === null) return;
+    if (!(await validateAsync(fields))) return;
+
+    setPending(true);
+    announce?.("Transaction submitted");
+    try {
+      const xdr = await buildSubscribeTx(
+        userKey,
+        merchant,
+        amountStroops,
+        BigInt(interval),
+        tokenAddress,
+        referrer.trim() || null,
+        ""
+      );
+      const hash = await onSign(xdr);
+      setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       addToast("Subscribed!", "success", hash);
-      announce("Transaction confirmed");
+      announce?.("Transaction confirmed");
       onSuccess();
-    } else if (tx.error) {
-      const msg = `Error: ${friendlyError(tx.error)}`;
+    } catch (err: unknown) {
+      const msg = `Error: ${friendlyError(err instanceof Error ? err.message : String(err))}`;
+      setStatus(msg);
       addToast(msg, "error");
-      announce(msg);
+      announce?.(msg);
+    } finally {
+      setPending(false);
     }
   }
 
-  const amountStroops = useMemo(() => {
-    const parsed = parseFloat(amount);
-    if (!amount || Number.isNaN(parsed) || parsed <= 0) return 0n;
-    return BigInt(Math.round(parsed * STROOPS_PER_XLM));
-  }, [amount]);
-
-  const pending = tx.status === "pending";
+  const merchantError = touched.merchant && errors.merchant ? errors.merchant : undefined;
+  const amountError = touched.amount && errors.amount ? errors.amount : undefined;
+  const intervalError = touched.interval && errors.interval ? errors.interval : undefined;
+  const referrerError = touched.referrer ? referrerValidation.error : undefined;
+  const tokenAddressError =
+    touched.tokenAddress && errors.tokenAddress ? errors.tokenAddress : undefined;
 
   return (
-    <form onSubmit={handleSubmit} className="subscribe-form">
+    <form className="subscribe-form" onSubmit={handleSubmit} noValidate>
       <h2 className="subscribe-form__title">New Subscription</h2>
 
-      <label className="form-group">
-        <span className="form-label">Merchant address</span>
+      <div className="form-group">
+        <BalanceDisplay address={userKey} tokenId={tokenAddress} />
+      </div>
+
+      {/* Referral Panel */}
+      <ReferralPanel publicKey={userKey} />
+
+      {/* Merchant Field */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="merchant-input">
+          Merchant address
+        </label>
         <input
+          id="merchant-input"
+          data-testid="merchant-input"
+          name="merchant"
+          className="input"
           placeholder="G…"
           value={merchant}
-          onChange={(e) => setMerchant(e.target.value)}
-          required
+          onChange={handleMerchantChange}
+          onBlur={() => handleBlur("merchant")}
+          aria-invalid={merchantError ? true : undefined}
+          aria-describedby={merchantError ? "merchant-error" : undefined}
+          autoComplete="off"
         />
-        {errors.merchant && <span className="text-error">{errors.merchant}</span>}
-      </label>
-
-      <label className="form-group">
-        <span className="form-label">Amount (XLM per period)</span>
-        <input
-          type="number"
-          min="0.0000001"
-          step="0.0000001"
-          placeholder="5"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          required
-        />
-        {errors.amount && <span className="text-error">{errors.amount}</span>}
-        {userKey && (
-          <AllowanceDisplay
-            userKey={userKey}
-            subscriptionAmount={amountStroops}
-            refreshTrigger={0}
-          />
+        <button type="button" className="btn-secondary" onClick={() => setShowAddressBook(true)}>
+          Select from Address Book
+        </button>
+        {merchantError && (
+          <span
+            id="merchant-error"
+            data-testid="merchant-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {merchantError}
+          </span>
         )}
-      </label>
+      </div>
 
-      <label className="form-group">
-        <span className="form-label">Billing interval</span>
-        <select value={interval} onChange={(e) => setInterval(Number(e.target.value))}>
-          {BILLING_INTERVALS.map((i) => (
-            <option key={i.value} value={i.value}>
-              {i.label}
-            </option>
-          ))}
-        </select>
-        {errors.interval && <span className="text-error">{errors.interval}</span>}
-      </label>
+      {/* Amount Field */}
+      <div data-testid="amount-wrapper" onBlur={() => handleBlur("amount")}>
+        <StroopInput
+          label="Amount"
+          onChange={setAmountStroops}
+          disabled={pending || isPaused}
+          isInvalid={Boolean(amountError)}
+          ariaDescribedBy={amountError ? "amount-error" : undefined}
+        />
+        {amountError && (
+          <span
+            id="amount-error"
+            data-testid="amount-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {amountError}
+          </span>
+        )}
+      </div>
 
-      <button type="submit" disabled={pending} className="btn-primary subscribe-form__submit">
-        {pending ? "Confirming…" : "Subscribe"}
+      {/* Interval Field */}
+      <div data-testid="interval-wrapper" onBlur={() => handleBlur("interval")}>
+        <IntervalSelector
+          id="interval-select"
+          value={interval}
+          onChange={(seconds) => {
+            setInterval(seconds);
+          }}
+          onBlur={() => handleBlur("interval")}
+        />
+        {intervalError && (
+          <span
+            id="interval-error"
+            data-testid="interval-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {intervalError}
+          </span>
+        )}
+      </div>
+
+      {/* Referrer Field */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="tokenAddress-input">
+          Token Address
+        </label>
+        <input
+          id="tokenAddress-input"
+          data-testid="tokenAddress-input"
+          name="tokenAddress"
+          className="input"
+          placeholder="Token Address G…"
+          value={tokenAddress}
+          onChange={(e) => setTokenAddress(e.target.value)}
+          onBlur={() => handleBlur("tokenAddress")}
+          aria-invalid={tokenAddressError ? true : undefined}
+          aria-describedby={tokenAddressError ? "tokenAddress-error" : undefined}
+          autoComplete="off"
+        />
+        {tokenAddressError && (
+          <span
+            id="tokenAddress-error"
+            data-testid="tokenAddress-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {tokenAddressError}
+          </span>
+        )}
+      </div>
+
+      {/* Referrer / allowance */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="referrer-input">
+          Referrer (optional)
+        </label>
+        <input
+          id="referrer-input"
+          data-testid="referrer-input"
+          name="referrer"
+          className="input"
+          placeholder="Optional referrer G…"
+          value={referrer}
+          onChange={handleReferrerChange}
+          onBlur={handleReferrerBlur}
+          aria-invalid={referrerError ? true : undefined}
+          aria-describedby={referrerError ? "referrer-error" : undefined}
+          autoComplete="off"
+        />
+        {referrerError && (
+          <span
+            id="referrer-error"
+            data-testid="referrer-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            {referrerError}
+          </span>
+        )}
+        <AllowanceDisplay userKey={userKey} subscriptionAmount={0n} refreshTrigger={0} />
+        <AllowanceDisplay
+          userKey={userKey}
+          subscriptionAmount={BigInt(Math.round(parseFloat(amountString || "0") * STROOPS_PER_XLM))}
+          refreshTrigger={0}
+          tokenId={tokenAddress}
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={!canSubmit}
+        className="btn-primary subscribe-form__submit"
+        aria-busy={pending || isValidating}
+        aria-label={
+          isOffline
+            ? "Subscribe (unavailable while offline)"
+            : isPaused
+              ? "Subscribe (unavailable during maintenance)"
+              : undefined
+        }
+        title={isOffline ? "You're offline — wallet actions are unavailable" : undefined}
+      >
+        {pending ? "Confirming…" : isValidating ? "Validating…" : "Subscribe"}
       </button>
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {status && (
+        <p className={`form-status${status.startsWith("Error") ? " text-error" : ""}`}>{status}</p>
+      )}
+
+      {showAddressBook && (
+        <AddressBook
+          onSelect={(address) => {
+            setMerchant(address);
+            setShowAddressBook(false);
+          }}
+          onClose={() => setShowAddressBook(false)}
+        />
+      )}
+
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
     </form>
   );
 }

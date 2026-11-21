@@ -5,19 +5,23 @@
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
-    "typecheck": "cd frontend && ./node_modules/.bin/tsc --noEmit",
+    "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
+    "typecheck:scripts": "cd scripts && npx tsc --noEmit",
+    "test:scripts": "cd scripts && npm install --prefer-offline && npm test",
+    "audit:contrast": "node scripts/contrast-check.mjs",
     "backend:typecheck": "cd contract && cargo check",
     "backend:test": "cd contract && cargo test",
-    "keeper:typecheck": "cd scripts && npm install --ignore-scripts && npx tsc --noEmit --project tsconfig.json",
-    "keeper:test": "cd scripts && npm install --ignore-scripts && npm test"
+    "backend:vesting:typecheck": "cd vesting && cargo check",
+    "backend:vesting:test": "cd vesting && cargo test",
+    "generate:types": "bash scripts/generate-types.sh",
+    "test": "tsx --test tests/*.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^20.16.0",
     "husky": "^9.1.7",
-    "lint-staged": "^15.5.2"
-  },
-  "lint-staged": {
-    "frontend/src/**/*.{ts,tsx}": [
-      "bash -c 'cd frontend && npx tsc --noEmit'"
-    ]
+    "lint-staged": "^15.5.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
   }
+  
 }

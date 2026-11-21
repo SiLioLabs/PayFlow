@@ -1,323 +1,241 @@
-import React, { useState, useRef } from "react";
-import { useWallet } from "./hooks/useWallet";
-import { useTheme } from "./hooks/useTheme";
-import { useLocalStorage } from "./hooks/useLocalStorage";
-import { useResponsive } from "./hooks/useResponsive";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
-import { useFreighterAvailable } from "./hooks/useFreighterAvailable";
-import { useNetworkCheck } from "./hooks/useNetworkCheck";
-import { useContractId } from "./hooks/useContractId";
-import { useRpcHealth } from "./hooks/useRpcHealth";
-import { useSubscriberCount } from "./hooks/useSubscriberCount";
-import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useRpcHealthContext } from "./context/RpcHealthContext";
+import { ToastProvider } from "./context/ToastContext";
+import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
+import RpcSettings from "./components/RpcSettings";
+import { useNetworkStatus } from "./hooks/useNetworkStatus";
+import { useAdmin } from "./hooks/useAdmin";
+import { useContractId } from "./hooks/useContractId";
+import { useContractPaused } from "./hooks/useContractPaused";
 import MerchantDashboard from "./components/MerchantDashboard";
-import TabBar from "./components/TabBar";
-import ConnectWallet from "./components/ConnectWallet";
+import WalletSelectModal from "./components/WalletSelectModal";
 import WalletBar from "./components/WalletBar";
-import ErrorBoundary from "./components/ErrorBoundary";
+import TabBar from "./components/TabBar";
+import OfflineBanner from "./components/OfflineBanner";
+import ContractPauseBanner from "./components/ContractPauseBanner";
+import NetworkBadge from "./components/NetworkBadge";
+import AdminDashboard from "./pages/AdminDashboard";
+import type { WalletAdapter } from "./services/wallets/WalletAdapter";
+import ConnectWallet from "./components/ConnectWallet";
+import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay";
+import { ShortcutRegistryContext } from "./context/ShortcutRegistry";
 
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="5" />
-      <line x1="12" y1="1" x2="12" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="23" />
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-      <line x1="1" y1="12" x2="3" y2="12" />
-      <line x1="21" y1="12" x2="23" y2="12" />
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-    </svg>
-  );
-}
+type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-function HelpIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-
-function TabErrorFallback({ title, onRetry }: { title: string; onRetry: () => void }) {
-  return (
-    <div className="error-boundary">
-      <div className="card error-boundary__card">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="48"
-          height="48"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--color-danger)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="error-boundary__icon"
-          aria-hidden="true"
-        >
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        <h2 className="text-xl font-semibold mb-2">{title} encountered an error</h2>
-        <p className="text-muted text-sm mb-6">
-          Try again to continue.
-        </p>
-        <button className="btn-primary" onClick={onRetry}>
-          Retry
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function App() {
-  const { publicKey, connect, signAndSubmit, disconnect, error, connecting } = useWallet();
-  const { theme, toggle } = useTheme();
-  const { available: freighterAvailable, installUrl } = useFreighterAvailable();
-  const { networkMatch, walletNetwork } = useNetworkCheck();
-  const { valid: contractIdValid, error: contractIdError } = useContractId();
-  const { healthy: rpcHealthy, error: rpcError } = useRpcHealth();
-  const { isMobile } = useResponsive();
+function AppInner() {
+  const { publicKey, connect, disconnect, signAndSubmit, error, connecting, connectionStatus, activeAdapter } =
+    useWallet();
   const { announcement, announce } = useAccessibility();
-  const { count: subscriberCount, loading: subscriberCountLoading } = useSubscriberCount();
-  const [tab, setTab] = useLocalStorage<"subscribe" | "dashboard" | "merchant">("flowpay_tab", "dashboard");
+  const { healthy, circuitOpen } = useRpcHealthContext();
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [refresh, setRefresh] = useState(0);
-  const [showHelp, setShowHelp] = useState(false);
-  const subscribeErrorBoundaryRef = useRef<ErrorBoundary>(null);
-  const dashboardErrorBoundaryRef = useRef<ErrorBoundary>(null);
-  const merchantErrorBoundaryRef = useRef<ErrorBoundary>(null);
+  const [showRpcSettings, setShowRpcSettings] = useState(false);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const shortcutRegistry = useContext(ShortcutRegistryContext);
 
-  // Keyboard shortcuts
-  const shortcuts = useKeyboardShortcuts({
-    enabled: !!publicKey,
-    shortcuts: [
-      {
-        key: "d",
-        description: "Switch to Dashboard",
-        action: () => setTab("dashboard"),
-      },
-      {
-        key: "s",
-        description: "Switch to Subscribe",
-        action: () => setTab("subscribe"),
-      },
-      {
-        key: "m",
-        description: "Switch to Merchant",
-        action: () => setTab("merchant"),
-      },
-      {
-        key: "?",
-        description: "Show keyboard shortcuts",
-        action: () => setShowHelp((prev) => !prev),
-      },
-      {
-        key: "x",
-        description: "Cancel active subscription",
-        action: () => {
-          // This shortcut is handled specifically in Dashboard.tsx
-          // where it has access to the subscription state.
-          // We include it here solely for documentation in the Help Modal.
-        },
-      },
-      {
-        key: "p",
-        description: "Focus pay-per-use amount input",
-        action: () => {
-          // This shortcut is handled specifically in Dashboard.tsx
-          // where it has access to the subscription state and input ref.
-          // We include it here solely for documentation in the Help Modal.
-        },
-      },
-    ],
-  });
+  const isRpcFailing = !healthy || circuitOpen;
+  const {
+    isOnline,
+    networkMatch,
+    walletNetwork,
+    isMainnet,
+    requiresMainnetConfirm,
+    confirmMainnet,
+  } = useNetworkStatus();
+  const { valid: isContractIdValid, error: contractIdError } = useContractId();
+  const { isAdmin } = useAdmin(publicKey);
+  const { isPaused, status: contractStatus } = useContractPaused();
+  const { notifications, unreadCount, markAllRead, clearNotifications } = useToast();
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const wasOnline = useRef(isOnline);
+  const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
+
+  // Announce connectivity changes via the ARIA live region (issue: disable
+  // mutating CTAs while offline + announce status).
+  useEffect(() => {
+    if (wasOnline.current === isOnline) return;
+    wasOnline.current = isOnline;
+    announce(
+      isOnline
+        ? "Back online. Wallet actions are available again."
+        : "You are offline. Wallet actions are unavailable."
+    );
+  }, [isOnline, announce]);
+
+  // Combine configuration and network validation into a single actionable gate
+  let gatePassed = true;
+  let gateError: string | null = null;
+
+  if (!isContractIdValid) {
+    gatePassed = false;
+    gateError = contractIdError;
+  } else if (publicKey && !networkMatch) {
+    gatePassed = false;
+    gateError = `Wallet is on "${walletNetwork}" — app expects a different network. Please switch your wallet network to match "${import.meta.env.VITE_NETWORK_PASSPHRASE || "testnet"}".`;
+  }
+
+  useEffect(() => {
+    if (gateError) {
+      announce?.(`Configuration Warning: ${gateError}`);
+    }
+  }, [gateError, announce]);
+
+  async function handleSelectWallet(adapter: WalletAdapter) {
+    setShowWalletModal(false);
+    await connect(adapter);
+  }
+
+  // Admin tab is only included when the connected wallet is the contract admin
+  const visibleTabs: readonly Tab[] = isAdmin
+    ? (["dashboard", "subscribe", "merchant", "admin"] as const)
+    : (["dashboard", "subscribe", "merchant"] as const);
 
   return (
-    <div className={`app-shell${isMobile ? " app-shell--mobile" : ""}`}>
+    <div style={{ maxWidth: 480, margin: "60px auto", padding: "0 16px" }}>
+      {/* Contract pause banner — rendered first so it takes precedence over
+          everything else, including toasts (see index.css stacking rules). */}
+      <ContractPauseBanner paused={isPaused} contractStatus={contractStatus} />
+
       {/* ARIA live region for screen reader announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
 
-      {/* Header */}
-      <div className="app-header">
-        <div>
-          <h1 className="app-header__title">⚡ FlowPay</h1>
-          <p className="app-header__subtitle">
-            Decentralized recurring payments on Stellar
-            {!subscriberCountLoading && (
-              <span style={{ marginLeft: "8px", opacity: 0.7 }}>
-                • {subscriberCount} active subscriber{subscriberCount !== 1 ? "s" : ""}
-              </span>
-            )}
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          {publicKey && (
-            <button
-              className="btn-secondary theme-toggle"
-              onClick={() => setShowHelp((prev) => !prev)}
-              aria-label="Show keyboard shortcuts"
-              title="Keyboard shortcuts (?)"
-            >
-              <HelpIcon />
-            </button>
-          )}
-          <button className="btn-secondary theme-toggle" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
+      <OfflineBanner visible={!isOnline} />
+
+      {/* Header — NetworkBadge is persistent in shell so users always see Testnet/Mainnet */}
+      <div style={{ marginBottom: 32, textAlign: "center" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ FlowPay</h1>
+        <p style={{ color: "#64748b", marginTop: 6, fontSize: 14 }}>
+          Decentralized recurring payments on Stellar
+        </p>
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+          <NetworkBadge />
         </div>
       </div>
 
-      {/* Keyboard shortcuts help */}
-      {showHelp && publicKey && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
-          <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Keyboard Shortcuts</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {shortcuts.map((shortcut) => (
-                <div
-                  key={shortcut.key}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "16px",
-                  }}
-                >
-                  <span>{shortcut.description}</span>
-                  <kbd
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      backgroundColor: "var(--color-bg-secondary)",
-                      border: "1px solid var(--color-border)",
-                      fontFamily: "monospace",
-                      fontSize: "14px",
-                    }}
-                  >
-                    {shortcut.key}
-                  </kbd>
-                </div>
-              ))}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "16px",
-                }}
-              >
-                <span>Close modals</span>
-                <kbd
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    backgroundColor: "var(--color-bg-secondary)",
-                    border: "1px solid var(--color-border)",
-                    fontFamily: "monospace",
-                    fontSize: "14px",
-                  }}
-                >
-                  Esc
-                </kbd>
-              </div>
-            </div>
-            <div style={{ marginTop: "16px", textAlign: "right" }}>
-              <button className="btn-secondary" onClick={() => setShowHelp(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Contract ID error */}
-      {!contractIdValid && contractIdError && (
-        <div className="network-warning" role="alert">
-          <span>❌</span>
-          <span>{contractIdError}</span>
-        </div>
-      )}
-
-      {/* RPC health warning */}
-      {!rpcHealthy && rpcError && (
-        <div className="network-warning" role="alert">
-          <span>⚠️</span>
-          <span>RPC endpoint unreachable: {rpcError}</span>
-        </div>
-      )}
-      {publicKey && !networkMatch && (
-        <div className="network-warning" role="alert">
-          <span>⚠️</span>
-          <span>
-            Wallet is on <strong>{walletNetwork}</strong> — app expects a
-            different network. Switch networks in Freighter to continue.
-          </span>
-        </div>
-      )}
-
-      {/* Freighter not installed — show install prompt */}
-      {!freighterAvailable && !publicKey && (
-        <div className="card connect-wallet">
-          <p className="connect-wallet__hint">
-            Freighter wallet is required to use FlowPay.
+      {/* Actionable gate warning banner */}
+      {gateError && (
+        <div
+          className="card"
+          style={{ background: "var(--color-danger-bg)", marginBottom: 16, textAlign: "center" }}
+          data-testid="gate-warning"
+        >
+          <p style={{ color: "var(--color-danger-text)", fontSize: 13 }}>
+            ⚠ <strong>Configuration/Network Gate Warning:</strong> {gateError}
           </p>
-          <a
-            href={installUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary w-full connect-wallet__install-link"
-          >
-            Install Freighter
-          </a>
         </div>
       )}
 
-      {/* Freighter installed but not connected */}
-      {freighterAvailable && !publicKey && (
-        <ConnectWallet onConnect={connect} error={error} loading={connecting} />
+      {/* RPC Failure Banner */}
+      {isRpcFailing && (
+        <div
+          role="alert"
+          data-testid="rpc-failure-banner"
+          className="card"
+          style={{
+            background: "var(--color-danger-bg, #451a1a)",
+            color: "var(--color-danger-text, #f87171)",
+            border: "1px solid var(--color-danger, #ef4444)",
+            marginBottom: "20px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "12px",
+            padding: "12px 16px",
+          }}
+        >
+          <span style={{ fontSize: 13 }}>
+            ⚠️ RPC endpoint is unreachable. Try a different endpoint.
+          </span>
+          <button
+            className="btn-secondary"
+            onClick={() => setShowRpcSettings(true)}
+            data-testid="rpc-failure-banner-change-btn"
+            aria-label="Try a different RPC endpoint"
+            style={{ fontSize: 12, padding: "4px 8px", whiteSpace: "nowrap" }}
+          >
+            Try a different endpoint
+          </button>
+        </div>
       )}
 
-      {/* Connected */}
-      {publicKey && (
-        <>
-          <WalletBar publicKey={publicKey} onDisconnect={disconnect} />
+      {/* Mainnet safety gate — require explicit confirmation once per session when passphrase is mainnet */}
+      {isMainnet && requiresMainnetConfirm && (
+        <div
+          className="card"
+          style={{
+            background: "var(--color-warning-bg)",
+            borderColor: "var(--color-warning)",
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ color: "var(--color-warning-text)", fontSize: 13, fontWeight: 600 }}>
+            ⚠ Mainnet mode — real funds at risk. Please confirm you intend to use Mainnet before
+            continuing.
+          </p>
+          <button
+            onClick={confirmMainnet}
+            className="btn-primary"
+            style={{ marginTop: 12 }}
+            data-testid="confirm-mainnet-btn"
+          >
+            I understand, continue on Mainnet
+          </button>
+        </div>
+      )}
 
-          {/* Tabs */}
-          <TabBar
-            tabs={["dashboard", "subscribe", "merchant"]}
-            activeTab={tab}
-            onTabChange={setTab}
+      {showRpcSettings && <RpcSettings onClose={() => setShowRpcSettings(false)} />}
+
+      {/* Wallet connect */}
+      {!publicKey ? (
+        <ConnectWallet
+          onConnect={() => setShowWalletModal(true)}
+          error={error}
+          loading={connecting}
+        />
+      ) : (
+        <>
+          {/* Connected bar — shows adapter name/icon, address, disconnect */}
+          <WalletBar
+            publicKey={publicKey}
+            activeAdapter={activeAdapter}
+            onDisconnect={disconnect}
+            notifications={notifications}
+            unreadCount={unreadCount}
+            onMarkAllRead={markAllRead}
+            onClearNotifications={clearNotifications}
           />
 
+          {/* Tab navigation — admin tab only visible to contract admin */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <TabBar tabs={visibleTabs} activeTab={tab} onTabChange={setTab} />
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Show keyboard shortcuts"
+              title="Keyboard shortcuts"
+              onClick={() => setShowShortcutHelp(true)}
+            >
+              ?
+            </button>
+          </div>
+
           {/* Content */}
-          <div className="card">
-            {tab === "subscribe" ? (
-              <ErrorBoundary
-                ref={subscribeErrorBoundaryRef}
-                fallback={
-                  <TabErrorFallback
-                    title="Subscribe Form"
-                    onRetry={() => subscribeErrorBoundaryRef.current?.reset()}
-                  />
-                }
-              >
+          <div className="card" style={{ marginTop: 20 }}>
+            <div
+              role="tabpanel"
+              id="panel-subscribe"
+              aria-labelledby="tab-subscribe"
+              hidden={tab !== "subscribe"}
+            >
+              {tab === "subscribe" && (
                 <SubscribeForm
                   userKey={publicKey}
                   onSign={signAndSubmit}
@@ -325,45 +243,88 @@ export default function App() {
                     setTab("dashboard");
                     setRefresh((r) => r + 1);
                   }}
+                  isPaused={!gatePassed}
                   announce={announce}
+                  isOffline={!isOnline}
                 />
-              </ErrorBoundary>
-            ) : tab === "merchant" ? (
-              <ErrorBoundary
-                ref={merchantErrorBoundaryRef}
-                fallback={
-                  <TabErrorFallback
-                    title="Merchant Dashboard"
-                    onRetry={() => merchantErrorBoundaryRef.current?.reset()}
-                  />
-                }
-              >
-                <MerchantDashboard
-                  merchantKey={publicKey}
-                  refreshTrigger={refresh}
-                />
-              </ErrorBoundary>
-            ) : (
-              <ErrorBoundary
-                ref={dashboardErrorBoundaryRef}
-                fallback={
-                  <TabErrorFallback
-                    title="Dashboard"
-                    onRetry={() => dashboardErrorBoundaryRef.current?.reset()}
-                  />
-                }
-              >
+              )}
+            </div>
+            <div
+              role="tabpanel"
+              id="panel-dashboard"
+              aria-labelledby="tab-dashboard"
+              hidden={tab !== "dashboard"}
+            >
+              {tab === "dashboard" && (
                 <Dashboard
                   userKey={publicKey}
                   onSign={signAndSubmit}
                   refreshTrigger={refresh}
                   announce={announce}
+                  isPaused={!gatePassed}
+                  isOffline={!isOnline}
                 />
-              </ErrorBoundary>
+              )}
+            </div>
+            <div
+              role="tabpanel"
+              id="panel-merchant"
+              aria-labelledby="tab-merchant"
+              hidden={tab !== "merchant"}
+            >
+              {tab === "merchant" && (
+                <MerchantDashboard
+                  merchantKey={publicKey}
+                  onSign={signAndSubmit}
+                  refreshTrigger={refresh}
+                  isPaused={isPaused}
+                />
+              )}
+            </div>
+            {isAdmin && (
+              <div
+                role="tabpanel"
+                id="panel-admin"
+                aria-labelledby="tab-admin"
+                hidden={tab !== "admin"}
+              >
+                {tab === "admin" && (
+                  <AdminDashboard
+                    publicKey={publicKey}
+                    onSign={signAndSubmit}
+                    gatePassed={gatePassed}
+                  />
+                )}
+              </div>
             )}
           </div>
         </>
       )}
+
+      {/* Wallet selector modal — rendered at root so it overlays everything */}
+      {showWalletModal && (
+        <WalletSelectModal
+          adapters={AVAILABLE_WALLETS}
+          onSelect={handleSelectWallet}
+          onClose={() => setShowWalletModal(false)}
+          connectionStatus={connectionStatus}
+          error={error}
+        />
+      )}
+      {showShortcutHelp && (
+        <ShortcutHelpOverlay
+          shortcuts={shortcutRegistry?.shortcuts ?? []}
+          onClose={closeShortcutHelp}
+        />
+      )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   );
 }

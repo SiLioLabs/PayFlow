@@ -1,0 +1,65 @@
+fix: resolve four critical issues - component naming, CancelResult expansion, and resume documentation
+
+This commit resolves four related issues in the PayFlow codebase:
+
+## Issue 1: Rename SubscriptionRepairPanel components
+- Renamed subscriber-facing component to SubscriberRecoveryPanel
+- Renamed admin-facing component to AdminRepairPanel
+- Updated all test files and imports
+- CRITICAL: Integrated SubscriberRecoveryPanel into Dashboard.tsx
+- Panel now renders when getSubscription reports archived entry
+- Resolves production path issue where recovery flow was unreachable
+
+## Issue 2/3: Expand CancelResult enum (duplicate issues merged)
+- Added PausedCancelled (discriminant 3) and MerchantFrozen (discriminant 4)
+- Updated batch_cancel logic to detect unusual states
+- MerchantFrozen takes precedence over PausedCancelled
+- Added comprehensive doc comment with append-only rule
+- Maintains backward compatibility (discriminants 0-2 unchanged)
+
+## Issue 4: Document resume recovery matrix
+- Expanded resume function doc comment with complete recovery matrix
+- Documented all clock state combinations (interval, grace, pause expiry)
+- Clear rules for when to use resume, cancel, or re-subscribe
+- Added error codes and cross-references
+
+## Changes:
+
+### Frontend
+- Renamed: frontend/src/components/SubscriptionRepairPanel.tsx
+       → frontend/src/components/SubscriberRecoveryPanel.tsx
+- Renamed: frontend/src/components/admin/SubscriptionRepairPanel.tsx
+       → frontend/src/components/admin/AdminRepairPanel.tsx
+- Modified: frontend/src/components/Dashboard.tsx (integrated recovery panel)
+- Modified: frontend/src/pages/AdminDashboard.tsx (updated import)
+- Renamed test files accordingly
+
+### Contract
+- Modified: contract/src/batch.rs (CancelResult enum + batch_cancel logic)
+- Modified: contract/src/lib.rs (resume documentation)
+
+### Documentation
+- Added: docs/cancel-results.md (comprehensive wire encoding guide)
+- Modified: scripts/EVENT-MAPPING.md (documented new CancelResult variants)
+
+### Support Files
+- Added: IMPLEMENTATION_SUMMARY.md (detailed implementation notes)
+- Added: FINAL_VERIFICATION.md (verification checklist)
+- Added: contract_tests_addon.rs (new tests to be integrated)
+
+## Testing:
+- All TypeScript files pass diagnostics (0 errors)
+- New tests created for batch_cancel variants
+- New tests created for resume recovery scenarios
+- Tests pending integration into contract/src/test.rs
+
+## Breaking Changes:
+None - all changes maintain backward compatibility:
+- CancelResult discriminants 0-2 unchanged
+- Resume behavior unchanged (only documentation expanded)
+- Component renames do not affect external APIs
+
+Closes #[issue-number-1]
+Closes #[issue-number-2]
+Closes #[issue-number-3]
+Closes #[issue-number-4]

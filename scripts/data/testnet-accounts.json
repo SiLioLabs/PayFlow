@@ -1,0 +1,76 @@
+{
+  "createdAt": "2026-07-29T23:18:00.783Z",
+  "updatedAt": "2026-07-29T23:18:39.843Z",
+  "network": "Test SDF Network ; September 2015",
+  "contractId": "CC3DOKAIZKCONTRACTTESTNETADDRESS1234567890FLOWPAY",
+  "tokenAddress": "CB64D3BV7P25CBZ76AEGY2FJD2N2Z35TXTLA2HO7DS4SYYBZWAZZTACC",
+  "admin": {
+    "role": "admin",
+    "name": "Admin Account",
+    "publicKey": "GAJMSD6YOTTOQWCMLWVURELTOWLLKHGVIPPPWYONOGAEAFQ37IDHCNGV",
+    "secretKey": "SBXV6WUO4GWJGLSIR2OWB5UA4EL2AG6G7PY3THZHGY2OLN23XKQSQJWO"
+  },
+  "merchant": {
+    "role": "merchant",
+    "name": "Primary Test Merchant",
+    "publicKey": "GD6UJCOXK23MMFI6MG6KUXKG7G6CB67EWU2CG6U2UBTVXRI7A2MTU4XL",
+    "secretKey": "SB4O4HMUN4SHVHEB3B6S5BWIV5WZDXNMZ2NEUF3Y2YZUY6ENJBKU5NBE"
+  },
+  "subscribers": [
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 1",
+      "publicKey": "GBWVIBPIVBFLZ2BS5JTHUDEBR2DR5ANQXUM4FAAN45TNGLMLMC7DAQWJ",
+      "secretKey": "SC73KEWXSZ36OUBJG7TGQ3CK7BJWFE2VGPOAT2SLXPEEIYXEKZJ3N45P",
+      "subscription": {
+        "amountStroops": "100000000",
+        "amountXlm": "10.0",
+        "intervalSeconds": 86400
+      }
+    },
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 2",
+      "publicKey": "GCYTHDFRTDPWRCLFRKWLJQUOHSNDR5QB2K5T4ULAUO3RL3F3JO5JQJCP",
+      "secretKey": "SB5MTDJHEK7QMPAGIATWENTYQNDBVDQURU3OZ6OFJ3ATF7KIJDQ4WJTW",
+      "subscription": {
+        "amountStroops": "250000000",
+        "amountXlm": "25.0",
+        "intervalSeconds": 604800
+      }
+    },
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 3",
+      "publicKey": "GBNEMBSNPSNNXNW7ZDF2KLCPYWT43GPYUZHHJR7YII7HZGFNQ4H2YWUS",
+      "secretKey": "SAFMM26D5VQ2RCUULITTS4U4NQJC7RM7RSLCX3T5G22ZEIDW24ZFIVTB",
+      "subscription": {
+        "amountStroops": "500000000",
+        "amountXlm": "50.0",
+        "intervalSeconds": 2592000
+      }
+    },
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 4",
+      "publicKey": "GD3YGFYQDYHHKDG5FKZLEPGNWPFDVVKVV6HR3TTR5YDLN47SM2CPIHDL",
+      "secretKey": "SDFCVWCGE3OQ2I56GUXDLB2ADEUOM4AUR77UEZSDW7ZRWNTKKLANVAB2",
+      "subscription": {
+        "amountStroops": "1000000000",
+        "amountXlm": "100.0",
+        "intervalSeconds": 86400
+      }
+    },
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 5",
+      "publicKey": "GBCL5ZIX7T77WJYWDYLXUAWGU6R2ZQO7CND3ZY3HCAU2Z3USEKSAUCKQ",
+      "secretKey": "SDXK6ILLQMTIE7BRRSB6LC6PTTG6LPFIG2YY3UKSPDSUGKR742P327SU",
+      "subscription": {
+        "amountStroops": "50000000",
+        "amountXlm": "5.0",
+        "intervalSeconds": 43200
+      }
+    }
+  ]
+}

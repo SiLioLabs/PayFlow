@@ -1,21 +1,36 @@
 # Project Structure
 
-A detailed breakdown of every file and folder in the FlowPay repository.
+A detailed breakdown of the FlowPay repository as tracked in git. Compared against `git ls-files` at documentation time. Generated artifacts (`target/`, `node_modules/`, `dist/`, most WASM) are gitignored and omitted.
 
 ---
 
 ## Top-Level Layout
 
 ```
-flowpay/
-├── contract/        # Soroban smart contract (Rust)
-├── frontend/        # React + TypeScript UI
-├── docs/            # Project documentation
-├── .gitignore       # Git ignore rules
-├── CONTRIBUTING.md  # Contribution guide
-├── LICENSE          # MIT License
-└── README.md        # Project overview and quick start
+PayFlow/
+├── .husky/              # Git hooks (pre-commit, pre-push)
+├── .kiro/               # Spec notes under .kiro/specs/
+├── contract/            # Soroban smart contract (Rust)
+├── deployments/         # deploy-pipeline config + manifest
+├── docs/                # Project documentation
+├── frontend/            # React + TypeScript UI
+├── scripts/             # Operational TypeScript (keeper, indexer, deploy, health)
+├── tests/               # Root Node tests (tsx)
+├── .env.example         # Keeper / indexer env template
+├── .gitignore
+├── AGENTS.md            # Agent-oriented project map
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE              # MIT License
+├── README.md
+├── SECURITY.md
+├── config.ts            # Config for the root alert-failed-charges script
+├── package.json         # Root npm scripts (frontend typecheck/build, contract test)
+├── tsconfig.json
+└── …                    # Additional tracked root notes/scripts (see Root files)
 ```
+
+Checked-in directories: `contract/`, `deployments/`, `docs/`, `frontend/`, `scripts/`, `tests/`, `.husky/`, `.kiro/`. There is no tracked `.github/` workflow tree in this repository at documentation time.
 
 ---
 
@@ -25,133 +40,269 @@ The Soroban smart contract. Written in Rust, compiled to WASM, deployed to the S
 
 ```
 contract/
-├── Cargo.toml          # Rust package manifest and dependencies
+├── Cargo.toml           # Rust package `flowpay`, crate-type cdylib
+├── Cargo.lock
+├── package-lock.json
+├── src/                 # Contract modules (see below)
+└── test_snapshots/      # soroban-sdk test snapshot JSON
+```
+
+Release WASM path (after `cargo build --release --target wasm32-unknown-unknown` in this directory):
+
+```text
+contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+```
+
+### `contract/src/`
+
+```
+contract/src/
+├── lib.rs                   # FlowPay contract entry; re-exports modules
+├── admin.rs
+├── batch.rs
+├── bench.rs
+├── charge_exec.rs
+├── errors.rs
+├── events.rs
+├── fee.rs
+├── grace.rs
+├── limits.rs                 # Limits documentation pointer (validation/batch/spending_limit)
+├── merchant_stats.rs
+├── migration.rs             # Schema version + migrate(); CURRENT_VERSION = 3
+├── min_interval.rs
+├── referral.rs
+├── spending_limit.rs
+├── storage.rs
+├── subscription_count.rs
+├── subscription_history.rs
+├── subscription_metadata.rs
+├── token.rs                  # Note on token/vesting (vesting extracted to vesting/)
+├── trial.rs
+├── upgrade.rs               # propose_upgrade / commit_upgrade / cancel_pending_upgrade
+├── validation.rs
+├── whitelist.rs
+├── test.rs                  # Unit tests
+└── test_migration.rs
+```
+
+### `vesting/` (Academy Vesting Contract)
+
+```
+vesting/
+├── Cargo.toml
 └── src/
-    ├── lib.rs          # Contract implementation
-    └── test.rs         # Unit tests
+    ├── lib.rs               # AcademyVestingContract
+    └── test.rs              # Unit & smoke tests
 ```
 
 ### `contract/Cargo.toml`
 
-Defines the package metadata and dependencies:
-
-- `soroban-sdk = "21.0.0"` with `alloc` feature — the core Soroban SDK
-- `soroban-sdk` with `testutils` feature in `[dev-dependencies]` — test utilities
-- `[profile.release]` — aggressive optimisation settings for minimal WASM size (`opt-level = "z"`, `lto = true`, `panic = "abort"`)
-- `crate-type = ["cdylib"]` — required for WASM compilation
+- `soroban-sdk = "21.0.0"` with `alloc`
+- `soroban-sdk` `testutils` in `[dev-dependencies]`
+- `[profile.release]` — `opt-level = "z"`, `lto = true`, `panic = "abort"`
+- `crate-type = ["cdylib"]`
 
 ### `contract/src/lib.rs`
 
-The main contract file. Contains:
-
-| Item | Kind | Description |
-| --- | --- | --- |
-| `DataKey` | `enum` | Storage key variants: `Subscription(Address)` and `Token` |
-| `Subscription` | `struct` | Per-user subscription data: merchant, amount, interval, last_charged, active |
-| `FlowPay` | `struct` | The contract entry point (tagged `#[contract]`) |
-| `initialize()` | function | One-time setup — stores the token address |
-| `subscribe()` | function | Creates/updates a subscription |
-| `charge()` | function | Permissionless — triggers a recurring charge |
-| `pay_per_use()` | function | Instant microtransaction |
-| `cancel()` | function | Deactivates a subscription |
-| `get_subscription()` | function | Read-only view |
-
-### `contract/src/test.rs`
-
-Unit tests using the Soroban test environment. Contains:
-
-| Item | Description |
-| --- | --- |
-| `setup()` | Shared helper — deploys token + contract, mints tokens, approves allowance |
-| `test_subscribe_and_charge` | Happy path: subscribe → advance time → charge |
-| `test_cancel` | Verifies `active = false` after cancel |
-| `test_charge_too_early` | Verifies panic when interval hasn't elapsed |
+The `#[contract]` entry. Logic is split across the modules above. Notable public methods include `initialize(token, admin)`, `subscribe` / `charge` / `pay_per_use` / `cancel`, batch operations, `contract_health_check`, `migrate(users)`, `get_schema_version`, and two-step `propose_upgrade` / `commit_upgrade`. Full ABI: [`API.md`](API.md).
 
 ---
 
 ## `frontend/`
 
-The React + TypeScript single-page application.
+The React + TypeScript single-page application (Vite).
 
 ```
 frontend/
-├── index.html              # HTML entry point
-├── package.json            # Node dependencies and scripts
-├── tsconfig.json           # TypeScript compiler config
-├── vite.config.ts          # Vite bundler config
+├── .env.example
+├── .prettierrc
+├── eslint.config.js
+├── index.html
+├── package.json             # npm run dev | build | test | lint
+├── tsconfig.json
+├── vite.config.ts
+├── vitest.config.ts
 └── src/
-    ├── main.tsx            # React root — mounts <App />
-    ├── App.tsx             # Root component: wallet connect, tab routing
-    ├── index.css           # Global styles (dark theme, card, badge utilities)
-    ├── stellar.ts          # All Soroban SDK calls (single source of truth)
+    ├── main.tsx
+    ├── App.tsx
+    ├── index.css
+    ├── stellar.ts           # Soroban SDK / RPC wrappers
+    ├── stellarBatchCharge.ts
+    ├── constants.ts
+    ├── types.ts
+    ├── setupTests.ts
+    ├── components/          # UI (including components/admin/)
+    ├── pages/
+    │   └── AdminDashboard.tsx
     ├── hooks/
-    │   └── useWallet.ts    # Freighter wallet hook
-    └── components/
-        ├── SubscribeForm.tsx   # Form to create a new subscription
-        └── Dashboard.tsx       # View subscription, cancel, pay-per-use
+    ├── context/
+    ├── services/
+    ├── utils/
+    └── __tests__/
 ```
+
+`frontend/src/pages/AdminDashboard.tsx` hosts admin tools (including the admin `SubscriptionRepairPanel`). There are two `SubscriptionRepairPanel.tsx` files: `components/admin/` (admin dashboard) and `components/` (duplicate at the components root). Component-level reference: [`FRONTEND-COMPONENTS.md`](FRONTEND-COMPONENTS.md).
 
 ### `frontend/src/stellar.ts`
 
-The contract interaction layer. All `@stellar/stellar-sdk` usage is isolated here. Components never import the SDK directly.
+Contract interaction layer. `@stellar/stellar-sdk` usage is concentrated here. See [`FRONTEND.md`](FRONTEND.md).
 
-| Export | Description |
-| --- | --- |
-| `RPC_URL` | Soroban RPC endpoint (testnet) |
-| `NETWORK_PASSPHRASE` | `Networks.TESTNET` |
-| `CONTRACT_ID` | Read from `VITE_CONTRACT_ID` env var |
-| `server` | `Server` instance for RPC calls |
-| `buildSubscribeTx()` | Builds + simulates a `subscribe` transaction, returns XDR |
-| `buildCancelTx()` | Builds + simulates a `cancel` transaction, returns XDR |
-| `buildPayPerUseTx()` | Builds + simulates a `pay_per_use` transaction, returns XDR |
-| `getSubscription()` | Simulates `get_subscription`, parses and returns the result |
+### `frontend/src/hooks/`
 
-### `frontend/src/hooks/useWallet.ts`
+Wallet, subscription, admin, network, accessibility, and form hooks (`useWallet.ts`, `useAdmin.ts`, `useSubscription.ts`, and others listed in git).
 
-React hook for Freighter wallet integration.
+### `frontend/src/services/`
 
-| Export | Description |
-| --- | --- |
-| `publicKey` | The connected wallet's public key, or `null` |
-| `connect()` | Prompts Freighter connection |
-| `signAndSubmit(xdr)` | Signs a transaction with Freighter and submits it to the network |
-| `error` | Error message string, or `null` |
+```
+frontend/src/services/
+├── PollingManager.ts
+├── rpcCache.ts
+├── scval.ts
+├── txQueue.ts
+└── wallets/
+    ├── WalletAdapter.ts
+    ├── FreighterAdapter.ts
+    ├── HanaAdapter.ts
+    ├── LobstrAdapter.ts
+    └── XBullAdapter.ts
+```
 
-### `frontend/src/components/SubscribeForm.tsx`
+### `frontend/src/utils/`
 
-Form component for creating a new subscription. Accepts merchant address, XLM amount, and billing interval (daily / weekly / monthly). Calls `buildSubscribeTx()` and passes the XDR to `onSign`.
+`addressValidation.ts`, `subscriptionValidation.ts`, `errors.ts`, `format.ts`, `network.ts`, `notificationPriority.ts`.
 
-### `frontend/src/components/Dashboard.tsx`
+### `frontend/src/context/`
 
-Displays the user's active subscription. Shows merchant, amount, interval, and next charge date. Provides cancel and pay-per-use actions.
+`RpcHealthContext.tsx`, `ShortcutRegistry.tsx`.
 
-### `frontend/src/App.tsx`
+---
 
-Root component. Manages wallet connection state and tab switching between `SubscribeForm` and `Dashboard`.
+## `scripts/`
+
+Operational TypeScript. Run with `npx tsx` from the repository root (or `cd scripts && npm install` then local `tsx`). Catalog: [`scripts/README.md`](../scripts/README.md).
+
+```
+scripts/
+├── package.json             # typecheck, keeper, indexer, pre-upgrade-check, tests
+├── deploy-pipeline.ts       # Build → stellar contract deploy → initialize → health → fee → whitelist
+├── health-check.ts          # Shallow / --deep contract probes
+├── pre-upgrade-check.ts
+├── migrate-contract.ts
+├── testnet-setup.ts
+├── keeper.ts
+├── indexer.ts
+├── soroban-admin.ts
+├── Dockerfile
+├── docker-compose.yml
+├── grafana-dashboard.json
+├── __tests__/               # Vitest (deploy-pipeline, merchant queries, …)
+├── data/                    # Benchmarks and testnet fixtures
+├── fixtures/
+└── …                        # Allowance, analytics, webhook, snapshot, DLQ helpers
+```
+
+---
+
+## `deployments/`
+
+Consumed by `scripts/deploy-pipeline.ts`.
+
+```
+deployments/
+├── config.json              # Checked-in example is testnet
+└── manifest.json            # Pipeline step progress and contract ID
+```
 
 ---
 
 ## `docs/`
 
-Project documentation.
+The task-oriented entry point for everything below is [docs/README.md](README.md).
 
 ```
 docs/
-├── ARCHITECTURE.md   # System design, data model, storage strategy
-├── DEPLOYMENT.md     # Build, deploy, keeper setup
-├── TESTING.md        # How to run and write tests
-├── API.md            # Full contract function reference
-├── STRUCTURE.md      # This file
-└── SECURITY.md       # Security model and disclosure policy
+├── API.md
+├── ARCHITECTURE.md
+├── COMPLIANCE.md
+├── CONTRIBUTING-CONTRACT.md
+├── CONTRIBUTING-FRONTEND.md
+├── DAILY-LIMITS.md
+├── DEPLOYMENT.md
+├── ERROR-CODES.md
+├── EVENT-DRIVEN-GUIDE.md
+├── EVENTS.md
+├── FRONTEND-COMPONENTS.md
+├── FRONTEND.md
+├── GLOSSARY.md
+├── INTEGRATION-GUIDE.md
+├── KEEPER.md
+├── MAINNET-DEPLOYMENT.md
+├── MERCHANT-INTEGRATION.md
+├── MULTI-TOKEN.md
+├── ONBOARDING.md
+├── README.md                # Documentation index — start here
+├── REFERRAL.md              # Compatibility stub → REFERRALS.md
+├── REFERRALS.md
+├── SECURITY.md
+├── SECURITY-REVIEW.html
+├── STRUCTURE.md             # This file
+├── SUBSCRIBER-LIFECYCLE.md
+├── TESTING.md
+├── architecture/
+│   ├── STORAGE-AND-TTL.md
+│   └── TWO-STEP-AUTH.md
+├── development/
+│   ├── CI-WORKFLOWS.md
+│   ├── NETWORK-MATRIX.md
+│   ├── PERFORMANCE-BENCHMARKING.md
+│   └── TESTING-RUNBOOK.md
+├── operations/
+│   ├── KEEPER-RUNBOOK.md
+│   ├── TROUBLESHOOTING.md
+│   └── TWO-STEP-ADMIN-PLAYBOOKS.md
+├── security/
+│   ├── AUDIT-PREPARATION.md
+│   └── THREAT-MATRIX.md
+└── spec/
+    └── LIFECYCLE-SPEC.md
 ```
 
 ---
 
-## Root Files
+## `tests/`
 
-| File | Description |
-| --- | --- |
-| `.gitignore` | Excludes `target/`, `node_modules/`, `dist/`, `.env*`, `.soroban/`, `*.wasm` |
-| `CONTRIBUTING.md` | How to contribute: setup, branching, guidelines, PR checklist |
-| `LICENSE` | MIT License |
-| `README.md` | Project overview, features, quick start, contract reference |
+```
+tests/
+├── alert-failed-charges.test.ts
+└── fixtures/
+    └── batch-results.json
+```
+
+Root `package.json` `npm test` runs `tsx --test tests/*.test.ts`.
+
+---
+
+## Root files
+
+| File / path                         | Description                                                                 |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| `.gitignore`                        | Excludes `target/`, `node_modules/`, `dist/`, `.env*`, `.soroban/`, `*.wasm` |
+| `.env.example`                      | Keeper/indexer template (`KEEPER_SECRET`, `NETWORK_PASSPHRASE`, …)          |
+| `package.json`                      | `typecheck`, `build:frontend`, `backend:test`, `backend:typecheck`          |
+| `CONTRIBUTING.md`                   | How to contribute                                                           |
+| `LICENSE`                           | MIT                                                                         |
+| `SECURITY.md`                       | Security policy (Testnet-only until audit)                                  |
+| `config.ts`                        | Config for the root `alert-failed-charges.ts` script (canonical keeper/indexer live in `scripts/`) |
+| `AGENTS.md`                         | High-level architecture for agents                                          |
+| `CHANGELOG.md`, `TODO.md`, `UIDesign.md` | Project notes                                                          |
+| `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
+| `test_migration.rs`                 | Root-level migration test file (canonical tests live in `contract/src/`)    |
+| `alert-failed-charges.ts`          | Root webhook alert script (`query-events.ts` / `replay-events.ts` live in `scripts/`) |
+
+---
+
+## Related docs
+
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — deploy pipeline and health gates
+- [`FRONTEND.md`](FRONTEND.md) — frontend architecture
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — contract design

@@ -160,7 +160,6 @@ Thumbs.db
 dist/
 build/
 out/
-target/
 
 # Temporary files
 tmp/
@@ -190,5 +189,15 @@ config/local.json
 
 .agents/
 .claude/
+iissue.md
 skills-lock.json
-issue.md
+
+contract/target/
+vesting/target/
+
+# Webhook Dead Letter Queue
+data/webhook-dlq.jsonl
+
+# Debug brace dumps (recurring local artefacts, see #1252)
+frontend/*_braces.txt
+*_braces.txt
