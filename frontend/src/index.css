@@ -2150,3 +2150,105 @@ button.allowance-health-badge:focus-visible {
 .subscription-export__empty {
   font-style: italic;
 }
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Accessibility: High Contrast / Forced Colors Mode
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (forced-colors: active) {
+  /* Buttons */
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-info {
+    border: 1px solid ButtonText !important;
+  }
+
+  button:disabled,
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-danger:disabled,
+  .btn-info:disabled {
+    border-color: GrayText !important;
+    color: GrayText !important;
+  }
+
+  button:hover:not(:disabled),
+  .btn-primary:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled) {
+    border-color: Highlight !important;
+  }
+
+  /* Badges */
+  .badge,
+  .allowance-health-badge,
+  .mst-status-badge,
+  .tx-queue-panel__badge {
+    border: 1px solid CanvasText;
+  }
+
+  .badge-active,
+  .allowance-health-badge--healthy,
+  .mst-status-badge--active {
+    border: 2px solid Highlight;
+  }
+
+  .badge-failed,
+  .badge-graceperiodelapsed,
+  .allowance-health-badge--none,
+  .mst-status-badge--overdue {
+    border: 2px solid LinkText;
+  }
+
+  .badge-warning,
+  .allowance-health-badge--low {
+    border: 2px dashed Highlight;
+  }
+
+  .badge-testnet,
+  .badge-mainnet {
+    border: 1px solid ButtonText;
+  }
+
+  /* Focus Indicators */
+  :focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  button:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Accessibility: Motion Audit & Prefers-Reduced-Motion
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton,
+  [data-theme="light"] .skeleton {
+    animation: none !important;
+    background: var(--color-surface-raised) !important;
+  }
+
+  .modal-card {
+    animation: none !important;
+  }
+
+  .sparkline-point {
+    transition: none !important;
+  }
+}
