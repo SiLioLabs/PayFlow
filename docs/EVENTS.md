@@ -7,7 +7,7 @@ This document provides a complete reference for all events emitted by the FlowPa
 ## Table of Contents
 
 - [Subscription Events](#subscription-events)
-- [Charge & Payment Events](#charge--payment-events)
+- [Charge & Payment Events](#charge-payment-events)
 - [Admin Events](#admin-events)
 - [Fee Events](#fee-events)
 - [Merchant Events](#merchant-events)

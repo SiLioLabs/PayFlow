@@ -8,7 +8,13 @@
     "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
     "audit:contrast": "npm run typecheck",
     "backend:typecheck": "cd contract && cargo check",
-    "backend:test": "cd contract && cargo test"
+    "backend:test": "cd contract && cargo test",
+    "docs:check-links": "node scripts/check-doc-links.mjs",
+    "docs:check-errors": "node scripts/check-error-codes.mjs",
+    "docs:check-quicklinks": "node scripts/check-quicklinks.mjs",
+    "docs:test-limits": "node scripts/test-limits-claims.mjs",
+    "docs:test-tables": "node scripts/test-caps-table.mjs",
+    "docs:check-all": "npm run docs:check-links && npm run docs:check-errors && npm run docs:check-quicklinks && npm run docs:test-limits && npm run docs:test-tables"
   },
   "devDependencies": {
     "husky": "^9.1.7",

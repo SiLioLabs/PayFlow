@@ -10,9 +10,10 @@ Thank you for considering a contribution to FlowPay. This document covers everyt
 - [Ways to Contribute](#ways-to-contribute)
 - [Good First Issues](#good-first-issues)
 - [Development Setup](#development-setup)
-- [Branching & Workflow](#branching--workflow)
+- [Branching & Workflow](#branching-workflow)
 - [Contract Contribution Guidelines](#contract-contribution-guidelines)
 - [Frontend Contribution Guidelines](#frontend-contribution-guidelines)
+- [Dependency Management](#dependency-management)
 - [Commit Style](#commit-style)
 - [Pull Request Checklist](#pull-request-checklist)
 - [Questions](#questions)
@@ -152,6 +153,8 @@ See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for the full policy.
 
 ---
 
+## Commit Style
+
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
@@ -171,10 +174,13 @@ Before opening a PR, confirm:
 - [ ] `cargo test` passes (contract changes)
 - [ ] `npm run lint` passes with no errors (frontend changes)
 - [ ] `npm run build` passes (frontend changes)
+- [ ] `npm run docs:check-all` passes (documentation changes)
 - [ ] New functions have tests
 - [ ] No secrets or `.env` files committed
 - [ ] PR description explains what changed and why
 - [ ] Linked to a relevant issue if one exists
+
+For documentation changes, see [Documentation Guards](docs/DOC-GUARDS.md) for details on running checks locally.
 
 ---
 

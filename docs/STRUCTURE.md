@@ -140,6 +140,7 @@ docs/
 ├── ARCHITECTURE.md     # System design, data model, storage strategy
 ├── DEPENDENCIES.md     # Dependency management policy and Dependabot configuration
 ├── DEPLOYMENT.md       # Build, deploy, keeper setup
+├── DOC-GUARDS.md       # Documentation validation scripts and CI workflow
 ├── TESTING.md          # How to run and write tests
 ├── API.md              # Full contract function reference
 ├── STRUCTURE.md        # This file
