@@ -1,0 +1,38 @@
+# PayFlow Keeper — Docker image
+# Multi-stage build: compile TypeScript → run with minimal Node image
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+# Copy sources
+COPY scripts/ ./scripts/
+COPY frontend/src/types.ts ./frontend/src/types.ts
+
+# Install ts-node and compile
+RUN npm install -g ts-node typescript
+COPY tsconfig*.json ./
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS runtime
+
+WORKDIR /app
+
+# Install curl for healthcheck
+RUN apk add --no-cache curl
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/package.json ./package.json
+
+# Non-root user
+RUN addgroup -S payflow && adduser -S keeper -G payflow
+USER keeper
+
+EXPOSE 9091
+
+CMD ["node", "--require", "ts-node/register", "scripts/keeper.ts"]
