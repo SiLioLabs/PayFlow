@@ -888,6 +888,68 @@ export async function getMerchantRevenueHistory(merchant: string, days = 7): Pro
   }
 }
 
+export interface MerchantRevenueDay {
+  day: number;
+  amount: bigint;
+}
+
+const REVENUE_DAY_PAGE_SIZE = 30;
+
+/** Reads one bounded page of the merchant's daily revenue buckets. */
+export async function getMerchantRevenueDayPage(
+  merchant: string,
+  offset: number,
+  limit = REVENUE_DAY_PAGE_SIZE
+): Promise<MerchantRevenueDay[]> {
+  const s = getServer();
+  const contract = new Contract(CONTRACT_ID);
+  const account = await s.getAccount(merchant);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "get_merchant_revenue_day_page",
+        addressVal(merchant),
+        nativeToScVal(offset, { type: "u32" }),
+        nativeToScVal(Math.min(limit, REVENUE_DAY_PAGE_SIZE), { type: "u32" })
+      )
+    )
+    .setTimeout(30)
+    .build();
+
+  const result = await s.simulateTransaction(tx);
+  if ("error" in result) throw new Error((result as { error: string }).error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) throw new Error("Revenue history response was empty");
+
+  return ScValDecoder.decodeVec(retval, (entry) => {
+    if (entry.switch().name !== "scvVec") {
+      throw new Error("Revenue history returned an invalid daily entry");
+    }
+    const tuple = entry.vec();
+    if (!tuple || tuple.length !== 2) {
+      throw new Error("Revenue history returned an invalid daily entry");
+    }
+    return {
+      day: Number(ScValDecoder.decodeU64(tuple[0])),
+      amount: ScValDecoder.decodeI128(tuple[1]),
+    };
+  });
+}
+
+/** Reads every daily bucket using the contract's bounded page size. */
+export async function getMerchantRevenueDays(merchant: string): Promise<MerchantRevenueDay[]> {
+  const days: MerchantRevenueDay[] = [];
+  for (let offset = 0; ; offset += REVENUE_DAY_PAGE_SIZE) {
+    const page = await getMerchantRevenueDayPage(merchant, offset);
+    days.push(...page);
+    if (page.length < REVENUE_DAY_PAGE_SIZE) return days;
+  }
+}
+
 export function getMerchantRevenue(merchant: string): Promise<bigint> {
   return dedupedCall(`getMerchantRevenue:${merchant}`, async () => {
     try {
@@ -919,7 +981,6 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
     }
   });
 }
-
 
 /**
  * Fetch the XLM (or requested asset) balance for an account from Horizon.

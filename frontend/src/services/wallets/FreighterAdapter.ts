@@ -31,6 +31,16 @@ export class FreighterAdapter implements WalletAdapter {
     return window.freighter.getPublicKey();
   }
 
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.freighter || !(await window.freighter.isConnected())) return null;
+    return window.freighter.getPublicKey();
+  }
+
+  async getNetwork(): Promise<{ network: string; networkPassphrase: string }> {
+    if (!window.freighter) throw new Error("Freighter not available");
+    return window.freighter.getNetwork();
+  }
+
   async disconnect(): Promise<void> {
     // Freighter doesn't have a formal disconnect API, but we clear our state.
   }
