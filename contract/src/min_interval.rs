@@ -1,5 +1,6 @@
 use soroban_sdk::Env;
 
+use crate::events;
 use crate::DataKey;
 
 pub const DEFAULT_MIN_INTERVAL: u64 = 3600; // 1 hour
@@ -13,7 +14,11 @@ pub fn get_min_interval(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_MIN_INTERVAL)
 }
 
-/// Persists the minimum interval floor to instance storage.
+/// Persists the minimum interval floor to instance storage and emits min_interval_set event.
 pub fn set_min_interval(env: &Env, seconds: u64) {
-    env.storage().instance().set(&DataKey::MinInterval, &seconds);
+    let old = get_min_interval(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::MinInterval, &seconds);
+    events::publish_min_interval_set(env, old, seconds);
 }

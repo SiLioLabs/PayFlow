@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env};
 
-use crate::DataKey;
+use crate::{DailyLimitStatus, DataKey};
 
 /// Approximate number of ledgers in one day.
 /// Stellar closes ~1 ledger every 5 seconds → 17,280 ledgers/day.
@@ -15,7 +15,13 @@ pub fn get_daily_limit(env: &Env, user: &Address) -> Option<i128> {
 
 /// Sets (or overwrites) the daily spending limit for a user.
 /// The entry lives in temporary storage with a TTL of ~1 day.
+///
+/// Panics with `AmountMustBePositive` when `limit <= 0`, so every stored limit
+/// is positive (the invariant `get_daily_limit_status` relies on).
 pub fn set_daily_limit(env: &Env, user: &Address, limit: i128) {
+    if limit <= 0 {
+        env.panic_with_error(crate::errors::ContractError::AmountMustBePositive);
+    }
     let key = DataKey::DailyLimit(user.clone());
     env.storage().temporary().set(&key, &limit);
     env.storage()
@@ -24,6 +30,16 @@ pub fn set_daily_limit(env: &Env, user: &Address, limit: i128) {
 }
 
 /// Removes the daily spending limit for a user.
+///
+/// Clears `DailyLimit`, `DailySpent`, and `DayStart` together. Because
+/// `get_daily_spent` returns 0 whenever `DayStart` is absent, removing the
+/// limit and then re-setting it starts a **fresh window**: the spend counter
+/// and the day-start anchor are both discarded. This is intentional — it is
+/// the supported way for a user to reset their daily tracking early (e.g.
+/// after lowering and re-raising the cap) without waiting for TTL expiry.
+///
+/// Raising a limit with `set_daily_limit` alone does *not* clear
+/// `DailySpent` / `DayStart`; only removal does.
 pub fn remove_daily_limit(env: &Env, user: &Address) {
     env.storage()
         .temporary()
@@ -31,32 +47,84 @@ pub fn remove_daily_limit(env: &Env, user: &Address) {
     env.storage()
         .temporary()
         .remove(&DataKey::DailySpent(user.clone()));
+    env.storage()
+        .temporary()
+        .remove(&DataKey::DayStart(user.clone()));
 }
 
 /// Returns how much the user has spent today, defaulting to 0.
 pub fn get_daily_spent(env: &Env, user: &Address) -> i128 {
+    let day_start_key = DataKey::DayStart(user.clone());
+    if !env.storage().temporary().has(&day_start_key) {
+        return 0;
+    }
+
     env.storage()
         .temporary()
         .get(&DataKey::DailySpent(user.clone()))
         .unwrap_or(0i128)
 }
 
-/// Records `amount` as spent today for the user.
-/// Resets the TTL so the window stays anchored to the first spend of the day.
-pub fn record_spend(env: &Env, user: &Address, amount: i128) {
-    let key = DataKey::DailySpent(user.clone());
-    let spent = get_daily_spent(env, user);
-    env.storage().temporary().set(&key, &(spent + amount));
+/// Returns the start timestamp of the user's current day window, or `None` if inactive.
+///
+/// When it expires from temporary storage (~17,280 ledgers after first spend),
+/// spend tracking resets on the next `pay_per_use` / `pay_per_use_to`.
+pub fn get_day_start(env: &Env, user: &Address) -> Option<u64> {
     env.storage()
         .temporary()
-        .extend_ttl(&key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
+        .get(&DataKey::DayStart(user.clone()))
+}
+
+/// Returns all daily spending fields from one view of temporary storage.
+pub fn get_daily_limit_status(env: &Env, user: &Address) -> DailyLimitStatus {
+    let limit = get_daily_limit(env, user);
+    let spent = get_daily_spent(env, user);
+    let day_start = get_day_start(env, user);
+    let remaining = limit.map(|value| value.saturating_sub(spent).max(0));
+
+    DailyLimitStatus {
+        limit,
+        spent,
+        day_start,
+        remaining,
+    }
+}
+
+/// Records `amount` as spent today for the user.
+/// Anchors TTL to the first spend of the day using DayStart.
+pub fn record_spend(env: &Env, user: &Address, amount: i128) {
+    let day_start_key = DataKey::DayStart(user.clone());
+    let spent_key = DataKey::DailySpent(user.clone());
+    let spent = get_daily_spent(env, user);
+
+    if !env.storage().temporary().has(&day_start_key) {
+        let now = env.ledger().timestamp();
+        env.storage().temporary().set(&day_start_key, &now);
+        env.storage()
+            .temporary()
+            .extend_ttl(&day_start_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
+        crate::events::publish_daily_window_started(env, user);
+    }
+
+    let new_spent = spent
+        .checked_add(amount)
+        .unwrap_or_else(|| env.panic_with_error(crate::errors::ContractError::ArithmeticOverflow));
+    env.storage().temporary().set(&spent_key, &new_spent);
+    env.storage()
+        .temporary()
+        .extend_ttl(&spent_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
 }
 
 /// Checks whether `amount` would exceed the user's daily limit.
-/// Panics if the limit would be exceeded.
+/// Panics with ContractError::DailyLimitExceeded if the limit would be exceeded.
 pub fn enforce_limit(env: &Env, user: &Address, amount: i128) {
     if let Some(limit) = get_daily_limit(env, user) {
         let spent = get_daily_spent(env, user);
-        assert!(spent + amount <= limit, "daily spending limit exceeded");
+        let new_spent = spent.checked_add(amount).unwrap_or_else(|| {
+            env.panic_with_error(crate::errors::ContractError::ArithmeticOverflow)
+        });
+        if new_spent > limit {
+            env.panic_with_error(crate::errors::ContractError::DailyLimitExceeded);
+        }
     }
 }

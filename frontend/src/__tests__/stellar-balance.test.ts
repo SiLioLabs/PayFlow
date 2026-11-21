@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getBalance } from "../stellar";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { getBalance, horizonBaseUrl, explorerBaseUrl, explorerTxUrl } from "../stellar";
+import { Networks } from "@stellar/stellar-sdk";
+import { useStellarBalance } from "../hooks/useStellarBalance";
 
 // Create a spy to intercept global fetch calls
 const globalFetchMock = vi.spyOn(globalThis, "fetch");
@@ -14,8 +17,8 @@ describe("getBalance", () => {
     const mockHorizonResponse = {
       balances: [
         { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "50.0000000" },
-        { asset_type: "native", balance: "142.5000000" } // The target asset your code looks for
-      ]
+        { asset_type: "native", balance: "142.5000000" }, // The target asset your code looks for
+      ],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -36,9 +39,7 @@ describe("getBalance", () => {
   it("returns '0' when no native balance found", async () => {
     // 1. Arrange: Simulate an account that exists but does not hold a native balance object
     const mockHorizonResponse = {
-      balances: [
-        { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.0000000" }
-      ]
+      balances: [{ asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.0000000" }],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -53,18 +54,15 @@ describe("getBalance", () => {
     expect(balance).toBe("0");
   });
 
-  it("returns '0' on network error", async () => {
+  it("throws on network error so callers can surface it", async () => {
     // 1. Arrange: Force fetch to throw an unhandled system/network exception
     globalFetchMock.mockRejectedValue(new Error("Horizon API Outage"));
 
-    // 2. Act
-    const balance = await getBalance("GBX...MOCK_PUBLIC_KEY");
-
-    // 3. Assert: Your internal try/catch block should gracefully absorb the error and return "0"
-    expect(balance).toBe("0");
+    // 2. Act + Assert: getBalance must throw instead of swallowing to "0"
+    await expect(getBalance("GBX...MOCK_PUBLIC_KEY")).rejects.toThrow("Horizon API Outage");
   });
 
-  it("returns '0' on HTTP error responses (4xx/5xx)", async () => {
+  it("throws on HTTP error responses (4xx/5xx)", async () => {
     // 1. Arrange: Simulate Horizon returning a 500 Internal Server Error
     globalFetchMock.mockResolvedValue({
       ok: false,
@@ -72,14 +70,11 @@ describe("getBalance", () => {
       json: async () => ({ status: 500, title: "Internal Server Error" }),
     } as Response);
 
-    // 2. Act
-    const balance = await getBalance("GBX...MOCK_PUBLIC_KEY");
-
-    // 3. Assert: Implementation should throw and catch, returning "0"
-    expect(balance).toBe("0");
+    // 2. Act + Assert: Implementation should throw so the UI can surface the error
+    await expect(getBalance("GBX...MOCK_PUBLIC_KEY")).rejects.toThrow("Horizon API error: 500");
   });
 
-  it("returns '0' on HTTP 404 Not Found", async () => {
+  it("throws on HTTP 404 Not Found", async () => {
     // 1. Arrange: Simulate account not found
     globalFetchMock.mockResolvedValue({
       ok: false,
@@ -87,25 +82,21 @@ describe("getBalance", () => {
       json: async () => ({ status: 404, title: "Resource Missing" }),
     } as Response);
 
-    // 2. Act
-    const balance = await getBalance("GBX...INVALID_ACCOUNT");
-
-    // 3. Assert
-    expect(balance).toBe("0");
+    // 2. Act + Assert
+    await expect(getBalance("GBX...INVALID_ACCOUNT")).rejects.toThrow("Horizon API error: 404");
   });
 
-  it("returns '0' when Horizon returns invalid JSON", async () => {
+  it("throws when Horizon returns invalid JSON", async () => {
     // 1. Arrange: Simulate malformed JSON response
     globalFetchMock.mockResolvedValue({
       ok: true,
-      json: async () => { throw new SyntaxError("Unexpected token < in JSON at position 0"); },
+      json: async () => {
+        throw new SyntaxError("Unexpected token < in JSON at position 0");
+      },
     } as unknown as Response);
 
-    // 2. Act
-    const balance = await getBalance("GBX...MOCK_PUBLIC_KEY");
-
-    // 3. Assert: Malformed JSON should trigger catch block
-    expect(balance).toBe("0");
+    // 2. Act + Assert: Malformed JSON must propagate so the UI shows an error, not $0
+    await expect(getBalance("GBX...MOCK_PUBLIC_KEY")).rejects.toThrow(SyntaxError);
   });
 
   it("returns '0' when response has no balances field", async () => {
@@ -142,8 +133,8 @@ describe("getBalance", () => {
       balances: [
         { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "50.0000000" },
         { asset_type: "credit_alphanum12", asset_code: "JPY", balance: "100.0000000" },
-        { asset_type: "native", balance: "999.5000000" } // Native is at index 2
-      ]
+        { asset_type: "native", balance: "999.5000000" }, // Native is at index 2
+      ],
     };
 
     globalFetchMock.mockResolvedValue({
@@ -164,8 +155,8 @@ describe("getBalance", () => {
       ok: true,
       json: async () => ({
         balances: [
-          { asset_type: "native" } // Missing balance field
-        ]
+          { asset_type: "native" }, // Missing balance field
+        ],
       }),
     } as Response);
 
@@ -192,5 +183,80 @@ describe("getBalance", () => {
       `https://horizon-testnet.stellar.org/accounts/${testPublicKey}`
     );
     expect(globalFetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useStellarBalance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns initial loading state and fetches balance", async () => {
+    globalFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ balances: [{ asset_type: "native", balance: "20.0000000" }] }),
+    } as Response);
+
+    const { result } = renderHook(() => useStellarBalance("GBX...MOCK"));
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.balance).toBe("0");
+    expect(result.current.stale).toBe(false);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.balance).toBe("20.0000000");
+    expect(result.current.stale).toBe(false);
+    expect(globalFetchMock).toHaveBeenCalledWith(
+      "https://horizon-testnet.stellar.org/accounts/GBX...MOCK?asset_type=native"
+    );
+  });
+
+  it("uses cached balance on subsequent calls and avoids fetch storms", async () => {
+    // Setup first fetch
+    globalFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ balances: [{ asset_type: "native", balance: "30.0000000" }] }),
+    } as Response);
+
+    const { result: firstResult, unmount } = renderHook(() => useStellarBalance("GBX...CACHE"));
+
+    await waitFor(() => {
+      expect(firstResult.current.loading).toBe(false);
+    });
+
+    unmount();
+
+    // Clear mock to ensure it doesn't fetch again
+    globalFetchMock.mockClear();
+
+    const { result: secondResult } = renderHook(() => useStellarBalance("GBX...CACHE"));
+
+    // Should be initialized with cached balance instantly
+    expect(secondResult.current.balance).toBe("30.0000000");
+    expect(secondResult.current.loading).toBe(false); // Because it's within minFetchIntervalMs
+
+    // Should not have fetched again
+    expect(globalFetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("network-aware Horizon and explorer hosts (#1255, #1254)", () => {
+  it("selects the Horizon host by passphrase", () => {
+    expect(horizonBaseUrl(Networks.PUBLIC)).toBe("https://horizon.stellar.org");
+    expect(horizonBaseUrl(Networks.TESTNET)).toBe("https://horizon-testnet.stellar.org");
+  });
+
+  it("selects the explorer base and tx URL by passphrase", () => {
+    expect(explorerBaseUrl(Networks.PUBLIC)).toBe("https://stellar.expert/explorer/public");
+    expect(explorerBaseUrl(Networks.TESTNET)).toBe("https://stellar.expert/explorer/testnet");
+    expect(explorerTxUrl("abc123", Networks.PUBLIC)).toBe(
+      "https://stellar.expert/explorer/public/tx/abc123"
+    );
+    expect(explorerTxUrl("abc123", Networks.TESTNET)).toBe(
+      "https://stellar.expert/explorer/testnet/tx/abc123"
+    );
   });
 });

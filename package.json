@@ -6,23 +6,22 @@
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
     "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
-    "audit:contrast": "npm run typecheck",
+    "typecheck:scripts": "cd scripts && npx tsc --noEmit",
+    "test:scripts": "cd scripts && npm install --prefer-offline && npm test",
+    "audit:contrast": "node scripts/contrast-check.mjs",
     "backend:typecheck": "cd contract && cargo check",
     "backend:test": "cd contract && cargo test",
-    "docs:check-links": "node scripts/check-doc-links.mjs",
-    "docs:check-errors": "node scripts/check-error-codes.mjs",
-    "docs:check-quicklinks": "node scripts/check-quicklinks.mjs",
-    "docs:test-limits": "node scripts/test-limits-claims.mjs",
-    "docs:test-tables": "node scripts/test-caps-table.mjs",
-    "docs:check-all": "npm run docs:check-links && npm run docs:check-errors && npm run docs:check-quicklinks && npm run docs:test-limits && npm run docs:test-tables"
+    "backend:vesting:typecheck": "cd vesting && cargo check",
+    "backend:vesting:test": "cd vesting && cargo test",
+    "generate:types": "bash scripts/generate-types.sh",
+    "test": "tsx --test tests/*.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^20.16.0",
     "husky": "^9.1.7",
-    "lint-staged": "^15.5.2"
-  },
-  "lint-staged": {
-    "frontend/src/**/*.{ts,tsx}": [
-      "bash -c 'cd frontend && npx tsc --noEmit'"
-    ]
+    "lint-staged": "^15.5.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
   }
+  
 }

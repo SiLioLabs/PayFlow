@@ -50,9 +50,7 @@ describe("usePolling", () => {
     const callback = vi.fn();
     const interval = 1000;
 
-    const { unmount } = renderHook(() =>
-      usePolling({ callback, interval, enabled: true })
-    );
+    const { unmount } = renderHook(() => usePolling({ callback, interval, enabled: true }));
 
     // Advance time by the interval
     vi.advanceTimersByTime(interval);

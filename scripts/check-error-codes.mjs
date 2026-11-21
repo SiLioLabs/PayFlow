@@ -1,157 +1,237 @@
 #!/usr/bin/env node
 /**
  * check-error-codes.mjs
- * Validates that error codes in documentation match contract error definitions.
- * Ensures all error codes are properly defined and documented.
+ *
+ * CI guard: verifies that docs/ERROR-CODES.md lists every numeric error code
+ * defined in contract/src/errors.rs and that no code appears more than once
+ * in the quick-reference table.
+ *
+ * Usage:
+ *   node scripts/check-error-codes.mjs
+ *
+ * Exit codes:
+ *   0 — all codes accounted for and table is consistent
+ *   1 — one or more codes are missing, duplicated, or the files cannot be read
+ *
+ * Add to CI:
+ *   - run: node scripts/check-error-codes.mjs
+ *     working-directory: .
+ *
+ * Intentional gaps (codes that exist in errors.rs as deprecated/reserved but
+ * are NOT assigned to an active variant) are handled by scanning for comments
+ * in errors.rs that mark a code as "reserved" or "unassigned".  The script
+ * treats them as documented-gaps and only requires they appear in the
+ * quick-reference table (even as "*(reserved)*" or "*(unassigned)*").
  */
 
-import fs from 'fs';
-import path from 'path';
+import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(__dirname, '..');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
 
-let errorCount = 0;
+// ── 1. Parse errors.rs ──────────────────────────────────────────────────────
 
-// Extract error codes from contract errors.rs
-function getErrorCodesFromContract() {
-  const errorsFile = path.join(rootDir, 'contract', 'src', 'errors.rs');
-  const errorCodes = new Map();
-  
-  if (!fs.existsSync(errorsFile)) {
-    console.warn('⚠️  Contract errors.rs not found, skipping code validation');
-    return errorCodes;
-  }
-  
-  try {
-    const content = fs.readFileSync(errorsFile, 'utf8');
-    
-    // Match patterns like: InvalidInterval = 1, InsufficientAllowance = 2, etc.
-    const codeRegex = /(\w+)\s*=\s*(\d+)/g;
-    let match;
-    
-    while ((match = codeRegex.exec(content)) !== null) {
-      const name = match[1];
-      const code = parseInt(match[2], 10);
-      errorCodes.set(name, code);
-    }
-  } catch (err) {
-    console.error(`Error reading ${errorsFile}:`, err.message);
-    process.exit(1);
-  }
-  
-  return errorCodes;
+const errorsRsPath = join(ROOT, 'contract', 'src', 'errors.rs');
+let errorsRs;
+try {
+  errorsRs = readFileSync(errorsRsPath, 'utf8');
+} catch (e) {
+  console.error(`[check-error-codes] Cannot read ${errorsRsPath}: ${e.message}`);
+  process.exit(1);
 }
 
-// Extract error code references from markdown documentation
-function extractErrorCodesFromDocs(content) {
-  const codes = [];
-  
-  // Match patterns like: E001, ERR_001, error 1, etc.
-  const codeRegex = /(?:error\s+code\s+)?([A-Z_]+(?:\d+)?|E\d+|ERR_\d+)/gi;
-  let match;
-  
-  while ((match = codeRegex.exec(content)) !== null) {
-    codes.push({
-      code: match[1],
-      offset: match.index
-    });
+/**
+ * Extract all `VariantName = <number>` assignments from the ContractError enum.
+ * Returns a Map<number, string> of code → variant name.
+ */
+function parseErrorsRs(src) {
+  const codes = new Map();
+  // Match lines like:  SomeName = 42,
+  const variantRe = /^\s+(\w+)\s*=\s*(\d+)\s*,/gm;
+  let m;
+  while ((m = variantRe.exec(src)) !== null) {
+    const name = m[1];
+    const code = parseInt(m[2], 10);
+    if (codes.has(code)) {
+      console.error(
+        `[check-error-codes] DUPLICATE in errors.rs: code ${code} assigned to both '${codes.get(code)}' and '${name}'`
+      );
+      process.exit(1);
+    }
+    codes.set(code, name);
   }
-  
   return codes;
 }
 
-// Check if error code is referenced in documentation but not defined
-function validateDocumentationErrors(content, filePath, definedErrors) {
-  const lines = content.split('\n');
-  const codes = extractErrorCodesFromDocs(content);
-  const docErrors = [];
-  
-  // Create a set of common false positives to ignore
-  const ignoredPatterns = /\b(HTTP|OK|UUID|API|SDK|URL|ID|SAC|XLM|UTC|TTL|WASM|JSON|CLI|UI|PR|CI|CD)\b/;
-  
-  for (const codeRef of codes) {
-    if (ignoredPatterns.test(codeRef.code)) {
-      continue;
-    }
-    
-    // Check if this looks like an error code
-    if (!/^E\d+|^ERR_\d+|\d+$/.test(codeRef.code)) {
-      continue;
-    }
-    
-    const lineNum = content.substring(0, codeRef.offset).split('\n').length;
-    
-    // Check if documented error is actually defined in contract
-    if (!definedErrors.has(codeRef.code) && !isCoreError(codeRef.code)) {
-      docErrors.push({
-        code: codeRef.code,
-        line: lineNum
-      });
-    }
+const rustCodes = parseErrorsRs(errorsRs);
+if (rustCodes.size === 0) {
+  console.error('[check-error-codes] No error codes found in errors.rs — check the file path or format.');
+  process.exit(1);
+}
+
+// ── 2. Parse docs/ERROR-CODES.md quick-reference table ─────────────────────
+
+const docPath = join(ROOT, 'docs', 'ERROR-CODES.md');
+let docSrc;
+try {
+  docSrc = readFileSync(docPath, 'utf8');
+} catch (e) {
+  console.error(`[check-error-codes] Cannot read ${docPath}: ${e.message}`);
+  process.exit(1);
+}
+
+/**
+ * Parse the quick-reference table.
+ * Matches lines like: | 42   | `SchemaMigrationRequired`   | ...
+ * or gap lines like:  | 37   | *(unassigned)*              | ...
+ * or reserved lines:  | 31   | *(reserved)*                | ...
+ * Returns a Map<number, string> of code → name/description in table.
+ *
+ * Only scans the "Quick-Reference Table" section (between the section
+ * heading and the first `---` separator after it) to avoid false matches
+ * from other tables in the document (e.g. the frontend error map table).
+ */
+function parseDocTable(src) {
+  const codes = new Map();
+
+  // Extract just the quick-reference table section
+  const sectionStart = src.indexOf('## Quick-Reference Table');
+  if (sectionStart === -1) {
+    console.error('[check-error-codes] Could not find "## Quick-Reference Table" heading in ERROR-CODES.md');
+    process.exit(1);
   }
-  
-  return docErrors;
-}
+  // Find the next top-level section (##) after the table
+  const sectionEnd = src.indexOf('\n## ', sectionStart + 10);
+  const tableSection = sectionEnd === -1 ? src.slice(sectionStart) : src.slice(sectionStart, sectionEnd);
 
-// Check for core Soroban errors that are always valid
-function isCoreError(code) {
-  const coreErrors = [
-    'ContractError', 'InvocationError', 'StorageError',
-    '1', '2', '3', '4', '5' // Common error codes
-  ];
-  return coreErrors.includes(code);
-}
-
-// Check all markdown files for error references
-function checkErrorsInDocs() {
-  const errorCodes = getErrorCodesFromContract();
-  let foundErrors = false;
-  
-  function checkDir(dir) {
-    try {
-      const files = fs.readdirSync(dir);
-      
-      for (const file of files) {
-        const filePath = path.join(dir, file);
-        const stat = fs.statSync(filePath);
-        
-        if (stat.isDirectory()) {
-          if (!file.startsWith('.') && file !== 'node_modules') {
-            checkDir(filePath);
-          }
-        } else if (file.endsWith('.md')) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const invalidErrors = validateDocumentationErrors(content, filePath, errorCodes);
-          
-          for (const err of invalidErrors) {
-            console.error(
-              `  ⚠️  Potential undocumented error in ${path.relative(rootDir, filePath)}:${err.line}\n` +
-              `      Code reference: ${err.code}\n` +
-              `      This code may not be defined in contract/src/errors.rs`
-            );
-            foundErrors = true;
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`Error checking directory ${dir}:`, err.message);
+  // Match table rows whose first column is a number
+  const rowRe = /^\|\s*(\d+)\s*\|([^|]+)\|/gm;
+  let m;
+  while ((m = rowRe.exec(tableSection)) !== null) {
+    const code = parseInt(m[1], 10);
+    const label = m[2].trim();
+    if (codes.has(code)) {
+      console.error(
+        `[check-error-codes] DUPLICATE in ERROR-CODES.md table: code ${code} appears more than once`
+      );
+      process.exit(1);
     }
+    codes.set(code, label);
   }
-  
-  checkDir(path.join(rootDir, 'docs'));
-  checkDir(rootDir);
-  
-  return foundErrors;
+  return codes;
 }
 
-// Main execution
-console.log('🛡️  Checking error code documentation...\n');
+const docCodes = parseDocTable(docSrc);
+if (docCodes.size === 0) {
+  console.error('[check-error-codes] No table rows found in ERROR-CODES.md — check format.');
+  process.exit(1);
+}
 
-const hasIssues = checkErrorsInDocs();
+// ── 3. Check that API.md does not re-introduce an error-codes table ─────────
 
-console.log(`\n✅ Error code validation complete!`);
-console.log('   (Note: warnings are informational; they do not fail the build)\n');
+const apiMdPath = join(ROOT, 'docs', 'API.md');
+let apiMdSrc;
+try {
+  apiMdSrc = readFileSync(apiMdPath, 'utf8');
+} catch (e) {
+  console.error(`[check-error-codes] Cannot read ${apiMdPath}: ${e.message}`);
+  process.exit(1);
+}
 
-process.exit(0);
+// Check for error-code table pattern in API.md (table with error codes in first column)
+// We look for markdown table rows that start with a numeric code in the first column
+// and contain typical error-related keywords in adjacent columns
+const errorTablePattern = /^\|\s*(\d+)\s*\|\s*`?\w+`?\s*\|/gm;
+const potentialErrorTableRows = [];
+let match;
+while ((match = errorTablePattern.exec(apiMdSrc)) !== null) {
+  potentialErrorTableRows.push(match[0]);
+}
+
+// If we find multiple rows (suggesting a table), check if they're in an error codes section
+if (potentialErrorTableRows.length > 3) {
+  // Look for "## Error Codes" heading followed by table content
+  const errorCodesSectionPattern = /##\s+Error\s+Codes[\s\S]{0,500}^\|\s*\d+\s*\|/mi;
+  if (errorCodesSectionPattern.test(apiMdSrc)) {
+    console.error('\n[check-error-codes] FAIL — API.md contains an "## Error Codes" section with a table.');
+    console.error('  The error codes table must only exist in ERROR-CODES.md (single source of truth).');
+    console.error('  Replace the table in API.md with a link to ERROR-CODES.md instead.\n');
+    process.exit(1);
+  }
+}
+
+// ── 4. Compute the expected set of documented codes ─────────────────────────
+//
+// The full set to document = all codes in errors.rs PLUS any intentional gap
+// codes that appear in the quick-reference table (e.g. 31, 37).
+//
+// A "gap" is a code that is in the doc table but NOT in errors.rs — that is
+// fine as long as the table entry is clearly labelled as reserved/unassigned.
+// A code that is in errors.rs but NOT in the doc table is always a failure.
+
+const missingFromDoc = [];
+for (const [code, name] of rustCodes.entries()) {
+  if (!docCodes.has(code)) {
+    missingFromDoc.push({ code, name });
+  }
+}
+
+// ── 5. Check detailed recovery section coverage ─────────────────────────────
+//
+// Every code in errors.rs should also have a "### <code> —" heading in the
+// recovery section. Gap codes (31, 37, …) only need the quick-reference row.
+
+const detailHeadingRe = /^###\s+(\d+)\s+[—–-]/gm;
+const detailCodes = new Set();
+let dm;
+while ((dm = detailHeadingRe.exec(docSrc)) !== null) {
+  detailCodes.add(parseInt(dm[1], 10));
+}
+
+// Deprecated / reserved variants that intentionally have minimal or no
+// detailed recovery section (they're gaps or never-emitted aliases).
+const SKIP_DETAIL_CHECK = new Set([31]); // code 31 is "Reserved31" in errors.rs
+
+const missingDetail = [];
+for (const [code, name] of rustCodes.entries()) {
+  if (!detailCodes.has(code) && !SKIP_DETAIL_CHECK.has(code)) {
+    missingDetail.push({ code, name });
+  }
+}
+
+// ── 6. Report ────────────────────────────────────────────────────────────────
+
+let failures = 0;
+
+if (missingFromDoc.length > 0) {
+  failures++;
+  console.error('\n[check-error-codes] FAIL — codes in errors.rs but missing from ERROR-CODES.md quick-reference table:');
+  for (const { code, name } of missingFromDoc.sort((a, b) => a.code - b.code)) {
+    console.error(`  code ${code}: ${name}`);
+  }
+  console.error('\n  Add a row to the quick-reference table in docs/ERROR-CODES.md.\n');
+}
+
+if (missingDetail.length > 0) {
+  failures++;
+  console.error('\n[check-error-codes] FAIL — codes in errors.rs with no "### N —" recovery section in ERROR-CODES.md:');
+  for (const { code, name } of missingDetail.sort((a, b) => a.code - b.code)) {
+    console.error(`  code ${code}: ${name}`);
+  }
+  console.error('\n  Add a "### N — `VariantName`" section with recovery steps.\n');
+}
+
+if (failures === 0) {
+  const rustCount = rustCodes.size;
+  const docTableCount = docCodes.size;
+  console.log(
+    `[check-error-codes] OK — ${rustCount} codes in errors.rs, ` +
+    `${docTableCount} rows in table (includes ${docTableCount - rustCount} gap/reserved entries), ` +
+    `${detailCodes.size} detailed recovery sections.`
+  );
+  process.exit(0);
+} else {
+  process.exit(1);
+}

@@ -1,113 +1,172 @@
 # Security
+<!-- updated -->
+> **Revision date:** 2026-09-26  
+> Auth matrix rebuilt by grepping `require_auth` across `contract/src/` (lib.rs, admin.rs, fee.rs, grace.rs, merchant_stats.rs, migration.rs, upgrade.rs). All 22 call sites accounted for. `transfer_subscription` corrected to two signers; `cancel_and_refund_prorated`, `withdraw_merchant_revenue`, `set_merchant_fee_recipient`, `pay_per_use_to`, `pause_until`, `extend_trial`, and `batch_charge` added. `clear_charge_history` and `set_initial_admin` corrected to admin-gated. Stale single-token limitation removed.
 
-This document describes the security model of FlowPay, known limitations, and how to report vulnerabilities.
+This document describes the current security model, threat model, known limitations, and responsible disclosure process for FlowPay.
 
 ---
 
 ## Current Status
 
-FlowPay is deployed on **Testnet only** and has **not been formally audited**. It should not be used to manage real funds on Mainnet until an independent security audit has been completed.
+FlowPay is deployed on Testnet only and has not been formally audited. Treat the contract as experimental until an independent review is complete.
+
+### Audit roadmap
+
+1. Complete the internal preparation checklist in [`docs/security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md).
+2. Freeze and tag an audit candidate commit; publish the WASM hash.
+3. Engage an independent Soroban-focused auditor with the in-scope contract sources.
+4. Remediate findings, re-test, and publish the report (or summary) before Mainnet.
+
+Use the [Security Audit Preparation Guide](security/AUDIT-PREPARATION.md) for invariants, threat mapping, scope, and known limitations to brief auditors.
 
 ---
 
-## Security Model
+## Threat Model
 
-### Allowance-Based Spending
+FlowPay is designed so an attacker can try to disrupt execution, but not silently move funds beyond approved limits.
 
-FlowPay never holds user funds. It uses the Soroban token interface's `transfer_from` mechanism — the same pattern as ERC-20 `approve` + `transferFrom` on Ethereum.
+### What an attacker can do
 
-The flow is:
+- Call permissionless entry points such as `charge()` and `batch_charge()`.
+- Submit malformed or repeated transactions.
+- Try to front-run keeper calls or send charges too early.
+- Attempt to use stale or expired state.
+- Abuse admin-style entry points if they control the required signer.
 
-1. User calls `approve()` on the token contract, granting FlowPay a spending allowance
-2. FlowPay calls `transfer_from()` to move funds from user → merchant
-3. The token contract enforces that the transferred amount does not exceed the approved allowance
+### What an attacker cannot do, by design
 
-This means:
+- Spend more than the user-approved token allowance.
+- Change another user's subscription without that user's signature.
+- Reinitialize the contract once `initialize()` has succeeded.
+- Bypass the contract's interval and grace-window checks.
+- Move tokens without going through the token contract's own authorization checks.
 
-- FlowPay cannot move more than the user has approved
-- Users can revoke access at any time by calling `approve()` with `amount = 0` on the token contract
-- Even if the FlowPay contract were compromised, it could only spend up to the approved allowance
+### Main attack vectors
 
-### `require_auth()` Enforcement
+1. Excessive `charge()` calls before a billing interval elapses.
+2. Keeper manipulation or downtime that delays recurring billing.
+3. Admin key compromise.
+4. Allowance misuse if a user approves too much or leaves approval active too long.
+5. Storage corruption or stale state caused by TTL expiry or migration bugs.
+6. Malicious upgrade intent if upgrade control is not governed carefully.
 
-Every function that mutates user state or moves user funds calls `user.require_auth()`:
+The contract is built to fail closed. If a precondition is violated, the call panics and no funds are transferred.
 
-| Function        | Auth check                                      |
-| --------------- | ----------------------------------------------- |
-| `subscribe()`   | `user.require_auth()`                           |
-| `pay_per_use()` | `user.require_auth()`                           |
-| `cancel()`      | `user.require_auth()`                           |
-| `pause()`       | `user.require_auth()`                           |
-| `resume()`      | `user.require_auth()`                           |
-| `charge()`      | None (intentionally permissionless — see below) |
-| `initialize()`  | None (one-time setup)                           |
+---
 
-### Why `charge()` is Permissionless
+## Auth Model
 
-`charge()` has no auth requirement by design. This allows keeper services to trigger charges without holding user private keys. The contract enforces correctness independently:
+| Function | Required signer |
+| --- | --- |
+| `subscribe()`, `subscribe_with_metadata()` | `user` |
+| `cancel()` | `user` |
+| `extend_trial()` | `user` |
+| `pause()`, `pause_until()` | `user` |
+| `resume()` | `user` |
+| `pay_per_use()`, `pay_per_use_to()` | `user` |
+| `set_daily_limit()`, `remove_daily_limit()` | `user` |
+| `set_metadata()`, `clear_metadata()` | `user` |
+| `transfer_subscription()` | `user` **and** `new_user` |
+| `cancel_and_refund_prorated()` | `user` **and** `merchant` |
+| `withdraw_merchant_revenue()` | `merchant` |
+| `set_merchant_fee_recipient()` | `merchant` |
+| `transfer_admin()` | current admin |
+| `accept_admin()` | pending admin |
+| `initialize()`, `set_initial_admin()` | admin |
+| `set_max_batch_size()`, `set_max_whitelist_batch_size()` | admin |
+| `set_fee_bounds()`, `set_global_volume_cap()` | admin |
+| `batch_pause_subscriptions()`, `batch_cancel()` | admin |
+| `whitelist_batch_add()`, `whitelist_batch_remove()` | admin |
+| `set_subscription_amount()`, `set_subscription_interval()` | admin |
+| `set_min_interval()` | admin |
+| `add_merchant()`, `remove_merchant()` | admin |
+| `set_whitelist_enabled()` | admin |
+| `freeze_merchant()`, `unfreeze_merchant()` | admin |
+| `clear_fee()`, `propose_fee()`, `commit_fee()` | admin |
+| `propose_grace_period()`, `commit_grace_period()` | admin |
+| `clear_charge_history()`, `prune_charge_history()` | admin |
+| `clear_merchant_revenue_history()`, `reset_merchant_revenue()` | admin |
+| `prune_merchant_revenue_days()` | admin |
+| `extend_subscriber_index_ttl()`, `clear_subscriber_index_entry()` | admin |
+| `pause_contract()`, `unpause_contract()` | admin |
+| `propose_upgrade()`, `commit_upgrade()`, `cancel_pending_upgrade()` | admin |
+| `migrate()` | admin |
+| `charge()`, `batch_charge()` | none |
+| `extend_subscription_ttl()`, `batch_extend_subscription_ttl()` | none |
+| `bump_subscription()`, `bump_instance_ttl()` | none |
+| `bump_merchant_revenue_day()` | none |
+| `simulate_charge()`, `simulate_pay_per_use()`, `simulate_pay_per_use_to()` | none |
+| read-only getters | none |
 
-- The subscription must exist
-- `active` must be `true`
-- The billing interval must have elapsed
+The current contract uses a mix of direct `require_auth()` checks and admin helper enforcement. That is intentional, but the auth path should be reviewed whenever a new public function is added.
 
-If any condition fails, the transaction panics and no funds move. A malicious caller cannot extract funds by calling `charge()` — they can only trigger a legitimate charge that the user already consented to when subscribing.
+---
 
-### `initialize()` is One-Time Only
+## Storage Security
 
-The contract checks for the existence of `DataKey::Token` before writing it. A second call to `initialize()` panics immediately. This prevents an attacker from re-initializing the contract with a malicious token address after deployment.
+### Persistent vs temporary storage
 
-### No Upgradability
+- Persistent storage is used for long-lived subscription, merchant, metadata, referral, and history data.
+- Temporary storage is used for short-lived proposals and daily limit counters.
+- Instance storage holds protocol-wide configuration and pause flags.
 
-The FlowPay contract has no upgrade mechanism. Once deployed, the code is immutable. This is a deliberate security choice — it means no admin can change the contract logic after users have subscribed.
+### Security implications
 
-### Rust Memory Safety
+- Temporary data can disappear if TTL expires, so it should only hold values that are safe to recompute or re-propose.
+- Persistent subscription entries have their TTL refreshed during active lifecycle changes so they are less likely to be evicted.
+- Read paths that depend on temporary data must tolerate missing entries.
 
-The contract is written in Rust, which eliminates entire classes of vulnerabilities common in other languages: buffer overflows, use-after-free, null pointer dereferences, and integer overflow (Soroban's release profile enables `overflow-checks = true`).
+### Practical risk
+
+If storage TTL is not refreshed when expected, users may lose history or proposal state. The contract should prefer safe defaults and avoid treating temporary data as authoritative when a fallback exists.
+
+---
+
+## Upgrade Risks
+
+The contract includes an upgrade wrapper, which means upgrade governance matters.
+
+### Risks
+
+- A malicious or compromised upgrade authority could replace contract behavior.
+- An upgrade can accidentally change storage layout or event semantics.
+- Off-chain integrations may break if a new version changes function behavior without a migration plan.
+
+### Mitigations
+
+- Keep migrations explicit and versioned.
+- Preserve storage compatibility when adding fields.
+- Update docs and tests whenever the public ABI changes.
+- Review upgrade authority handling before Mainnet deployment.
 
 ---
 
 ## Known Limitations
 
-### Single Token Per Contract
+- The keeper is an external liveness dependency.
+- There is no fully decentralized dispute-resolution layer for failed or delayed charges.
+- Admin powers are broad and should be treated as high trust until governance is tightened.
 
-Each deployed FlowPay contract is initialized with a single token. Supporting multiple tokens (e.g. both XLM and USDC) requires either deploying multiple contracts or refactoring the storage model. Multi-token support is a planned feature.
-
-### Keeper Centralization
-
-The `charge()` trigger relies on an external keeper. If the keeper goes offline, charges will not be processed. This is a liveness concern, not a safety concern — no funds can be lost, but merchants may not receive payments on time. A decentralized keeper network would improve this.
+For merchant finance teams assembling billing records for accounting or regulatory review, see [COMPLIANCE.md](./COMPLIANCE.md) (audit trail generation, on-chain vs ephemeral data, retention, and explicit non-goals such as KYC and tax calculation).
 
 ---
 
-## Vulnerability Disclosure
+## Responsible Disclosure
 
-If you discover a security vulnerability in FlowPay, please do **not** open a public GitHub issue.
+If you discover a vulnerability, do not open a public issue.
 
-Instead, report it privately:
+Report it privately through one of the following channels:
 
-- **GitHub Security Advisories:** Use the "Security" tab in this repository to report a vulnerability privately
-- **Email:** security@payflow.dev (for urgent or sensitive reports)
-- **Subject:** `[FlowPay Security] Brief description`
+- GitHub Security Advisories in this repository.
+- Email: security@payflow.dev
+- Subject line: [FlowPay Security] short description
 
 Please include:
 
-- A description of the vulnerability
-- Steps to reproduce
-- The potential impact
-- Any suggested mitigations
+- A short description of the issue.
+- Reproduction steps.
+- Expected impact.
+- Any logs, traces, or proof-of-concept details that help triage.
 
-We will acknowledge your report within 48 hours and aim to release a fix within 14 days for critical issues, depending on complexity.
-
-We appreciate responsible disclosure and will credit researchers in the release notes unless they prefer to remain anonymous.
-
----
-
-## Audit Roadmap
-
-Before recommending Mainnet use, we plan to:
-
-1. Complete the full feature set (multi-token, TTL management, pause/resume)
-2. Expand the test suite to 100% branch coverage
-3. Engage an independent Soroban security auditor
-4. Publish the audit report publicly
-
-If you are a security researcher interested in auditing FlowPay, please reach out.
+We aim to acknowledge reports within 48 hours and provide a fix or mitigation plan as quickly as possible for critical issues.

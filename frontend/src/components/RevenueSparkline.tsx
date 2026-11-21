@@ -45,10 +45,13 @@ const RevenueSparklineComponent: React.FC<Props> = ({ history }) => {
           transition: r 0.2s ease, fill 0.2s ease;
         }
         .sparkline-point:hover,
-        .sparkline-point:focus {
+        .sparkline-point:focus-visible {
           r: 5;
           fill: var(--color-primary);
-          outline: none;
+        }
+        .sparkline-point:focus-visible {
+          stroke: var(--color-text);
+          stroke-width: 2.5;
         }
       `}</style>
       <svg
@@ -67,14 +70,7 @@ const RevenueSparklineComponent: React.FC<Props> = ({ history }) => {
           points={polylinePoints}
         />
         {points.map((p) => (
-          <circle
-            key={p.index}
-            cx={p.x}
-            cy={p.y}
-            r="3"
-            className="sparkline-point"
-            tabIndex={0}
-          >
+          <circle key={p.index} cx={p.x} cy={p.y} r="3" className="sparkline-point" tabIndex={0}>
             <title>{formatXlm(p.value)}</title>
           </circle>
         ))}

@@ -5,10 +5,7 @@ interface SpinnerProps {
   className?: string;
 }
 
-export default function Spinner({
-  size = "md",
-  className = "",
-}: SpinnerProps) {
+export default function Spinner({ size = "md", className = "" }: SpinnerProps) {
   const sizeClass = `spinner-${size}`;
   return <div className={`spinner ${sizeClass} ${className}`} />;
 }

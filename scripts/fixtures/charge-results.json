@@ -1,0 +1,123 @@
+{
+  "_comment": [
+    "Real `ChargeResult` payloads for the off-chain conformance test.",
+    "",
+    "`ChargeResult` is a Soroban `#[contracttype]` enum with no payload fields",
+    "(contract/src/batch.rs), so each element on the wire is an `scvU32`",
+    "carrying the variant discriminant — NOT an `scvSymbol`. The whole return",
+    "value of `batch_charge` / `get_batch_charge_estimate` is an `scvVec` of",
+    "those, one element per input address, in input order.",
+    "",
+    "The `single_xdr_base64` values are the base64 XDR of one `scvU32`; the",
+    "`xdr_base64` values are the base64 XDR of the whole `scvVec`.",
+    "See docs/CHARGE-RESULTS.md for the full wire-format reference."
+  ],
+  "source": "contract/src/batch.rs (ChargeResult) + docs/CHARGE-RESULTS.md",
+  "variants": [
+    {
+      "discriminant": 0,
+      "name": "Charged",
+      "meaning": "Funds transferred, last_charged advanced.",
+      "single_xdr_base64": "AAAAAwAAAAA="
+    },
+    {
+      "discriminant": 1,
+      "name": "Skipped",
+      "meaning": "Interval has not elapsed yet. Not an error.",
+      "single_xdr_base64": "AAAAAwAAAAE="
+    },
+    {
+      "discriminant": 2,
+      "name": "NoSubscription",
+      "meaning": "No subscription exists for this address.",
+      "single_xdr_base64": "AAAAAwAAAAI="
+    },
+    {
+      "discriminant": 3,
+      "name": "Inactive",
+      "meaning": "Subscription exists but is cancelled.",
+      "single_xdr_base64": "AAAAAwAAAAM="
+    },
+    {
+      "discriminant": 4,
+      "name": "Paused",
+      "meaning": "Subscription is paused.",
+      "single_xdr_base64": "AAAAAwAAAAQ="
+    },
+    {
+      "discriminant": 5,
+      "name": "GracePeriodElapsed",
+      "meaning": "The charge window closed; the subscription is overdue beyond its grace period.",
+      "single_xdr_base64": "AAAAAwAAAAU="
+    },
+    {
+      "discriminant": 6,
+      "name": "AllowanceInsufficient",
+      "meaning": "Subscriber's token allowance is below the gross amount. The subscription stays active.",
+      "single_xdr_base64": "AAAAAwAAAAY="
+    }
+  ],
+  "vectors": [
+    {
+      "name": "all_variants",
+      "description": "One address per variant, in declaration order.",
+      "xdr_base64": "AAAAEAAAAAEAAAAHAAAAAwAAAAAAAAADAAAAAQAAAAMAAAACAAAAAwAAAAMAAAADAAAABAAAAAMAAAAFAAAAAwAAAAY=",
+      "expected": [
+        "Charged",
+        "Skipped",
+        "NoSubscription",
+        "Inactive",
+        "Paused",
+        "GracePeriodElapsed",
+        "AllowanceInsufficient"
+      ]
+    },
+    {
+      "name": "documented_example",
+      "description": "The worked example from docs/CHARGE-RESULTS.md: Charged, Skipped, AllowanceInsufficient.",
+      "xdr_base64": "AAAAEAAAAAEAAAADAAAAAwAAAAAAAAADAAAAAQAAAAMAAAAG",
+      "expected": ["Charged", "Skipped", "AllowanceInsufficient"]
+    },
+    {
+      "name": "all_charged",
+      "description": "Every subscriber in the batch was charged.",
+      "xdr_base64": "AAAAEAAAAAEAAAAIAAAAAwAAAAAAAAADAAAAAAAAAAMAAAAAAAAAAwAAAAAAAAADAAAAAAAAAAMAAAAAAAAAAwAAAAAAAAADAAAAAA==",
+      "expected": [
+        "Charged",
+        "Charged",
+        "Charged",
+        "Charged",
+        "Charged",
+        "Charged",
+        "Charged",
+        "Charged"
+      ]
+    },
+    {
+      "name": "all_failed",
+      "description": "Every subscriber failed with the same outcome.",
+      "xdr_base64": "AAAAEAAAAAEAAAAIAAAAAwAAAAYAAAADAAAABgAAAAMAAAAGAAAAAwAAAAYAAAADAAAABgAAAAMAAAAGAAAAAwAAAAYAAAADAAAABg==",
+      "expected": [
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient",
+        "AllowanceInsufficient"
+      ]
+    },
+    {
+      "name": "empty_batch",
+      "description": "An empty batch: the vector is present but has no elements.",
+      "xdr_base64": "AAAAEAAAAAEAAAAA",
+      "expected": []
+    }
+  ],
+  "no_result": {
+    "name": "scvVoid",
+    "description": "What an aborted invocation returns instead of a vector: no ChargeResult exists at all.",
+    "xdr_base64": "AAAAAQ=="
+  }
+}

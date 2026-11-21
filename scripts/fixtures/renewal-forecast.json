@@ -1,0 +1,131 @@
+[
+  {
+    "user": "GAAA1111111111111111111111111111111111111111111111111111111",
+    "amount": 1000000,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000,
+      1699996000,
+      1700000000
+    ],
+    "_scenario": "healthy_regular_subscriber"
+  },
+  {
+    "user": "GBBB2222222222222222222222222222222222222222222222222222222",
+    "amount": 500000,
+    "interval": 604800,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": true,
+    "charge_history": [
+      1699392000,
+      1700000000
+    ],
+    "_scenario": "paused_subscriber"
+  },
+  {
+    "user": "GCCC3333333333333333333333333333333333333333333333333333333",
+    "amount": 2000000,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": false,
+    "paused": false,
+    "charge_history": [
+      1697408000,
+      1700000000
+    ],
+    "_scenario": "inactive_subscriber"
+  },
+  {
+    "user": "GDDD4444444444444444444444444444444444444444444444444444444",
+    "amount": 750000,
+    "interval": 604800,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [],
+    "_scenario": "no_history_zero_entries"
+  },
+  {
+    "user": "GEEE5555555555555555555555555555555555555555555555555555555",
+    "amount": 1500000,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000
+    ],
+    "_scenario": "single_charge_only"
+  },
+  {
+    "user": "GFFF6666666666666666666666666666666666666666666666666666666",
+    "amount": 300000,
+    "interval": 86400,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1699913600,
+      1699999600,
+      1700000000,
+      1700086400,
+      1700172800,
+      1700259200
+    ],
+    "_scenario": "daily_subscriber_many_charges"
+  },
+  {
+    "user": "GGGG7777777777777777777777777777777777777777777777777777777",
+    "amount": -100,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000
+    ],
+    "_scenario": "invalid_negative_amount"
+  },
+  {
+    "user": "",
+    "amount": 1000000,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000
+    ],
+    "_scenario": "empty_user_address"
+  },
+  {
+    "user": "GHHH8888888888888888888888888888888888888888888888888888888",
+    "amount": 1000000,
+    "interval": 0,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000
+    ],
+    "_scenario": "zero_interval"
+  },
+  {
+    "user": "GIII9999999999999999999999999999999999999999999999999999999",
+    "amount": 1000000,
+    "interval": 2592000,
+    "last_charged": 1700000000,
+    "active": true,
+    "paused": false,
+    "charge_history": [
+      1697408000,
+      1697408000,
+      1697408000
+    ],
+    "_scenario": "duplicate_timestamps_sparse"
+  }
+]

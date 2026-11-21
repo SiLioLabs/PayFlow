@@ -6,6 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../stellar");
 vi.mock("../hooks/usePolling", () => ({ usePolling: () => {} }));
 
+// MerchantSubscriberTable uses CopyButton — mock it to keep tests simple
+vi.mock("../components/CopyButton", () => ({
+  default: ({ ariaLabel }: { ariaLabel?: string }) => (
+    <button aria-label={ariaLabel ?? "Copy"}>Copy</button>
+  ),
+}));
+
 vi.mock("../hooks/useTransaction", () => ({
   useTransaction: vi.fn(() => ({
     status: "idle",
@@ -27,13 +34,41 @@ import * as stellar from "../stellar";
 import { useTransaction } from "../hooks/useTransaction";
 import MerchantDashboard from "../components/MerchantDashboard";
 
+const NOW = Math.floor(Date.now() / 1000);
+
+// Checksum-valid Stellar public key (StrKey.isValidEd25519PublicKey)
+const VALID_ADDR_1 = "GCOEYT3WI3LY34I7DN7BR7AF33TNF2YF4OYTLVPJKMYAWT2RWEF5BUDK";
+
 const SAMPLE_SUBSCRIBER = {
-  subscriber: "GTESTER000000000000000000000000000000000000000000",
+  subscriber: VALID_ADDR_1,
   amount: "10000000",
   interval: 2592000,
-  lastCharged: 0,
-  nextChargeAt: 2592000,
+  lastCharged: NOW - 2592000,
+  nextChargeAt: NOW + 2592000, // future → active
 };
+
+interface MockTxState {
+  status: "idle" | "pending" | "success" | "failed";
+  submit: (fn: () => Promise<string>) => Promise<string>;
+  error: string | null;
+  hash: string | null;
+}
+
+const idleTx = (): MockTxState => ({
+  status: "idle",
+  submit: vi.fn(async (fn) => fn()),
+  error: null,
+  hash: null,
+});
+
+// MerchantDashboard calls useTransaction() for the batch-charge flow.
+function mockUseTransaction(overrides: {
+  batch?: Partial<MockTxState>;
+}) {
+  const batchState: MockTxState = { ...idleTx(), ...overrides.batch };
+  vi.mocked(useTransaction).mockReturnValue(batchState as any);
+  return { batchState };
+}
 
 describe("MerchantDashboard", () => {
   beforeEach(() => {
@@ -54,11 +89,15 @@ describe("MerchantDashboard", () => {
 
     await waitFor(() => expect(screen.getByText(/Merchant Dashboard/)).toBeTruthy());
 
+    // Table renders truncated address via formatAddress default (6, 4)
+    expect(screen.getByText("GCOEYT…BUDK")).toBeTruthy();
+    // Amount column shows XLM value
     expect(screen.getByText("10.0000000 XLM")).toBeTruthy(); // Total Revenue
-    expect(screen.getByText("GTESTE…0000")).toBeTruthy();
     expect(screen.getByText("1.0000000 XLM")).toBeTruthy();
-    expect(screen.getByText(/Next charge/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /copy address/i })).toBeTruthy();
+    // Status badge shows Active (nextChargeAt is in the future)
+    expect(screen.getByText(/active/i)).toBeTruthy();
+    // CopyButton rendered for the subscriber address
+    expect(screen.getByRole("button", { name: /copy subscriber address/i })).toBeTruthy();
   });
 
   it("shows an empty state when there are no active subscribers", async () => {
@@ -67,7 +106,7 @@ describe("MerchantDashboard", () => {
 
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
-    await waitFor(() => expect(screen.getByText(/No active subscribers found/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/No active subscribers found/i)).toBeTruthy());
   });
 
   it("renders a virtualized window for large subscriber lists", async () => {
@@ -98,7 +137,9 @@ describe("MerchantDashboard", () => {
 
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Charge 1 due subscriber/i })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Charge 1 due subscriber/i })).toBeTruthy()
+    );
   });
 
   it("processes a batch charge and shows success message", async () => {
@@ -130,9 +171,25 @@ describe("MerchantDashboard", () => {
 
     await userEvent.click(button);
 
-    await waitFor(() => expect(screen.getByText(/Batch charge submitted successfully!/i)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/Batch charge submitted successfully!/i)).toBeTruthy()
+    );
     expect(screen.getByText("Charged")).toBeTruthy();
     expect(stellar.simulateBatchCharge).toHaveBeenCalled();
     expect(stellar.buildBatchChargeTx).toHaveBeenCalled();
+  });
+
+  // ── Revenue Display (Non-custodial) ──────────────────────────────────
+
+  it("displays total earned revenue and non-custodial settlement note", async () => {
+    vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(50000000n); // 5 XLM
+    mockUseTransaction({});
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    const revenueElement = await screen.findByTestId("merchant-total-revenue");
+    expect(revenueElement.textContent).toContain("5.0000000 XLM");
+    expect(screen.getByText(/Non-custodial: Revenue is transferred directly to your wallet/i)).toBeTruthy();
   });
 });

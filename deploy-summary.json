@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-09-25T23:18:19.439Z",
+  "dryRun": true,
+  "contractId": "",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "wasmPath": null,
+  "wasmHash": null,
+  "onChainHash": null,
+  "schemaVersion": null,
+  "rpcHealthy": false,
+  "gates": [
+    {
+      "gate": "rpc-health",
+      "status": "skip",
+      "message": "Dry-run — skipped"
+    },
+    {
+      "gate": "wasm-hash",
+      "status": "skip",
+      "message": "Dry-run — skipped"
+    },
+    {
+      "gate": "schema-version",
+      "status": "skip",
+      "message": "Dry-run — skipped"
+    }
+  ],
+  "passed": true
+}

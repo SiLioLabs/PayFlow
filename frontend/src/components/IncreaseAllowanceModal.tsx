@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
-import { STROOPS_PER_XLM } from "../constants";
-import { formatXlm } from "../utils/format";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import StroopInput from "./StroopInput";
 
 interface Props {
   userKey: string;
@@ -23,10 +24,19 @@ export default function IncreaseAllowanceModal({
   announce,
 }: Props) {
   const [currentAllowance, setCurrentAllowance] = useState<bigint | null>(null);
-  const [amount, setAmount] = useState<string>("0.0000000");
+  const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, pauseToast, resumeToast } = useToast();
+  const { displayCurrentAmount } = useAmountDisplay();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, true, onClose);
+
+  const handleAmountChange = useCallback((val: bigint | null) => {
+    setAmountStroops(val);
+    setError(null);
+  }, []);
 
   const tokenContractId = TOKEN_CONTRACT_ID;
   const recommendedAllowance = useMemo(
@@ -39,9 +49,10 @@ export default function IncreaseAllowanceModal({
       try {
         const allowance = await getAllowance(userKey);
         setCurrentAllowance(allowance);
-        setAmount((Number(getRecommendedAllowance(subscriptionAmount, allowance)) / STROOPS_PER_XLM).toFixed(7));
+        setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
       } catch {
         setCurrentAllowance(0n);
+        setAmountStroops(getRecommendedAllowance(subscriptionAmount, 0n));
       }
     }
 
@@ -50,14 +61,8 @@ export default function IncreaseAllowanceModal({
 
   async function handleSubmit() {
     setError(null);
-    if (!amount) {
+    if (amountStroops === null) {
       setError("Please enter an amount to approve.");
-      return;
-    }
-
-    const parsed = parseFloat(amount);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      setError("Enter a valid XLM amount.");
       return;
     }
 
@@ -75,8 +80,7 @@ export default function IncreaseAllowanceModal({
     announce("Submitting allowance approval transaction");
 
     try {
-      const stroops = BigInt(Math.round(parsed * STROOPS_PER_XLM));
-      const xdr = await buildApproveTx(userKey, tokenContractId, CONTRACT_ID, stroops);
+      const xdr = await buildApproveTx(userKey, tokenContractId, CONTRACT_ID, amountStroops);
       const hash = await onSign(xdr);
       addToast(`Allowance approved! tx: ${hash.slice(0, 12)}…`, "success");
       announce("Allowance updated successfully");
@@ -92,30 +96,40 @@ export default function IncreaseAllowanceModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
-        <h3>Increase Allowance</h3>
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        ref={modalRef}
+        className="modal-card card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="increase-allowance-title"
+      >
+        <h3 id="increase-allowance-title">Increase Allowance</h3>
         <p>
-          Current allowance: <strong>{formatXlm(currentAllowance ?? 0n)}</strong>.
+          Current allowance: <strong>{displayCurrentAmount(currentAllowance ?? 0n)}</strong>.
         </p>
         <p>
-          Recommended approval: <strong>{formatXlm(recommendedAllowance)}</strong>.
+          Recommended approval: <strong>{displayCurrentAmount(recommendedAllowance)}</strong>.
         </p>
         <p>
-          Estimated billing cycles with new allowance: <strong>{Math.floor(parseFloat(amount || "0") * Number(STROOPS_PER_XLM) / Number(subscriptionAmount))}</strong>.
+          Estimated billing cycles with new allowance:{" "}
+          <strong>{Math.floor(Number(amountStroops || 0n) / Number(subscriptionAmount))}</strong>.
         </p>
-        <label className="form-group">
-          <span className="form-label">Approve total allowance (XLM)</span>
-          <input
-            type="number"
-            min="0.0000001"
-            step="0.0000001"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={submitting}
-          />
-        </label>
-        {error && <p className="text-error">{error}</p>}
+        <StroopInput
+          id="increase-allowance-amount"
+          label="Total allowance"
+          onChange={handleAmountChange}
+          disabled={submitting}
+          initialValue={recommendedAllowance}
+          isInvalid={Boolean(error)}
+          ariaDescribedBy={error ? "increase-allowance-error" : undefined}
+        />
+        {error && (
+          <p id="increase-allowance-error" className="text-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose} disabled={submitting}>
             Cancel
@@ -125,13 +139,21 @@ export default function IncreaseAllowanceModal({
           </button>
         </div>
 
-        <ToastContainer toasts={toasts} onRemove={removeToast} />
+        <ToastContainer
+          toasts={toasts}
+          onRemove={removeToast}
+          onPause={pauseToast}
+          onResume={resumeToast}
+        />
       </div>
     </div>
   );
 }
 
-function getRecommendedAllowance(subscriptionAmount: bigint, currentAllowance: bigint | null): bigint {
+function getRecommendedAllowance(
+  subscriptionAmount: bigint,
+  currentAllowance: bigint | null
+): bigint {
   const remainingCyclesTarget = 6n;
   const target = subscriptionAmount * remainingCyclesTarget;
   if (currentAllowance === null || currentAllowance < subscriptionAmount) {
