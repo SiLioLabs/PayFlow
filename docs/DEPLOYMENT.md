@@ -412,6 +412,122 @@ Source: [`frontend/.env.example`](../frontend/.env.example).
 
 ---
 
+## Content-Security-Policy and hardening headers
+
+`frontend/index.html` ships a `<meta http-equiv="Content-Security-Policy">` tag that is active in every deployment regardless of host. It restricts:
+
+| Directive       | Allowed values                                                                 | Reason |
+| --------------- | ------------------------------------------------------------------------------ | ------ |
+| `default-src`   | `'self'`                                                                       | Baseline; everything not listed falls back here |
+| `script-src`    | `'self'` `'wasm-unsafe-eval'` `'sha256-…'`                                    | `'wasm-unsafe-eval'` is required by `@stellar/stellar-sdk` (WASM compilation); the sha256 hash covers the inline theme-detection script |
+| `style-src`     | `'self'` `'unsafe-inline'`                                                     | Vite injects CSS custom-property overrides as inline styles at dev time; `'unsafe-inline'` retains that behaviour |
+| `connect-src`   | `'self'` testnet/mainnet Soroban RPC and Horizon                               | All outbound XHR/fetch must go to Stellar network endpoints |
+| `img-src`       | `'self'` `data:`                                                               | Vite inlines small assets as `data:` URIs |
+| `font-src`      | `'self'`                                                                       | Fonts are bundled |
+| `object-src`    | `'none'`                                                                       | Disables Flash and other plugins |
+| `base-uri`      | `'self'`                                                                       | Prevents `<base>` injection attacks |
+| `form-action`   | `'self'`                                                                       | No form submissions to third-party origins |
+| `frame-ancestors` | `'none'`                                                                     | Clickjacking protection |
+
+### Updating the inline-script hash
+
+The `script-src` hash covers the exact bytes of the theme-detection `<script>` block in `index.html`. If you edit that script, recompute and replace the hash:
+
+```bash
+python3 -c "
+import hashlib, base64, re
+s = open('frontend/index.html').read()
+body = re.search(r'<script>(.*?)</script>', s, re.DOTALL).group(1)
+print('sha256-' + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode())
+"
+```
+
+Replace the `'sha256-…'` value in the `content` attribute of the CSP meta tag.
+
+### Custom RPC endpoint
+
+If `VITE_RPC_URL` is set to a non-default value (e.g. a self-hosted Soroban RPC node), add that origin to `connect-src` in `frontend/index.html`:
+
+```html
+connect-src 'self'
+  https://soroban-testnet.stellar.org
+  https://soroban-mainnet.stellar.org
+  https://horizon-testnet.stellar.org
+  https://horizon.stellar.org
+  https://your-custom-rpc.example.com;
+```
+
+### Host-level headers (recommended)
+
+The `<meta>` tag covers script and connection enforcement but cannot set `Strict-Transport-Security`, `X-Frame-Options`, or `Permissions-Policy`. Add these at your hosting layer:
+
+**Nginx** (`nginx.conf` or a `location` block):
+
+```nginx
+add_header Content-Security-Policy "
+  default-src 'self';
+  script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg=';
+  style-src 'self' 'unsafe-inline';
+  connect-src 'self'
+    https://soroban-testnet.stellar.org
+    https://soroban-mainnet.stellar.org
+    https://horizon-testnet.stellar.org
+    https://horizon.stellar.org;
+  img-src 'self' data:;
+  font-src 'self';
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+  frame-ancestors 'none';
+" always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "payment=(), geolocation=(), camera=()" always;
+```
+
+**Vercel** (`vercel.json`):
+
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg='; style-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "X-Content-Type-Options",    "value": "nosniff" },
+        { "key": "X-Frame-Options",           "value": "DENY" },
+        { "key": "Referrer-Policy",           "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy",        "value": "payment=(), geolocation=(), camera=()" }
+      ]
+    }
+  ]
+}
+```
+
+**Netlify** (`netlify.toml`):
+
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg='; style-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options    = "nosniff"
+    X-Frame-Options           = "DENY"
+    Referrer-Policy           = "strict-origin-when-cross-origin"
+    Permissions-Policy        = "payment=(), geolocation=(), camera=()"
+```
+
+> **Note:** `frame-ancestors 'none'` in a `<meta>` CSP tag is ignored by most browsers — the tag cannot prevent framing. Use the `X-Frame-Options: DENY` and CSP `frame-ancestors` **HTTP header** to reliably prevent clickjacking. The meta tag remains useful as a defence-in-depth baseline for environments where response headers cannot be customised.
+
+---
+
 ## Related operations
 
 - Keeper bot setup and cadence: [`docs/KEEPER.md`](KEEPER.md)
