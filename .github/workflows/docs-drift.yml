@@ -1,0 +1,18 @@
+name: Documentation drift
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  contract-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check contract API documentation
+        run: npm run check:contract-api

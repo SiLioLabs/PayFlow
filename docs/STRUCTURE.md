@@ -87,6 +87,8 @@ contract/src/
 
 ### `vesting/` (Academy Vesting Contract)
 
+Separate Soroban crate documentation: [`vesting/README.md`](../vesting/README.md).
+
 ```
 vesting/
 ├── Cargo.toml

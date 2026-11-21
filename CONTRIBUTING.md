@@ -19,6 +19,7 @@ Thank you for considering a contribution to FlowPay. This document covers everyt
 - [Commit Style](#commit-style)
 - [Generated TypeScript Bindings](#generated-typescript-bindings)
 - [Documentation Naming Convention](#documentation-naming-convention)
+- [Changelog and versioning](#changelog-and-versioning)
 - [Pull Request Checklist](#pull-request-checklist)
 - [Questions](#questions)
 
@@ -220,6 +221,14 @@ When adding a new doc:
 - Rename with `git mv` so history is preserved, then update every link target (the checker validates all relative links and `#anchor`s).
 
 Rationale: one convention keeps links greppable and avoids case-sensitivity surprises across macOS/Windows/Linux checkouts (see issue #1500).
+
+## Changelog and versioning
+
+Keep [`CHANGELOG.md`](CHANGELOG.md) in Keep a Changelog format with `[Unreleased]` at the top and category headings for `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and `Security`.
+
+Use SemVer for a release: MAJOR for incompatible contract/ABI changes, MINOR for backward-compatible additions, and PATCH for behavior fixes. Any storage schema or migration change must state the old and current schema versions and whether existing deployments require `migrate(users)`.
+
+Prefix incompatible contract changes with `**BREAKING**`. Include the affected public function or storage field and the required off-chain or deployment action. Update [docs/API.md](docs/API.md) and run `node scripts/check-contract-api.mjs` when public contract functions change.
 
 ---
 
