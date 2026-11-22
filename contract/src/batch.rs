@@ -53,9 +53,7 @@ pub enum CancelResult {
     NoSubscription,
     /// Subscription was already cancelled.
     AlreadyCancelled,
-    /// Subscription was paused; cancel succeeded but state was unusual.
-    PausedCancelled,
-    /// A paused (but active) subscription was cancelled.
+    /// A paused subscription was cancelled; cancel succeeded but state was unusual.
     PausedCancelled,
     /// Subscription belongs to a frozen merchant and was cancelled.
     /// Subscription's merchant was frozen; cancel succeeded but state was unusual.

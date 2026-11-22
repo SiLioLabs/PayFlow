@@ -30,6 +30,9 @@
  *   16 SubscriptionNotActive          —
  *   46 IntervalExceedsMaximum
  *   47 FreezeReasonTooLong
+ *   48 TrialExtensionExceedsMaximum
+ *   49 SkipCooldownActive
+ *   50 NoLastChargeToRefund
  *
  * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
@@ -100,6 +103,9 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #45)": "There is no pending admin transfer to accept.",
   "error(contract, #46)": "Billing interval must not exceed 400 years.",
   "error(contract, #47)": "Merchant freeze reason must be 128 bytes or fewer.",
+  "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
+  "error(contract, #49)": "You can only skip one billing cycle per interval.",
+  "error(contract, #50)": "There is no charge available to refund.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").

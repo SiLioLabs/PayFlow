@@ -85,7 +85,6 @@
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
         {
           "function": {
             "contract_fn": {
@@ -95,6 +94,35 @@
                 {
                   "u64": 7200
                 }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "function_name": "commit_grace_period",
+              "args": []
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "function_name": "subscribe",
               "args": [
                 {
@@ -124,77 +152,12 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "commit_grace_period",
-              "args": []
-              "function_name": "propose_grace_period",
-              "args": [
-                {
-                  "u64": 7200
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "subscribe",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 10000000
-                  }
-                },
-                {
-                  "u64": 3600
-                },
-                {
-                  "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
-                },
-                "void",
-                "void"
-              ]
-              "function_name": "commit_grace_period",
-              "args": []
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [],
-    [],
-    [],
-    [],
     []
   ],
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
     "timestamp": 7200,
-    "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -641,7 +604,6 @@
                       },
                       "val": {
                         "bool": true
-                        "bool": false
                       }
                     },
                     {
@@ -701,7 +663,6 @@
                       },
                       "val": {
                         "bool": false
-                        "bool": true
                       }
                     },
                     {
@@ -856,7 +817,6 @@
             "key": {
               "ledger_key_nonce": {
                 "nonce": 4270020994084947596
-                "nonce": 4837995959683129791
               }
             },
             "durability": "temporary"
@@ -872,7 +832,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 4270020994084947596
-                    "nonce": 4837995959683129791
                   }
                 },
                 "durability": "temporary",
@@ -924,7 +883,6 @@
             "key": {
               "ledger_key_nonce": {
                 "nonce": 4837995959683129791
-                "nonce": 4270020994084947596
               }
             },
             "durability": "temporary"
@@ -940,7 +898,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 4837995959683129791
-                    "nonce": 4270020994084947596
                   }
                 },
                 "durability": "temporary",
@@ -1586,192 +1543,6 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
               },
               {
-                "symbol": "subscribe"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 10000000
-                  }
-                },
-                {
-                  "u64": 3600
-                },
-                {
-                  "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
-                },
-                "void",
-                "void"
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "48f1b6b8bc0d60f7140dd49b6120fbaf3cdbab2adaeea631313d9f0bae9532f1"
-              },
-              {
-                "symbol": "allowance"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "48f1b6b8bc0d60f7140dd49b6120fbaf3cdbab2adaeea631313d9f0bae9532f1",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "allowance"
-              }
-            ],
-            "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 100000000000
-              }
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "subscribed"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 10000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "interval"
-                  },
-                  "val": {
-                    "u64": 3600
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "ledger_sequence"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "merchant"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "subscribe"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
-              },
-              {
                 "symbol": "propose_grace_period"
               }
             ],
@@ -1905,7 +1676,6 @@
               },
               {
                 "symbol": "subscribe"
-                "symbol": "get_active_subscriber_page"
               }
             ],
             "data": {
@@ -1930,11 +1700,6 @@
                 },
                 "void",
                 "void"
-                  "u64": 0
-                },
-                {
-                  "u32": 10
-                }
               ]
             }
           }
@@ -1958,10 +1723,6 @@
               },
               {
                 "symbol": "allowance"
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "get_active_subscriber_page"
               }
             ],
             "data": {
@@ -1983,7 +1744,6 @@
       "event": {
         "ext": "v0",
         "contract_id": "48f1b6b8bc0d60f7140dd49b6120fbaf3cdbab2adaeea631313d9f0bae9532f1",
-        "contract_id": null,
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -2000,17 +1760,6 @@
                 "hi": 0,
                 "lo": 100000000000
               }
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
-              },
-              {
-                "symbol": "get_subscription"
-              }
-            ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
             }
           }
         }
@@ -2022,7 +1771,6 @@
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
         "type_": "contract",
-        "type_": "diagnostic",
         "body": {
           "v0": {
             "topics": [
@@ -2031,22 +1779,10 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "get_subscription"
               }
             ],
             "data": {
               "map": [
-                {
-                  "key": {
-                    "symbol": "active"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
                 {
                   "key": {
                     "symbol": "amount"
@@ -2056,14 +1792,6 @@
                       "hi": 0,
                       "lo": 10000000
                     }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "created_at"
-                  },
-                  "val": {
-                    "u64": 0
                   }
                 },
                 {
@@ -2080,18 +1808,6 @@
                   },
                   "val": {
                     "u32": 0
-                    "symbol": "label"
-                  },
-                  "val": {
-                    "symbol": ""
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "last_charged"
-                  },
-                  "val": {
-                    "u64": 0
                   }
                 },
                 {
@@ -2100,36 +1816,6 @@
                   },
                   "val": {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "paused"
-                  },
-                  "val": {
-                    "bool": true
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "referrer"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "token"
-                  },
-                  "val": {
-                    "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "trial_duration"
-                  },
-                  "val": {
-                    "u64": 0
                   }
                 }
               ]
@@ -2143,7 +1829,6 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "contract_id": null,
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -2156,25 +1841,6 @@
               }
             ],
             "data": "void"
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
-              },
-              {
-                "symbol": "get_active_subscriber_page"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "u64": 0
-                },
-                {
-                  "u32": 10
-                }
-              ]
-            }
           }
         }
       },
@@ -2184,7 +1850,6 @@
       "event": {
         "ext": "v0",
         "contract_id": null,
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -2201,14 +1866,6 @@
             ],
             "data": {
               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "get_active_subscriber_page"
-              }
-            ],
-            "data": {
-              "vec": []
             }
           }
         }
@@ -2219,7 +1876,6 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "contract_id": null,
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -2232,10 +1888,6 @@
               },
               {
                 "symbol": "allowance"
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
-              },
-              {
-                "symbol": "get_subscriber_page"
               }
             ],
             "data": {
@@ -2245,10 +1897,6 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  "u64": 0
-                },
-                {
-                  "u32": 10
                 }
               ]
             }
@@ -2355,13 +2003,6 @@
                   "val": {
                     "bool": true
                   }
-                "symbol": "get_subscriber_page"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
