@@ -924,6 +924,9 @@
             "topics": [
               {
                 "symbol": "batch_charge_skips"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

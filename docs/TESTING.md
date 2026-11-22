@@ -13,9 +13,10 @@ For deep dives on specific contract test patterns (ledger time manipulation, moc
 ## Running the Tests
 
 ```bash
-cd contract
-cargo test
+cargo test --workspace
 ```
+
+To test one crate, use `cargo test -p flowpay` or `cargo test -p academy-vesting`.
 
 To see printed output while tests run:
 
@@ -59,8 +60,7 @@ These are not functional tests. They measure CPU and memory cost so regressions 
 Run the benchmark tests with nocapture so the printed results stay visible:
 
 ```bash
-cd contract
-cargo test bench -- --nocapture
+cargo test -p flowpay bench -- --nocapture
 ```
 
 That runs the benchmark functions and prints the measured CPU instructions and memory bytes for each one.
@@ -442,7 +442,7 @@ Nothing. This repository does not ship any GitHub Actions workflow files, so run
 
 | Area     | Command                                                              | Covers                                                                                                                                                                                                                            |
 | -------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contract | `cd contract && cargo clippy -- -D warnings && cargo test`           | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
+| Rust workspace | `cargo clippy --workspace && cargo test --workspace` | Both contract packages and the main contract's benchmark tests (see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
 | Frontend | `npm run typecheck`, then `cd frontend && npm run lint && npm run test` | Type-checking, linting, and the Vitest suite                                                                                                                                                                                     |
 
 ### What requires manual testing

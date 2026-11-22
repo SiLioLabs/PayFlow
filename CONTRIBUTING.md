@@ -71,9 +71,12 @@ rustup target add wasm32-unknown-unknown
 # Install Soroban CLI
 cargo install --locked soroban-cli
 
-# Run tests
-cd contract
-cargo test
+# Run all contract tests from the Cargo workspace root
+cargo test --workspace
+
+# Or test one contract package
+cargo test -p flowpay
+cargo test -p academy-vesting
 ```
 
 ### Frontend
@@ -201,7 +204,7 @@ npm run generate:types
 This invokes `scripts/generate-types.sh`, which requires either:
 
 - `CONTRACT_ID` env var pointing to a deployed contract, or
-- A compiled WASM artifact at `contract/target/wasm32-unknown-unknown/release/payflow.wasm`
+- A compiled WASM artifact at `target/wasm32-unknown-unknown/release/flowpay.wasm`
 
 ### Output Location
 
