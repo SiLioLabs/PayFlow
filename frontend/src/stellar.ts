@@ -1025,6 +1025,28 @@ export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promis
  * Fetch contract events by event name, optionally filtered by address.
  * eventName matches the first topic (e.g. "subscribed", "charged", "cancelled", "pay_per_use").
  */
+export function getPauseUntil(user: string): Promise<number | null> {
+  return dedupedCall(`getPauseUntil:${user}`, async () => {
+    const { events } = await fetchEvents("pause_until", user);
+    const now = Math.floor(Date.now() / 1000);
+    let latestTime = -1;
+    let expiry: number | null = null;
+
+    for (const event of events) {
+      const raw = parseEventValueField(event.data, "expiry_timestamp");
+      const candidate = Number(raw);
+      if (!Number.isFinite(candidate) || candidate <= now) continue;
+      const eventTime = Date.parse(event.timestamp);
+      if (eventTime > latestTime) {
+        latestTime = eventTime;
+        expiry = candidate;
+      }
+    }
+
+    return expiry;
+  });
+}
+
 export async function fetchEvents(
   eventName: string,
   address?: string,
