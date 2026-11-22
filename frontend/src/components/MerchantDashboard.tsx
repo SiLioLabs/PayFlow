@@ -7,6 +7,7 @@ import {
   type BatchChargeOutcome,
   getMerchantRevenue,
   getMerchantRevenueHistory,
+  buildWithdrawMerchantRevenueTx,
 } from "../stellar";
 import { formatAddress } from "../utils/format";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
@@ -22,6 +23,7 @@ import SubscriptionExport from "./SubscriptionExport";
 import { MerchantSubscriberSkeleton } from "./Skeleton";
 import ErrorRecovery from "./ErrorRecovery";
 import LastUpdated from "./LastUpdated";
+import { friendlyError } from "../utils/errors";
 
 const SUBSCRIBER_ROW_HEIGHT = 72;
 const SUBSCRIBER_LIST_HEIGHT = 400;

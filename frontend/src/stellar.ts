@@ -1713,3 +1713,14 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+
+// ── Issue #4: Withdraw Merchant Revenue ───────────────────────────────────────
+
+/**
+ * Builds a transaction for a merchant to withdraw their accumulated revenue.
+ * Requires merchant authorization. Fails with ZeroBalanceAvailable (21) if
+ * the merchant has no withdrawable revenue.
+ */
+export async function buildWithdrawMerchantRevenueTx(merchantPublicKey: string): Promise<string> {
+  return buildTx(merchantPublicKey, "withdraw_merchant_revenue", [addressVal(merchantPublicKey)]);
+}
