@@ -1713,3 +1713,62 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+
+// ── Issue #3: Merchant Freeze with Reason ─────────────────────────────────────
+
+/**
+ * Reads the freeze reason for a merchant.
+ * Returns null if the merchant is not frozen.
+ */
+export function getMerchantFreezeReason(
+  caller: string,
+  merchant: string
+): Promise<string | null> {
+  return dedupedCall(`getMerchantFreezeReason:${merchant}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_merchant_freeze_reason", [
+        addressVal(merchant),
+      ]);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeOption(retval, ScValDecoder.decodeString);
+    } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Builds a transaction to freeze a merchant with an optional reason.
+ * Admin-only operation. Reason must be 128 bytes or fewer.
+ */
+export async function buildFreezeMerchantTx(
+  adminPublicKey: string,
+  merchant: string,
+  reason: string | null
+): Promise<string> {
+  // Validate reason length client-side (contract enforces 128 bytes)
+  if (reason && new TextEncoder().encode(reason).length > 128) {
+    throw new Error("Freeze reason must be 128 bytes or fewer (error code 47)");
+  }
+
+  const reasonVal = reason
+    ? { tag: "Some", val: nativeToScVal(reason, { type: "string" }) }
+    : { tag: "None" };
+
+  return buildTx(adminPublicKey, "freeze_merchant", [
+    addressVal(merchant),
+    nativeToScVal(reasonVal, { type: "option" }),
+  ]);
+}
+
+/**
+ * Builds a transaction to unfreeze a merchant.
+ * Admin-only operation.
+ */
+export async function buildUnfreezeMerchantTx(
+  adminPublicKey: string,
+  merchant: string
+): Promise<string> {
+  return buildTx(adminPublicKey, "unfreeze_merchant", [addressVal(merchant)]);
+}

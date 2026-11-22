@@ -1,6 +1,7 @@
 import React from "react";
 import AdminRepairPanel from "../components/admin/AdminRepairPanel";
 import ProtocolStatsPanel from "../components/admin/ProtocolStatsPanel";
+import MerchantFreezePanel from "../components/admin/MerchantFreezePanel";
 import BatchPausePanel from "../components/admin/BatchPausePanel";
 import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
 import { useAdmin } from "../hooks/useAdmin";
@@ -44,6 +45,10 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
       <div className="card admin-dashboard__section mb-4">
         <AdminRepairPanel adminKey={publicKey} onSign={onSign} gatePassed={gatePassed} />
         <ProtocolStatsPanel callerKey={publicKey} />
+      </div>
+
+      <div className="card admin-dashboard__section mb-4">
+        <MerchantFreezePanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
       </div>
 
       <div
