@@ -33,12 +33,25 @@
  *   KEEPER_USE_LEGACY_PAGING  Optional. Set to "true" to use legacy sequential
  *                         offset-based paging instead of grace-urgency-ordered
  *                         optimized batches (default: false, i.e. optimized).
+ *   SHUTDOWN_TIMEOUT_MS  Optional. Graceful-shutdown deadline in ms
+ *                         (default: 50000). On SIGTERM/SIGINT the keeper stops
+ *                         scheduling batches, drains the batch in flight,
+ *                         flushes the DLQ and metrics, then exits. If the
+ *                         drain exceeds this deadline the keeper logs the
+ *                         timeout and exits non-zero instead of hanging.
  *
  * Flags:
  *   --once             Run a single cycle and exit.
  *   --dry-run          Same as DRY_RUN=true.
  *   --max-batches=N    Process at most N batches, then exit (implies --once).
  *   --help, -h         Show this help message.
+ *
+ * Graceful shutdown:
+ *   SIGTERM and SIGINT are handled the same way (see docs/KEEPER.md,
+ *   "Graceful shutdown"): no new batch is scheduled after the signal, the
+ *   in-flight batch finishes submitting and recording, the DLQ is flushed and
+ *   the metrics server is stopped — all within SHUTDOWN_TIMEOUT_MS. Repeated
+ *   signals never duplicate the cleanup.
  *
  * Caveats:
  *   - Dry-run simulation results may differ from actual charges due to
@@ -93,6 +106,11 @@ import {
   CHARGE_RESULT_NAMES as CHARGE_RESULT_NAMES_EXPORT,
   decodeChargeResults,
 } from "./lib/charge-results.js";
+import {
+  ShutdownCoordinator,
+  installShutdownSignals,
+  type CleanupResult,
+} from "./lib/shutdown.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -126,6 +144,26 @@ let BATCH_SIZE =
     : DEFAULT_BATCH_SIZE;
 
 const INTERVAL_SECONDS = Math.max(Number(process.env.INTERVAL_SECONDS) || 3600, 1);
+
+/**
+ * Graceful-shutdown deadline (ms): the maximum time SIGTERM/SIGINT handling
+ * may spend draining in-flight batches and flushing the DLQ + metrics before
+ * the keeper logs the timeout and exits non-zero. The default (50s) is
+ * deliberately below the 60s `stop_grace_period` in scripts/docker-compose.yml
+ * so the keeper reports its own timeout instead of being SIGKILLed first.
+ * Invalid or non-positive values fall back to the default — parsed locally,
+ * like INTERVAL_SECONDS, rather than via the config.ts zod schema (the keeper
+ * does its own config clamping, see docs/KEEPER.md).
+ */
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 50_000;
+const SHUTDOWN_TIMEOUT_MS = (() => {
+  const raw = process.env.SHUTDOWN_TIMEOUT_MS;
+  if (!raw) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+})();
 const REPORT_DIR = process.env.REPORT_DIR ?? path.join(SCRIPT_DIR, "data", "benchmarks");
 const USE_LEGACY_PAGING = process.env.KEEPER_USE_LEGACY_PAGING === "true";
 
@@ -156,6 +194,41 @@ const logger = rootLogger.child({
   contract: CONTRACT_ID,
   rpc: RPC_URL,
 });
+
+// ── Graceful shutdown ────────────────────────────────────────────────────────
+
+/**
+ * Module-level shutdown coordinator so both paging loops can consult
+ * `shutdown.shutdownRequested` without threading state through every call.
+ * The deadline timer only starts once a signal arrives; importing this file
+ * (e.g. from tests) schedules nothing.
+ *
+ * On timeout the keeper logs what is still pending, flushes the DLQ one last
+ * time and exits non-zero — unfinished work is never reported as completed.
+ */
+export const shutdown = new ShutdownCoordinator({
+  timeoutMs: SHUTDOWN_TIMEOUT_MS,
+  logger,
+  onTimeout: (info) => {
+    logger.error("Forcing exit after shutdown timeout", info);
+    flushDlq();
+    // Best-effort metrics stop, then exit regardless so the shutdown stays
+    // bounded even if the metrics server refuses to close.
+    void stopMetricsServer().finally(() => process.exit(1));
+  },
+});
+
+/**
+ * Batch-scheduling gate consulted before every batch/page in both paging
+ * paths. Once a shutdown signal has been received the keeper must not start
+ * another batch; the batch already in flight runs to completion because the
+ * cycle is awaited during the drain (submission + recording stay paired).
+ */
+export function canScheduleNextBatch(
+  coordinator: Pick<ShutdownCoordinator, "shutdownRequested">,
+): boolean {
+  return !coordinator.shutdownRequested;
+}
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -340,13 +413,49 @@ interface DlqEntry {
   ledger?: number;
 }
 
+/** Resolve the DLQ path once so writes and the shutdown flush agree. */
+function dlqFilePath(): string {
+  return path.resolve(
+    process.cwd(),
+    process.env.DLQ_FILE || "dlq/failed-batches.jsonl",
+  );
+}
+
 function writeDlqEntry(entry: DlqEntry): void {
-  const dlqFile = path.resolve(process.cwd(), process.env.DLQ_FILE || "dlq/failed-batches.jsonl");
+  const dlqFile = dlqFilePath();
   try {
     fs.mkdirSync(path.dirname(dlqFile), { recursive: true });
     fs.appendFileSync(dlqFile, JSON.stringify(entry) + "\n", "utf8");
   } catch (err) {
     log(DRY_RUN, `WARNING: failed to write DLQ: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Flush the DLQ to durable storage before the process exits.
+ *
+ * Rows are written synchronously by `writeDlqEntry`, so this fsyncs the file
+ * (via the same `DLQ_FILE` path resolution) to guarantee the bytes reach the
+ * OS before shutdown completes. A missing file means nothing to flush; a
+ * flush failure is logged as a warning, matching the write path — it never
+ * crashes the keeper.
+ */
+export function flushDlq(): void {
+  const dlqFile = dlqFilePath();
+  try {
+    if (!fs.existsSync(dlqFile)) return;
+    const fd = fs.openSync(dlqFile, "r");
+    try {
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    logger.info("DLQ flushed", { path: dlqFile });
+  } catch (err) {
+    logger.warn("Failed to flush DLQ", {
+      path: dlqFile,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -1009,6 +1118,14 @@ async function runCycleOptimized(report: CycleReport, isDryRun: boolean): Promis
   );
 
   for (const batch of optimized.batches) {
+    if (!canScheduleNextBatch(shutdown)) {
+      logger.info("Shutdown in progress — not scheduling further batches", {
+        mode: isDryRun ? "dry-run" : "live",
+        scheduled: batchesProcessed,
+        remaining: optimized.batches.length - batchesProcessed,
+      });
+      break;
+    }
     if (batchBudgetExhausted()) break;
     batchesProcessed++;
     const users = batch.users;
@@ -1111,6 +1228,14 @@ async function runCycleLegacy(report: CycleReport, isDryRun: boolean): Promise<v
 
   let offset = 0;
   while (offset < totalSubscribers && !batchBudgetExhausted()) {
+    if (!canScheduleNextBatch(shutdown)) {
+      logger.info("Shutdown in progress — not scheduling further pages", {
+        mode: isDryRun ? "dry-run" : "live",
+        scheduled: batchesProcessed,
+        next_offset: offset,
+      });
+      break;
+    }
     batchesProcessed++;
     const users = await getSubscriberPage(offset, BATCH_SIZE);
     if (users.length === 0) break;
@@ -1296,8 +1421,34 @@ async function main(): Promise<void> {
   BATCH_SIZE = await resolveBatchSize();
   log(DRY_RUN, `Effective legacy page size (BATCH_SIZE): ${BATCH_SIZE}`);
 
+  // Install signal handlers now: startup above is complete and everything
+  // below can be mid-batch when SIGTERM/SIGINT arrives. Uninstalled again
+  // after cleanup so a finished shutdown leaves no listeners behind.
+  const uninstallSignals = installShutdownSignals(shutdown);
+
+  /**
+   * Flush the DLQ and stop the metrics server through the coordinator, so
+   * the steps run at most once regardless of how shutdown is triggered.
+   */
+  const cleanup = (): Promise<CleanupResult> =>
+    shutdown.runCleanup([
+      { name: "dlq-flush", run: () => flushDlq() },
+      { name: "metrics-flush", run: () => stopMetricsServer() },
+    ]);
+
   if (once) {
-    const report = await runCycle();
+    let report: CycleReport;
+    try {
+      report = await shutdown.track(runCycle(), "charge-cycle");
+    } catch (error) {
+      logger.error("Charge cycle failed", {
+        mode: DRY_RUN ? "dry-run" : "live",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await cleanup();
+      uninstallSignals();
+      process.exit(1);
+    }
     incrementCycles();
     // Exit 1 only when the cycle could not run at all (no subscribers were
     // even checked AND errors occurred).  A cycle that ran but charged nothing
@@ -1305,27 +1456,33 @@ async function main(): Promise<void> {
     // Per-subscriber failures are recorded in the DLQ and surfaced via
     // metrics — they do not change the exit code.
     const cycleFailure = report.errors.length > 0 && report.totalChecked === 0;
-    await stopMetricsServer();
-    process.exit(cycleFailure ? 1 : 0);
+    const cleanupResult = await cleanup();
+    uninstallSignals();
+    process.exit(cycleFailure || !cleanupResult.completed ? 1 : 0);
   }
 
-  let shutdown = false;
-  let sleepTimer: NodeJS.Timeout | undefined;
-  let resolveSleep: (() => void) | undefined;
-  const handleSignal = (signal: NodeJS.Signals): void => {
-    if (shutdown) return;
-    shutdown = true;
-    logger.info("Shutdown signal received. Finishing current cycle then exiting.", { signal });
-    if (sleepTimer) clearTimeout(sleepTimer);
-    resolveSleep?.();
-  };
-  process.on("SIGINT", handleSignal);
-  process.on("SIGTERM", handleSignal);
-
-  // Loop mode
-  while (!shutdown) {
-    const report = await runCycle();
+  // Loop mode — a signal stops scheduling new work; the in-flight cycle
+  // (submission + recording) is awaited to completion before draining.
+  let cycleFailed = false;
+  while (!shutdown.shutdownRequested) {
+    let report: CycleReport;
+    try {
+      report = await shutdown.track(runCycle(), "charge-cycle");
+    } catch (error) {
+      // This used to escape to main().catch as a fatal error; keep the
+      // non-zero exit but flush the DLQ/metrics on the way out.
+      logger.error("Charge cycle failed", {
+        mode: DRY_RUN ? "dry-run" : "live",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      cycleFailed = true;
+      break;
+    }
     incrementCycles();
+
+    // Shutdown began mid-cycle: do not schedule or announce the next cycle.
+    if (shutdown.shutdownRequested) break;
+
     const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
     logger.info("Next cycle scheduled", {
       mode: DRY_RUN ? "dry-run" : "live",
@@ -1341,18 +1498,56 @@ async function main(): Promise<void> {
       logger.warn("All pages errored — will retry next cycle", { mode: DRY_RUN ? "dry-run" : "live" });
     }
 
-    if (!shutdown) {
-      await new Promise<void>((resolve) => {
-        resolveSleep = resolve;
-        sleepTimer = setTimeout(resolve, INTERVAL_SECONDS * 1000);
-      });
-      sleepTimer = undefined;
-      resolveSleep = undefined;
-    }
+    // Sleep until the next interval; a shutdown signal cuts the wait short.
+    await new Promise<void>((resolve) => {
+      let done = false;
+      let sleepTimer: NodeJS.Timeout | undefined;
+      let unsubscribe: (() => void) | undefined;
+      const wake = (): void => {
+        if (done) return;
+        done = true;
+        if (sleepTimer) clearTimeout(sleepTimer);
+        unsubscribe?.();
+        resolve();
+      };
+      sleepTimer = setTimeout(wake, INTERVAL_SECONDS * 1000);
+      unsubscribe = shutdown.onShutdownStart(wake);
+    });
   }
 
-  await stopMetricsServer();
-  logger.info("Keeper stopped");
+  // Drain everything still in flight, then flush. The coordinator enforces
+  // SHUTDOWN_TIMEOUT_MS: if it elapses first, onTimeout logs the pending
+  // work and exits non-zero instead of this path claiming success.
+  const drain = await shutdown.waitForDrain();
+  for (const failure of drain.failures) {
+    logger.error("In-flight work failed during drain", {
+      label: failure.label,
+      error:
+        failure.error instanceof Error
+          ? failure.error.message
+          : String(failure.error),
+    });
+  }
+  const cleanupResult = await cleanup();
+  uninstallSignals();
+
+  if (
+    cycleFailed ||
+    !drain.drained ||
+    drain.failures.length > 0 ||
+    !cleanupResult.completed
+  ) {
+    logger.error("Keeper stopped with an incomplete shutdown", {
+      cycle_failed: cycleFailed,
+      drained: drain.drained,
+      pending: drain.pending,
+      cleanup_completed: cleanupResult.completed,
+    });
+    process.exit(1);
+  }
+
+  logger.info("Keeper stopped", { signal: shutdown.signal });
+  process.exit(0);
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
