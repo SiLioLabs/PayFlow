@@ -18,6 +18,10 @@ import { CONTRACT_LIMITS } from "../constants";
 // ---------------------------------------------------------------------------
 vi.mock("../stellar", () => ({
   getAllowance: vi.fn(() => Promise.resolve(0n)),
+  getProtocolFee: vi.fn(() =>
+    Promise.resolve({ collector: "GCOLLECTOR", bps: 0 })
+  ),
+  calculateProtocolFee: vi.fn((gross: bigint, bps: number) => (gross * BigInt(bps)) / 10_000n),
   fetchEvents: vi.fn(() => Promise.resolve({ events: [], nextCursor: undefined })),
   buildSubscribeTx: vi.fn().mockResolvedValue("mock-xdr"),
   DEFAULT_TOKEN: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
@@ -41,6 +45,12 @@ const mockServer = stellarMock.server as unknown as {
   sendTransaction: ReturnType<typeof vi.fn>;
 };
 const mockBuildSubscribeTx = stellarMock.buildSubscribeTx as ReturnType<typeof vi.fn>;
+const mockGetAllowance = stellarMock.getAllowance as ReturnType<typeof vi.fn>;
+const mockGetProtocolFee = stellarMock.getProtocolFee as ReturnType<typeof vi.fn>;
+
+async function confirmSummary() {
+  await userEvent.click(await screen.findByTestId("subscribe-confirm"));
+}
 
 // Mock child components that require external context / RPC calls
 vi.mock("../components/BalanceDisplay", () => ({
@@ -630,6 +640,7 @@ describe("SubscribeForm component — inline validation on blur", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+    await confirmSummary();
 
     await waitFor(() => {
       expect(mockBuildSubscribeTx).toHaveBeenCalled();
@@ -683,6 +694,7 @@ describe("SubscribeForm component — async validation gating", () => {
       account.resolve();
     });
 
+    await confirmSummary();
     await waitFor(() => expect(onSign).toHaveBeenCalledWith("mock-xdr"));
     expect(mockBuildSubscribeTx).toHaveBeenCalledTimes(1);
   });
@@ -846,6 +858,7 @@ describe("Referral field validation", () => {
 
     const submitBtn = screen.getByRole("button", { name: /subscribe/i });
     await userEvent.click(submitBtn);
+    await confirmSummary();
 
     await waitFor(() => {
       expect(mockBuildSubscribeTx).toHaveBeenCalled();
@@ -872,6 +885,7 @@ describe("Referral field validation", () => {
 
     const submitBtn = screen.getByRole("button", { name: /subscribe/i });
     await userEvent.click(submitBtn);
+    await confirmSummary();
 
     await waitFor(() => {
       expect(mockBuildSubscribeTx).toHaveBeenCalled();
@@ -910,5 +924,86 @@ describe("ReferralPanel integration", () => {
     const panel = screen.getByTestId("referral-panel");
     expect(panel).toBeInTheDocument();
     expect(panel).toHaveTextContent(VALID_USER);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subscription confirmation summary tests
+// ---------------------------------------------------------------------------
+
+describe("SubscribeForm confirmation summary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBuildSubscribeTx.mockResolvedValue("mock-xdr");
+    mockGetAllowance.mockResolvedValue(1_000_000_000n);
+    mockGetProtocolFee.mockResolvedValue({ collector: "GCOLLECTOR", bps: 100 });
+  });
+
+  async function fillForm(trialDays?: string) {
+    await userEvent.type(screen.getByTestId("merchant-input"), VALID_MERCHANT);
+    await userEvent.type(screen.getByTestId("amount-input"), "5");
+    if (trialDays) {
+      await userEvent.type(screen.getByTestId("trial-days-input"), trialDays);
+    }
+    await waitFor(() => expect(screen.getByRole("button", { name: /subscribe/i })).toBeEnabled());
+  }
+
+  it("shows gross amount, protocol fee, interval, trial and first charge before signing", async () => {
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={vi.fn()} />);
+    await fillForm("3");
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+
+    expect(await screen.findByTestId("subscribe-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("summary-gross")).toHaveTextContent("5.0000000 XLM");
+    expect(screen.getByTestId("summary-fee")).toHaveTextContent("0.0500000 XLM");
+    expect(screen.getByTestId("summary-net")).toHaveTextContent("4.9500000 XLM");
+    expect(screen.getByTestId("summary-interval")).toHaveTextContent("Monthly");
+    expect(screen.getByTestId("summary-trial")).toHaveTextContent("3 day(s)");
+    expect(screen.getByTestId("summary-first-charge").textContent).toBeTruthy();
+    expect(mockBuildSubscribeTx).not.toHaveBeenCalled();
+    expect(onSign).not.toHaveBeenCalled();
+  });
+
+  it("warns when the allowance is below the gross charge", async () => {
+    mockGetAllowance.mockResolvedValue(1n);
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={vi.fn()} />);
+    await fillForm();
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+
+    expect(await screen.findByTestId("summary-allowance-warning")).toHaveTextContent(
+      /allowance.*below the gross charge/i
+    );
+    expect(onSign).not.toHaveBeenCalled();
+  });
+
+  it("returns to the form without signing when the summary is cancelled", async () => {
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={vi.fn()} />);
+    await fillForm();
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+    expect(await screen.findByTestId("subscribe-summary")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("subscribe-cancel"));
+
+    expect(screen.queryByTestId("subscribe-summary")).not.toBeInTheDocument();
+    expect(mockBuildSubscribeTx).not.toHaveBeenCalled();
+    expect(onSign).not.toHaveBeenCalled();
+  });
+
+  it("passes trial days as seconds when the confirmed subscription is signed", async () => {
+    const onSign = vi.fn().mockResolvedValue("mock-hash");
+    render(<SubscribeForm userKey={VALID_USER} onSign={onSign} onSuccess={vi.fn()} />);
+    await fillForm("3");
+
+    await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
+    await confirmSummary();
+
+    await waitFor(() => expect(mockBuildSubscribeTx).toHaveBeenCalled());
+    expect(mockBuildSubscribeTx.mock.calls[0][7]).toBe(259200n);
+    expect(onSign).toHaveBeenCalledWith("mock-xdr");
   });
 });

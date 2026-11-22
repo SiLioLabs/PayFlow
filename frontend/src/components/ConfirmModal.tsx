@@ -11,6 +11,7 @@ interface Props {
   confirmDisabled?: boolean;
   confirmTestId?: string;
   cancelTestId?: string;
+  confirmLabel?: string;
 }
 
 export default function ConfirmModal({
@@ -21,6 +22,7 @@ export default function ConfirmModal({
   confirmDisabled = false,
   confirmTestId,
   cancelTestId,
+  confirmLabel = "Confirm",
 }: Props) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -39,11 +41,17 @@ export default function ConfirmModal({
         <p id="confirm-modal-message">{message}</p>
         {children}
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
+          <button type="button" className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
             Cancel
           </button>
-          <button className="btn-danger" onClick={onConfirm} disabled={confirmDisabled} data-testid={confirmTestId}>
-            Confirm
+          <button
+            type="button"
+            className="btn-danger"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            data-testid={confirmTestId}
+          >
+            {confirmLabel}
           </button>
         </div>
       </div>

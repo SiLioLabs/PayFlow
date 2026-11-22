@@ -216,11 +216,12 @@ App
 │       ├── [Tab: "subscribe"]
 │       │   └── SubscribeForm
 │       │       ├── IntervalSelector
+│       │       ├── Trial period (days)
 │       │       ├── BalanceDisplay
 │       │       ├── AllowanceDisplay
 │       │       ├── AddressBook
-│       │       │   └── ConfirmModal
 │       │       ├── ReferralPanel
+│       │       ├── ConfirmModal (pre-sign fee breakdown)
 │       │       ├── StroopInput
 │       │       └── ToastContainer
 │       │
@@ -274,6 +275,10 @@ App
     ├── WalletSelectModal        # Multi-wallet selection dialog
     └── ShortcutHelpOverlay      # Keyboard shortcut overlay ('?' key)
 ```
+
+### Subscribe Confirmation Summary
+
+`SubscribeForm` does not sign a subscription transaction directly. It first opens `ConfirmModal` with the gross charge, protocol fee, net merchant amount, billing interval, trial length and first-charge date. The fee uses the contract's truncating `amount * bps / 10_000` rule via `calculateProtocolFee`, and the first charge is `now + trialSeconds + interval`, matching `subscribe_inner`. An optional allowance warning appears when the current allowance is below the gross amount.
 
 ### Tab Navigation & Admin View
 

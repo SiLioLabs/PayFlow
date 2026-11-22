@@ -156,17 +156,23 @@ export async function buildSubscribeTx(
   intervalSec: bigint,
   tokenAddr: string,
   referrer: string | null,
-  label: string
+  label: string,
+  trialPeriodSec: bigint | null = null
 ): Promise<string> {
   const referrerVal = referrer ? { tag: "Some", val: addressVal(referrer) } : { tag: "None" };
-  return buildTx(user, "subscribe", [
+  const trialVal =
+    trialPeriodSec === null
+      ? { tag: "None" }
+      : { tag: "Some", val: nativeToScVal(trialPeriodSec, { type: "u64" }) };
+  return buildTx(user, "subscribe_with_metadata", [
     addressVal(user),
     addressVal(merchant),
     nativeToScVal(amount, { type: "i128" }),
     nativeToScVal(intervalSec, { type: "u64" }),
     addressVal(tokenAddr),
+    nativeToScVal(trialVal, { type: "option" }),
     nativeToScVal(referrerVal, { type: "option" }),
-    nativeToScVal(label, { type: "symbol" }),
+    nativeToScVal(label, { type: "string" }),
   ]);
 }
 
@@ -1275,6 +1281,33 @@ export interface ContractHealthCheckReport {
 }
 
 const decodeU32 = (v: xdr.ScVal): number => Number(v.u32());
+
+export interface ProtocolFee {
+  collector: string;
+  bps: number;
+}
+
+export function getProtocolFee(caller: string): Promise<ProtocolFee | null> {
+  return dedupedCall(`getProtocolFee:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_fee", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      const parts = retval.vec();
+      if (!parts || parts.length < 2) return null;
+      return {
+        collector: ScValDecoder.decodeAddress(parts[0]),
+        bps: decodeU32(parts[1]),
+      };
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function calculateProtocolFee(gross: bigint, bps: number): bigint {
+  if (bps <= 0 || gross <= 0n) return 0n;
+  return (gross * BigInt(bps)) / 10_000n;
+}
 
 /** Reads aggregate protocol stats (active count, fee, grace, pause, schema version). */
 export function getProtocolStats(caller: string): Promise<ProtocolStats | null> {

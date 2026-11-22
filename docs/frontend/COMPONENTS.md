@@ -61,7 +61,7 @@ The table below lists all 45 components in the root `components/` directory:
 | **AllowanceDisplay** | `components/AllowanceDisplay.tsx` | SAC allowance vs subscription amount badge | `Dashboard`, `SubscribeForm` | Canonical |
 | **AmountUnitToggle** | `components/AmountUnitToggle.tsx` | XLM vs Stroop display unit toggle | `WalletBar` | Canonical |
 | **BalanceDisplay** | `components/BalanceDisplay.tsx` | Native XLM account balance display | `WalletBar`, `SubscribeForm` | Canonical |
-| **ConfirmModal** | `components/ConfirmModal.tsx` | Accessible confirmation dialog with focus trap | `AddressBook`, `SubscriberRecoveryPanel` | Canonical |
+| **ConfirmModal** | `components/ConfirmModal.tsx` | Accessible confirmation dialog with focus trap and configurable confirm label | `AddressBook`, `SubscriberRecoveryPanel`, `SubscribeForm` | Canonical |
 | **ConnectWallet** | `components/ConnectWallet.tsx` | Connect wallet CTA button | `App` (when `!publicKey`) | Canonical |
 | **ContractPauseBanner** | `components/ContractPauseBanner.tsx` | Emergency maintenance circuit-breaker banner | `App` | Canonical |
 | **CopyButton** | `components/CopyButton.tsx` | Clipboard copy helper with feedback | `WalletBar`, `SubscriptionCard`, `TxQueuePanel`, `MerchantDashboard` | Canonical |
@@ -88,7 +88,7 @@ The table below lists all 45 components in the root `components/` directory:
 | **Skeleton** | `components/Skeleton.tsx` | Skeleton loading state placeholders | `Dashboard`, `MerchantDashboard`, `SubscriptionHistory` | Canonical |
 | **Spinner** | `components/Spinner.tsx` | CSS loading spinner | `ConnectWallet`, `DailyLimitCard`, `PayPerUseForm`, `SubscriptionExport`, etc. | Canonical |
 | **StroopInput** | `components/StroopInput.tsx` | Dual-unit amount input field (XLM / Stroops) | `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
-| **SubscribeForm** | `components/SubscribeForm.tsx` | New subscription checkout form | `App` (tab: `"subscribe"`) | Canonical |
+| **SubscribeForm** | `components/SubscribeForm.tsx` | New subscription checkout form with pre-sign fee/allowance summary and optional trial length | `App` (tab: `"subscribe"`) | Canonical |
 | **SubscriberRecoveryPanel** | `components/SubscriberRecoveryPanel.tsx` | Subscription data integrity diagnostic panel | `Dashboard` | Canonical |
 | **SubscriptionCard** | `components/SubscriptionCard.tsx` | Active subscription details, health, and actions | `Dashboard` | Canonical |
 | **SubscriptionExport** | `components/SubscriptionExport.tsx` | CSV and JSON export utility for subscriptions | `Dashboard`, `MerchantDashboard` | Canonical |
