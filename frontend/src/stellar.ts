@@ -1713,3 +1713,44 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+
+// ── Issue #2: Contract Config ─────────────────────────────────────────────────
+
+export interface ContractConfig {
+  feeBps: number;
+  feeCollector: string | null;
+  gracePeriod: bigint;
+  minInterval: bigint;
+  maxBatchSize: number;
+  globalVolumeCap: bigint;
+  whitelistEnabled: boolean;
+  paused: boolean;
+  schemaVersion: number;
+}
+
+/**
+ * Reads the complete contract configuration in a single RPC call.
+ * Returns fee, grace period, limits, whitelist state, and pause state.
+ */
+export function getContractConfig(caller: string): Promise<ContractConfig | null> {
+  return dedupedCall(`getContractConfig:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_contract_config", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeStruct<ContractConfig>(retval, {
+        feeBps: decodeU32,
+        feeCollector: (v) => ScValDecoder.decodeOption(v, ScValDecoder.decodeAddress),
+        gracePeriod: (v) => ScValDecoder.decodeU64(v),
+        minInterval: (v) => ScValDecoder.decodeU64(v),
+        maxBatchSize: decodeU32,
+        globalVolumeCap: (v) => ScValDecoder.decodeI128(v),
+        whitelistEnabled: ScValDecoder.decodeBool,
+        paused: ScValDecoder.decodeBool,
+        schemaVersion: decodeU32,
+      });
+    } catch {
+      return null;
+    }
+  });
+}
