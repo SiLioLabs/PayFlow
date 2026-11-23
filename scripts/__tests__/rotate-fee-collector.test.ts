@@ -1,6 +1,6 @@
-#!/usr/bin/env tsx
+import { it } from "vitest";
 import assert from "node:assert";
-import { rotateFeeCollector, RotateContext } from "./rotate-fee-collector";
+import { rotateFeeCollector, RotateContext } from "../rotate-fee-collector";
 
 // Define a test context to inject
 function createMockContext(): RotateContext {
@@ -43,9 +43,8 @@ async function runTests() {
     }
     assert(errorThrown, "Expected error when bps < min_bps");
     console.log("✅ Propose respects lower bounds");
-  } catch(e) {
-    console.error("Test 1 failed:", e);
-    process.exit(1);
+  } catch (e) {
+    throw e;
   }
 
   // Test 2: Commit fee verifies pending
@@ -60,16 +59,15 @@ async function runTests() {
 
     let errorThrown = false;
     try {
-      await rotateFeeCollector(["--commit"], ctx);
+      await rotateFeeCollector(["--commit", "--confirm-commit"], ctx);
     } catch (e: any) {
       errorThrown = true;
       assert(e.message.includes("NoPendingProposal"));
     }
     assert(errorThrown, "Expected error when missing pending proposal");
     console.log("✅ Commit verifies pending proposal via simulation");
-  } catch(e) {
-    console.error("Test 2 failed:", e);
-    process.exit(1);
+  } catch (e) {
+    throw e;
   }
 
   // Test 3: Dry run does not invoke contract
@@ -81,19 +79,17 @@ async function runTests() {
     await rotateFeeCollector(["--propose", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "--bps", "200", "--dry-run"], ctx);
     assert(!invoked, "Expected invokeContract NOT to be called in dry-run mode");
 
-    await rotateFeeCollector(["--commit", "--dry-run"], ctx);
+    await rotateFeeCollector(["--commit", "--confirm-commit", "--dry-run"], ctx);
     assert(!invoked, "Expected invokeContract NOT to be called in dry-run mode");
 
     console.log("✅ Dry-run works correctly");
   } catch (e) {
-    console.error("Test 3 failed:", e);
-    process.exit(1);
+    throw e;
   }
 
   console.log("All tests passed!");
 }
 
-runTests().catch(err => {
-  console.error("Fatal test error:", err);
-  process.exit(1);
+it("rotates the fee collector with bounds and dry-run checks", async () => {
+  await runTests();
 });

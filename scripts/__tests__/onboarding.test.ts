@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 import { nativeToScVal, Keypair, StrKey, Account } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
-import { onboardMerchant } from "./onboard-merchant.js";
-import { SorobanConfig } from "./soroban-admin.js";
+import { it } from "vitest";
+import { onboardMerchant } from "../onboard-merchant.js";
+import { SorobanConfig } from "../soroban-admin.js";
 
 const adminKp = Keypair.random();
 const merchantKp = Keypair.random();
@@ -73,7 +73,8 @@ async function runTests() {
   if (server3.wasTxSubmitted()) throw new Error("Expected no transaction to be submitted for frozen merchant");
 
   console.log("All merchant onboarding idempotency tests passed!");
-  process.exit(0);
 }
 
-runTests().catch(console.error);
+it("onboards, skips whitelisted, and blocks frozen merchants", async () => {
+  await runTests();
+});
