@@ -373,20 +373,24 @@ describe("App — tab shell navigation", () => {
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 
-  it("switches to Merchant view when Merchant tab is clicked", () => {
+  it("switches to Merchant view when Merchant tab is clicked", async () => {
     mockUseWallet(CONNECTED_STATE);
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Merchant" }));
-    expect(screen.getByTestId("merchant-dashboard")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("merchant-dashboard")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 
-  it("switches to Admin view when Admin tab is clicked by an admin", () => {
+  it("switches to Admin view when Admin tab is clicked by an admin", async () => {
     mockUseWallet(CONNECTED_STATE);
     mockUseAdmin(true);
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Admin" }));
-    expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 

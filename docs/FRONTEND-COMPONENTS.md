@@ -618,7 +618,7 @@ Subscriber self-service data integrity diagnostic panel to detect orphaned state
 
 **File:** `frontend/src/components/SubscriptionCard.tsx`
 
-Detailed card displaying an active subscription, trial badges, allowance health, and management actions (pause, resume, cancel, transfer).
+Detailed subscription display composed from focused status badges, action controls, and modal containers. `useSubscriptionCardState` owns allowance/trial/pause data and transaction state; `SubscriptionActions` owns pause/cancel confirmation UI; `SubscriptionStatusBadge` renders subscription, trial, and allowance status.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
