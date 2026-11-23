@@ -1,0 +1,138 @@
+# Docker runtime smoke test (issue #1473).
+#
+# Builds scripts/Dockerfile and proves the image is complete: every entrypoint
+# starts, talks to a mock Soroban RPC (scripts/__tests__/support/mock-rpc.ts)
+# running on the host, and shuts down with exit code 0 on SIGTERM — including
+# the keeper's graceful drain of in-flight batches (issue #1474).
+name: Docker Smoke
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    name: Build image and smoke-test entrypoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install host dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: Generate smoke credentials
+        working-directory: scripts
+        run: |
+          pubkey="$(node -e 'const {Keypair}=require("@stellar/stellar-sdk");process.stdout.write(Keypair.random().publicKey())')"
+          echo "KEEPER_PUBLIC_KEY=$pubkey" >> "$GITHUB_ENV"
+          echo "CONTRACT_ID=CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" >> "$GITHUB_ENV"
+
+      - name: Start mock Soroban RPC
+        working-directory: scripts
+        run: |
+          nohup ./node_modules/.bin/tsx __tests__/support/mock-rpc.ts > mock-rpc.log 2>&1 &
+          echo $! > mock-rpc.pid
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://127.0.0.1:8899 \
+                -H 'Content-Type: application/json' \
+                -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' \
+                | grep -q '"status":"healthy"'; then
+              echo "mock RPC ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::mock RPC failed to start"
+          cat mock-rpc.log
+          exit 1
+
+      - name: Build runtime image
+        working-directory: scripts
+        run: docker build -t payflow-keeper:smoke .
+
+      # Issue #1473: the image contains every runtime file the keeper needs —
+      # a single missing module would fail this step with a resolution error.
+      - name: Keeper completes a dry-run cycle
+        working-directory: scripts
+        run: |
+          docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
+            -e RPC_URL=http://host.docker.internal:8899 \
+            -e CONTRACT_ID="$CONTRACT_ID" \
+            -e KEEPER_PUBLIC_KEY="$KEEPER_PUBLIC_KEY" \
+            -e 'NETWORK_PASSPHRASE=Test SDF Network ; September 2015' \
+            payflow-keeper:smoke tsx keeper.ts --dry-run --once
+
+      # Issue #1474: SIGTERM stops scheduling and drains the in-flight cycle
+      # within the shutdown timeout, exiting 0 (compose allows 60s).
+      - name: Keeper drains in-flight work on SIGTERM
+        working-directory: scripts
+        run: |
+          docker run -d --name keeper-loop \
+            --add-host=host.docker.internal:host-gateway \
+            -e RPC_URL=http://host.docker.internal:8899 \
+            -e CONTRACT_ID="$CONTRACT_ID" \
+            -e KEEPER_PUBLIC_KEY="$KEEPER_PUBLIC_KEY" \
+            -e 'NETWORK_PASSPHRASE=Test SDF Network ; September 2015' \
+            -e DRY_RUN=true \
+            payflow-keeper:smoke tsx keeper.ts
+          sleep 20
+          docker stop -t 60 keeper-loop
+          code="$(docker inspect -f '{{.State.ExitCode}}' keeper-loop)"
+          docker logs keeper-loop
+          docker rm keeper-loop
+          test "$code" = "0"
+
+      - name: Indexer shuts down cleanly on SIGTERM
+        working-directory: scripts
+        run: |
+          docker run -d --name indexer-smoke \
+            --add-host=host.docker.internal:host-gateway \
+            -e RPC_URL=http://host.docker.internal:8899 \
+            -e CONTRACT_ID="$CONTRACT_ID" \
+            -e 'NETWORK_PASSPHRASE=Test SDF Network ; September 2015' \
+            -e START_LEDGER=99999 \
+            payflow-keeper:smoke tsx indexer.ts
+          sleep 20
+          docker stop -t 30 indexer-smoke
+          code="$(docker inspect -f '{{.State.ExitCode}}' indexer-smoke)"
+          docker logs indexer-smoke
+          docker rm indexer-smoke
+          test "$code" = "0"
+
+      - name: Metrics server shuts down cleanly on SIGTERM
+        working-directory: scripts
+        run: |
+          docker run -d --name metrics-smoke \
+            payflow-keeper:smoke tsx metrics-server.ts
+          sleep 5
+          docker exec metrics-smoke wget -qO- http://127.0.0.1:9090/metrics \
+            | grep -q '# HELP'
+          docker stop -t 10 metrics-smoke
+          code="$(docker inspect -f '{{.State.ExitCode}}' metrics-smoke)"
+          docker logs metrics-smoke
+          docker rm metrics-smoke
+          test "$code" = "0"
+
+      - name: Stop mock RPC
+        if: always()
+        working-directory: scripts
+        run: |
+          if [ -f mock-rpc.pid ]; then kill "$(cat mock-rpc.pid)" || true; fi
+          if [ -f mock-rpc.log ]; then cat mock-rpc.log; fi

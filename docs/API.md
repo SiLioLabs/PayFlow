@@ -26,6 +26,9 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [extend\_subscription\_ttl](#extend_subscription_ttl)
   - [pay\_per\_use](#pay_per_use)
   - [cancel](#cancel)
+  - [refund_last_charge](#refund_last_charge)
+  - [skip_next_charge](#skip_next_charge)
+  - [get_storage_footprint](#get_storage_footprint)
   - [pause](#pause)
   - [pause\_until](#pause_until)
   - [resume](#resume)
@@ -816,6 +819,73 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- cancel --user <USER_ADDRESS>
 ```
 
+### `refund_last_charge`
+
+Merchant-initiated refund of the subscriber's most recent **scheduled** charge. Unlike `cancel_and_refund_prorated`, this does **not** cancel the subscription: the subscriber keeps the plan and the next cycle charges normally.
+
+```
+refund_last_charge(env: Env, user: Address, merchant: Address)
+```
+
+| Name       | Type      | Description                                            |
+| ---------- | --------- | ------------------------------------------------------ |
+| `user`     | `Address` | Subscriber receiving the refund.                       |
+| `merchant` | `Address` | Subscription's merchant; must sign and fund the refund. |
+
+**Auth:** `merchant.require_auth()`. Only the subscription's own merchant may refund (`RefundMerchantMismatch`, #38).
+
+**Returns:** `()`.
+
+**Behavior:** transfers the recorded gross charge (`LastChargeRecord.amount`) from the merchant to the subscriber, reverses the merchant revenue by the booked net, reverses `TotalProtocolFees` by the booked fee (`fee + net == amount`), clears the `LastCharge` record, and emits `refunded`. Because the record is cleared, a second refund fails with `NoLastChargeToRefund` (#50); a later `charge` or `batch_charge` records a new snapshot.
+
+**Errors:** `NoSubscriptionFound` (#4), `RefundMerchantMismatch` (#38), `InsufficientMerchantBalance` (#40), `NoLastChargeToRefund` (#50).
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- refund_last_charge --user <USER_ADDRESS> --merchant <MERCHANT_ADDRESS>
+```
+
+### `skip_next_charge`
+
+Skips exactly one upcoming billing cycle without pausing or cancelling. Advances `last_charged` by one `interval`, so `next_charge_at` moves one full interval later.
+
+```
+skip_next_charge(env: Env, user: Address)
+```
+
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
+| `user` | `Address` | Subscriber and signer. |
+
+**Auth:** `user.require_auth()`.
+
+**Returns:** `()`.
+
+**Abuse limit:** at most one skip per billing interval. The previous skip timestamp is stored in `LastSkipAt(user)`; a second call before `last_skip + interval` fails with `SkipCooldownActive` (#49).
+
+**Errors:** `NoSubscriptionFound` (#4), `SubscriptionInactive` (#5), `SubscriptionPaused` (#17), `SkipCooldownActive` (#49), `ArithmeticOverflow` (#36).
+
+**Side effects:** overwrites `last_charged`, stores `LastSkipAt(user)`, refreshes the subscription TTL, and emits `charge_skipped`.
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- skip_next_charge --user <USER_ADDRESS>
+```
+
+### `get_storage_footprint`
+
+Returns every per-subscriber storage key the contract can create, with presence flags and (test builds only) remaining TTLs, for rent estimation.
+
+```
+get_storage_footprint(env: Env, user: Address) -> StorageFootprint
+```
+
+Each entry is `{ key: Symbol, present: bool, ttl_ledgers: u32 }`. Keys reported: `subscription`, `referral`, `metadata`, `charge_history`, `index_slot`, `pause_expiry`, `last_charge`, `last_skip`, `daily_limit`, `daily_spent`, `day_start`. The full key/TTL mapping lives in [architecture/STORAGE-AND-TTL.md](./architecture/STORAGE-AND-TTL.md).
+
+**Auth:** none. `ttl_ledgers` is `0` in production (Soroban does not expose `get_ttl()` on-chain); `0` must not be interpreted as expired. Tests report real TTLs.
+
 ### `pause`
 
 ```
@@ -1145,6 +1215,8 @@ get_trial_end(env: Env, user: Address) -> Option<u64>
 Returns `None` if no subscription exists for `user`.
 
 **Storage read:** `DataKey::Subscription(user)` in persistent storage (reads `last_charged` field).
+
+**Bounded extensions:** `extend_trial(user, additional_seconds)` adds at most `MAX_TRIAL_EXTENSION` (90 days) per call, and the resulting trial end may not exceed `now + MAX_TOTAL_TRIAL` (365 days). Extensions beyond either bound fail with `TrialExtensionExceedsMaximum` (#48), preventing an effectively unlimited free subscription.
 
 **See also:** [`subscribe`](#subscribe) for the `trial_period` parameter; [`next_charge_at`](#next_charge_at) which returns `Some(last_charged + interval)` once the trial ends.
 

@@ -42,6 +42,7 @@ import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { friendlyError } from "../utils/errors";
 import { useToast } from "../hooks/useToast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { formatDateTime } from "../utils/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ export function TrialBadge({ trialEndTimestamp }: TrialBadgeProps) {
       ? "Trial ends today"
       : `Trial ends in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}`;
 
-  const exactDate = new Date(trialEndTimestamp * 1000).toLocaleString();
+  const exactDate = formatDateTime(new Date(trialEndTimestamp * 1000));
 
   return (
     <span
@@ -451,7 +452,7 @@ export default function SubscriptionCard({
     derivedPauseStatus = "Paused successfully.";
   } else if (pauseUntilTx.state === "success") {
     derivedPauseStatus = scheduledResumeAt
-      ? `Paused until ${new Date(scheduledResumeAt * 1000).toLocaleString()}.`
+      ? `Paused until ${formatDateTime(new Date(scheduledResumeAt * 1000))}.`
       : "Paused successfully.";
   } else if (pauseTx.state === "failed") {
     derivedPauseStatus = pauseTx.error || "Failed to pause";

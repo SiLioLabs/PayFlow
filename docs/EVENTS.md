@@ -4,7 +4,7 @@ This document provides a complete reference for all events emitted by the FlowPa
 
 > **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). For delivering events over signed HTTP webhooks with retries and dead-letter queues, see [`docs/WEBHOOKS.md`](WEBHOOKS.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
-> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-09-26. All 53 `publish_*` helpers are documented below.
+> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-11-22. Every event emitted by the contract is documented below.
 
 ## Permanent abbreviated topics
 
@@ -155,6 +155,36 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### refunded
+
+- **Trigger**: `refund_last_charge()` (merchant-initiated refund of the last scheduled charge; subscription stays active)
+- **Topic keys**: `["refunded", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["refunded", "GABC...XYZ"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "amount": 10000000,
+      "fee": 500000,
+      "net": 9500000,
+      "charged_at": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### subscription_paused
 
 - **Trigger**: `batch_pause_subscriptions()` (admin batch operation)
@@ -200,6 +230,32 @@ Events related to subscription lifecycle transitions.
     "data": {
       "additional_seconds": 604800,
       "new_last_charged": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
+### charge_skipped
+
+- **Trigger**: `skip_next_charge()`
+- **Topic keys**: `["charge_skipped", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["charge_skipped", "GABC...XYZ"],
+    "data": {
+      "interval": 2592000,
+      "new_last_charged": 1721980800,
+      "next_charge_at": 1724572800,
       "ledger_sequence": 12345
     }
   }

@@ -74,6 +74,117 @@ function toBigIntStroops(stroops: string | number | bigint): bigint {
 }
 
 // ---------------------------------------------------------------------------
+// Locale-aware formatting helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a Date as a locale-aware date string with year, short-month, and
+ * day, e.g. "Jan 15, 2025" (en-US) or "15. Jan. 2025" (de-DE).
+ *
+ * Pass a BCP 47 locale tag to override the browser default.
+ */
+export function formatDate(date: Date, locale?: string): string {
+  return date.toLocaleDateString(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * Format a Date as a locale-aware date + time string using the browser's
+ * default representation, e.g. "1/15/2025, 3:04:05 PM" (en-US).
+ *
+ * Used for tooltip titles and aria-labels where a human-readable full
+ * timestamp is needed.
+ */
+export function formatDateTime(date: Date, locale?: string): string {
+  return date.toLocaleString(locale);
+}
+
+/**
+ * Format a Date as a compact locale-aware date + time string using
+ * dateStyle:"short" and timeStyle:"short", e.g. "1/15/25, 3:04 PM" (en-US).
+ *
+ * Preferred for table cells where horizontal space is limited.
+ */
+export function formatDateTimeShort(date: Date, locale?: string): string {
+  return date.toLocaleString(locale, {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
+/**
+ * Format a Date as a locale-aware time string showing hours and minutes,
+ * e.g. "3:04 PM" (en-US) or "15:04" (de-DE).
+ *
+ * Used for notification timestamps and similar compact time displays.
+ */
+export function formatTime(date: Date, locale?: string): string {
+  return date.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Format a Date as a locale-aware time string showing hours, minutes, and
+ * seconds, e.g. "3:04:05 PM" (en-US).
+ *
+ * Used for transaction queue timestamps where second-level precision matters.
+ */
+export function formatTimeWithSeconds(date: Date, locale?: string): string {
+  return date.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/**
+ * Format a bigint or number with locale-aware thousands separators,
+ * e.g. 1234567 → "1,234,567" (en-US) or "1.234.567" (de-DE).
+ *
+ * Uses Number() for Intl formatting only after confirming the value fits
+ * safely in a 53-bit float (safe integer range). For values beyond that
+ * the integer is formatted with a manual separator pass to avoid precision
+ * loss.
+ */
+export function formatInteger(value: bigint | number, locale?: string): string {
+  const n = typeof value === "bigint" ? value : BigInt(Math.trunc(value));
+  const negative = n < 0n;
+  const abs = negative ? -n : n;
+  const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+  let formatted: string;
+  if (abs <= MAX_SAFE) {
+    formatted = Number(abs).toLocaleString(locale ?? "en-US");
+  } else {
+    // Manual grouping for values beyond safe integer range.
+    const digits = abs.toString();
+    const groups: string[] = [];
+    let i = digits.length;
+    while (i > 0) {
+      groups.unshift(digits.slice(Math.max(0, i - 3), i));
+      i -= 3;
+    }
+    // Use locale-appropriate separator: Intl.NumberFormat exposes the group
+    // separator via formatToParts on a known value.
+    let sep = ",";
+    try {
+      const parts = new Intl.NumberFormat(locale ?? "en-US").formatToParts(1234);
+      const groupPart = parts.find((p) => p.type === "group");
+      if (groupPart) sep = groupPart.value;
+    } catch {
+      // fall back to comma
+    }
+    formatted = groups.join(sep);
+  }
+  return negative ? `-${formatted}` : formatted;
+}
+
+// ---------------------------------------------------------------------------
 // Display utilities
 // ---------------------------------------------------------------------------
 
@@ -99,13 +210,12 @@ export function displayAmount(stroops: string | number | bigint, unit: AmountUni
     const dotIdx = xlmStr.indexOf(".");
     const intPart = xlmStr.slice(0, dotIdx);
     const fracPart = xlmStr.slice(dotIdx + 1);
-    // toLocaleString is safe: the integer XLM part never exceeds ~1e11 XLM
-    const formattedInt = parseInt(intPart, 10).toLocaleString("en-US");
+    const formattedInt = formatInteger(BigInt(intPart));
     return `${formattedInt}.${fracPart} XLM`;
   }
 
   // STROOP: raw integer with comma separators
-  return `${n.toLocaleString("en-US")} STROOP`;
+  return `${formatInteger(n)} STROOP`;
 }
 
 /**

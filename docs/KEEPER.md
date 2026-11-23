@@ -25,6 +25,7 @@ the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 - [Environment variables](#environment-variables)
 - [Configuration is environment-only](#configuration-is-environment-only)
 - [Running the keeper](#running-the-keeper)
+- [Graceful shutdown](#graceful-shutdown)
 - [Exit codes](#exit-codes)
 - [How a cycle works](#how-a-cycle-works)
 - [Batch size resolution](#batch-size-resolution)
@@ -111,6 +112,7 @@ Everything is read from `process.env` at module load.
 | `KEEPER_USE_LEGACY_PAGING`   | No                  | `false`                                  | `true` switches to sequential offset paging instead of grace-urgency-ordered batches. |
 | `DLQ_FILE`                   | No                  | `<cwd>/dlq/failed-batches.jsonl`         | JSONL file of aborted batches. |
 | `METRICS_PORT`               | No                  | `9090`                                   | Port for the `/metrics` endpoint. |
+| `SHUTDOWN_TIMEOUT_MS`        | No                  | `50000`                                  | Graceful-shutdown deadline — see [Graceful shutdown](#graceful-shutdown). Invalid or non-positive values fall back to the default. |
 | `LOG_LEVEL`                  | No                  | `info`                                   | `debug` \| `info` \| `warn` \| `error`. |
 
 Validation is all-or-nothing and happens once, at startup. Missing variables
@@ -184,13 +186,49 @@ CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... npx tsx keeper.ts
 `KEEPER_SECRET` is never logged. The child logger binds `CONTRACT_ID` and
 `RPC_URL` as context, and the secret is deliberately excluded.
 
+## Graceful shutdown
+
+The keeper handles **SIGTERM and SIGINT identically** (Docker `stop`,
+`systemctl stop`, Ctrl-C). The first signal starts a bounded drain; repeated
+signals are logged and ignored — cleanup never runs twice and only one
+deadline timer exists, so a SIGTERM followed by a SIGINT is safe.
+
+What happens on the first signal:
+
+1. **Scheduling stops.** Both paging loops consult a gate before every
+   batch/page, so no new batch is submitted after the signal. The cycle
+   already in flight keeps running — submission and result recording stay
+   paired, so a batch is never half-recorded.
+2. **The in-flight work drains.** The coordinator waits for the tracked
+   cycle (and any batch within it) to settle.
+3. **Cleanup flushes.** The DLQ file is fsynced (`dlq-flush`) and the
+   metrics server is stopped (`metrics-flush`), in that order, exactly once.
+4. **The process exits** — `0` when everything drained and flushed, `1`
+   otherwise (see [Exit codes](#exit-codes)).
+
+The whole sequence is bounded by `SHUTDOWN_TIMEOUT_MS` (default **50 000 ms**).
+The default is deliberately below the 60 s `stop_grace_period` in
+`scripts/docker-compose.yml`, so the keeper reports its own timeout and exits
+non-zero instead of being SIGKILLed mid-write. If the deadline elapses first,
+the keeper logs the labels of the work still pending, best-effort flushes the
+DLQ, and exits `1` — unfinished work is never reported as completed.
+
+A batch that **rejects during the drain** is surfaced as
+`In-flight work failed during drain` and forces exit `1`; it is not swallowed
+by the shutdown path.
+
+Relevant code: `scripts/lib/shutdown.ts` (the `ShutdownCoordinator`), the
+module-level `shutdown` coordinator and `canScheduleNextBatch()` gate in
+`scripts/keeper.ts`, and `scripts/__tests__/keeper-shutdown.test.ts`.
+
 ## Exit codes
 
 | Code | Meaning |
 | ---- | ------- |
-| 0    | Cycle completed. In `--once` mode, either there were no errors or at least one subscriber was charged. |
+| 0    | Cycle completed. In `--once` mode, either there were no errors or at least one subscriber was charged. Also: a signal-triggered shutdown that drained and flushed cleanly. |
 | 1    | Every page in the cycle errored **and** nothing was charged (`report.errors.length > 0 && report.totalCharged === 0`). |
 | 1    | Missing required environment variables, or a fatal error in `main()`. |
+| 1    | Shutdown did not complete: the drain timed out (`SHUTDOWN_TIMEOUT_MS`), an in-flight batch failed during the drain, a cleanup step failed, or the cycle itself failed. |
 
 The middle case is the one to understand: a cycle where some pages errored but
 others charged something still exits 0. `errors.length > 0` on its own is
@@ -372,6 +410,38 @@ restart mid-window is safe.
 cd scripts
 CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... docker compose up -d
 ```
+
+Build the image directly (the build context is `scripts/`):
+
+```bash
+cd scripts
+docker build -t payflow-keeper .
+```
+
+Run a single dry-run cycle inside the container — this is the same check the
+`docker-smoke` CI workflow performs:
+
+```bash
+docker run --rm \
+  -e RPC_URL=https://soroban-testnet.stellar.org \
+  -e CONTRACT_ID=C... \
+  -e KEEPER_PUBLIC_KEY=G... \
+  payflow-keeper --dry-run --once
+```
+
+The container image ships the full runtime file set (`keeper.ts`, `indexer.ts`,
+`metrics-server.ts`, `lib/`, `db/`, `utils/`, `fixtures/`), so any entrypoint
+composable with `docker-compose.yml` works:
+
+```bash
+docker run --rm payflow-keeper metrics-server   # Prometheus on :9090
+docker run --rm -e START_LEDGER=99999 payflow-keeper indexer
+```
+
+On `SIGTERM`/`SIGINT` the keeper drains in-flight batches and flushes the DLQ
+and metrics before exiting (see [Graceful shutdown](#graceful-shutdown)).
+`docker stop` therefore exits cleanly within the compose `stop_grace_period`
+(60s for the keeper; `SHUTDOWN_TIMEOUT_MS` defaults to 50s).
 
 ### pm2
 

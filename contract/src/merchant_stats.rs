@@ -62,6 +62,44 @@ pub fn increment_revenue(env: &Env, merchant: &Address, amount: i128) {
     );
 }
 
+/// Reverses up to `amount` of the merchant's booked revenue after a refund.
+/// Floors at zero, and also decrements the per-day bucket for today when one
+/// exists so the cumulative total and today's bucket stay consistent. History
+/// is append-only and intentionally not rewritten.
+pub fn decrement_revenue(env: &Env, merchant: &Address, amount: i128) {
+    if amount <= 0 {
+        return;
+    }
+    let current = get_merchant_revenue(env, merchant);
+    let new_total = current.saturating_sub(amount);
+    let key = DataKey::MerchantRevenue(merchant.clone());
+    env.storage().persistent().set(&key, &new_total);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+
+    if current > 0 && new_total == 0 {
+        decrement_pending_merchant_rev_count(env);
+    }
+
+    let today = env.ledger().timestamp() / 86400;
+    let day_key = DataKey::MerchantRevenueDay(merchant.clone(), today);
+    if let Some(day_total) = env
+        .storage()
+        .persistent()
+        .get::<_, i128>(&day_key)
+    {
+        env.storage()
+            .persistent()
+            .set(&day_key, &day_total.saturating_sub(amount));
+        env.storage().persistent().extend_ttl(
+            &day_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
+    }
+}
+
 /// Returns the merchant's revenue history as a Vec (oldest -> newest), limited to the
 /// most recent `days` entries. Returns an empty Vec when unset or after clearing.
 ///

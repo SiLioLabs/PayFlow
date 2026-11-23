@@ -178,6 +178,20 @@ pub fn get_total_protocol_fees(env: &Env) -> i128 {
         .unwrap_or(0)
 }
 
+/// Reverses `amount` of previously accumulated protocol fees after a refund.
+/// Floors at zero so a bookkeeping-only reversal can never underflow the
+/// counter; the saturating floor is reached only when the fee was already
+/// withdrawn/cleared by governance.
+pub fn decrement_protocol_fees(env: &Env, amount: i128) {
+    if amount <= 0 {
+        return;
+    }
+    let total = get_total_protocol_fees(env).saturating_sub(amount);
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalProtocolFees, &total);
+}
+
 /// Adds `amount` to the cumulative protocol fee total.
 fn accumulate_protocol_fees(env: &Env, amount: i128) {
     if amount <= 0 {
