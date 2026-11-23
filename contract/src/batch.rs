@@ -176,7 +176,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         {
                             ChargeResult::AllowanceInsufficient
                         } else {
-                            charge_exec::execute_charge(env, &user, &key, &mut sub, now);
+                            charge_exec::execute_charge(env, &user, &key, &mut sub, now, None);
                             ChargeResult::Charged
                         }
                     }

@@ -120,7 +120,8 @@ See [Security specification and threat matrix](security/threat_matrix.md) for ro
 | `extend_subscriber_index_ttl()`, `clear_subscriber_index_entry()` | admin |
 | `pause_contract()`, `unpause_contract()` | admin |
 | `propose_upgrade()`, `commit_upgrade()`, `cancel_pending_upgrade()` | admin |
-| `migrate()` | admin |
+| `migrate()`, `finalize_migration()` | admin |
+| `set_keeper_tip_bps()` | admin |
 | `charge()`, `batch_charge()` | none |
 | `extend_subscription_ttl()`, `batch_extend_subscription_ttl()` | none |
 | `bump_subscription()`, `bump_instance_ttl()` | none |

@@ -119,6 +119,11 @@ pub enum ContractError {
     IntervalExceedsMaximum = 46,
     /// Returned when a merchant freeze reason exceeds the 128-byte length limit.
     FreezeReasonTooLong = 47,
+    /// Returned by `finalize_migration` while fewer accounts have been migrated
+    /// than the operator-supplied total, so the schema version cannot be advanced.
+    MigrationIncomplete = 48,
+    /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
+    InvalidKeeperTipBps = 49,
     /// Returned when an admin transfer targets the current admin or this contract.
     InvalidAdminAddress = 48,
 }
