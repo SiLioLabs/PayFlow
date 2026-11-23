@@ -30,7 +30,7 @@
 pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 4_620_000;
 pub const MAX_CHARGE_INSTRUCTIONS: u64 = 4_180_000;
 pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 3_960_000;
-pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 30_800_000;
+pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 32_000_000;
 
 use super::*;
 use soroban_sdk::{
