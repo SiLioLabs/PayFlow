@@ -102,7 +102,7 @@ const LEVEL_ORDER: Record<string, number> = {
   warn: 2,
   error: 3,
 };
-const activeLevel = LEVEL_ORDER[LOG_LEVEL] ?? 1;
+const activeLevel = LEVEL_ORDER[(process.env.LOG_LEVEL ?? "info")] ?? 1;
 
 /**
  * JSON log sink.
@@ -425,10 +425,6 @@ async function main(): Promise<void> {
       });
       replayed++;
     } catch (err) {
-      const msg = redactSecrets(
-        err instanceof Error ? err.message : String(err),
-      );
-      log("error", "Entry failed after retries — moving to dead-batches", {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error("Entry failed after retries — moving to dead-batches", {
         offset: entry.offset,

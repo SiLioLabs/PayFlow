@@ -85,6 +85,33 @@ vi.mock("../hooks/useWallet", () => {
       disconnect: vi.fn(),
       signTransaction: vi.fn(),
     },
+    {
+      id: "albedo",
+      name: "Albedo",
+      icon: "🔷",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
+    {
+      id: "rabet",
+      name: "Rabet",
+      icon: "🟣",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
+    {
+      id: "walletconnect",
+      name: "WalletConnect",
+      icon: "🔗",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
   ];
 
   return {
@@ -185,7 +212,7 @@ describe("App — wallet connect UX", () => {
     );
   });
 
-  it("renders all four wallet adapters in the modal", async () => {
+  it("renders all seven wallet adapters in the modal", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
     await waitFor(() => {
@@ -193,6 +220,9 @@ describe("App — wallet connect UX", () => {
       expect(screen.getByText("xBull")).toBeInTheDocument();
       expect(screen.getByText("Lobstr")).toBeInTheDocument();
       expect(screen.getByText("Hana")).toBeInTheDocument();
+      expect(screen.getByText("Albedo")).toBeInTheDocument();
+      expect(screen.getByText("Rabet")).toBeInTheDocument();
+      expect(screen.getByText("WalletConnect")).toBeInTheDocument();
     });
   });
 
@@ -220,6 +250,19 @@ describe("App — wallet connect UX", () => {
     fireEvent.click(screen.getByText("xBull").closest("button")!);
 
     expect(mockConnect).toHaveBeenCalledWith(expect.objectContaining({ id: "xbull" }));
+  });
+
+  it("calls connect with WalletConnect adapter when selected in modal", async () => {
+    const mockConnect = vi.fn();
+    mockUseWallet({ connect: mockConnect });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await waitFor(() => expect(screen.getByText("WalletConnect")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("WalletConnect").closest("button")!);
+
+    expect(mockConnect).toHaveBeenCalledWith(expect.objectContaining({ id: "walletconnect" }));
   });
 
   it("closes the modal when Cancel is clicked", async () => {
