@@ -287,6 +287,9 @@
             "topics": [
               {
                 "symbol": "whitelist_enabled"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -401,6 +404,9 @@
             "topics": [
               {
                 "symbol": "whitelist_enabled"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

@@ -84,29 +84,37 @@ pub fn add_merchant(env: &Env, merchant: &Address) -> bool {
     }
     let key = DataKey::MerchantWhitelist(merchant.clone());
     env.storage().persistent().set(&key, &true);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     let size = get_whitelist_size(env);
     let index_key = DataKey::WhitelistIndex(size);
     env.storage().persistent().set(&index_key, merchant);
-    env.storage()
-        .persistent()
-        .extend_ttl(&index_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &index_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     // Write reverse index so remove_merchant can look up the slot in O(1).
     let slot_key = DataKey::WhitelistIndexSlot(merchant.clone());
     env.storage().persistent().set(&slot_key, &size);
-    env.storage()
-        .persistent()
-        .extend_ttl(&slot_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &slot_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     let size_key = DataKey::WhitelistIndexSize;
     env.storage().persistent().set(&size_key, &(size + 1));
-    env.storage()
-        .persistent()
-        .extend_ttl(&size_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &size_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_added(env, merchant);
@@ -151,15 +159,19 @@ pub fn remove_merchant(env: &Env, merchant: &Address) -> bool {
                         1555200,
                         1555200,
                     );
-                    env.storage()
-                        .persistent()
-                        .extend_ttl(&DataKey::WhitelistIndex(i), MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                    env.storage().persistent().extend_ttl(
+                        &DataKey::WhitelistIndex(i),
+                        MERCHANT_STATE_TTL_LEDGERS,
+                        MERCHANT_STATE_TTL_LEDGERS,
+                    );
                     // Update the reverse index for the moved merchant.
                     let moved_slot_key = DataKey::WhitelistIndexSlot(last_addr);
                     env.storage().persistent().set(&moved_slot_key, &i);
-                    env.storage()
-                        .persistent()
-                        .extend_ttl(&moved_slot_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                    env.storage().persistent().extend_ttl(
+                        &moved_slot_key,
+                        MERCHANT_STATE_TTL_LEDGERS,
+                        MERCHANT_STATE_TTL_LEDGERS,
+                    );
                 }
             }
             env.storage()
@@ -168,9 +180,11 @@ pub fn remove_merchant(env: &Env, merchant: &Address) -> bool {
             env.storage().persistent().remove(&slot_key);
             let size_key = DataKey::WhitelistIndexSize;
             env.storage().persistent().set(&size_key, &(size - 1));
-            env.storage()
-                .persistent()
-                .extend_ttl(&size_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &size_key,
+                MERCHANT_STATE_TTL_LEDGERS,
+                MERCHANT_STATE_TTL_LEDGERS,
+            );
         } else {
             // Legacy path: no reverse index entry — fall back to linear scan.
             for i in 0..size {
@@ -184,9 +198,11 @@ pub fn remove_merchant(env: &Env, merchant: &Address) -> bool {
                                 env.storage().persistent().get::<_, Address>(&last_key)
                             {
                                 env.storage().persistent().set(&key, &last_addr);
-                                env.storage()
-                                    .persistent()
-                                    .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                                env.storage().persistent().extend_ttl(
+                                    &key,
+                                    MERCHANT_STATE_TTL_LEDGERS,
+                                    MERCHANT_STATE_TTL_LEDGERS,
+                                );
                                 // Also write the reverse index for the moved entry.
                                 let moved_slot_key = DataKey::WhitelistIndexSlot(last_addr);
                                 env.storage().persistent().set(&moved_slot_key, &i);
@@ -202,9 +218,11 @@ pub fn remove_merchant(env: &Env, merchant: &Address) -> bool {
                             .remove(&DataKey::WhitelistIndex(last_idx));
                         let size_key = DataKey::WhitelistIndexSize;
                         env.storage().persistent().set(&size_key, &(size - 1));
-                        env.storage()
-                            .persistent()
-                            .extend_ttl(&size_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                        env.storage().persistent().extend_ttl(
+                            &size_key,
+                            MERCHANT_STATE_TTL_LEDGERS,
+                            MERCHANT_STATE_TTL_LEDGERS,
+                        );
                         break;
                     }
                 }
@@ -295,16 +313,20 @@ pub fn freeze(env: &Env, merchant: &Address, reason: Option<soroban_sdk::String>
         }
         let reason_key = DataKey::MerchantFreezeReason(merchant.clone());
         env.storage().persistent().set(&reason_key, r);
-        env.storage()
-            .persistent()
-            .extend_ttl(&reason_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &reason_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 
     let frozen_key = DataKey::MerchantFrozen(merchant.clone());
     env.storage().persistent().set(&frozen_key, &true);
-    env.storage()
-        .persistent()
-        .extend_ttl(&frozen_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &frozen_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     merchant_stats::index_merchant(env, merchant);
     events::publish_merchant_frozen(env, merchant);

@@ -24,7 +24,7 @@ use crate::{DataKey, Subscription};
 //   GracePeriodElapsed  = 5
 //   AllowanceInsufficient = 6
 //
-// The full wire-format description lives in `docs/charge-results.md`.
+// The full wire-format description lives in `docs/CHARGE-RESULTS.md`.
 //
 // When adding new variants ALWAYS append at the end so existing
 // off-chain parsers continue to recognise the original codes.
@@ -43,7 +43,7 @@ use crate::{DataKey, Subscription};
 /// **APPEND-ONLY INVARIANT:** New variants must always be appended at the end
 /// so existing off-chain parsers that know 0-2 continue to work.
 /// Renaming or reordering discriminants is a breaking change for all consumers.
-/// See `docs/cancel-results.md` for the complete wire encoding specification.
+/// See `docs/CANCEL-RESULTS.md` for the complete wire encoding specification.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum CancelResult {
@@ -53,8 +53,7 @@ pub enum CancelResult {
     NoSubscription,
     /// Subscription was already cancelled.
     AlreadyCancelled,
-    /// Subscription was paused; cancel succeeded but state was unusual.
-    PausedCancelled,
+    /// A paused subscription was cancelled; cancel succeeded but state was unusual.
     /// A paused (but active) subscription was cancelled.
     PausedCancelled,
     /// Subscription belongs to a frozen merchant and was cancelled.
@@ -178,7 +177,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         {
                             ChargeResult::AllowanceInsufficient
                         } else {
-                            charge_exec::execute_charge(env, &user, &key, &mut sub, now);
+                            charge_exec::execute_charge(env, &user, &key, &mut sub, now, None);
                             ChargeResult::Charged
                         }
                     }
@@ -457,7 +456,7 @@ pub fn batch_cancel(env: &Env, users: Vec<Address>) -> Vec<CancelResult> {
 
                     if merchant_frozen {
                         CancelResult::MerchantFrozen
-                    } else if sub.paused {
+                    } else if was_paused {
                         CancelResult::PausedCancelled
                     } else {
                         CancelResult::Cancelled

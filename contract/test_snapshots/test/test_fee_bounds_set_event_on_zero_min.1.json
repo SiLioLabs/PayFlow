@@ -1018,6 +1018,9 @@
             "topics": [
               {
                 "symbol": "fee_bounds_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

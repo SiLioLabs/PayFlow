@@ -35,7 +35,7 @@ PayFlow is the product and repository name. It is a decentralized subscription a
 
 ### Prerequisites
 
-- Rust 1.70+ with `wasm32-unknown-unknown` target.
+- Rust 1.78+ with `wasm32-unknown-unknown` target.
 - Soroban CLI.
 - Node.js 18+.
 

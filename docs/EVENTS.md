@@ -2,9 +2,9 @@
 
 This document provides a complete reference for all events emitted by the FlowPay smart contract. Events are grouped by functional area for easy navigation.
 
-> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
+> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). For delivering events over signed HTTP webhooks with retries and dead-letter queues, see [`docs/WEBHOOKS.md`](WEBHOOKS.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
-> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-09-26. All 53 `publish_*` helpers are documented below.
+> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-11-22. Every event emitted by the contract is documented below.
 
 ## Permanent abbreviated topics
 
@@ -155,6 +155,36 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### refunded
+
+- **Trigger**: `refund_last_charge()` (merchant-initiated refund of the last scheduled charge; subscription stays active)
+- **Topic keys**: `["refunded", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["refunded", "GABC...XYZ"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "amount": 10000000,
+      "fee": 500000,
+      "net": 9500000,
+      "charged_at": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### subscription_paused
 
 - **Trigger**: `batch_pause_subscriptions()` (admin batch operation)
@@ -200,6 +230,32 @@ Events related to subscription lifecycle transitions.
     "data": {
       "additional_seconds": 604800,
       "new_last_charged": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
+### charge_skipped
+
+- **Trigger**: `skip_next_charge()`
+- **Topic keys**: `["charge_skipped", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["charge_skipped", "GABC...XYZ"],
+    "data": {
+      "interval": 2592000,
+      "new_last_charged": 1721980800,
+      "next_charge_at": 1724572800,
       "ledger_sequence": 12345
     }
   }
@@ -934,14 +990,53 @@ Events related to contract migration and infrastructure operations.
 
 ### migration_completed
 
-- **Trigger**: `migrate()` (schema migration)
+- **Trigger**: `finalize_migration()`, once the schema version advances to the current version. `migrate()` emits nothing.
 - **Topic keys**: `["migration_completed"]`
-- **Payload schema**: `(version: u32, user_count: u32)`
+- **Payload schema**: `(version: u32, user_count: u32)`, where `user_count` is the number of accounts processed.
 - **JSON example**:
   ```json
   {
     "topic": ["migration_completed"],
     "data": [3, 150]
+  }
+  ```
+
+### migration_progress
+
+- **Trigger**: `migrate()`, when a batch processes at least one new account
+- **Topic keys**: `["migration_progress"]`
+- **Payload schema**: `migrated_accounts: u64`, the running total for this upgrade
+- **JSON example**:
+  ```json
+  {
+    "topic": ["migration_progress"],
+    "data": 150
+  }
+  ```
+
+### keeper_tip_bps_set
+
+- **Trigger**: `set_keeper_tip_bps()` (admin)
+- **Topic keys**: `["keeper_tip_bps_set"]`
+- **Payload schema**: `(old: u32, new: u32)`, in basis points of the protocol fee
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip_bps_set"],
+    "data": [0, 2000]
+  }
+  ```
+
+### keeper_tip
+
+- **Trigger**: `charge_with_tip()`, when a tip is paid to the keeper
+- **Topic keys**: `["keeper_tip", <keeper: Address>]`
+- **Payload schema**: `(user: Address, tip: i128)`, in token base units. Emitted only when `tip > 0`.
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip", "G...KEEPER"],
+    "data": ["G...SUBSCRIBER", 100000]
   }
   ```
 
@@ -977,6 +1072,7 @@ Events related to contract migration and infrastructure operations.
 | Doc                                                       | Role                                                           |
 | --------------------------------------------------------- | -------------------------------------------------------------- |
 | [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md)     | Cookbook: consume events reliably, react, dedupe, detect gaps  |
+| [`docs/WEBHOOKS.md`](WEBHOOKS.md)                         | Webhook delivery, schemas, signatures, retries, and DLQ replay |
 | [`docs/KEEPER.md`](KEEPER.md)                             | Keeper operations (primary producer/consumer of charge cycles) |
 | [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)       | Third-party app integration (transactions + reads)             |
 | [`docs/API.md`](API.md)                                   | Contract function surface                                      |

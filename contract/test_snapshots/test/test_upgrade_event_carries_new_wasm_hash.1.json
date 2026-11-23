@@ -82,6 +82,9 @@
             "topics": [
               {
                 "symbol": "upgrade"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

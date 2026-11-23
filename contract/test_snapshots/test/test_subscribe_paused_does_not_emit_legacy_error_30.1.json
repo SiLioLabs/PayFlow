@@ -991,6 +991,9 @@
             "topics": [
               {
                 "symbol": "contract_paused"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"

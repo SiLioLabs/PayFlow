@@ -339,7 +339,7 @@ export default function Dashboard({
                 health={subHealth}
                 simulateResult={simResult}
               />
-              <ReferralPanel publicKey={userKey} />
+              <ReferralPanel publicKey={userKey} merchant={sub.merchant} />
             </>
           )}
         </>

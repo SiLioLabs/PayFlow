@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ConfigSchema } from "./config.js";
 
 const root = join(import.meta.dirname, "..");
-const docPath = join(root, "docs", "scripts-environment.md");
+const docPath = join(root, "docs", "SCRIPTS-ENVIRONMENT.md");
 const envPath = join(root, "scripts", ".env.example");
 
 const startMarker = "<!-- BEGIN GENERATED CONFIG_SCHEMA TABLE -->";

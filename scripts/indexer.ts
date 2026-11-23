@@ -13,6 +13,7 @@
  * ──────
  *   events     — one row per event occurrence (upsert on tx_hash + op/event index)
  *   meta       — key/value store for indexer state (last_ledger, schema_version)
+ *   Defined solely by the numbered migrations in db/migrations/ (see db/migrate.ts).
  *
  * Event Topics (mapped from contract/src/events.rs)
  * ───────────────────────────────────────────────
@@ -26,6 +27,8 @@
  *     paid_to (Option<Address> fee destination), preserved in raw_data.
  *   - subscribed, cancelled, paused, resumed: Subscription lifecycle events
  *   - trial_extended, grace_period_*: Policy management events
+ *   - Current contract events append `v2` after their legacy topics. Events
+ *     without a marker are v1; the parsed version is stored in schema_version.
  *
  * Usage:
  *   CONTRACT_ID=<id> tsx indexer.ts
@@ -36,11 +39,21 @@
  *   NETWORK_PASSPHRASE Optional. Network passphrase (default: testnet).
  *   DATA_DIR           Optional. Directory for the SQLite DB file (default: data).
  *   DB_FILE            Optional. Full path override for the SQLite DB file.
+ *   DATABASE_URL       Optional. postgres:// URL — index into PostgreSQL instead
+ *                      of SQLite (same schema/migrations; see db/store.ts).
  *   POLL_INTERVAL_MS   Optional. Polling interval in ms (default: 10000).
  *   START_LEDGER       Optional. Ledger to start from on first run (default: latest).
  *   LOG_LEVEL          Optional. "debug" | "info" | "error" (default: info).
  *   EVENT_DEDUP_CACHE_SIZE  Optional. Max EventDedupCache entries (default: 1000).
  *   EVENT_DEDUP_TTL_MS      Optional. EventDedupCache entry TTL in ms (default: 0 = no TTL).
+ *   INDEXER_METRICS_ENABLED Optional. "true" to serve Prometheus metrics (incl. ledger-gap metrics).
+ *
+ * Ledger gaps
+ * ───────────
+ * Before each poll the indexer compares its cursor with the RPC's oldest
+ * available ledger (getHealth). If the RPC has pruned ledgers the indexer never
+ * read, the range is stored in `ledger_gaps`, logged, exported as metrics, and
+ * indexing resumes from the oldest available ledger. See horizon-backfill.ts.
  *
  * Deduplication
  * ─────────────
@@ -67,7 +80,15 @@ import { logger as rootLogger } from "./logger.js";
 import { fileURLToPath } from "node:url";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { EventDedupCache, type DedupStats } from "./event-dedup.js";
-import { recordIndexerDedupStats } from "./metrics-server.js";
+import {
+  recordIndexerDedupStats,
+  setIndexerLedgerPosition,
+  startMetricsServer,
+} from "./metrics-server.js";
+import { checkForGap, refreshOpenGapMetric } from "./ledger-gaps.js";
+import { runMigrations, readSchemaVersion } from "./db/migrate.js";
+import { SCHEMA_VERSION } from "./db/migrations/index.js";
+import { SqliteStore, openIndexerStore, isPostgresUrl, redactDatabaseUrl, type IndexerStore } from "./db/store.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -76,9 +97,6 @@ const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "10000", 10);
 
 const DATA_DIR = process.env.DATA_DIR ?? "data";
 const DB_FILE = process.env.DB_FILE ?? resolve(DATA_DIR, "events.db");
-
-/** Schema version — increment when adding columns or new tables. */
-const SCHEMA_VERSION = 2;
 
 /** Max events requested per getEvents page. */
 const EVENTS_PAGE_LIMIT = 200;
@@ -109,10 +127,12 @@ const logger = rootLogger.child({
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** A fully parsed event ready for database insertion. */
-interface IndexedEvent {
+export interface IndexedEvent {
   /** Stable dedup key: "<tx_hash>:<op_index>:<event_index>" (see stableEventKey). */
   id: string;
   event_name: string;
+  /** Contract event wire schema version; legacy events without a marker are v1. */
+  schema_version: 1 | 2;
   /** Primary address from topic[1] (subscriber or actor). */
   address: string;
   /** Numeric amount in stroops, if present in the event value. */
@@ -145,61 +165,17 @@ export function openDatabase(filePath: string): DatabaseSync {
 }
 
 /**
- * Create tables and apply migrations if the schema version has changed.
- * Adding new columns/tables here is the only required migration step.
+ * Bring the database up to the latest schema. The schema itself is defined
+ * only by the numbered migrations in `db/migrations/`; see db/migrate.ts.
  */
 export function initSchema(db: DatabaseSync): void {
-  // meta table — key/value pairs for indexer state.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-
-  // events table — one row per unique (tx_hash, event_name) pair.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      id         TEXT    PRIMARY KEY,
-      event_name TEXT    NOT NULL,
-      address    TEXT    NOT NULL,
-      amount     TEXT,
-      ledger     INTEGER NOT NULL,
-      timestamp  INTEGER NOT NULL,
-      tx_hash    TEXT    NOT NULL,
-      raw_data   TEXT    NOT NULL,
-      merchant     TEXT,
-      fee_amount   TEXT,
-      token        TEXT,
-      result_code  TEXT
-    )
-  `);
-
-  // Indexes for the query-events.ts access patterns.
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_events_address    ON events(address);
-    CREATE INDEX IF NOT EXISTS idx_events_event_name ON events(event_name);
-    CREATE INDEX IF NOT EXISTS idx_events_ledger     ON events(ledger);
-    CREATE INDEX IF NOT EXISTS idx_events_timestamp  ON events(timestamp)
-  `);
-
-  // Store the schema version so future migrations can guard on it.
-  const existingVersion = getMeta(db, "schema_version");
-  if (existingVersion === null) {
-    setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    logger.info("Database schema initialised", { schema_version: SCHEMA_VERSION });
-  } else if (parseInt(existingVersion, 10) < SCHEMA_VERSION) {
-    if (parseInt(existingVersion, 10) === 1) {
-      db.exec(`
-        ALTER TABLE events ADD COLUMN merchant TEXT;
-        ALTER TABLE events ADD COLUMN fee_amount TEXT;
-        ALTER TABLE events ADD COLUMN token TEXT;
-        ALTER TABLE events ADD COLUMN result_code TEXT;
-      `);
-    }
-    // Future migrations would go here, guarded by the version number.
-    setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    logger.info("Database schema migrated", { schema_version: SCHEMA_VERSION });
+  const before = readSchemaVersion(db);
+  const applied = runMigrations(db);
+  if (applied.length > 0) {
+    logger.info(before === 0 ? "Database schema initialised" : "Database schema migrated", {
+      schema_version: SCHEMA_VERSION,
+      from_version: before,
+    });
   }
 }
 
@@ -292,10 +268,15 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
   const topic = raw["topic"] as unknown[] | undefined;
   if (!Array.isArray(topic) || topic.length < 1) return null;
 
-  const event_name = topic[0]?.toString() ?? "";
+  const hasV2Marker = topic[topic.length - 1]?.toString() === "v2";
+  const schema_version: 1 | 2 = hasV2Marker ? 2 : 1;
+  // V2 appends its marker after all legacy topics, so actor/topic positions
+  // remain stable. Strip the marker before interpreting the event's topics.
+  const eventTopics = schema_version === 2 ? topic.slice(0, -1) : topic;
+  const event_name = eventTopics[0]?.toString() ?? "";
   if (!event_name) return null;
 
-  const address = topic[1]?.toString() ?? "";
+  const address = eventTopics[1]?.toString() ?? "";
   const ledger = typeof raw["ledger"] === "number" ? raw["ledger"] : 0;
   const tx_hash = raw["txHash"] as string;
   const timestamp = parseTimestamp(raw);
@@ -319,6 +300,7 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
   return {
     id,
     event_name,
+    schema_version,
     address,
     amount,
     ledger,
@@ -335,10 +317,11 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
 // ── Database Writes ───────────────────────────────────────────────────────────
 
 const INSERT_SQL = `
-  INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
-  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO events(id, event_name, schema_version, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
+  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     address   = excluded.address,
+    schema_version = excluded.schema_version,
     amount    = excluded.amount,
     ledger    = excluded.ledger,
     timestamp = excluded.timestamp,
@@ -363,6 +346,7 @@ export function upsertEvents(db: DatabaseSync, events: IndexedEvent[]): number {
       stmt.run(
         e.id,
         e.event_name,
+        e.schema_version,
         e.address,
         e.amount,
         e.ledger,
@@ -414,6 +398,26 @@ export function indexEvents(
   dedup: EventDedupCache,
   rawEvents: Record<string, unknown>[],
 ): DedupIndexResult {
+  const { parsed, duplicatesSkipped, unparsed } = parseAndDedup(dedup, rawEvents);
+  const written = upsertEvents(db, parsed);
+  return { written, duplicatesSkipped, unparsed };
+}
+
+/** Backend-agnostic variant of indexEvents for any IndexerStore (#1484). */
+export async function indexEventsInto(
+  store: IndexerStore,
+  dedup: EventDedupCache,
+  rawEvents: Record<string, unknown>[],
+): Promise<DedupIndexResult> {
+  const { parsed, duplicatesSkipped, unparsed } = parseAndDedup(dedup, rawEvents);
+  const written = await store.upsertEvents(parsed);
+  return { written, duplicatesSkipped, unparsed };
+}
+
+function parseAndDedup(
+  dedup: EventDedupCache,
+  rawEvents: Record<string, unknown>[],
+): { parsed: IndexedEvent[]; duplicatesSkipped: number; unparsed: number } {
   const parsed: IndexedEvent[] = [];
   let duplicatesSkipped = 0;
   let unparsed = 0;
@@ -435,8 +439,7 @@ export function indexEvents(
     parsed.push(event);
   }
 
-  const written = upsertEvents(db, parsed);
-  return { written, duplicatesSkipped, unparsed };
+  return { parsed, duplicatesSkipped, unparsed };
 }
 
 // ── Polling Loop ──────────────────────────────────────────────────────────────
@@ -486,11 +489,12 @@ export interface EventSource {
  * stableEventKey.
  */
 export async function pollOnce(
-  db: DatabaseSync,
+  db: DatabaseSync | IndexerStore,
   fromLedger: number,
   dedup: EventDedupCache,
   source: EventSource = server,
 ): Promise<number> {
+  const store: IndexerStore = "kind" in db ? db : new SqliteStore(db);
   logger.debug("Polling for events", { from_ledger: fromLedger });
 
   const filters: rpc.Api.EventFilter[] = [{ type: "contract", contractIds: [CONTRACT_ID] }];
@@ -507,7 +511,7 @@ export async function pollOnce(
       latestLedger = Math.max(latestLedger, response.latestLedger);
 
       const rawEvents = response.events as unknown as Record<string, unknown>[];
-      const { written, duplicatesSkipped, unparsed } = indexEvents(db, dedup, rawEvents);
+      const { written, duplicatesSkipped, unparsed } = await indexEventsInto(store, dedup, rawEvents);
 
       if (written > 0 || duplicatesSkipped > 0) {
         logger.info("Events upserted", {
@@ -553,8 +557,10 @@ async function resolveStartLedger(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
   logger.info("FlowPay Event Indexer starting", {
-    db: DB_FILE,
+    backend: isPostgresUrl(databaseUrl) ? "postgres" : "sqlite",
+    db: isPostgresUrl(databaseUrl) ? redactDatabaseUrl(databaseUrl) : DB_FILE,
     poll_interval_ms: POLL_INTERVAL_MS,
   });
   if (!CONTRACT_ID) {
@@ -563,8 +569,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const db = openDatabase(DB_FILE);
-  initSchema(db);
+  // DATABASE_URL=postgres://… selects PostgreSQL; otherwise the SQLite file.
+  const db = await openIndexerStore(DB_FILE, databaseUrl);
+  await db.init();
+
+  if (process.env.INDEXER_METRICS_ENABLED === "true") startMetricsServer();
+  // ledger_gaps lives in the SQLite database only (horizon-backfill.ts reads it).
+  const gapDb = db instanceof SqliteStore ? db.db : null;
+  if (gapDb) refreshOpenGapMetric(gapDb);
 
   const dedup = new EventDedupCache();
   logger.info("Dedup cache ready", {
@@ -573,7 +585,7 @@ async function main(): Promise<void> {
   });
 
   // Determine the ledger to resume from.
-  const savedLedger = getMeta(db, "last_ledger");
+  const savedLedger = await db.getMeta("last_ledger");
   let currentLedger: number;
   if (savedLedger !== null) {
     currentLedger = parseInt(savedLedger, 10);
@@ -581,7 +593,7 @@ async function main(): Promise<void> {
   } else {
     currentLedger = await resolveStartLedger();
     logger.info("First run — starting from ledger", { start_ledger: currentLedger });
-    setMeta(db, "last_ledger", String(currentLedger));
+    await db.setMeta("last_ledger", String(currentLedger));
   }
 
   // Graceful shutdown on SIGINT (Ctrl-C) and SIGTERM.
@@ -596,11 +608,21 @@ async function main(): Promise<void> {
   logger.info("Indexer running. Press Ctrl-C to stop.");
 
   while (!shutdown) {
+    // If we were down longer than RPC retention, record the gap and resume
+    // from the oldest ledger RPC still serves instead of failing forever.
+    const resumeFrom = await checkForGap(gapDb, currentLedger, server);
+    if (resumeFrom !== currentLedger) {
+      currentLedger = resumeFrom;
+      await db.setMeta("last_ledger", String(currentLedger));
+    }
+
     const nextLedger = await pollOnce(db, currentLedger, dedup);
 
     if (nextLedger !== currentLedger) {
       currentLedger = nextLedger;
-      setMeta(db, "last_ledger", String(currentLedger));
+      await db.setMeta("last_ledger", String(currentLedger));
+      await db.setMeta("last_processed_ledger", String(currentLedger - 1));
+      setIndexerLedgerPosition({ lastProcessed: currentLedger - 1 });
     }
 
     if (!shutdown) {
@@ -614,7 +636,7 @@ async function main(): Promise<void> {
   // events) still gets reported before the process exits.
   maybeReportDedupStats(dedup, /* forceLog */ true);
 
-  db.close();
+  await db.close();
   logger.info("Indexer stopped", { last_ledger: currentLedger });
   process.exit(0);
 }

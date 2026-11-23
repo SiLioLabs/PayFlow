@@ -1135,6 +1135,9 @@
             "topics": [
               {
                 "symbol": "migration_completed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

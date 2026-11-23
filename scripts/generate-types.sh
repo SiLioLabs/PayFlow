@@ -10,7 +10,7 @@
 #   NETWORK       — Target network: "testnet" or "mainnet" (default: testnet)
 #   RPC_URL       — Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
 #
-# Alternatively, if a WASM artifact exists at contract/target/wasm32-unknown-unknown/release/payflow.wasm
+# Alternatively, if a WASM artifact exists at target/wasm32-unknown-unknown/release/flowpay.wasm
 # the script will use --wasm instead of --contract-id.
 #
 # Output:
@@ -38,7 +38,7 @@ fi
 
 # ── Determine contract source (WASM artifact or deployed contract ID) ─────────
 
-WASM_PATH="$PROJECT_ROOT/contract/target/wasm32-unknown-unknown/release/payflow.wasm"
+WASM_PATH="$PROJECT_ROOT/target/wasm32-unknown-unknown/release/flowpay.wasm"
 
 if [[ -n "${CONTRACT_ID:-}" ]]; then
   echo "Using deployed contract: $CONTRACT_ID on $NETWORK"
@@ -49,7 +49,7 @@ elif [[ -f "$WASM_PATH" ]]; then
 else
   echo "ERROR: Neither CONTRACT_ID env var nor WASM artifact found." >&2
   echo "  Set CONTRACT_ID to your deployed contract address, or build the contract first:" >&2
-  echo "    cd contract && cargo build --release --target wasm32-unknown-unknown" >&2
+  echo "    cargo build -p flowpay --release --target wasm32-unknown-unknown" >&2
   exit 1
 fi
 

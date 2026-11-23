@@ -2,6 +2,8 @@
 
 This document is the complete reference for all error codes returned by the FlowPay smart contract (`contract/src/errors.rs`). Each error includes when it occurs, the immediate cause, numbered recovery steps, and prevention advice.
 
+Plain-language Q&A for non-operators: [`FAQ.md`](FAQ.md) (every code below is reachable from an FAQ answer via its coverage table).
+
 Use the [quick-reference table](#quick-reference-table) for lookups, then jump to the detailed recovery section for that code. Audience-specific walkthroughs are at the end:
 
 - [Common error scenarios](#common-error-scenarios)
@@ -61,6 +63,12 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 45   | `NoPendingAdmin`            | State        | `accept_admin` with no staged transfer |
 | 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
 | 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
+| 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
+| 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
+| 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
+| 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 48   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -380,7 +388,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 2. Contact protocol admin / follow incident runbook — only admin can `unpause_contract()`.
 3. Keepers should stop cycling and alert (do not spam failed txs).
 
-**Prevention:** Announce maintenance windows; use [keeper incident response](operations/keeper_runbook.md).
+**Prevention:** Announce maintenance windows; use [keeper incident response](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -457,7 +465,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 1. Re-run the propose step (`transfer_admin` / `propose_fee` / `propose_grace_period`, etc.).
 2. Complete commit/accept before proposal TTL expires.
-3. See [two-step auth](architecture/two-step-auth.md).
+3. See [two-step auth](architecture/TWO-STEP-AUTH.md).
 
 **Prevention:** Automate propose→commit within the same ops window; monitor proposal TTL.
 
@@ -809,7 +817,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 1. Re-run `transfer_admin(new_admin)` to stage a new transfer.
 2. Call `accept_admin()` from the new admin address before the proposal TTL expires (~24 hours).
 
-**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/two-step-auth.md](architecture/two-step-auth.md).
+**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/TWO-STEP-AUTH.md](architecture/TWO-STEP-AUTH.md).
 
 ---
 
@@ -827,7 +835,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 2. If you truly need a longer billing cycle (unusual), discuss protocol governance — the constant is a compile-time value in `lib.rs`.
 3. For **legacy subscriptions** created before this cap was enforced (e.g. via direct storage injection in tests), the subscription can still be cancelled via `cancel(user)`; it cannot be charged. Re-subscribe with a valid interval to restore chargeability.
 
-**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/limits.md`](limits.md).
+**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/LIMITS.md`](LIMITS.md).
 
 ---
 
@@ -847,14 +855,69 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
+### 48 — `TrialExtensionExceedsMaximum`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `extend_trial()` adds more than `MAX_TRIAL_EXTENSION` (90 days) in one call, or would push `last_charged` past `now + MAX_TOTAL_TRIAL` (365 days). |
+| **Immediate cause** | The bounded trial policy rejects the extension before writing storage or emitting `trial_extended`. |
+
+**Recovery steps**
+
+1. Retry with `additional_seconds <= MAX_TRIAL_EXTENSION`.
+2. If the total-trial cap is already reached, wait until the current trial elapses instead of chaining more extensions.
+
+---
+
+### 49 — `SkipCooldownActive`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `skip_next_charge()` is called again before one full billing interval has elapsed since the last skip. |
+| **Immediate cause** | The per-subscriber `last_skip_at` cooldown guard in `BillingState` rejects the call. |
+
+**Recovery steps**
+
+1. Wait until `last_skip_at + interval`.
+2. Retry `skip_next_charge()`; each accepted call advances the schedule by exactly one interval.
+
+---
+
+### 50 — `NoLastChargeToRefund`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `refund_last_charge()` is called when no scheduled `charge` has been recorded, or the recorded charge was already refunded. |
+| **Immediate cause** | The `BillingState` last-charge snapshot is absent; the record is cleared after a successful refund to prevent double refunds. |
+
+**Recovery steps**
+
+1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
+2. Refund only once per charge; a new charge creates a new refundable snapshot.
+### 48 — `InvalidAdminAddress`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `transfer_admin(new_admin)` targets the current admin or the contract itself. |
+| **Immediate cause** | The proposed address would make the two-step handoff a no-op or leave no usable account to call `accept_admin()`. |
+
+**Recovery steps**
+
+1. Choose a reachable account or multisig that differs from both the current admin and the FlowPay contract address.
+2. Call `transfer_admin(new_admin)` again, then have the proposed address call `accept_admin()`.
+
+**Prevention:** Verify the proposed address during the admin-rotation preflight. See [the two-step admin playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md#playbook-c--admin-rotation).
+
+---
+
 ## Error Categories
 
 | Category       | Codes                                                        | Typical owners                |
 | -------------- | ------------------------------------------------------------ | ----------------------------- |
 | Auth / access  | 8, 10, 22                                                    | User + admin                  |
 | State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47 | Client / admin tooling   |
-| Limit / timing | 6, 9, 15, 20, 25, 28, 40                                     | Keeper + user                 |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49                                 | Keeper + user                 |
 
 ---
 
@@ -914,7 +977,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Parse error code from logs / simulation.
 2. Apply the table above — never infinite-retry grace or pause errors.
-3. For DLQ / advanced failover, see [operations/keeper_runbook.md](operations/keeper_runbook.md) and [KEEPER.md](KEEPER.md).
+3. For DLQ / advanced failover, see [operations/KEEPER-RUNBOOK.md](operations/KEEPER-RUNBOOK.md) and [KEEPER.md](KEEPER.md).
 
 ---
 
@@ -929,6 +992,12 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | 11           | “You cannot refer yourself.”                                  |
 | 14           | “Label must be 64 bytes or fewer.”                            |
 | 47           | “Merchant freeze reason must be 128 bytes or fewer.”          |
+| 48           | “Trial extension exceeds the maximum allowed duration.”       |
+| 49           | “You can only skip one billing cycle per interval.”           |
+| 50           | “There is no charge available to refund.”                     |
+| 48           | “Storage migration is not finished yet; process every account first.” |
+| 49           | “Keeper tip must be at most 5000 bps (half of the protocol fee).” |
+| 48           | “Choose an admin address different from the current admin and contract.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |
@@ -961,7 +1030,7 @@ Always map numeric Soroban contract errors to this document before inventing new
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
 - Schema write-denial invariant: [`docs/DEPLOYMENT.md` — SchemaMigrationRequired](DEPLOYMENT.md#schemamigrationrequired-error-42) (`contract/src/migration.rs`)
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
+- Troubleshooting runbook: [`docs/operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)
 - Security model: [`docs/SECURITY.md`](SECURITY.md)
