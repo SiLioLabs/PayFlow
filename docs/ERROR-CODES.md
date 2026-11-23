@@ -63,6 +63,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 45   | `NoPendingAdmin`            | State        | `accept_admin` with no staged transfer |
 | 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
 | 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
+| 48   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -849,6 +850,22 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
+### 48 — `InvalidAdminAddress`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `transfer_admin(new_admin)` targets the current admin or the contract itself. |
+| **Immediate cause** | The proposed address would make the two-step handoff a no-op or leave no usable account to call `accept_admin()`. |
+
+**Recovery steps**
+
+1. Choose a reachable account or multisig that differs from both the current admin and the FlowPay contract address.
+2. Call `transfer_admin(new_admin)` again, then have the proposed address call `accept_admin()`.
+
+**Prevention:** Verify the proposed address during the admin-rotation preflight. See [the two-step admin playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md#playbook-c--admin-rotation).
+
+---
+
 ## Error Categories
 
 | Category       | Codes                                                        | Typical owners                |
@@ -931,6 +948,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | 11           | “You cannot refer yourself.”                                  |
 | 14           | “Label must be 64 bytes or fewer.”                            |
 | 47           | “Merchant freeze reason must be 128 bytes or fewer.”          |
+| 48           | “Choose an admin address different from the current admin and contract.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |

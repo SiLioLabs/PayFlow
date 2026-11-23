@@ -184,7 +184,7 @@ describe("checkForGap", () => {
     db = openDatabase(join(dir, "events.db"));
     initSchema(db);
     expect(listGaps(db, "open")).toHaveLength(1);
-    expect(getMeta(db, "schema_version")).toBe("3");
+    expect(getMeta(db, "schema_version")).toBe("4");
   });
 });
 

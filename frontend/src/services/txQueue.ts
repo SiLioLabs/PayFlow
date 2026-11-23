@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect } from "react";
+import type { TxSimulationPreview } from "../stellar";
 
 export type TxEntryStatus = "pending" | "submitted" | "confirmed" | "failed";
 export interface TxEntry {
@@ -24,6 +25,8 @@ export interface TxEntry {
   error: string | null;
   /** Optional retry callback — set by the caller when the op is retryable */
   retry: (() => Promise<void>) | null;
+  /** Simulation fee/error preview captured before the wallet prompt. */
+  preview?: TxSimulationPreview | null;
 }
 
 export type TxQueueListener = (entries: TxEntry[], open: boolean) => void;
@@ -139,7 +142,11 @@ export function getPendingEntries(): TxEntry[] {
  * Add a new entry to the queue and auto-open the panel.
  * Returns the id of the new entry.
  */
-export function enqueue(operation: string, retry: (() => Promise<void>) | null = null): number {
+export function enqueue(
+  operation: string,
+  retry: (() => Promise<void>) | null = null,
+  preview: TxSimulationPreview | null = null
+): number {
   const id = nextId++;
   const entry: TxEntry = {
     id,
@@ -149,6 +156,7 @@ export function enqueue(operation: string, retry: (() => Promise<void>) | null =
     status: "pending",
     error: null,
     retry,
+    preview,
   };
 
   // Prepend so newest is first; trim to MAX_ENTRIES.

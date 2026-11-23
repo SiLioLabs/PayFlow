@@ -13,6 +13,8 @@ export class HanaAdapter implements WalletAdapter {
   id = "hana";
   name = "Hana";
   icon = "🌸";
+  installUrl = "https://hanawallet.com";
+  installHint = "Install the Hana browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.hanaWallet;
@@ -22,6 +24,11 @@ export class HanaAdapter implements WalletAdapter {
     if (!window.hanaWallet) {
       throw new Error("Hana wallet not found. Install it from hanawallet.com");
     }
+    return window.hanaWallet.getPublicKey();
+  }
+
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.hanaWallet) return null;
     return window.hanaWallet.getPublicKey();
   }
 

@@ -4,7 +4,8 @@ This document provides the component-by-component API reference for PayFlow's Re
 
 > **Component Inventory & Status**: For the complete inventory of canonical vs. unmounted status and validation-rule ownership, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
 > **Architecture Guide**: For application architecture, data flow, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
-> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
+> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).  
+> **Component Catalogue**: Run `npm run catalogue` inside `frontend/` to browse all component states interactively. Stories live in `frontend/src/stories/`.
 
 ---
 
@@ -16,6 +17,7 @@ This document provides the component-by-component API reference for PayFlow's Re
   - [AllowanceDisplay](#allowancedisplay)
   - [AmountUnitToggle](#amountunittoggle)
   - [BalanceDisplay](#balancedisplay)
+  - [ChargeReceipt](#chargereceipt)
   - [ConfirmModal](#confirmmodal)
   - [ConnectWallet](#connectwallet)
   - [ContractPauseBanner](#contractpausebanner)
@@ -38,6 +40,7 @@ This document provides the component-by-component API reference for PayFlow's Re
   - [PayPerUseForm](#payperuseform)
   - [ReferralPanel](#referralpanel)
   - [RevenueSparkline](#revenuesparkline)
+  - [RevenueExport](#revenueexport)
   - [RpcSettings](#rpcsettings)
   - [ShortcutHelpOverlay](#shortcuthelpoverlay)
   - [Skeleton](#skeleton)
@@ -151,6 +154,26 @@ Compact XLM balance indicator designed for header bars and form headers.
 
 - **Hooks**: `useStellarBalance(address)`
 - **Edge cases**: Renders a skeleton loader only when initial load is in progress and no stale cached balance exists.
+
+---
+
+### ChargeReceipt
+
+**File:** `frontend/src/components/ChargeReceipt.tsx`
+
+Printable / PDF-friendly receipt for a single charge event. Opened from `SubscriptionHistory` via the "Receipt" button on each charge row. Renders in an accessible modal overlay by default; set `modal={false}` for inline embedding.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `event` | `ChargeEvent` | yes | The charge event to display (date, amount, txHash, merchant). |
+| `merchantName` | `string` | no | Optional display name for the merchant. When provided, the raw address is shown as a secondary row. |
+| `onClose` | `() => void` | no | Called when the user clicks "Close" or the modal backdrop. |
+| `modal` | `boolean` | no | When `true` (default) wraps the receipt in a `modal-overlay`. Pass `false` to embed inline. |
+
+- **Explorer link**: Uses `explorerTxUrl()` from `stellar.ts` — always points at the configured network (Testnet/Mainnet).
+- **Protocol fee**: When `VITE_PROTOCOL_FEE_BPS` is set, an additional fee and net-to-merchant row are shown.
+- **Print styles**: `window.print()` is triggered by the "Print / Save PDF" button. `@media print` rules in `index.css` hide all other page content and reveal the letterhead and footer that are hidden on screen.
+- **Accessibility**: `role="document"` on the receipt body; modal dialog has `role="dialog"` with `aria-modal="true"`.
 
 ---
 
@@ -364,6 +387,19 @@ Merchant portal for inspecting subscriber metrics, revenue history, batch chargi
 
 ---
 
+### RevenueExport
+
+**File:** `frontend/src/components/RevenueExport.tsx`
+
+Exports the merchant's retained daily revenue buckets as CSV, including the cumulative dashboard total and exact stroops/XLM amounts. Daily rows are loaded through paginated contract queries.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `merchantKey` | `string` | yes | Merchant's Stellar public key. |
+| `totalRevenue` | `bigint` | yes | Cumulative revenue shown in the dashboard. |
+
+---
+
 ### MerchantSubscriberTable
 
 **File:** `frontend/src/components/MerchantSubscriberTable.tsx`
@@ -415,7 +451,7 @@ Live countdown timer indicating time remaining until the next scheduled recurrin
 
 **File:** `frontend/src/components/NotificationCenter.tsx`
 
-Notification bell icon with badge count and dropdown drawer showing transient toast history.
+Notification bell icon with badge count, a dropdown drawer showing transient toast history, and persisted success/error/general-update category controls.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -722,7 +758,7 @@ Top account chrome displaying connected wallet adapter, address, balance, networ
 
 **File:** `frontend/src/components/WalletSelectModal.tsx`
 
-Modal dialog presenting installed and supported wallet providers (Freighter, xBull, Albedo).
+Modal dialog presenting installed and supported wallet providers (Freighter, xBull, Lobstr, Hana, Albedo, Rabet, WalletConnect), with install guidance for unavailable wallets.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |

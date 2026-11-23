@@ -1041,6 +1041,9 @@
             "topics": [
               {
                 "symbol": "fee_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

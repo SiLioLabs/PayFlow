@@ -112,7 +112,7 @@ Mapped from [`THREAT-MATRIX.md`](THREAT-MATRIX.md) and [`SECURITY.md`](../SECURI
 | FlowPay Soroban contract   | `contract/src/**`                             | All public entrypoints and modules   |
 | Error taxonomy             | `contract/src/errors.rs`                      | Panic codes and fail-closed behavior |
 | Build & tests              | `contract/Cargo.toml`, `contract/src/test.rs` | Unit/integration tests in-repo       |
-| Deployed WASM at audit tag | Release build `flow_pay.wasm`                 | Hash must match tag                  |
+| Deployed WASM at audit tag | Release build `flowpay.wasm`                 | Hash must match tag                  |
 
 ### Out of scope (unless explicitly added)
 

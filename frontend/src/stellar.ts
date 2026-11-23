@@ -1,12 +1,17 @@
 /**
- * stellar.ts — thin wrapper around @stellar/stellar-sdk for FlowPay
+ * stellar.ts — Re-export barrel for backward compatibility during deprecation period.
  *
- * All contract interactions go through here so the UI stays clean.
+ * @deprecated This module is deprecated and will be removed in a future release.
+ * Please import directly from the modular services:
+ * - `services/rpc` for RPC configuration, Server instances, and explorer URLs
+ * - `services/builders` for transaction construction functions
+ * - `services/reads` for contract read, query, and simulation functions
  */
 
 import {
   Contract,
   Networks,
+  Transaction,
   TransactionBuilder,
   BASE_FEE,
   nativeToScVal,
@@ -18,6 +23,7 @@ import { Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 import type { Subscription, ChargeEvent, SubscriptionValidationReport } from "./types";
 import { ScValDecoder } from "./services/scval";
 import { dedupedCall } from "./services/rpcCache";
+import { CONTRACT_ERRORS, extractContractErrorCode, friendlyError } from "./utils/errors";
 import { readCustomRpcUrl } from "./constants";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -102,6 +108,125 @@ function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
 }
 
+// ── Simulation preview ────────────────────────────────────────────────────────
+
+/**
+ * Result of simulating a mutation before the wallet is asked to sign.
+ *
+ * The RPC simulation is already performed by `buildTx`; the preview keeps the
+ * resource fee and any contract error code instead of discarding them, so the
+ * UI can show the effects of a transaction on confirm-modal open.
+ */
+export interface TxSimulationPreview {
+  /** Estimated resource fee in stroops, or null when the RPC did not return one. */
+  feeStroops: number | null;
+  /** Same fee expressed in XLM with 7 decimals, or null when unavailable. */
+  feeXlm: string | null;
+  /** Canonical contract error code (e.g. "#8") surfaced by simulation. */
+  errorCode: string | null;
+  /** Customer-facing explanation for `errorCode`. */
+  errorMessage: string | null;
+  /** True only for benign codes the contract itself will reject if reached. */
+  overrideAllowed: boolean;
+  /** True when the wallet prompt must be suppressed until explicitly overridden. */
+  blockSigning: boolean;
+  /** RPC-level failure (not a contract error); signing stays allowed. */
+  rpcError: string | null;
+}
+
+/**
+ * Codes that are safe to override: the contract re-checks these at execution
+ * time, so reaching the wallet cannot produce an unintended state change.
+ * Allowance, daily-limit and fee failures are deliberately NOT overridable.
+ */
+const SIMULATION_SAFE_OVERRIDE_CODES = new Set(["#6", "#9", "#24"]);
+
+const simulationPreviewCache = new Map<string, TxSimulationPreview>();
+const MAX_PREVIEW_CACHE_ENTRIES = 50;
+
+function emptyPreview(): TxSimulationPreview {
+  return {
+    feeStroops: null,
+    feeXlm: null,
+    errorCode: null,
+    errorMessage: null,
+    overrideAllowed: false,
+    blockSigning: false,
+    rpcError: null,
+  };
+}
+
+function cachePreview(xdrString: string, preview: TxSimulationPreview): void {
+  simulationPreviewCache.delete(xdrString);
+  simulationPreviewCache.set(xdrString, preview);
+  if (simulationPreviewCache.size > MAX_PREVIEW_CACHE_ENTRIES) {
+    const oldest = simulationPreviewCache.keys().next().value;
+    if (oldest !== undefined) simulationPreviewCache.delete(oldest);
+  }
+}
+
+/** Build a preview from an RPC simulation response without throwing. */
+function previewFromSimulation(simResult: unknown): TxSimulationPreview {
+  const preview = emptyPreview();
+  const response = simResult as {
+    error?: unknown;
+    minResourceFee?: unknown;
+    result?: { error?: unknown };
+  } | null;
+
+  if (typeof response?.minResourceFee === "string" && response.minResourceFee) {
+    const fee = Number(response.minResourceFee);
+    if (Number.isFinite(fee)) {
+      preview.feeStroops = fee;
+      preview.feeXlm = (fee / 10_000_000).toFixed(7);
+    }
+  }
+
+  const resultError = response?.result?.error;
+  const rawError =
+    typeof response?.error === "string" && response.error
+      ? response.error
+      : typeof resultError === "string" && resultError
+        ? resultError
+        : null;
+
+  if (rawError) {
+    const code = extractContractErrorCode(rawError);
+    preview.errorCode = code;
+    preview.errorMessage =
+      (code && CONTRACT_ERRORS[`error(contract, ${code})`]) || friendlyError(rawError);
+  }
+
+  if (preview.errorCode) {
+    preview.overrideAllowed = SIMULATION_SAFE_OVERRIDE_CODES.has(preview.errorCode);
+    preview.blockSigning = true;
+  }
+
+  return preview;
+}
+
+/**
+ * Simulate an already-built XDR and return fee/error metadata for display
+ * before signing. Uses the preview captured while building when available, so
+ * the common path costs no extra RPC round-trip.
+ */
+export async function simulateTransactionPreview(xdr: string): Promise<TxSimulationPreview> {
+  const cached = simulationPreviewCache.get(xdr);
+  if (cached) return cached;
+
+  try {
+    const tx = new Transaction(xdr, NETWORK_PASSPHRASE);
+    const simResult = await getServer().simulateTransaction(tx);
+    const preview = previewFromSimulation(simResult);
+    cachePreview(xdr, preview);
+    return preview;
+  } catch (e) {
+    const preview = emptyPreview();
+    preview.rpcError = e instanceof Error ? e.message : String(e);
+    return preview;
+  }
+}
+
 /** Build, simulate, and return a ready-to-sign XDR transaction */
 async function buildTx(
   sourcePublicKey: string,
@@ -145,7 +270,9 @@ async function buildTx(
   if ("error" in simResult) throw new Error(simResult.error);
 
   const assembled = assembleTransaction(tx, simResult) as unknown as { toXDR(): string };
-  return assembled.toXDR();
+  const builtXdr = assembled.toXDR();
+  cachePreview(builtXdr, previewFromSimulation(simResult));
+  return builtXdr;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -904,6 +1031,68 @@ export async function getMerchantRevenueHistory(merchant: string, days = 7): Pro
   }
 }
 
+export interface MerchantRevenueDay {
+  day: number;
+  amount: bigint;
+}
+
+const REVENUE_DAY_PAGE_SIZE = 30;
+
+/** Reads one bounded page of the merchant's daily revenue buckets. */
+export async function getMerchantRevenueDayPage(
+  merchant: string,
+  offset: number,
+  limit = REVENUE_DAY_PAGE_SIZE
+): Promise<MerchantRevenueDay[]> {
+  const s = getServer();
+  const contract = new Contract(CONTRACT_ID);
+  const account = await s.getAccount(merchant);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "get_merchant_revenue_day_page",
+        addressVal(merchant),
+        nativeToScVal(offset, { type: "u32" }),
+        nativeToScVal(Math.min(limit, REVENUE_DAY_PAGE_SIZE), { type: "u32" })
+      )
+    )
+    .setTimeout(30)
+    .build();
+
+  const result = await s.simulateTransaction(tx);
+  if ("error" in result) throw new Error((result as { error: string }).error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) throw new Error("Revenue history response was empty");
+
+  return ScValDecoder.decodeVec(retval, (entry) => {
+    if (entry.switch().name !== "scvVec") {
+      throw new Error("Revenue history returned an invalid daily entry");
+    }
+    const tuple = entry.vec();
+    if (!tuple || tuple.length !== 2) {
+      throw new Error("Revenue history returned an invalid daily entry");
+    }
+    return {
+      day: Number(ScValDecoder.decodeU64(tuple[0])),
+      amount: ScValDecoder.decodeI128(tuple[1]),
+    };
+  });
+}
+
+/** Reads every daily bucket using the contract's bounded page size. */
+export async function getMerchantRevenueDays(merchant: string): Promise<MerchantRevenueDay[]> {
+  const days: MerchantRevenueDay[] = [];
+  for (let offset = 0; ; offset += REVENUE_DAY_PAGE_SIZE) {
+    const page = await getMerchantRevenueDayPage(merchant, offset);
+    days.push(...page);
+    if (page.length < REVENUE_DAY_PAGE_SIZE) return days;
+  }
+}
+
 export function getMerchantRevenue(merchant: string): Promise<bigint> {
   return dedupedCall(`getMerchantRevenue:${merchant}`, async () => {
     try {
@@ -935,7 +1124,6 @@ export function getMerchantRevenue(merchant: string): Promise<bigint> {
     }
   });
 }
-
 
 /**
  * Fetch the XLM (or requested asset) balance for an account from Horizon.
@@ -1794,3 +1982,174 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+
+// ── Issue #4: Withdraw Merchant Revenue ───────────────────────────────────────
+
+/**
+ * Builds a transaction for a merchant to withdraw their accumulated revenue.
+ * Requires merchant authorization. Fails with ZeroBalanceAvailable (21) if
+ * the merchant has no withdrawable revenue.
+ */
+export async function buildWithdrawMerchantRevenueTx(merchantPublicKey: string): Promise<string> {
+  return buildTx(merchantPublicKey, "withdraw_merchant_revenue", [addressVal(merchantPublicKey)]);
+}
+// ── Issue #3: Merchant Freeze with Reason ─────────────────────────────────────
+
+/**
+ * Reads the freeze reason for a merchant.
+ * Returns null if the merchant is not frozen.
+ */
+export function getMerchantFreezeReason(
+  caller: string,
+  merchant: string
+): Promise<string | null> {
+  return dedupedCall(`getMerchantFreezeReason:${merchant}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_merchant_freeze_reason", [
+        addressVal(merchant),
+      ]);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeOption(retval, ScValDecoder.decodeString);
+// ── Issue #2: Contract Config ─────────────────────────────────────────────────
+
+export interface ContractConfig {
+  feeBps: number;
+  feeCollector: string | null;
+  gracePeriod: bigint;
+  minInterval: bigint;
+  maxBatchSize: number;
+  globalVolumeCap: bigint;
+  whitelistEnabled: boolean;
+  paused: boolean;
+  schemaVersion: number;
+}
+
+/**
+ * Reads the complete contract configuration in a single RPC call.
+ * Returns fee, grace period, limits, whitelist state, and pause state.
+ */
+export function getContractConfig(caller: string): Promise<ContractConfig | null> {
+  return dedupedCall(`getContractConfig:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_contract_config", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      return ScValDecoder.decodeStruct<ContractConfig>(retval, {
+        feeBps: decodeU32,
+        feeCollector: (v) => ScValDecoder.decodeOption(v, ScValDecoder.decodeAddress),
+        gracePeriod: (v) => ScValDecoder.decodeU64(v),
+        minInterval: (v) => ScValDecoder.decodeU64(v),
+        maxBatchSize: decodeU32,
+        globalVolumeCap: (v) => ScValDecoder.decodeI128(v),
+        whitelistEnabled: ScValDecoder.decodeBool,
+        paused: ScValDecoder.decodeBool,
+        schemaVersion: decodeU32,
+      });
+// ── Issue #1: Pending Upgrade ─────────────────────────────────────────────────
+
+export interface PendingUpgrade {
+  wasmHash: string;
+  expiry: number | null;
+}
+
+/**
+ * Reads the pending upgrade WASM hash from contract temporary storage.
+ * Returns null if no upgrade is queued or the proposal has expired.
+ */
+export function getPendingUpgrade(caller: string): Promise<PendingUpgrade | null> {
+  return dedupedCall(`getPendingUpgrade:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_pending_upgrade", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      // Contract returns Option<BytesN<32>>
+      const hashBytes = ScValDecoder.decodeOption(retval, (v: xdr.ScVal) => {
+        if (v.switch().name === "scvBytes") {
+          return Buffer.from(v.bytes()).toString("hex");
+        }
+        return null;
+      });
+
+      if (!hashBytes) return null;
+
+      return {
+        wasmHash: hashBytes,
+        expiry: null, // TTL info not directly available from contract read
+      };
+    } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Builds a transaction to freeze a merchant with an optional reason.
+ * Admin-only operation. Reason must be 128 bytes or fewer.
+ */
+export async function buildFreezeMerchantTx(
+  adminPublicKey: string,
+  merchant: string,
+  reason: string | null
+): Promise<string> {
+  // Validate reason length client-side (contract enforces 128 bytes)
+  if (reason && new TextEncoder().encode(reason).length > 128) {
+    throw new Error("Freeze reason must be 128 bytes or fewer (error code 47)");
+  }
+
+  const reasonVal = reason
+    ? { tag: "Some", val: nativeToScVal(reason, { type: "string" }) }
+    : { tag: "None" };
+
+  return buildTx(adminPublicKey, "freeze_merchant", [
+    addressVal(merchant),
+    nativeToScVal(reasonVal, { type: "option" }),
+  ]);
+}
+
+/**
+ * Builds a transaction to unfreeze a merchant.
+ * Admin-only operation.
+ */
+export async function buildUnfreezeMerchantTx(
+  adminPublicKey: string,
+  merchant: string
+): Promise<string> {
+  return buildTx(adminPublicKey, "unfreeze_merchant", [addressVal(merchant)]);
+}
+ * Builds a transaction to propose a new WASM hash for upgrade.
+ * Admin-only operation.
+ */
+export async function buildProposeUpgradeTx(
+  adminPublicKey: string,
+  wasmHash: string
+): Promise<string> {
+  // Convert hex string to BytesN<32>
+  const hashBuffer = Buffer.from(wasmHash, "hex");
+  if (hashBuffer.length !== 32) {
+    throw new Error("WASM hash must be exactly 32 bytes (64 hex characters)");
+  }
+
+  return buildTx(adminPublicKey, "propose_upgrade", [
+    nativeToScVal(hashBuffer, { type: "bytes" }),
+  ]);
+}
+
+/**
+ * Builds a transaction to cancel a pending upgrade proposal.
+ * Admin-only operation.
+ */
+export async function buildCancelPendingUpgradeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "cancel_pending_upgrade", []);
+}
+
+/**
+ * Builds a transaction to commit a pending upgrade.
+ * Admin-only operation. Requires typing the hash prefix to confirm.
+ */
+export async function buildCommitUpgradeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "commit_upgrade", []);
+}
+export * from "./services/rpc";
+export * from "./services/builders";
+export * from "./services/reads";

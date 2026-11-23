@@ -14,6 +14,8 @@ export class LobstrAdapter implements WalletAdapter {
   id = "lobstr";
   name = "Lobstr";
   icon = "🦞";
+  installUrl = "https://lobstr.co";
+  installHint = "Install the Lobstr browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.lobstr;
@@ -23,6 +25,11 @@ export class LobstrAdapter implements WalletAdapter {
     if (!window.lobstr) {
       throw new Error("Lobstr wallet not found. Install it from lobstr.co");
     }
+    return window.lobstr.getPublicKey();
+  }
+
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.lobstr || !window.lobstr.isConnected()) return null;
     return window.lobstr.getPublicKey();
   }
 

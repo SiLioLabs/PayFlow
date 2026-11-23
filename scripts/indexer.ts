@@ -27,6 +27,8 @@
  *     paid_to (Option<Address> fee destination), preserved in raw_data.
  *   - subscribed, cancelled, paused, resumed: Subscription lifecycle events
  *   - trial_extended, grace_period_*: Policy management events
+ *   - Current contract events append `v2` after their legacy topics. Events
+ *     without a marker are v1; the parsed version is stored in schema_version.
  *
  * Usage:
  *   CONTRACT_ID=<id> tsx indexer.ts
@@ -126,6 +128,8 @@ interface IndexedEvent {
   /** Stable dedup key: "<tx_hash>:<op_index>:<event_index>" (see stableEventKey). */
   id: string;
   event_name: string;
+  /** Contract event wire schema version; legacy events without a marker are v1. */
+  schema_version: 1 | 2;
   /** Primary address from topic[1] (subscriber or actor). */
   address: string;
   /** Numeric amount in stroops, if present in the event value. */
@@ -261,10 +265,15 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
   const topic = raw["topic"] as unknown[] | undefined;
   if (!Array.isArray(topic) || topic.length < 1) return null;
 
-  const event_name = topic[0]?.toString() ?? "";
+  const hasV2Marker = topic[topic.length - 1]?.toString() === "v2";
+  const schema_version: 1 | 2 = hasV2Marker ? 2 : 1;
+  // V2 appends its marker after all legacy topics, so actor/topic positions
+  // remain stable. Strip the marker before interpreting the event's topics.
+  const eventTopics = schema_version === 2 ? topic.slice(0, -1) : topic;
+  const event_name = eventTopics[0]?.toString() ?? "";
   if (!event_name) return null;
 
-  const address = topic[1]?.toString() ?? "";
+  const address = eventTopics[1]?.toString() ?? "";
   const ledger = typeof raw["ledger"] === "number" ? raw["ledger"] : 0;
   const tx_hash = raw["txHash"] as string;
   const timestamp = parseTimestamp(raw);
@@ -288,6 +297,7 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
   return {
     id,
     event_name,
+    schema_version,
     address,
     amount,
     ledger,
@@ -304,10 +314,11 @@ export function parseEvent(raw: Record<string, unknown>): IndexedEvent | null {
 // ── Database Writes ───────────────────────────────────────────────────────────
 
 const INSERT_SQL = `
-  INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
-  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO events(id, event_name, schema_version, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
+  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     address   = excluded.address,
+    schema_version = excluded.schema_version,
     amount    = excluded.amount,
     ledger    = excluded.ledger,
     timestamp = excluded.timestamp,
@@ -332,6 +343,7 @@ export function upsertEvents(db: DatabaseSync, events: IndexedEvent[]): number {
       stmt.run(
         e.id,
         e.event_name,
+        e.schema_version,
         e.address,
         e.amount,
         e.ledger,

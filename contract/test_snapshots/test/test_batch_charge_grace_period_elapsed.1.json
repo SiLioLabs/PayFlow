@@ -1564,6 +1564,9 @@
             "topics": [
               {
                 "symbol": "grace_period_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1629,6 +1632,9 @@
             "topics": [
               {
                 "symbol": "grace_period_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1779,6 +1785,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1886,6 +1895,9 @@
             "topics": [
               {
                 "symbol": "batch_charge_skips"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

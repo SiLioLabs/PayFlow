@@ -1590,6 +1590,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1962,6 +1965,9 @@
             "topics": [
               {
                 "symbol": "batch_charge_skips"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
