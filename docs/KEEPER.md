@@ -32,6 +32,7 @@ the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 - [Dead-letter queue](#dead-letter-queue)
 - [Metrics and monitoring](#metrics-and-monitoring)
 - [Running as a service](#running-as-a-service)
+- [High Availability (HA) deployment](#high-availability-ha-deployment)
 - [Scheduling and the due window](#scheduling-and-the-due-window)
 - [Keeper tip (`charge_with_tip`)](#keeper-tip-charge_with_tip)
 - [Recommended cadence](#recommended-cadence)
@@ -379,6 +380,224 @@ CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... docker compose up -d
 pm2 start "npx tsx keeper.ts" --name payflow-keeper
 pm2 save
 ```
+
+## High Availability (HA) deployment
+
+Running multiple keeper instances prevents downtime and balances load. The keeper supports two HA modes:
+
+### 1. Deterministic Sharding (Recommended)
+
+Multiple keepers run simultaneously, each processing a consistent subset of addresses. No centralized coordination needed.
+
+**How it works:**
+- Each address is hashed to determine which keeper processes it
+- Same address always routes to the same keeper (consistent hashing)
+- Zero overlap between keepers - no wasted fees
+
+**Configuration:**
+
+```bash
+# Keeper instance 0 of 3
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=0
+export CONTRACT_ID=C...
+export KEEPER_PUBLIC_KEY=G...
+export KEEPER_SECRET=S...
+npx tsx keeper.ts
+
+# Keeper instance 1 of 3 (different machine/pod)
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=1
+# ... rest same
+
+# Keeper instance 2 of 3
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=2
+# ... rest same
+```
+
+**Kubernetes example:**
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: payflow-keeper
+spec:
+  replicas: 3
+  serviceName: keeper
+  template:
+    spec:
+      containers:
+      - name: keeper
+        image: payflow-keeper:latest
+        env:
+        - name: KEEPER_TOTAL_INSTANCES
+          value: "3"
+        - name: KEEPER_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+        - name: CONTRACT_ID
+          valueFrom:
+            secretKeyRef:
+              name: keeper-config
+              key: contract-id
+        # ... other env vars
+```
+
+**systemd example (3 services):**
+
+```ini
+# /etc/systemd/system/payflow-keeper@.service
+[Unit]
+Description=FlowPay Keeper Instance %i
+After=network-online.target
+
+[Service]
+Type=simple
+User=flowpay
+WorkingDirectory=/opt/payflow/scripts
+Environment=KEEPER_TOTAL_INSTANCES=3
+Environment=KEEPER_INSTANCE_ID=%i
+EnvironmentFile=/etc/payflow/keeper.env
+ExecStart=/usr/bin/npx tsx keeper.ts
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Start 3 keeper instances
+sudo systemctl enable --now payflow-keeper@0
+sudo systemctl enable --now payflow-keeper@1
+sudo systemctl enable --now payflow-keeper@2
+```
+
+###2. Exclusive Locking (Failover Mode)
+
+Only one keeper runs at a time. Others are on standby and take over if the primary fails.
+
+**Configuration:**
+
+```bash
+export KEEPER_EXCLUSIVE_LOCK=true
+export KEEPER_LOCK_DIR=/shared/keeper-locks  # Must be shared storage (NFS/EFS)
+npx tsx keeper.ts
+```
+
+**When to use:**
+- Simple failover without sharding complexity
+- Shared filesystem available (NFS, EFS, GlusterFS)
+- Lower total throughput acceptable
+
+**Lock file location:**
+- Default: `/tmp/payflow-keeper-locks/keeper-master.lock`
+- Production: Use `KEEPER_LOCK_DIR` pointing to shared storage
+- Lock TTL: 5 minutes (expired locks are auto-released)
+
+### Coordination Metrics
+
+Track keeper coordination health:
+
+```bash
+curl -s localhost:9090/metrics | grep keeper_coordination
+```
+
+**Key metrics:**
+- `keeper_coordination_mode{mode="sharded"}` - Current coordination mode
+- `keeper_shard_id` - This keeper's shard ID
+- `keeper_total_shards` - Total number of shards
+- `keeper_overlap_skipped_total` - Addresses skipped (belonged to other keepers)
+- `keeper_lock_acquired` - Whether exclusive lock is held (0/1)
+
+**Health checks:**
+
+Each keeper writes a heartbeat file to `$KEEPER_LOCK_DIR/keeper-{id}-heartbeat.json`:
+
+```json
+{
+  "keeperId": 0,
+  "pid": 12345,
+  "hostname": "keeper-0",
+  "lastBatchIndex": 42,
+  "lastBatchSize": 50,
+  "timestamp": "2026-11-23T10:30:00.000Z",
+  "overlapSkipped": 127
+}
+```
+
+Monitor these files to detect:
+- Keeper crashes (stale timestamp)
+- Misconfiguration (all keepers skipping same addresses)
+- Unbalanced sharding (one keeper processing everything)
+
+### Troubleshooting HA Deployments
+
+**All keepers report "nothing to process":**
+- Check `KEEPER_INSTANCE_ID` is unique per keeper (0, 1, 2...)
+- Verify `KEEPER_TOTAL_INSTANCES` matches actual number of keepers
+- Confirm addresses exist in the contract
+
+**Duplicate charges (IntervalNotElapsed errors):**
+- Multiple keepers have same `KEEPER_INSTANCE_ID`
+- Sharding is not enabled (`KEEPER_TOTAL_INSTANCES=1` on all instances)
+- Check systemd template `%i` expansion or K8s pod index
+
+**One keeper processes everything:**
+- Other keepers have wrong `KEEPER_TOTAL_INSTANCES` value
+- Address hashing is deterministic - some skew is normal
+- Check heartbeat files to see which keepers are active
+
+**Exclusive lock contention:**
+- `KEEPER_LOCK_DIR` not on shared storage - each keeper sees own lock
+- Filesystem permissions prevent lock file creation
+- TTL too short - locks expire before cycle completes (raise `KEEPER_LOCK_TTL_MS`)
+
+**Metrics show high `overlap_skipped`:**
+- Expected in sharded mode - addresses route to their designated keeper
+- Not an error unless value stops incrementing (keeper is stuck)
+
+### Production Coordinator Implementations
+
+The file-based coordinator (`FileCoordinator`) is production-ready for:
+- Single-node multi-process deployments
+- Multi-node with shared NFS/EFS storage
+- Kubernetes StatefulSets with shared PVC
+
+For larger deployments, implement `ICoordinator` with:
+
+**Redis:**
+```typescript
+// Pseudo-code - implement in scripts/lib/redis-coordinator.ts
+class RedisCoordinator implements ICoordinator {
+  async acquireLock(): Promise<boolean> {
+    // SET key value NX EX 300
+    return await this.redis.set('keeper:lock', this.keeperId, 'NX', 'EX', 300);
+  }
+  // ... implement other methods
+}
+```
+
+**PostgreSQL:**
+```typescript
+class PostgresCoordinator implements ICoordinator {
+  async acquireLock(): Promise<boolean> {
+    // SELECT pg_try_advisory_lock(123456789)
+    const result = await this.pool.query(
+      'SELECT pg_try_advisory_lock($1)', [this.lockId]
+    );
+    return result.rows[0].pg_try_advisory_lock;
+  }
+}
+```
+
+**Consul/etcd:**
+Use native session/lease mechanisms for distributed locking.
+
+See `scripts/lib/keeper-coordinator.ts` for the `ICoordinator` interface.
 
 ## Scheduling and the due window
 
