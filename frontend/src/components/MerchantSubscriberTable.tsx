@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MerchantSubscriber } from "../stellar";
-import { formatAddress, formatXlm } from "../utils/format";
+import { formatAddress, formatXlm, formatDateTimeShort } from "../utils/format";
 import { debounce } from "../utils/debounce";
 import { SECONDS_PER_DAY, SECONDS_PER_WEEK, SECONDS_PER_MONTH } from "../constants";
 import CopyButton from "./CopyButton";
@@ -41,10 +41,7 @@ export interface MerchantSubscriberTableProps {
 
 function formatDate(unixSec: number): string {
   if (!unixSec) return "—";
-  return new Date(unixSec * 1000).toLocaleString(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  return formatDateTimeShort(new Date(unixSec * 1000));
 }
 
 /**

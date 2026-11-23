@@ -8,7 +8,7 @@ import {
   getMerchantRevenue,
   getMerchantRevenueHistory,
 } from "../stellar";
-import { formatAddress } from "../utils/format";
+import { formatAddress, formatDateTime } from "../utils/format";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { usePolling } from "../hooks/usePolling";
 import { getCacheUpdatedAt } from "../services/rpcCache";
@@ -34,8 +34,7 @@ interface Props {
 }
 
 function formatNextCharge(nextChargeAt: number): string {
-  const date = new Date(nextChargeAt * 1000);
-  return date.toLocaleString();
+  return formatDateTime(new Date(nextChargeAt * 1000));
 }
 
 export default function MerchantDashboard({

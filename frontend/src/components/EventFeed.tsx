@@ -11,6 +11,7 @@ import React, { useCallback } from "react";
 import { useContractEvents, contractEventKey } from "../hooks/useContractEvents";
 import type { ContractEvent } from "../stellar";
 import { explorerTxUrl } from "../stellar";
+import { formatDateTime } from "../utils/format";
 
 // Human-readable labels for known event names.
 const EVENT_LABELS: Record<string, string> = {
@@ -55,7 +56,7 @@ function eventBadgeClass(eventName: string): string {
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleString();
+    return formatDateTime(new Date(iso));
   } catch {
     return iso;
   }

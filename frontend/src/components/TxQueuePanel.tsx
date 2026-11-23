@@ -16,6 +16,7 @@ import {
 } from "../services/txQueue";
 import { explorerTxUrl } from "../stellar";
 import CopyButton from "./CopyButton";
+import { formatTimeWithSeconds } from "../utils/format";
 
 // ── Status helpers ─────────────────────────────────────────────────────────────
 
@@ -35,11 +36,7 @@ const STATUS_CLASS: Record<TxEntry["status"], string> = {
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    return formatTimeWithSeconds(new Date(iso));
   } catch {
     return iso;
   }

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import type { Notification, ToastVariant } from "../hooks/useToast";
 import { explorerTxUrl } from "../stellar";
+import { formatTime } from "../utils/format";
 
 interface Props {
   notifications: Notification[];
@@ -36,13 +37,6 @@ function variantIcon(variant: ToastVariant): string {
   if (variant === "success") return "✅";
   if (variant === "error") return "❌";
   return "ℹ️";
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 // ── Long-message expand ───────────────────────────────────────────────────────
