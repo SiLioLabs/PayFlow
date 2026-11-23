@@ -140,11 +140,15 @@ export function refreshOpenGapMetric(db: DatabaseSync): void {
  * it, log it, bump metrics and return the ledger the indexer should resume from
  * (the RPC's oldest ledger). Otherwise returns `nextLedger` unchanged.
  *
+ * Pass `db = null` when the indexer runs on a backend without the SQLite
+ * `ledger_gaps` table (PostgreSQL, #1484): the gap is still detected, logged,
+ * counted and skipped, but not persisted for horizon-backfill.ts.
+ *
  * Never throws: if the retention window cannot be read the indexer carries on
  * as before (pollOnce will surface any RPC error).
  */
 export async function checkForGap(
-  db: DatabaseSync,
+  db: DatabaseSync | null,
   nextLedger: number,
   source: LedgerRangeSource,
 ): Promise<number> {
@@ -163,11 +167,12 @@ export async function checkForGap(
   const gap = detectGap(nextLedger, range.oldestLedger);
   if (!gap) return nextLedger;
 
-  const { gap: row, created } = recordGap(db, gap.start, gap.end);
+  const recorded = db ? recordGap(db, gap.start, gap.end) : null;
+  const created = recorded?.created ?? true;
   const missed = gap.end - gap.start + 1;
   if (created) recordLedgerGap(missed);
   logger.error("Ledger gap detected: events in these ledgers are no longer available from RPC", {
-    gap_id: row.id,
+    gap_id: recorded?.gap.id ?? null,
     start_ledger: gap.start,
     end_ledger: gap.end,
     missed_ledgers: missed,
