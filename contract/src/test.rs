@@ -5671,6 +5671,7 @@ fn test_migrate_sets_schema_version() {
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
+    client.finalize_migration(&0u64);
 
     assert_eq!(client.get_schema_version(), 3);
 }
@@ -5686,6 +5687,8 @@ fn test_migrate_is_idempotent() {
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
     client.migrate(&empty_users); // second call should be a no-op
+    client.finalize_migration(&0u64);
+    client.finalize_migration(&0u64); // already complete: no-op
 
     assert_eq!(client.get_schema_version(), 3);
 }
@@ -5733,6 +5736,8 @@ fn test_migrate_emits_completed_event_with_version_and_count() {
     let mut users = soroban_sdk::Vec::new(&env);
     users.push_back(user.clone());
     client.migrate(&users);
+    // The completion event is emitted by `finalize_migration`, not by `migrate`.
+    client.finalize_migration(&1u64);
 
     let events = env.events().all();
     let (_, topics, data) = events.get(events.len() - 1).unwrap();
@@ -10923,6 +10928,7 @@ fn test_get_schema_version_returns_zero_and_updates() {
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
+    client.finalize_migration(&0u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -13243,11 +13249,15 @@ fn test_migration_v2_to_v3_populates_referrer() {
 
     client.migrate(&users);
 
-    assert_eq!(client.get_schema_version(), 3);
+    // The batch fills in the referrer but does not complete the upgrade on its own.
+    assert_eq!(client.get_schema_version(), 2);
     let sub = client.get_subscription(&user).unwrap();
     assert_eq!(sub.referrer, Some(referrer));
 
-    client.migrate(&users);
+    client.migrate(&users); // re-sent batch: skipped, nothing double-counted
+    assert_eq!(client.get_schema_version(), 2);
+
+    client.finalize_migration(&1u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -14331,6 +14341,7 @@ fn test_migrate_admin_success() {
 
     let users = soroban_sdk::Vec::new(&env);
     client.migrate(&users);
+    client.finalize_migration(&0u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -15847,9 +15858,6 @@ fn test_batch_charge_survives_extreme_grace_period() {
     // one interval. (Interval 1 would now trip `ContractError::IntervalTooShort`
     // because `subscribe` enforces the configurable min-interval floor.)
     let interval: u64 = 3600;
-    // Subscribe with a normal interval so the charge is due at timestamp 1.
-    let interval: u64 = 3600;
-    let interval: u64 = 1;
     client.subscribe(
         &user,
         &merchant,
@@ -15867,14 +15875,10 @@ fn test_batch_charge_survives_extreme_grace_period() {
 
     // batch_charge must return a per-user result vector and not trap, even
     // with a near-u64::MAX grace period configured.
-    // batch_charge must return a per-user result vector, not trap.
     let mut users = soroban_sdk::Vec::new(&env);
     users.push_back(user.clone());
     let results = client.batch_charge(&users);
 
-    assert_eq!(results.len(), 1);
-    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Charged);
-}
     // Exactly one result, and it must be a successful charge (not an error).
     assert_eq!(results.len(), 1);
     assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Charged);
@@ -15906,15 +15910,12 @@ fn test_batch_charge_survives_extreme_grace_period() {
 fn test_legacy_paused_subscription_remains_listed() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    let interval: u64 = 86400;
-
     // Subscribe so the user is in the subscriber index.
     let interval: u64 = 3600;
     client.subscribe(
         &user,
         &merchant,
         &1_0000000,
-        &86400,
         &interval,
         &token_addr,
         &None,
@@ -15924,21 +15925,11 @@ fn test_legacy_paused_subscription_remains_listed() {
     // Sanity: user is in the active page before we mutate the row.
     let page_before = client.get_active_subscriber_page(&0u64, &10u32);
     assert!(page_before.contains(&user), "user must be listed before mutation");
-    assert!(
-        page_before.contains(&user),
-        "user must be listed before mutation"
-    );
 
-    // Simulate a legacy "paused && !active" row by directly writing storage.
-    // This reproduces the state that pre-#1009 `pause_until` could write.
-    // We do NOT call cancel() — the cancellation counter path is intentionally
-    // bypassed so we can isolate the flag semantics.
-    env.as_contract(&contract_id, || {
-        let key = crate::DataKey::Subscription(user.clone());
-        let mut sub: crate::Subscription = env.storage().persistent().get(&key).unwrap();
-        // Legacy state: paused=true, active=false (NOT a cancelled row).
     // Simulate a legacy `paused && !active` row by writing the subscription
-    // directly into storage with active=false, paused=true.
+    // directly into storage with active=false, paused=true. This reproduces the
+    // state that pre-#1009 `pause_until` could write. We do NOT call cancel(),
+    // so the cancellation counter path is bypassed and only the flags differ.
     env.as_contract(&contract_id, || {
         let key = DataKey::Subscription(user.clone());
         let mut sub: Subscription = env.storage().persistent().get(&key).unwrap();
@@ -15950,7 +15941,6 @@ fn test_legacy_paused_subscription_remains_listed() {
     // Confirm the raw stored state.
     let raw = client.get_subscription(&user).unwrap();
     assert!(!raw.active, "raw active must be false (legacy state)");
-    assert!(raw.paused,  "raw paused must be true (legacy state)");
     assert!(raw.paused, "raw paused must be true (legacy state)");
 
     // Design invariant: get_active_subscriber_page uses sub.active, so a
@@ -15985,38 +15975,20 @@ fn test_cancelled_subscription_not_listed() {
         &user,
         &merchant,
         &1_0000000,
-        &86400,
+        &3600u64,
         &token_addr,
         &None,
         &None,
     );
+    assert!(client.get_active_subscriber_page(&0u64, &10u32).contains(&user));
 
-    // Cancel through the normal path — active=false, paused=false.
+    // Cancel through the normal path: active=false, paused=false.
     client.cancel(&user);
 
-    let raw = client.get_subscription(&user).unwrap();
-    assert!(!raw.active, "active must be false after cancel");
-    assert!(!raw.paused, "paused must be false after cancel");
-
-    // is_cancelled returns true for !active && !paused.
-    // The active page must exclude this row.
     let page = client.get_active_subscriber_page(&0u64, &10u32);
     assert!(
         !page.contains(&user),
         "cancelled subscription must not appear in get_active_subscriber_page"
-    // The active-subscriber page must NOT include this legacy row
-    // (sub.active == false).
-    let active_page = client.get_active_subscriber_page(&0u64, &10u32);
-    assert!(
-        !active_page.contains(&user),
-        "legacy paused && !active row must not appear in get_active_subscriber_page"
-    );
-
-    // The raw append-only page still returns the slot (tombstone not set).
-    let raw_page = client.get_subscriber_page(&0u64, &10u32);
-    assert!(
-        raw_page.contains(&user),
-        "legacy paused && !active row must still appear in get_subscriber_page (raw index)"
     );
 }
 
@@ -16145,85 +16117,17 @@ fn test_subscription_health_within_grace_with_grace_period() {
     );
     client.propose_grace_period(&grace);
     client.commit_grace_period();
-    // Sanity: user is in the active page before we mutate the row.
-    let page_before = client.get_active_subscriber_page(&0u64, &10u32);
-    assert!(page_before.contains(&user), "user must be listed before mutation");
 
-    // Simulate a legacy "paused && !active" row by directly writing storage.
-    // This reproduces the state that pre-#1009 `pause_until` could write.
-    // We do NOT call cancel() — the cancellation counter path is intentionally
-    // bypassed so we can isolate the flag semantics.
-    env.as_contract(&contract_id, || {
-        let key = crate::DataKey::Subscription(user.clone());
-        let mut sub: crate::Subscription = env.storage().persistent().get(&key).unwrap();
-        // Legacy state: paused=true, active=false (NOT a cancelled row).
-        sub.active = false;
-        sub.paused = true;
-        env.storage().persistent().set(&key, &sub);
+    // Move just past the interval: the charge is due, and still inside the grace window.
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
     });
-
-    // Confirm the raw stored state.
-    let raw = client.get_subscription(&user).unwrap();
-    assert!(!raw.active, "raw active must be false (legacy state)");
-    assert!(raw.paused,  "raw paused must be true (legacy state)");
-
-    // Design invariant: get_active_subscriber_page uses sub.active, so a
-    // legacy `paused && !active` row must NOT appear in the active page.
-    // This matches the documented behavior in storage.rs and locks the
-    // same invariant as scenario_legacy_paused_inactive_row_reader_semantics.
-    let page_after = client.get_active_subscriber_page(&0u64, &10u32);
-    assert!(
-        !page_after.contains(&user),
-        "legacy paused&&!active row must remain EXCLUDED from get_active_subscriber_page \
-         (sub.active is the intentional gate; see storage.rs design notes)"
-    );
-
-    // The raw append-only page still enumerates the slot (it does not filter
-    // by active state).
-    let raw_page = client.get_subscriber_page(&0u64, &10u32);
-    assert!(
-        raw_page.contains(&user),
-        "legacy row must still appear in the raw get_subscriber_page"
-    );
-}
-
-/// Complementary: a truly cancelled row (active=false, paused=false) must
-/// NOT appear in get_active_subscriber_page. This confirms that the active
-/// page excludes both cancelled and legacy paused rows.
-#[test]
-fn test_cancelled_subscription_not_listed() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    install_admin(&env, &contract_id);
-
-    let grace: u64 = 3600;
-    let interval: u64 = 3600;
-    client.propose_grace_period(&grace);
-    client.commit_grace_period();
-
-    client.subscribe(
-        &user,
-        &merchant,
-        &1_0000000,
-        &interval,
-        &86400u64,
-        &token_addr,
-        &None,
-        &None,
-    );
-
-    // Cancel through the normal path — active=false, paused=false.
-    client.cancel(&user);
 
     let health = client.get_subscription_health(&user);
     assert!(health.charge_due, "charge must be due inside grace window");
     assert!(
         health.within_grace,
         "within_grace must be true inside grace window"
-    let page = client.get_active_subscriber_page(&0u64, &10u32);
-    assert!(
-        !page.contains(&user),
-        "cancelled subscription must not appear in get_active_subscriber_page"
     );
 }
 
@@ -16304,31 +16208,6 @@ fn test_clear_metadata_emits_exactly_one_publisher() {
         }
     }
     assert_eq!(count, 1, "exactly one metadata_cleared event must be emitted");
-}
-
-/// Complementary: a truly cancelled row (active=false, paused=false) must
-/// NOT appear in get_active_subscriber_page. This confirms that the active
-/// page excludes both cancelled and legacy paused rows.
-#[test]
-fn test_cancelled_subscription_not_listed() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.subscribe(
-        &user,
-        &merchant,
-        &1_0000000,
-        &86400,
-        &token_addr,
-        &None,
-        &None,
-    );
-
-    // Cancel through the normal path — active=false, paused=false.
-    assert_eq!(
-        count, 1,
-        "exactly one metadata_cleared event must be emitted"
-    );
 }
 
 // ─────────────────────────────────────────────────────────────

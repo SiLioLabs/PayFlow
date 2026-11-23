@@ -27,7 +27,11 @@
  *                         get_max_batch_size) and to the hard ceiling of 200,
  *                         so a misconfigured value can never trigger the
  *                         contract's BatchTooLarge panic.
- *   INTERVAL_SECONDS      Optional. Loop interval (default: 3600).
+ *   INTERVAL_SECONDS      Optional. Loop interval, and the longest sleep between
+ *                         cycles (default: 3600). The loop wakes earlier when a
+ *                         subscription comes due sooner (get_charges_due_between).
+ *   SCHEDULE_SCAN_MAX_PAGES Optional. Index pages scanned per scheduling decision
+ *                         (default: 20, i.e. up to 1000 subscriber slots).
  *   REPORT_DIR            Optional. Directory for dry-run reports and live-cycle pointer
  *                         (default: <script_dir>/data/benchmarks).
  *   KEEPER_USE_LEGACY_PAGING  Optional. Set to "true" to use legacy sequential
@@ -531,6 +535,84 @@ async function getSubscriberPage(offset: number, limit: number): Promise<string[
   if (!Array.isArray(vec)) return [];
 
   return vec.map((item: xdr.ScVal) => Address.fromScVal(item).toString());
+}
+
+/** Page size for `get_charges_due_between`. Matches the contract's cap (50). */
+const WINDOW_PAGE_LIMIT = 50;
+
+/** Index pages scanned per scheduling decision, so a huge index cannot stall the loop. */
+const SCHEDULE_SCAN_MAX_PAGES = Math.max(Number(process.env.SCHEDULE_SCAN_MAX_PAGES) || 20, 1);
+
+/**
+ * One bounded page of `get_charges_due_between(from, to, offset, limit)`.
+ * Returns the subscribers whose next charge falls in `[from, to]` (unix seconds),
+ * each with that due timestamp.
+ */
+async function getChargesDueBetween(
+  from: number,
+  to: number,
+  offset: number,
+  limit: number,
+): Promise<Array<{ user: string; dueAt: number }>> {
+  const contract = new Contract(CONTRACT_ID);
+  const account = await server.getAccount(KEEPER_PUBLIC_KEY);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "get_charges_due_between",
+        nativeToScVal(from, { type: "u64" }),
+        nativeToScVal(to, { type: "u64" }),
+        nativeToScVal(offset, { type: "u64" }),
+        nativeToScVal(limit, { type: "u32" }),
+      ),
+    )
+    .setTimeout(30)
+    .build();
+
+  const result = await server.simulateTransaction(tx);
+  if ("error" in result) throw new Error(result.error);
+
+  const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+  if (!retval) return [];
+
+  const entries = retval.vec() ?? [];
+  return entries.map((entry: xdr.ScVal) => {
+    // Each entry is a `(Address, u64)` tuple, encoded as a two-element vec.
+    const parts = entry.vec();
+    if (!parts || parts.length !== 2) {
+      throw new Error("Unexpected get_charges_due_between entry shape");
+    }
+    return {
+      user: Address.fromScVal(parts[0]).toString(),
+      dueAt: Number(parts[1].u64()),
+    };
+  });
+}
+
+/**
+ * Seconds until the earliest subscription due inside the next `INTERVAL_SECONDS`
+ * window, or `null` when nothing is due there (or the page budget ran out first).
+ *
+ * The loop uses this only to wake up sooner than the fixed interval. The interval
+ * remains the ceiling, so the keeper still runs at least every `INTERVAL_SECONDS`.
+ */
+async function secondsUntilNextDue(nowSec: number): Promise<number | null> {
+  const windowEnd = nowSec + INTERVAL_SECONDS;
+  const slots = await getSubscriberCount();
+  let earliest: number | null = null;
+  let offset = 0;
+  for (let page = 0; page < SCHEDULE_SCAN_MAX_PAGES && offset < slots; page++) {
+    const due = await getChargesDueBetween(nowSec, windowEnd, offset, WINDOW_PAGE_LIMIT);
+    for (const { dueAt } of due) {
+      if (earliest === null || dueAt < earliest) earliest = dueAt;
+    }
+    offset += WINDOW_PAGE_LIMIT;
+  }
+  return earliest === null ? null : Math.max(earliest - nowSec, 1);
 }
 
 async function getSubscriptionAmount(user: string): Promise<bigint | null> {
@@ -1326,15 +1408,28 @@ async function main(): Promise<void> {
   while (!shutdown) {
     const report = await runCycle();
     incrementCycles();
-    const nextRun = new Date(Date.now() + INTERVAL_SECONDS * 1000);
+    // Wake for the next subscription due inside the window, if that is sooner than
+    // the fixed interval. Any failure falls back to the plain interval.
+    let delaySeconds = INTERVAL_SECONDS;
+    try {
+      const untilDue = await secondsUntilNextDue(Math.floor(Date.now() / 1000));
+      if (untilDue !== null && untilDue < INTERVAL_SECONDS) delaySeconds = untilDue;
+    } catch (error) {
+      logger.warn("Could not read the due window; using the fixed interval", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const nextRun = new Date(Date.now() + delaySeconds * 1000);
     logger.info("Next cycle scheduled", {
       mode: DRY_RUN ? "dry-run" : "live",
       next_run: nextRun.toISOString(),
+      delay_seconds: delaySeconds,
       interval_seconds: INTERVAL_SECONDS,
     });
     log(
       DRY_RUN,
-      `Next cycle at ${nextRun.toISOString()} (in ${INTERVAL_SECONDS}s)`,
+      `Next cycle at ${nextRun.toISOString()} (in ${delaySeconds}s, interval ${INTERVAL_SECONDS}s)`,
     );
 
     if (report.errors.length > 0 && report.totalCharged === 0) {
@@ -1344,7 +1439,7 @@ async function main(): Promise<void> {
     if (!shutdown) {
       await new Promise<void>((resolve) => {
         resolveSleep = resolve;
-        sleepTimer = setTimeout(resolve, INTERVAL_SECONDS * 1000);
+        sleepTimer = setTimeout(resolve, delaySeconds * 1000);
       });
       sleepTimer = undefined;
       resolveSleep = undefined;

@@ -631,3 +631,26 @@ pub fn publish_merchant_withdrawal(env: &Env, merchant: &Address, amount: i128) 
         amount,
     );
 }
+
+/// Publishes `keeper_tip_bps_set(old, new)` when the admin changes the keeper tip.
+pub fn publish_keeper_tip_bps_set(env: &Env, old: u32, new: u32) {
+    env.events()
+        .publish((Symbol::new(env, "keeper_tip_bps_set"),), (old, new));
+}
+
+/// Publishes `keeper_tip(keeper, user, tip)` when a `charge_with_tip` call pays
+/// the keeper its share of the protocol fee. `tip` is in token base units.
+pub fn publish_keeper_tip(env: &Env, keeper: &Address, user: &Address, tip: i128) {
+    env.events().publish(
+        (Symbol::new(env, "keeper_tip"), keeper.clone()),
+        (user.clone(), tip),
+    );
+}
+
+/// Publishes `migration_progress(migrated_accounts)` after a `migrate` batch
+/// processes at least one new account. `migrated_accounts` is the running total
+/// for this upgrade, so indexers can follow progress without polling.
+pub fn publish_migration_progress(env: &Env, migrated_accounts: u64) {
+    env.events()
+        .publish((Symbol::new(env, "migration_progress"),), migrated_accounts);
+}

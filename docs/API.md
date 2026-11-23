@@ -574,6 +574,47 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge --user <USER_ADDRESS>
 ```
 
+### `charge_with_tip`
+
+```
+charge_with_tip(env: Env, user: Address, keeper: Address)
+```
+
+Same as `charge`, but pays `keeper` a tip out of the protocol fee: `fee * keeper_tip_bps / 10000`,
+taken from the subscriber's allowance. The fee collector receives the rest of the fee.
+The merchant's net and the gross charge are unchanged. The tip is zero when
+`keeper_tip_bps` is 0 or no protocol fee applies.
+
+Auth: `keeper.require_auth()`. The subscriber's auth is not needed, as with `charge`.
+
+Returns: `()`.
+
+Side effects: everything `charge` does, plus a [`keeper_tip`](./EVENTS.md#keeper_tip) event when a tip is paid.
+
+Errors: the same as `charge`. A missing keeper signature fails the invocation.
+
+Operator guidance: [`KEEPER.md`](./KEEPER.md#keeper-tip-charge_with_tip).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge_with_tip --user <USER_ADDRESS> --keeper <KEEPER_ADDRESS>
+```
+
+### `set_keeper_tip_bps` / `get_keeper_tip_bps`
+
+```
+set_keeper_tip_bps(env: Env, bps: u32)
+get_keeper_tip_bps(env: Env) -> u32
+```
+
+`set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
+fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
+maximum fail with `InvalidKeeperTipBps` (49), and a rejected value is not stored. It emits
+[`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
+
+`get_keeper_tip_bps` is read-only.
+
 ### `simulate_charge`
 
 Dry-run of a single `charge()` for `user`. **No storage writes** and **no token transfer**. Outcomes are [`ChargeSimResult`](#chargesimresult) variants, not panics.
@@ -1605,6 +1646,31 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- batch_charge --users '["<USER_A>","<USER_B>"]'
 ```
 
+### `get_charges_due_between`
+
+```
+get_charges_due_between(env: Env, from: u64, to: u64, offset: u64, limit: u32) -> Vec<(Address, u64)>
+```
+
+Auth: none (read-only).
+
+Returns the subscribers whose next charge falls in `[from, to]` (inclusive), each paired with
+that due timestamp. The timestamp equals `next_charge_at` for that subscriber. Only active,
+unpaused subscriptions are returned, and cancelled (tombstoned) slots are skipped.
+Grace-lapsed subscriptions are not filtered out.
+
+Bounded scan: each call reads at most `limit` index slots, starting at `offset`. `limit` is capped
+at 50 (`BatchTooLarge` otherwise), the same cap as `get_next_charge_batch`. The window is applied
+after the slot read, so a page can return fewer rows than `limit`, or none. To cover the whole index,
+advance `offset` by `limit` until `offset >= get_subscriber_count()`. An inverted window
+(`from > to`) or `limit == 0` returns an empty list.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_charges_due_between --from 1700000000 --to 1700086400 --offset 0 --limit 50
+```
+
 ### `get_batch_charge_estimate`
 
 Batch **estimate** (not a transfer). Returns `Vec<ChargeResult>` — the live batch enum — **not** [`ChargeSimResult`](#chargesimresult).
@@ -1967,15 +2033,63 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_referrer --u
 migrate(env: Env, users: Vec<Address>)
 ```
 
-Auth: none.
+Auth: admin (`require_auth` on the stored admin).
 
 Returns: `()`.
+
+Migrates the listed accounts in batches. It is idempotent per account: an account
+that an earlier batch already processed is skipped, so re-sending a batch is safe.
+Each processed account counts once toward `get_migration_progress().migrated_accounts`.
+
+**`migrate` does not advance the schema version.** It stays at its pre-upgrade value
+until `finalize_migration` succeeds, so `SchemaMigrationRequired` (42) keeps blocking
+new subscriptions during the run.
+
+Errors: `NotInitialized` (7) when no admin is set; admin auth failures panic.
 
 CLI example:
 
 ```bash
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
 ```
+
+### `finalize_migration`
+
+```
+finalize_migration(env: Env, expected_total: u64)
+```
+
+Auth: admin.
+
+Returns: `()`.
+
+Advances the schema version to the current version, which unblocks new subscriptions.
+It succeeds only when `migrated_accounts >= expected_total`, where `expected_total` is
+the number of accounts the operator believes need migrating. Once complete, repeated
+calls do nothing and emit nothing. On success it emits
+[`migration_completed`](./EVENTS.md#migration_completed).
+
+Errors: `MigrationIncomplete` (48) when fewer than `expected_total` accounts have been
+processed.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- finalize_migration --expected_total 1200
+```
+
+### `get_migration_progress`
+
+```
+get_migration_progress(env: Env) -> MigrationProgress
+```
+
+Auth: none (read-only).
+
+Returns a struct with `schema_version`, `target_version`, `migrated_accounts` (u64) and
+`complete` (bool). Use `migrated_accounts` as the resume position when feeding the
+operator's account list to `migrate`. [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts)
+does this.
 
 ### `get_schema_version`
 
