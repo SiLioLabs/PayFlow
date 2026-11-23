@@ -438,12 +438,23 @@ npx tsx watch-events.ts
 
 ### What runs in CI today
 
-Nothing. This repository does not ship any GitHub Actions workflow files, so run the local equivalents before opening a PR (full checklist in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
+Two workflows run on every PR and push to `main` (full command reference in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
 
-| Area     | Command                                                              | Covers                                                                                                                                                                                                                            |
-| -------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contract | `cd contract && cargo clippy -- -D warnings && cargo test`           | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
-| Frontend | `npm run typecheck`, then `cd frontend && npm run lint && npm run test` | Type-checking, linting, and the Vitest suite                                                                                                                                                                                     |
+| Workflow | Checks |
+| --- | --- |
+| `scripts-ci.yml` | `scripts/` typecheck (`tsc --noEmit`), ESLint lint, duplicate lint (`npm run lint:duplicates` and `node lint-duplicates.mjs`), Vitest test suite (`npm test` with `NODE_OPTIONS=--experimental-sqlite`) — Node 22 |
+| `security-audit.yml` | `cargo audit` against `contract/Cargo.lock` and `vesting/Cargo.lock` (using `audit.toml` allowlist); `npm audit --audit-level=high --omit=dev` for root, `frontend/`, and `scripts/`; also runs weekly on a schedule |
+
+High-severity findings from either audit job fail the workflow and block merging. See [`docs/development/SECURITY-AUDITS.md`](development/SECURITY-AUDITS.md) for how the `cargo audit` allowlist works.
+
+The local equivalents you should still run before opening a PR:
+
+| Area | Command | Covers |
+| --- | --- | --- |
+| Contract | `cd contract && cargo clippy -- -D warnings && cargo test` | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
+| Frontend | `npm run typecheck`, then `cd frontend && npm run lint && npm run test` | Type-checking, linting, and the Vitest suite |
+| Scripts | `cd scripts && npm run typecheck && npm run lint && npm run lint:duplicates && node lint-duplicates.mjs && NODE_OPTIONS=--experimental-sqlite npm test` | All checks run by scripts-ci.yml |
+| Dependencies | `cargo audit --file contract/Cargo.lock --config audit.toml` and `npm audit --audit-level=high --omit=dev` | Mirrors security-audit.yml locally |
 
 ### What requires manual testing
 
@@ -457,4 +468,4 @@ None of the local checks above touch a real network. That means the following ar
 
 - **A new contract unit or benchmark test**: add it to `contract/src/test.rs` (or `bench.rs`) — it's picked up automatically by `cargo test`.
 - **A new frontend unit test**: add it under `frontend/src/__tests__/` — picked up automatically by Vitest's default discovery when you run `cd frontend && npm run test`.
-- **A new integration/E2E/keeper check**: these require live testnet access and a funded account, which GitHub Actions doesn't have configured today. Automating any of them means provisioning a CI secret for a funded testnet keypair and accepting real network flakiness in CI — treat this as a deliberate infrastructure decision, not a drop-in workflow step, and discuss it in an issue before implementing it.
+- **A new integration/E2E/keeper check**: these require live testnet access and a funded account. Automating any of them means provisioning a CI secret for a funded testnet keypair and accepting real network flakiness in CI — treat this as a deliberate infrastructure decision, not a drop-in workflow step, and discuss it in an issue before implementing it.

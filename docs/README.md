@@ -38,6 +38,7 @@ This guide is aligned with [`FRONTEND.md`](FRONTEND.md) and the codebase under `
 | [`development/network-matrix.md`](development/network-matrix.md) | Aligning frontend, scripts, and contract tests on the same network |
 | [`development/performance-benchmarking.md`](development/performance-benchmarking.md) | Contract benchmark interpretation and regression detection |
 | [`development/testing_runbook.md`](development/testing_runbook.md) | Contract test patterns: ledger time, mocking, panic testing |
+| [`development/SECURITY-AUDITS.md`](development/SECURITY-AUDITS.md) | cargo-audit and npm-audit setup, audit.toml allowlist format, adding exceptions |
 
 ## Operations
 
@@ -140,6 +141,7 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Testing guide](TESTING.md)
 - [Development testing runbook](development/TESTING-RUNBOOK.md)
 - [Local checks to run before a PR](development/CI-WORKFLOWS.md)
+- [Security audit setup and exceptions](development/SECURITY-AUDITS.md)
 - [Local development network matrix](development/NETWORK-MATRIX.md)
 - [Performance benchmarking](development/PERFORMANCE-BENCHMARKING.md)
 - [Changelog](../CHANGELOG.md)
