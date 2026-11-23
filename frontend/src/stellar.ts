@@ -1901,6 +1901,78 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+
+// ── Issue #1: Pending Upgrade ─────────────────────────────────────────────────
+
+export interface PendingUpgrade {
+  wasmHash: string;
+  expiry: number | null;
+}
+
+/**
+ * Reads the pending upgrade WASM hash from contract temporary storage.
+ * Returns null if no upgrade is queued or the proposal has expired.
+ */
+export function getPendingUpgrade(caller: string): Promise<PendingUpgrade | null> {
+  return dedupedCall(`getPendingUpgrade:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_pending_upgrade", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+
+      // Contract returns Option<BytesN<32>>
+      const hashBytes = ScValDecoder.decodeOption(retval, (v: xdr.ScVal) => {
+        if (v.switch().name === "scvBytes") {
+          return Buffer.from(v.bytes()).toString("hex");
+        }
+        return null;
+      });
+
+      if (!hashBytes) return null;
+
+      return {
+        wasmHash: hashBytes,
+        expiry: null, // TTL info not directly available from contract read
+      };
+    } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Builds a transaction to propose a new WASM hash for upgrade.
+ * Admin-only operation.
+ */
+export async function buildProposeUpgradeTx(
+  adminPublicKey: string,
+  wasmHash: string
+): Promise<string> {
+  // Convert hex string to BytesN<32>
+  const hashBuffer = Buffer.from(wasmHash, "hex");
+  if (hashBuffer.length !== 32) {
+    throw new Error("WASM hash must be exactly 32 bytes (64 hex characters)");
+  }
+
+  return buildTx(adminPublicKey, "propose_upgrade", [
+    nativeToScVal(hashBuffer, { type: "bytes" }),
+  ]);
+}
+
+/**
+ * Builds a transaction to cancel a pending upgrade proposal.
+ * Admin-only operation.
+ */
+export async function buildCancelPendingUpgradeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "cancel_pending_upgrade", []);
+}
+
+/**
+ * Builds a transaction to commit a pending upgrade.
+ * Admin-only operation. Requires typing the hash prefix to confirm.
+ */
+export async function buildCommitUpgradeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "commit_upgrade", []);
+}
 export * from "./services/rpc";
 export * from "./services/builders";
 export * from "./services/reads";
