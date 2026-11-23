@@ -14,7 +14,8 @@ import {
   type FormFields,
 } from "../hooks/useFormValidation";
 import { isValidStellarAddress } from "../utils/addressValidation";
-import { formatXlm } from "../utils/format";
+import { formatAddress, formatXlm } from "../utils/format";
+import { parseSubscribeLinkParams, type SubscribeLinkParams } from "../utils/subscribeLink";
 import {
   BILLING_INTERVALS,
   CONTRACT_LIMITS,
@@ -89,16 +90,22 @@ export default function SubscribeForm({
   isPaused = false,
   isOffline = false,
 }: Props) {
-  const [merchant, setMerchant] = useState("");
+  const [linkParams] = useState<SubscribeLinkParams>(() =>
+    parseSubscribeLinkParams(window.location.search, userKey)
+  );
+  const [merchant, setMerchant] = useState(linkParams.merchant ?? "");
   const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const [referrer, setReferrer] = useState("");
+  const [referrer, setReferrer] = useState(linkParams.referrer ?? "");
   const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
+  const [linkNotice] = useState<string | null>(
+    linkParams.notices.length ? linkParams.notices.join(" ") : null
+  );
   const [touched, setTouched] = useState<TouchedFields>({
     merchant: false,
     amount: false,
     interval: false,
-    referrer: false,
+    referrer: linkParams.selfReferral,
     tokenAddress: false,
   });
   const [showAddressBook, setShowAddressBook] = useState(false);
@@ -269,8 +276,19 @@ export default function SubscribeForm({
         <BalanceDisplay address={userKey} tokenId={tokenAddress} />
       </div>
 
+      {linkNotice && (
+        <p className="form-status text-muted" role="status" data-testid="referral-link-notice">
+          {linkNotice}
+        </p>
+      )}
+      {linkParams.referrer && !linkParams.selfReferral && (
+        <p className="form-status" data-testid="referrer-from-link">
+          Referred by <strong>{formatAddress(linkParams.referrer)}</strong>
+        </p>
+      )}
+
       {/* Referral Panel */}
-      <ReferralPanel publicKey={userKey} />
+      <ReferralPanel publicKey={userKey} merchant={merchant} />
 
       {/* Merchant Field */}
       <div className="form-group">

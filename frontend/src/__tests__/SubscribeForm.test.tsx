@@ -1007,3 +1007,59 @@ describe("SubscribeForm confirmation summary", () => {
     expect(onSign).toHaveBeenCalledWith("mock-xdr");
   });
 });
+
+describe("SubscribeForm referral link pre-fill", () => {
+  function setSearch(search: string) {
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, search },
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockServer.getAccount.mockResolvedValue({});
+    setSearch("");
+  });
+
+  afterEach(() => setSearch(""));
+
+  it("pre-fills the referrer and merchant from a valid link", () => {
+    setSearch(`?ref=${VALID_REFERRER}&merchant=${VALID_MERCHANT}`);
+    renderForm();
+
+    expect(screen.getByTestId("referrer-input")).toHaveValue(VALID_REFERRER);
+    expect(screen.getByTestId("merchant-input")).toHaveValue(VALID_MERCHANT);
+    expect(screen.getByTestId("referrer-from-link")).toHaveTextContent("Referred by");
+    expect(screen.queryByTestId("referral-link-notice")).not.toBeInTheDocument();
+  });
+
+  it("shows the referrer error and blocks submission for a self-referral link", async () => {
+    setSearch(`?ref=${VALID_USER}&merchant=${VALID_MERCHANT}`);
+    renderForm();
+
+    await userEvent.type(screen.getByTestId("amount-input"), "5");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("referrer-error")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /subscribe/i })).toBeDisabled();
+    });
+    expect(screen.getByTestId("referral-link-notice")).toHaveTextContent(
+      /cannot refer yourself/i
+    );
+  });
+
+  it("ignores invalid link addresses with a notice", () => {
+    setSearch("?ref=not-valid&merchant=not-valid");
+    renderForm();
+
+    expect(screen.getByTestId("referral-link-notice")).toHaveTextContent(
+      /ignored invalid referral address/i
+    );
+    expect(screen.getByTestId("referral-link-notice")).toHaveTextContent(
+      /ignored invalid merchant address/i
+    );
+    expect(screen.getByTestId("referrer-input")).toHaveValue("");
+    expect(screen.getByTestId("merchant-input")).toHaveValue("");
+  });
+});

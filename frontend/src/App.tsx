@@ -23,6 +23,7 @@ import type { WalletAdapter } from "./services/wallets/WalletAdapter";
 import ConnectWallet from "./components/ConnectWallet";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay";
 import { ShortcutRegistryContext } from "./context/ShortcutRegistry";
+import { hasSubscribeLinkParams } from "./utils/subscribeLink";
 
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
@@ -31,7 +32,9 @@ function AppInner() {
     useWallet();
   const { announcement, announce } = useAccessibility();
   const { healthy, circuitOpen } = useRpcHealthContext();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() =>
+    hasSubscribeLinkParams(window.location.search) ? "subscribe" : "dashboard"
+  );
   const [refresh, setRefresh] = useState(0);
   const [showRpcSettings, setShowRpcSettings] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
