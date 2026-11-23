@@ -450,6 +450,7 @@ Set the following environment variables (e.g. in `scripts/.env`):
 * `WEBHOOK_URL`: The HTTP POST endpoint of your server.
 * `WEBHOOK_SECRET`: A shared secret string used to sign request bodies.
 * `WEBHOOK_DLQ_FILE`: Optional path to write failed deliveries after retry exhaustion (default: `data/webhook-dlq.jsonl`).
+* `WEBHOOK_ENDPOINTS_FILE`: Optional path to a JSON endpoints config (multiple endpoints, event filters, key rotation; see below). When set, it replaces `WEBHOOK_URL` / `WEBHOOK_SECRET`.
 * `WEBHOOK_LEGACY_SIGNATURE`: Optional. Set to `false` to stop sending the legacy body-only signature header once receivers verify `X-PayFlow-Signature-V2` (default: sent).
 
 #### Signature Verification
@@ -509,6 +510,53 @@ The same check ships as `verifyWebhookSignature()` in `scripts/webhook.ts`.
 switched, set `WEBHOOK_LEGACY_SIGNATURE=false` to stop sending the body-only
 `X-PayFlow-Signature` (and `X-Signature-SHA256` from the `webhook.ts` CLI).
 The legacy headers will be removed in a future release.
+
+#### Multiple Endpoints, Event Filters & Secret Rotation
+
+To send different events to different systems, point `WEBHOOK_ENDPOINTS_FILE` at a
+JSON list of endpoints. When it is set, it replaces `WEBHOOK_URL` / `WEBHOOK_SECRET`.
+See [`scripts/webhook-endpoints.example.json`](../scripts/webhook-endpoints.example.json):
+
+```json
+[
+  {
+    "id": "billing",
+    "url": "https://billing.example.com/payflow",
+    "events": ["charged", "cancelled"],
+    "secrets": [{ "id": "billing-2026-11", "secretEnv": "WEBHOOK_SECRET_BILLING" }]
+  }
+]
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique endpoint name, used in logs. |
+| `url` | http(s) destination. |
+| `events` | Event types to deliver (the contract event name, e.g. `charged`). Omit it, or use `["*"]`, for all events. |
+| `secrets` | One or two active secrets, **primary first**. Each has a key `id` and either `secretEnv` (the name of an env var holding the secret; recommended) or an inline `secret`. |
+
+The file is validated at startup (unique ids, at most two secrets, valid URLs,
+env vars present), and `watch-events.ts` exits if it is invalid. Each delivery
+also sends:
+
+| Header | Value |
+|---|---|
+| `X-PayFlow-Key-Id` | Key id of the primary secret. |
+| `X-PayFlow-Signatures` | `"<kid>=<sig>[,<kid>=<sig>]"`: the V2 signature (`HMAC(secret, timestamp + "." + body)`) for **each** active secret. |
+
+**Rotating a secret without downtime:**
+
+1. Add the new secret **first** in `secrets`, keeping the old one second
+   (`[{ "id": "k2", ... }, { "id": "k1", ... }]`), and restart the watcher.
+   Every delivery is now signed with both keys.
+2. Update the receiver to the new secret. During the switch it can accept either:
+   pick the `X-PayFlow-Signatures` entry for the key id it holds, or pass both
+   secrets to `verifyWebhookSignature({ secret: [newSecret, oldSecret], signatures, ... })`.
+3. Remove the old secret from `secrets` and restart. Signatures made with the
+   old key stop being sent.
+
+Receivers on the old secret and receivers on the new one both verify throughout
+the rotation, so no deliveries are rejected.
 
 #### Reliability & Retry Logic
 Webhook delivery handles network/server errors automatically:
