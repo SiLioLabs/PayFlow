@@ -2,7 +2,7 @@
 
 FlowPay is **currently deployed on Testnet only**. Use this checklist when the protocol is ready for Public Global Stellar Network (Mainnet) after a formal security audit.
 
-For day-to-day Testnet steps, see [`DEPLOYMENT.md`](DEPLOYMENT.md). For audit gates, see [`security/audit-preparation.md`](security/audit-preparation.md), [`SECURITY.md`](SECURITY.md), and the repository [`SECURITY.md`](../SECURITY.md).
+For day-to-day Testnet steps, see [`DEPLOYMENT.md`](DEPLOYMENT.md). For audit gates, see [`security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md), [`SECURITY.md`](SECURITY.md), and the repository [`SECURITY.md`](../SECURITY.md).
 
 This document does **not** authorize a Mainnet deployment. Do not deploy or deposit real funds until every gate below is complete.
 
@@ -36,7 +36,7 @@ There is no in-repo override that weakens this requirement.
 > Real funds must not flow through an unaudited Mainnet deployment.
 
 - [ ] **Independent security audit complete** — see [Audit gate](#audit-gate-mandatory--do-not-skip). _Why:_ Mainnet holds user allowances and merchant revenue.
-- [ ] **Audit WASM hash matches release artifact** — SHA256 of the release WASM (`flow_pay.wasm` per [`deployments/config.json`](../deployments/config.json)) recorded in release notes. _Why:_ prevents deploying an unaudited binary.
+- [ ] **Audit WASM hash matches release artifact** — SHA256 of the release WASM (`flowpay.wasm` per [`deployments/config.json`](../deployments/config.json)) recorded in release notes. _Why:_ prevents deploying an unaudited binary.
 - [ ] **Key management plan approved**
   - [ ] Admin key on a **hardware wallet** (or equivalent HSM)
   - [ ] Prefer **multisig / multi-party** admin (Stellar multisig thresholds) over a single hot key
@@ -97,7 +97,7 @@ HOUR_IN_SECONDS            = 3600
 
 **Operational purpose:** limit protocol-wide transfer volume per rolling hour. Exceeding the cap during charge accounting panics with `GlobalVolumeExceeded` (28).
 
-**Enforcement:** `check_and_update_global_volume` reads the effective cap via `effective_global_volume_cap(env)`, which returns `DataKey::GlobalVolumeCapOverride` when an admin override is set, or `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. `get_global_volume_cap()` and `get_contract_config().global_volume_cap` use the same helper and therefore always agree with what enforcement will apply. Setting `set_global_volume_cap` takes immediate effect on the next charge. See [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap) for the complete model.
+**Enforcement:** `check_and_update_global_volume` reads the effective cap via `effective_global_volume_cap(env)`, which returns `DataKey::GlobalVolumeCapOverride` when an admin override is set, or `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. `get_global_volume_cap()` and `get_contract_config().global_volume_cap` use the same helper and therefore always agree with what enforcement will apply. Setting `set_global_volume_cap` takes immediate effect on the next charge. See [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap) for the complete model.
 
 **Pre-deposit checks:**
 
@@ -170,7 +170,7 @@ Run these **before** proposing a WASM swap on Mainnet. They are separate scripts
 
 ```bash
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts
-CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./target/wasm32-unknown-unknown/release/flowpay.wasm
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --skip-key-check --upgrade-config ./upgrade-config.json
 ```
 
@@ -214,22 +214,21 @@ Absence of a flag is **not** authorization to use real funds. Confirm passphrase
 - [ ] **Build release WASM**
 
 ```bash
-cd contract
-cargo build --release --target wasm32-unknown-unknown
+cargo build -p flowpay --release --target wasm32-unknown-unknown
 ```
 
 Expected artifact path used by [`deployments/config.json`](../deployments/config.json) and `scripts/deploy-pipeline.ts`:
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 - [ ] **Record WASM hash**
 
 ```bash
-sha256sum contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+sha256sum target/wasm32-unknown-unknown/release/flowpay.wasm
 # Windows PowerShell:
-Get-FileHash contract\target\wasm32-unknown-unknown\release\flow_pay.wasm -Algorithm SHA256
+Get-FileHash target\wasm32-unknown-unknown\release\flowpay.wasm -Algorithm SHA256
 ```
 
 - [ ] **Schema version check** — confirm `get_schema_version` expectations match [`DEPLOYMENT.md`](DEPLOYMENT.md#migration-history).
@@ -272,7 +271,7 @@ Save the printed **contract ID**.
 soroban contract upload \
   --source <DEPLOYER> \
   --network mainnet \
-  --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 # Expected: prints WASM hash (hex)
 
 # 2) Deploy instance
@@ -380,7 +379,7 @@ VITE_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015
 
 ## Rollback / upgrade
 
-> **Operator playbooks:** Step-by-step timing budgets, verification reads, and abort paths for upgrade and fee rotation ceremonies are in [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md).
+> **Operator playbooks:** Step-by-step timing budgets, verification reads, and abort paths for upgrade and fee rotation ceremonies are in [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md).
 
 FlowPay does **not** auto-rollback. Production WASM replacement is the two-step admin flow in [`contract/src/upgrade.rs`](../contract/src/upgrade.rs):
 
@@ -389,7 +388,7 @@ FlowPay does **not** auto-rollback. Production WASM replacement is the two-step 
 3. `commit_upgrade()` — admin; calls `update_current_contract_wasm`. Panics `NoPendingProposal` (23) if nothing is pending.
 4. Optional: `cancel_pending_upgrade()` — admin; drops the pending hash without swapping WASM.
 
-CLI (also in [`architecture/two-step-auth.md`](architecture/two-step-auth.md)):
+CLI (also in [`architecture/TWO-STEP-AUTH.md`](architecture/TWO-STEP-AUTH.md)):
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network mainnet -- \
@@ -410,7 +409,7 @@ The single-step `upgrade` entrypoint exists **only under `#[cfg(test)]`**. Do no
 2. Restore a prior WASM via `propose_upgrade` / `commit_upgrade` (previous hash from the `upgraded` event or your release notes).
 3. Re-run `contract_health_check` and `scripts/health-check.ts` before `unpause_contract()`.
 
-Further recovery guidance: [`DEPLOYMENT.md`](DEPLOYMENT.md#rollback-procedure) (storage caveat: newer keys remain on-chain), [`ERROR-CODES.md`](ERROR-CODES.md), [`operations/keeper_runbook.md`](operations/keeper_runbook.md).
+Further recovery guidance: [`DEPLOYMENT.md`](DEPLOYMENT.md#rollback-procedure) (storage caveat: newer keys remain on-chain), [`ERROR-CODES.md`](ERROR-CODES.md), [`operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -433,9 +432,9 @@ Do not deposit or route real Mainnet funds until every item is checked.
 ## Related
 
 - Testnet & general deploy: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)
-- Audit preparation: [`docs/security/audit-preparation.md`](security/audit-preparation.md)
+- Audit preparation: [`docs/security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md)
 - Repository security policy: [`SECURITY.md`](../SECURITY.md)
-- Two-step upgrade: [`docs/architecture/two-step-auth.md`](architecture/two-step-auth.md)
+- Two-step upgrade: [`docs/architecture/TWO-STEP-AUTH.md`](architecture/TWO-STEP-AUTH.md)
 - Contract API: [`docs/API.md`](API.md)
 - Keeper operations: [`docs/KEEPER.md`](KEEPER.md)
 - Scripts ops (keeper / indexer / metrics / Compose): [`scripts/README.md`](../scripts/README.md)

@@ -33,10 +33,10 @@ Differences on PostgreSQL:
 - `ledger` and `timestamp` are `BIGINT`. SQLite's `INTEGER` is also 64-bit, so the values are the same.
 - Amounts stay `TEXT` because they are `i128`.
 - Migrations run in one transaction under an advisory lock, so two indexers starting at once can't race.
-- The v1 → v2 migration uses `ADD COLUMN IF NOT EXISTS`, so it is safe to re-run.
+- Column migrations use `ADD COLUMN IF NOT EXISTS`, so they are safe to re-run.
 
-**Adding a migration:** bump `SCHEMA_VERSION` in `indexer.ts`, add the SQLite step
-in `initSchema()`, and add the matching statement to `PG_MIGRATIONS` in
+**Adding a migration:** add the numbered SQLite migration in `scripts/db/migrations/`
+(`SCHEMA_VERSION` follows it), and add the matching statement to `PG_MIGRATIONS` in
 `db/store.ts` under the new version number. The `pollOnce` suite runs on both
 backends (see below), so a migration missing on one side fails tests.
 
@@ -70,6 +70,10 @@ Then start the indexer with `DATABASE_URL`. It resumes from the copied `last_led
   still open the SQLite file. Point them at Postgres with your own SQL, or keep
   a SQLite indexer running alongside for them.
 - `backup-indexer-db.ts` is SQLite-only. For Postgres, use `pg_dump`.
+- **Ledger gaps** are SQLite-only. On Postgres the indexer still detects a gap
+  (RPC pruned ledgers it never read), logs it, counts it in the metrics and
+  resumes from the oldest available ledger, but no `ledger_gaps` row is written,
+  so `horizon-backfill.ts` can't pick it up. Recover such ranges manually.
 
 ## Running the tests against PostgreSQL
 

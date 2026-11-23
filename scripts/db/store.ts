@@ -12,15 +12,8 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import type { Pool, PoolClient } from "pg";
-import {
-  initSchema,
-  getMeta,
-  setMeta,
-  upsertEvents,
-  openDatabase,
-  SCHEMA_VERSION,
-  type IndexedEvent,
-} from "../indexer.js";
+import { initSchema, getMeta, setMeta, upsertEvents, openDatabase, type IndexedEvent } from "../indexer.js";
+import { SCHEMA_VERSION } from "./migrations/index.js";
 
 export interface IndexerStore {
   readonly kind: "sqlite" | "postgres";
@@ -63,8 +56,8 @@ export class SqliteStore implements IndexerStore {
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
 /**
- * Same columns as the SQLite schema. ledger/timestamp are BIGINT (SQLite
- * INTEGER is 64-bit); amounts stay TEXT because they are i128.
+ * Same columns as the SQLite schema (db/migrations/). ledger/timestamp are
+ * BIGINT (SQLite INTEGER is 64-bit); amounts stay TEXT because they are i128.
  */
 const PG_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS meta (
@@ -74,6 +67,7 @@ const PG_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS events (
     id          TEXT   PRIMARY KEY,
     event_name  TEXT   NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
     address     TEXT   NOT NULL,
     amount      TEXT,
     ledger      BIGINT NOT NULL,
@@ -91,22 +85,30 @@ const PG_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_events_timestamp  ON events(timestamp);
 `;
 
-/** Ordered migrations from the stored schema_version (mirrors initSchema). */
+/**
+ * Postgres equivalents of the numbered SQLite migrations in db/migrations/,
+ * applied from the stored schema_version. Keep in step with that list.
+ */
 const PG_MIGRATIONS: Record<number, string> = {
-  // v1 → v2: decoded columns.
+  // 002_add_event_columns
   2: `
     ALTER TABLE events ADD COLUMN IF NOT EXISTS merchant TEXT;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS fee_amount TEXT;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS token TEXT;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS result_code TEXT;
   `,
+  // 003_ledger_gaps: not applicable. ledger_gaps is SQLite-only; on Postgres
+  // gaps are detected and logged but not persisted (see ledger-gaps.ts).
+  // 004_event_schema_version
+  4: `ALTER TABLE events ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 1;`,
 };
 
 const PG_UPSERT_SQL = `
-  INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
-  VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+  INSERT INTO events(id, event_name, schema_version, address, amount, ledger, timestamp, tx_hash, raw_data, merchant, fee_amount, token, result_code)
+  VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
   ON CONFLICT(id) DO UPDATE SET
     address     = excluded.address,
+    schema_version = excluded.schema_version,
     amount      = excluded.amount,
     ledger      = excluded.ledger,
     timestamp   = excluded.timestamp,
@@ -200,7 +202,7 @@ export class PostgresStore implements IndexerStore {
     await this.tx(async (c) => {
       for (const e of events) {
         await c.query(PG_UPSERT_SQL, [
-          e.id, e.event_name, e.address, e.amount, e.ledger, e.timestamp,
+          e.id, e.event_name, e.schema_version, e.address, e.amount, e.ledger, e.timestamp,
           e.tx_hash, e.raw_data, e.merchant, e.fee_amount, e.token, e.result_code,
         ]);
       }

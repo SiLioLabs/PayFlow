@@ -167,35 +167,59 @@ export default function WalletSelectModal({
 
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
           {installedAdapters.map(({ adapter, installed }) => (
-            <button
-              key={adapter.id}
-              className="btn-secondary"
-              onClick={() => handleSelect(adapter)}
-              disabled={isConnecting}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "var(--space-3) var(--space-4)",
-              }}
-              aria-busy={isConnecting && lastAttemptedAdapter?.id === adapter.id}
-              data-testid={`wallet-option-${adapter.id}`}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-                <span style={{ fontSize: "1.5rem" }} aria-hidden="true">{adapter.icon}</span>
-                <span className="font-semibold">{adapter.name}</span>
-                {isConnecting && lastAttemptedAdapter?.id === adapter.id && (
-                  <span className="text-muted" style={{ fontSize: "0.875rem" }}>
-                    (Connecting...)
+            <div key={adapter.id} data-testid={`wallet-row-${adapter.id}`}>
+              <button
+                className="btn-secondary"
+                onClick={() => handleSelect(adapter)}
+                disabled={isConnecting}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "var(--space-3) var(--space-4)",
+                }}
+                aria-busy={isConnecting && lastAttemptedAdapter?.id === adapter.id}
+                data-testid={`wallet-option-${adapter.id}`}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                  <span style={{ fontSize: "1.5rem" }} aria-hidden="true">{adapter.icon}</span>
+                  <span className="font-semibold">{adapter.name}</span>
+                  {isConnecting && lastAttemptedAdapter?.id === adapter.id && (
+                    <span className="text-muted" style={{ fontSize: "0.875rem" }}>
+                      (Connecting...)
+                    </span>
+                  )}
+                </div>
+                {!installed && (
+                  <span className="badge badge-warning" style={{ fontSize: "0.75rem" }}>
+                    Not Installed
                   </span>
                 )}
-              </div>
-              {!installed && (
-                <span className="badge badge-warning" style={{ fontSize: "0.75rem" }}>
-                  Not Installed
-                </span>
+              </button>
+              {!installed && (adapter.installUrl || adapter.installHint) && (
+                <p
+                  className="text-muted text-xs"
+                  style={{ padding: "4px var(--space-4) 0", margin: 0 }}
+                  data-testid={`wallet-install-guidance-${adapter.id}`}
+                >
+                  {adapter.installHint}
+                  {adapter.installUrl && (
+                    <>
+                      {" "}
+                      <a
+                        href={adapter.installUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Get {adapter.name}
+                      </a>
+                    </>
+                  )}
+                </p>
               )}
-            </button>
+            </div>
           ))}
           {isChecking && installedAdapters.length === 0 && (
             <p className="text-muted text-center py-4" role="status">

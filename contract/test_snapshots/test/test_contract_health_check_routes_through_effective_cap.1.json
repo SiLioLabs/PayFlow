@@ -1297,6 +1297,9 @@
             "topics": [
               {
                 "symbol": "global_volume_cap_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

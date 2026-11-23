@@ -107,16 +107,16 @@ describe("config normalization", () => {
   });
 });
 
-describe("docs parity: scripts-environment.md vs ConfigSchema", () => {
+describe("docs parity: SCRIPTS-ENVIRONMENT.md vs ConfigSchema", () => {
   /** Extract canonical variable names from the ConfigSchema shape. */
   function getSchemaKeys(): string[] {
     const shape = ConfigSchema.shape;
     return Object.keys(shape).filter((k) => !["WEBHOOK_URL", "WEBHOOK_SECRET", "WEBHOOK_DLQ_FILE", "NETWORK_PASSPHRASE"].includes(k));
   }
 
-  /** Extract variable names from the docs/scripts-environment.md canonical table. */
+  /** Extract variable names from the docs/SCRIPTS-ENVIRONMENT.md canonical table. */
   function getDocKeys(): string[] {
-    const docPath = join(__dirname, "..", "docs", "scripts-environment.md");
+    const docPath = join(__dirname, "..", "docs", "SCRIPTS-ENVIRONMENT.md");
     const content = readFileSync(docPath, "utf8");
     // Match the canonical variables table rows (lines starting with | `VAR_NAME` |)
     const rows = content.match(/\|\s*`([A-Z_]+)`\s*\|/g) || [];
@@ -126,7 +126,7 @@ describe("docs parity: scripts-environment.md vs ConfigSchema", () => {
       .filter((v) => !["WEBHOOK_URL", "WEBHOOK_SECRET", "WEBHOOK_DLQ_FILE", "NETWORK_PASSPHRASE", "KEEPER_SECRET", "NETWORK_PASSTHRASE", "CHARGE_INTERVAL_MS", "PAGE_SIZE", "MAX_RETRIES", "KEEPER_PUBLIC_KEY", "DRY_RUN", "KEEPER_USE_LEGACY_PAGING", "LOG_LEVEL", "LOG_FORMAT", "DATA_DIR", "DB_FILE", "POLL_INTERVAL_MS", "START_LEDGER", "METRICS_PORT", "REPORT_DIR", "ALERT_WINDOW_LEDGERS", "SOROBAN_SOURCE_ACCOUNT"].includes(v));
   }
 
-  it("every canonical schema key is documented in scripts-environment.md", () => {
+  it("every canonical schema key is documented in SCRIPTS-ENVIRONMENT.md", () => {
     const schemaKeys = getSchemaKeys();
     const docKeys = getDocKeys();
     const missing = schemaKeys.filter((k) => !docKeys.includes(k));

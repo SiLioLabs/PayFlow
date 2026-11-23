@@ -1156,6 +1156,9 @@
             "topics": [
               {
                 "symbol": "upg_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

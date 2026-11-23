@@ -127,7 +127,7 @@ Deploy one FlowPay contract instance. Subscribers choose their own `token` per `
 
 **Pros:**
 
-- One contract to deploy, upgrade (via [`propose_upgrade`/`commit_upgrade`](./architecture/two-step-auth.md)), and monitor.
+- One contract to deploy, upgrade (via [`propose_upgrade`/`commit_upgrade`](./architecture/TWO-STEP-AUTH.md)), and monitor.
 - One `ActiveCount`, one whitelist, one grace period, one admin — all protocol-wide settings apply uniformly regardless of which token a subscriber uses.
 - Merchants can accept multiple tokens without deploying anything themselves.
 
@@ -325,7 +325,7 @@ The global volume cap (`GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000` stroops
 
 2. **Per-token volume tracking must be done off-chain.** The `charged` and `pay_per_use` events include the token address (via the subscription's `token` field at charge time), so indexers can reconstruct per-token totals by filtering events.
 
-3. **The cap override (`set_global_volume_cap`) is enforced in the charge path.** `check_and_update_global_volume` calls `effective_global_volume_cap(env)`, which reads `DataKey::GlobalVolumeCapOverride` when set and falls back to `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. Setting `set_global_volume_cap` therefore takes immediate effect on every subsequent charge. See [`limits.md` — Global Hourly Volume Cap](./limits.md#global-hourly-volume-cap) for the full cap model.
+3. **The cap override (`set_global_volume_cap`) is enforced in the charge path.** `check_and_update_global_volume` calls `effective_global_volume_cap(env)`, which reads `DataKey::GlobalVolumeCapOverride` when set and falls back to `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. Setting `set_global_volume_cap` therefore takes immediate effect on every subsequent charge. See [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap) for the full cap model.
 
 ### Per-token fee transfer semantics
 
@@ -372,7 +372,7 @@ let should_increment = existing.as_ref().is_none_or(|s| !s.active);
 
 Practical implications:
 
-1. **All fields reset, not just `token`.** You must resupply `merchant`, `amount`, `interval`, `trial_period`, and `referrer` (referral is actually preserved separately via `DataKey::Referral`, immutable after first write — see the [lifecycle spec](./spec/lifecycle_spec.md#referral-data) — but `amount`/`interval`/`trial_period` are not carried over from the old record). There's no partial "just update the token" call.
+1. **All fields reset, not just `token`.** You must resupply `merchant`, `amount`, `interval`, `trial_period`, and `referrer` (referral is actually preserved separately via `DataKey::Referral`, immutable after first write — see the [lifecycle spec](./spec/LIFECYCLE-SPEC.md#referral-data) — but `amount`/`interval`/`trial_period` are not carried over from the old record). There's no partial "just update the token" call.
 2. **A new allowance is required.** The subscriber must call `approve()` on the _new_ token contract before the new `subscribe()` call, or it fails with `ContractError::InsufficientAllowance`. The allowance previously granted on the _old_ token is untouched by this call — it isn't revoked automatically. If you want to stop the contract from being able to pull the old token, the subscriber should separately reduce that allowance to zero on the old token contract.
 3. **Charge history and cancellation state are token-agnostic and persist.** `ChargeHistory(user)` and `SubscriptionMeta(user)` are keyed by user address, not by token, so switching tokens does not reset or fork your charge history — old charges recorded in the old token remain in the same paged history alongside new charges in the new token, with no field distinguishing which token each timestamp was charged in. If you need per-token charge auditing, reconstruct it off-chain from `charged` events (which do include `sub.token` implicitly via the subscription state at charge time) rather than from `get_charge_history_page`.
 4. **`active_count` is not double-counted.** Because the subscriber already had an active subscription, `should_increment` evaluates to `false`, so switching tokens does not inflate `ActiveCount`.

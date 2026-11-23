@@ -96,6 +96,8 @@ pub enum VestingError {
     Revoked = 4007,
     InvalidTimelock = 4008,
     NotEnoughTimeForRevoke = 4009,
+    /// Revocation is unavailable once the schedule has fully vested.
+    AlreadyVested = 4010,
 }
 
 #[contract]
@@ -110,6 +112,8 @@ impl AcademyVestingContract {
         reward_token: Address,
         governance: Address,
     ) -> Result<(), VestingError> {
+        admin.require_auth();
+
         // Check if already initialized
         let init_key = symbol_short!("init");
         if env.storage().persistent().has(&init_key) {
@@ -169,12 +173,17 @@ impl AcademyVestingContract {
         if cliff > duration {
             return Err(VestingError::InvalidSchedule);
         }
+        if start_time.checked_add(duration).is_none() {
+            return Err(VestingError::InvalidSchedule);
+        }
 
         // Get next grant ID
         let counter_key = symbol_short!("cnt");
         let grant_id: u64 = env.storage().persistent().get(&counter_key).unwrap_or(0u64);
 
-        let next_id = grant_id + 1;
+        let next_id = grant_id
+            .checked_add(1)
+            .ok_or(VestingError::InvalidSchedule)?;
 
         // Create vesting schedule
         let schedule = VestingSchedule {
@@ -255,7 +264,7 @@ impl AcademyVestingContract {
             return Err(VestingError::Unauthorized);
         }
 
-        // Check if already claimed
+        // Claiming is one-time, including when only part of the grant has vested.
         if schedule.claimed {
             return Err(VestingError::AlreadyClaimed);
         }
@@ -268,7 +277,6 @@ impl AcademyVestingContract {
         // Calculate vested amount
         let current_time = env.ledger().timestamp();
         let vested_amount = Self::calculate_vested_amount(&schedule, current_time)?;
-
         if vested_amount == 0 {
             return Err(VestingError::NotVested);
         }
@@ -374,7 +382,18 @@ impl AcademyVestingContract {
 
         // Check if enough time has passed since grant to allow revocation
         let current_time = env.ledger().timestamp();
-        if current_time < schedule.start_time + revoke_delay {
+        let full_vesting_time = schedule
+            .start_time
+            .checked_add(schedule.duration)
+            .ok_or(VestingError::InvalidSchedule)?;
+        if current_time >= full_vesting_time {
+            return Err(VestingError::AlreadyVested);
+        }
+        let revoke_after = schedule
+            .start_time
+            .checked_add(revoke_delay)
+            .ok_or(VestingError::InvalidSchedule)?;
+        if current_time < revoke_after {
             return Err(VestingError::NotEnoughTimeForRevoke);
         }
 
@@ -422,7 +441,12 @@ impl AcademyVestingContract {
         let schedule = schedules.get(grant_id).ok_or(VestingError::GrantNotFound)?;
 
         let current_time = env.ledger().timestamp();
-        Self::calculate_vested_amount(&schedule, current_time)
+        let effective_time = if schedule.revoked {
+            current_time.min(schedule.revoke_time)
+        } else {
+            current_time
+        };
+        Self::calculate_vested_amount(&schedule, effective_time)
     }
 
     /// Internal helper: calculate vested amount based on schedule and current time
@@ -436,12 +460,20 @@ impl AcademyVestingContract {
         }
 
         // If cliff hasn't passed
-        if current_time < schedule.start_time + schedule.cliff {
+        let cliff_time = schedule
+            .start_time
+            .checked_add(schedule.cliff)
+            .ok_or(VestingError::InvalidSchedule)?;
+        if current_time < cliff_time {
             return Ok(0);
         }
 
         // If fully vested
-        if current_time >= schedule.start_time + schedule.duration {
+        let end_time = schedule
+            .start_time
+            .checked_add(schedule.duration)
+            .ok_or(VestingError::InvalidSchedule)?;
+        if current_time >= end_time {
             return Ok(schedule.amount);
         }
 
@@ -454,8 +486,10 @@ impl AcademyVestingContract {
         }
 
         // Use fixed-point arithmetic to avoid floating point
-        let vested_amount =
-            (schedule.amount as u128 * vested_duration as u128) / remaining_duration as u128;
+        let vested_amount = (schedule.amount as u128)
+            .checked_mul(vested_duration as u128)
+            .ok_or(VestingError::InvalidSchedule)?
+            / remaining_duration as u128;
 
         Ok(vested_amount as i128)
     }

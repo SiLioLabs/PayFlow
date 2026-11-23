@@ -10271,6 +10271,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -10787,6 +10790,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -11303,6 +11309,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -11819,6 +11828,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -12108,6 +12120,9 @@
             "topics": [
               {
                 "symbol": "min_interval_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -14117,6 +14132,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -14633,6 +14651,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -15149,6 +15170,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -15665,6 +15689,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
