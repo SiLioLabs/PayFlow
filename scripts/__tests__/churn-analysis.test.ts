@@ -1,11 +1,12 @@
-import { calculateChurnAnalysis, ChurnAnalysisReport } from "./churn-analysis.js";
+import { calculateChurnAnalysis, ChurnAnalysisReport } from "../churn-analysis.js";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { it } from "vitest";
 
-const __dirname = resolve(fileURLToPath(import.meta.url), "..");
-const FIXTURES_PATH = resolve(__dirname, "data/churn-analysis-fixtures.json");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const FIXTURES_PATH = resolve(__dirname, "..", "data/churn-analysis-fixtures.json");
 
 // Load golden fixtures
 const fixtures = JSON.parse(readFileSync(FIXTURES_PATH, "utf8")).fixtures;
@@ -13,10 +14,9 @@ const fixtures = JSON.parse(readFileSync(FIXTURES_PATH, "utf8")).fixtures;
 // Utility to assert values in tests
 function assertEquals(actual: any, expected: any, message: string) {
   if (actual !== expected) {
-    console.error(`Assertion Failed: ${message}`);
-    console.error(`  Expected: ${JSON.stringify(expected)}`);
-    console.error(`  Actual:   ${JSON.stringify(actual)}`);
-    process.exit(1);
+    throw new Error(
+      `Assertion Failed: ${message}\n  Expected: ${JSON.stringify(expected)}\n  Actual:   ${JSON.stringify(actual)}`,
+    );
   } else {
     console.log(`[PASS] ${message}`);
   }
@@ -28,10 +28,9 @@ function deepEquals(actual: any, expected: any): boolean {
 
 function assertDeepEquals(actual: any, expected: any, message: string) {
   if (!deepEquals(actual, expected)) {
-    console.error(`Assertion Failed: ${message}`);
-    console.error(`  Expected: ${JSON.stringify(expected, null, 2)}`);
-    console.error(`  Actual:   ${JSON.stringify(actual, null, 2)}`);
-    process.exit(1);
+    throw new Error(
+      `Assertion Failed: ${message}\n  Expected: ${JSON.stringify(expected, null, 2)}\n  Actual:   ${JSON.stringify(actual, null, 2)}`,
+    );
   } else {
     console.log(`[PASS] ${message}`);
   }
@@ -579,4 +578,6 @@ function runAllTests() {
   console.log("==========================================");
 }
 
-runAllTests();
+it("runs the churn analysis golden fixtures and edge cases", () => {
+  runAllTests();
+});
