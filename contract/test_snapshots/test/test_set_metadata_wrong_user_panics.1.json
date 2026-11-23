@@ -1621,6 +1621,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1734,6 +1737,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

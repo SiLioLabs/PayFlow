@@ -131,19 +131,29 @@ export class RateLimiter {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  maxRetries: number = DEFAULT_MAX_RETRIES,
+  maxRetriesOrOptions: number | RetryOptions = DEFAULT_MAX_RETRIES,
   delayMs: number = DEFAULT_RETRY_DELAY_MS
 ): Promise<T> {
+  const options =
+    typeof maxRetriesOrOptions === "number" ? undefined : maxRetriesOrOptions;
+  const maxRetries =
+    typeof maxRetriesOrOptions === "number"
+      ? maxRetriesOrOptions
+      : (options?.maxRetries ?? 3);
+  const baseDelayMs = options ? (options.baseDelayMs ?? 300) : delayMs;
+
   let lastError: unknown;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       lastError = err;
-      if (attempt < maxRetries) {
-        const backoff = delayMs * Math.pow(2, attempt - 1);
-        await new Promise<void>((resolve) => setTimeout(resolve, backoff));
+      if (!isTransientError(err) || attempt === maxRetries) {
+        throw err;
       }
+      options?.onRetry?.(attempt + 1, err);
+      const backoff = baseDelayMs * Math.pow(2, attempt);
+      await new Promise<void>((resolve) => setTimeout(resolve, backoff));
     }
   }
   throw lastError;
@@ -194,6 +204,9 @@ export function isAllowanceAtRisk(allowance: bigint, required: bigint): boolean 
  */
 export function allowanceGap(allowance: bigint, required: bigint): bigint {
   return required > allowance ? required - allowance : 0n;
+}
+
+/**
  * allowance-utils.ts — Shared concurrency, retry, and type utilities for
  * allowance audit scripts (check-allowances.ts, alert-expiring-allowances.ts).
  *
@@ -297,52 +310,6 @@ export interface RetryOptions {
   jitter?: number;
   /** Called before each retry attempt with the attempt index (1-based) and error. */
   onRetry?: (attempt: number, err: unknown) => void;
-}
-
-/**
- * Executes `fn` and retries it on transient errors with truncated exponential
- * backoff plus jitter.
- *
- * - DefinitiveError and non-transient errors propagate immediately without retry.
- * - After `maxRetries` exhausted retries, the last error is rethrown.
- *
- * @example
- *   const result = await withRetry(() => server.simulateTransaction(tx), { maxRetries: 3 });
- */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {},
-): Promise<T> {
-  const maxRetries = options.maxRetries ?? 3;
-  const baseDelayMs = options.baseDelayMs ?? 300;
-  const jitter = options.jitter ?? 0.2;
-
-  let lastErr: unknown;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      lastErr = err;
-
-      // Do not retry definitive or non-transient errors
-      if (!isTransientError(err)) {
-        throw err;
-      }
-
-      // Last attempt — rethrow
-      if (attempt === maxRetries) {
-        break;
-      }
-
-      const delay =
-        baseDelayMs * 2 ** attempt * (1 + jitter * (Math.random() * 2 - 1));
-      options.onRetry?.(attempt + 1, err);
-      await sleep(delay);
-    }
-  }
-
-  throw lastErr;
 }
 
 // ── Concurrency limiter ───────────────────────────────────────────────────────

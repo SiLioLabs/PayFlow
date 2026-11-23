@@ -1,32 +1,38 @@
 /**
- * Migration 001 — initial indexer schema.
+ * Migration 001 — initial indexer schema (schema_version 1).
  *
- * Forward-only. Idempotent: every statement uses IF NOT EXISTS so a re-run
- * after a partial failure is safe. The runner wraps this in a transaction.
+ * This is the canonical definition of the `meta` and `events` tables and the
+ * indexes used by query-events.ts / merchant-queries.ts. Forward-only and
+ * idempotent: every statement uses IF NOT EXISTS so a re-run (or an upgrade of
+ * a legacy database that already has these objects) is safe.
  */
-import type { Database } from "better-sqlite3";
+import type { Migration } from "./types.js";
 
-export const version = 1;
+export const migration001: Migration = {
+  version: 1,
+  name: "initial_schema",
+  up: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
 
-export function up(db: Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      contract_id TEXT NOT NULL,
-      ledger INTEGER NOT NULL,
-      event_type TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      tx_hash TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-    );
+      CREATE TABLE IF NOT EXISTS events (
+        id         TEXT    PRIMARY KEY,
+        event_name TEXT    NOT NULL,
+        address    TEXT    NOT NULL,
+        amount     TEXT,
+        ledger     INTEGER NOT NULL,
+        timestamp  INTEGER NOT NULL,
+        tx_hash    TEXT    NOT NULL,
+        raw_data   TEXT    NOT NULL
+      );
 
-    CREATE INDEX IF NOT EXISTS idx_events_contract ON events (contract_id);
-    CREATE INDEX IF NOT EXISTS idx_events_ledger ON events (ledger);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events (event_type);
-
-    CREATE TABLE IF NOT EXISTS indexer_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-}
+      CREATE INDEX IF NOT EXISTS idx_events_address    ON events(address);
+      CREATE INDEX IF NOT EXISTS idx_events_event_name ON events(event_name);
+      CREATE INDEX IF NOT EXISTS idx_events_ledger     ON events(ledger);
+      CREATE INDEX IF NOT EXISTS idx_events_timestamp  ON events(timestamp);
+    `);
+  },
+};

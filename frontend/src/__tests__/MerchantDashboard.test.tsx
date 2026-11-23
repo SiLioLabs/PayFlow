@@ -62,9 +62,7 @@ const idleTx = (): MockTxState => ({
 });
 
 // MerchantDashboard calls useTransaction() for the batch-charge flow.
-function mockUseTransaction(overrides: {
-  batch?: Partial<MockTxState>;
-}) {
+function mockUseTransaction(overrides: { batch?: Partial<MockTxState> }) {
   const batchState: MockTxState = { ...idleTx(), ...overrides.batch };
   vi.mocked(useTransaction).mockReturnValue(batchState as any);
   return { batchState };
@@ -73,7 +71,7 @@ function mockUseTransaction(overrides: {
 describe("MerchantDashboard", () => {
   beforeEach(() => {
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -87,7 +85,7 @@ describe("MerchantDashboard", () => {
 
     render(<MerchantDashboard merchantKey="GMERCHANT" onSign={onSign} refreshTrigger={0} />);
 
-    await waitFor(() => expect(screen.getByText(/Merchant Dashboard/)).toBeTruthy());
+    await screen.findByText("GCOEYT…BUDK");
 
     // Table renders truncated address via formatAddress default (6, 4)
     expect(screen.getByText("GCOEYT…BUDK")).toBeTruthy();
@@ -190,6 +188,19 @@ describe("MerchantDashboard", () => {
 
     const revenueElement = await screen.findByTestId("merchant-total-revenue");
     expect(revenueElement.textContent).toContain("5.0000000 XLM");
-    expect(screen.getByText(/Non-custodial: Revenue is transferred directly to your wallet/i)).toBeTruthy();
+    expect(
+      screen.getByText(/Non-custodial: Revenue is transferred directly to your wallet/i)
+    ).toBeTruthy();
+  });
+
+  it("uses daily revenue buckets for the seven-day sparkline", async () => {
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([
+      { day: 20_000, amount: 12_500_000n },
+    ]);
+
+    render(<MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />);
+
+    expect(await screen.findAllByText("1.2500000 XLM")).not.toHaveLength(0);
+    expect(stellar.getMerchantRevenueDays).toHaveBeenCalledWith("GMERCHANT");
   });
 });

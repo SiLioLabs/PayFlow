@@ -40,9 +40,7 @@ const NUMERIC_LITERAL = /^\s*[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+
 /** Prefix formula-like text with an apostrophe, then apply standard CSV quoting. */
 function csvEscape(value: string): string {
   const safeValue =
-    SPREADSHEET_FORMULA_PREFIX.test(value) && !NUMERIC_LITERAL.test(value)
-      ? `'${value}`
-      : value;
+    SPREADSHEET_FORMULA_PREFIX.test(value) && !NUMERIC_LITERAL.test(value) ? `'${value}` : value;
 
   if (
     safeValue.includes(",") ||
@@ -55,20 +53,25 @@ function csvEscape(value: string): string {
   return safeValue;
 }
 
-export function toCSV(records: Record<string, unknown>[]): string {
+export function toCSV(
+  records: Record<string, unknown>[],
+  headers: readonly string[] = EXPORT_HEADERS
+): string {
   if (records.length === 0) return "";
 
   const rows = records.map((row) =>
-    EXPORT_HEADERS.map((h) => {
-      const val = row[h];
-      if (val === null || val === undefined) {
-        return "";
-      }
-      return csvEscape(String(val));
-    }).join(",")
+    headers
+      .map((h) => {
+        const val = row[h];
+        if (val === null || val === undefined) {
+          return "";
+        }
+        return csvEscape(String(val));
+      })
+      .join(",")
   );
 
-  return [EXPORT_HEADERS.map(csvEscape).join(","), ...rows].join("\r\n");
+  return [headers.map(csvEscape).join(","), ...rows].join("\r\n");
 }
 
 function toJSON(records: Record<string, unknown>[]): string {
@@ -280,7 +283,10 @@ export default function SubscriptionExport({
       </div>
 
       {(lastError || droppedRows > 0) && (
-        <div className="subscription-export__error flex items-center gap-2 mt-2" data-testid="export-error-container">
+        <div
+          className="subscription-export__error flex items-center gap-2 mt-2"
+          data-testid="export-error-container"
+        >
           <span className="text-xs text-danger" data-testid="export-error-message">
             {lastError
               ? `Export failed: ${lastError}`

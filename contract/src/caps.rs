@@ -5,7 +5,7 @@
 //! and cannot drift between entrypoints (e.g. estimate vs. live charge).
 //!
 //! The operator-facing table built from these constants lives in
-//! `docs/limits.md`. If you change a value here, update that table in the
+//! `docs/LIMITS.md`. If you change a value here, update that table in the
 //! same commit; `node scripts/emit-caps-table.mjs --check` fails the build's
 //! doc check if the two disagree.
 //!

@@ -2,7 +2,7 @@
  * useNetworkStatus — the single connectivity contract for the app.
  *
  * Merges the former `useNetworkStatus` (browser online/offline) and
- * `useNetworkCheck` (Freighter wallet network vs. app network) hooks so every
+ * `useNetworkCheck` (wallet network vs. app network) hooks so every
  * consumer shares one definition of "the network is down".
  *
  * `status` is derived as follows:
@@ -11,7 +11,7 @@
  *  - "checking" — the browser is online and the wallet network check is in flight.
  *  - "online"   — the browser is online and the wallet network was read successfully.
  *  - "unknown"  — the browser is online (or cannot report) but the wallet network could
- *                 not be verified (no Freighter, older Freighter whose getNetwork() throws,
+ *                 not be verified (no compatible adapter, an unsupported network query,
  *                 or no browser environment).
  *
  * `networkMatch` stays optimistic (`true`) until the wallet check proves otherwise, so no
@@ -28,7 +28,9 @@ import {
   isMainnetConfirmed as getMainnetConfirmed,
   setMainnetConfirmed,
 } from "../utils/network";
+import type { WalletAdapter } from "../services/wallets/WalletAdapter";
 
+const WALLET_NETWORK_POLL_MS = 5000;
 export type NetworkStatus = "online" | "offline" | "unknown" | "checking";
 
 export interface NetworkStatusResult {
@@ -56,11 +58,11 @@ function hasFreighter(): boolean {
   return typeof window !== "undefined" && Boolean(window.freighter);
 }
 
-export function useNetworkStatus(): NetworkStatusResult {
+export function useNetworkStatus(adapter?: WalletAdapter | null): NetworkStatusResult {
   // `null` = the environment cannot report connectivity.
   const [browserOnline, setBrowserOnline] = useState<boolean | null>(readBrowserOnline);
   const [walletCheck, setWalletCheck] = useState<WalletCheck>(() =>
-    hasFreighter() ? "checking" : "unverified"
+    adapter?.getNetwork || hasFreighter() ? "checking" : "unverified"
   );
   const [wallet, setWallet] = useState({ networkMatch: true, walletNetwork: "" });
 
@@ -94,32 +96,57 @@ export function useNetworkStatus(): NetworkStatusResult {
 
   useEffect(() => {
     let cancelled = false;
+    let checking = false;
+    let hasChecked = false;
+    const getNetwork = adapter
+      ? adapter.getNetwork
+        ? () => adapter.getNetwork!()
+        : null
+      : hasFreighter()
+        ? () => window.freighter!.getNetwork()
+        : null;
+    setWallet({ networkMatch: true, walletNetwork: "" });
+    setWalletCheck(getNetwork ? "checking" : "unverified");
 
     async function check() {
-      if (!hasFreighter()) {
+      if (!getNetwork) {
+        setWallet({ networkMatch: true, walletNetwork: "" });
         setWalletCheck("unverified");
+        hasChecked = true;
         return;
       }
 
+      if (checking) return;
+      checking = true;
+      if (!hasChecked) setWalletCheck("checking");
       try {
-        const { network, networkPassphrase } = await window.freighter!.getNetwork();
+        const { network, networkPassphrase } = await getNetwork();
         if (cancelled) return;
         setWallet({
           networkMatch: networkPassphrase === NETWORK_PASSPHRASE,
           walletNetwork: network,
         });
         setWalletCheck("verified");
+        hasChecked = true;
       } catch {
-        // Older Freighter without getNetwork(): keep the optimistic match to avoid noise.
-        if (!cancelled) setWalletCheck("unverified");
+        // If a wallet cannot report its network, keep the match optimistic to avoid noise.
+        if (!cancelled) {
+          setWallet({ networkMatch: true, walletNetwork: "" });
+          setWalletCheck("unverified");
+          hasChecked = true;
+        }
+      } finally {
+        checking = false;
       }
     }
 
     check();
+    const interval = window.setInterval(check, WALLET_NETWORK_POLL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
-  }, []);
+  }, [adapter]);
 
   let status: NetworkStatus;
   if (browserOnline === false) status = "offline";

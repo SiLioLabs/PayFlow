@@ -4,7 +4,7 @@ Daily spending limits are FlowPay's primary consumer-protection control for mete
 
 This guide explains how that cap is implemented in `contract/src/spending_limit.rs`, how the ~24-hour window is approximated with temporary storage TTL (not a wall clock), how both pay-per-use entrypoints share one budget, how to inspect live state, edge cases at TTL boundaries, and how to surface remaining balance in a TypeScript UI.
 
-**Related docs:** [API Reference](./API.md) · [Storage and TTL](./architecture/storage_and_ttl.md) · [Architecture](./ARCHITECTURE.md) · [Error Codes](./ERROR-CODES.md) · [Admin batch limits](./limits.md)
+**Related docs:** [API Reference](./API.md) · [Storage and TTL](./architecture/STORAGE-AND-TTL.md) · [Architecture](./ARCHITECTURE.md) · [Error Codes](./ERROR-CODES.md) · [Admin batch limits](./LIMITS.md)
 
 ---
 
@@ -482,4 +482,4 @@ Notable cases:
 - Implementation: [`contract/src/spending_limit.rs`](../contract/src/spending_limit.rs)
 - Entrypoints: [`contract/src/lib.rs`](../contract/src/lib.rs) (`pay_per_use`, `pay_per_use_to`, daily-limit methods)
 - Frontend card: [`frontend/src/components/DailyLimitCard.tsx`](../frontend/src/components/DailyLimitCard.tsx)
-- Storage overview: [Storage and TTL](./architecture/storage_and_ttl.md)
+- Storage overview: [Storage and TTL](./architecture/STORAGE-AND-TTL.md)

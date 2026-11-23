@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { EventDedupCache } from "../event-dedup.js";
 import {
   initSchema,
+  indexEvents,
   openDatabase,
   parseEvent,
   pollOnce,
@@ -19,6 +20,7 @@ interface FakeEvent extends Record<string, unknown> {
   pagingToken: string;
   txHash: string;
   ledger: number;
+  topic: unknown[];
 }
 
 /** Build an RPC-shaped event. TOID = ledger << 32 | txOrder << 12 | opIndex. */
@@ -92,6 +94,32 @@ describe("stableEventKey", () => {
     expect(stableEventKey({ id: "0-0" })).toBeNull();
     expect(stableEventKey({ txHash: "tx", id: "garbage" })).toBeNull();
     expect(parseEvent({ topic: ["charged"], txHash: "tx" })).toBeNull();
+  });
+});
+
+describe("event schema versions", () => {
+  it("keeps legacy v1 events and strips the trailing v2 marker without shifting actor topics", () => {
+    const legacy = parseEvent(rpcEvent(900, 1, 0, 0, "charged"));
+    const currentRaw = rpcEvent(901, 1, 0, 0, "charged");
+    currentRaw.topic = [...currentRaw.topic, "v2"];
+    const current = parseEvent(currentRaw);
+
+    expect(legacy).toMatchObject({ event_name: "charged", address: "GUSER90010", schema_version: 1 });
+    expect(current).toMatchObject({ event_name: "charged", address: "GUSER90110", schema_version: 2 });
+  });
+
+  it("persists the wire version for legacy and versioned events", () => {
+    const db = openDatabase(dbFile);
+    initSchema(db);
+    const legacy = rpcEvent(910, 1, 0, 0, "charged");
+    const current = rpcEvent(911, 1, 0, 0, "charged");
+    current.topic = [...current.topic, "v2"];
+    const result = indexEvents(db, new EventDedupCache(), [legacy, current]);
+    const rows = db.prepare("SELECT schema_version FROM events ORDER BY ledger").all() as { schema_version: number }[];
+    db.close();
+
+    expect(result.written).toBe(2);
+    expect(rows.map((row) => row.schema_version)).toEqual([1, 2]);
   });
 });
 

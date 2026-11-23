@@ -11,6 +11,15 @@ vi.mock("../components/CopyButton", () => ({
   default: ({ text }: { text: string }) => <button data-testid={`copy-${text}`}>Copy</button>,
 }));
 
+const { buildCancelAndRefundTxMock } = vi.hoisted(() => ({
+  buildCancelAndRefundTxMock: vi.fn(),
+}));
+
+vi.mock("../stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stellar")>();
+  return { ...actual, buildCancelAndRefundTx: buildCancelAndRefundTxMock };
+});
+
 // ── Test data ──────────────────────────────────────────────────────────────────
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -46,6 +55,14 @@ const LOW_AMOUNT_SUB = makeSub({
   subscriber: "GLOW4444444444444444444444444444444444444444444444444444",
   amount: "10000000",
   nextChargeAt: FUTURE + 200,
+});
+
+const MERCHANT = "GMERCHANT555555555555555555555555555555555555555555555555";
+const REFUND_SUB = makeSub({
+  subscriber: "GREFUND666666666666666666666666666666666666666666666666666",
+  merchant: MERCHANT,
+  lastCharged: NOW - 864_000,
+  nextChargeAt: FUTURE,
 });
 
 // ── deriveStatus unit tests ────────────────────────────────────────────────────
@@ -434,6 +451,120 @@ describe("MerchantSubscriberTable", () => {
       renderedRows.forEach((row) => {
         expect(row.className).toContain("mst-row--overdue");
       });
+    });
+  });
+
+  describe("prorated refunds", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(NOW * 1000));
+      buildCancelAndRefundTxMock.mockReset();
+      buildCancelAndRefundTxMock.mockResolvedValue("refund-xdr");
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows a refund amount preview in the row action", () => {
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`)).toHaveTextContent(
+        "6.6666666 XLM"
+      );
+    });
+
+    it("signs the refund, updates the row, and notifies the parent", async () => {
+      const onSign = vi.fn().mockResolvedValue("refund-hash");
+      const onRefunded = vi.fn();
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={onSign}
+          onRefunded={onRefunded}
+        />
+      );
+
+      await userEvent.click(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`));
+      expect(screen.getByTestId("mst-refund-preview")).toHaveTextContent("6.6666666 XLM");
+
+      await userEvent.click(screen.getByTestId("mst-refund-confirm"));
+
+      await waitFor(() =>
+        expect(buildCancelAndRefundTxMock).toHaveBeenCalledWith(MERCHANT, REFUND_SUB.subscriber)
+      );
+      expect(onSign).toHaveBeenCalledWith("refund-xdr");
+      await waitFor(() =>
+        expect(
+          within(screen.getByTestId(`mst-row-${REFUND_SUB.subscriber}`)).getByLabelText(
+            "Status: refunded"
+          )
+        ).toBeInTheDocument()
+      );
+      expect(onRefunded).toHaveBeenCalledWith(REFUND_SUB, "refund-hash");
+    });
+
+    it("blocks a refund when the connected wallet is not the merchant", () => {
+      const mismatched = { ...REFUND_SUB, merchant: "GOTHER77777777777777777777777777777777777777777777777" };
+      render(
+        <MerchantSubscriberTable
+          subscribers={[mismatched]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      const button = screen.getByTestId(`mst-refund-${mismatched.subscriber}`);
+      expect(button).toBeDisabled();
+      expect(screen.getByText(/merchant wallet mismatch \(error 38\)/i)).toBeInTheDocument();
+    });
+
+    it("blocks a refund with no positive prorated amount", () => {
+      const exhausted = {
+        ...REFUND_SUB,
+        lastCharged: NOW - 2_592_000,
+        nextChargeAt: FUTURE,
+      };
+      render(
+        <MerchantSubscriberTable
+          subscribers={[exhausted]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId(`mst-refund-${exhausted.subscriber}`)).toBeDisabled();
+      expect(screen.getByText(/nothing left to refund \(error 39\)/i)).toBeInTheDocument();
+    });
+
+    it("surfaces underfunded merchant errors clearly", async () => {
+      const onSign = vi.fn().mockRejectedValue(new Error("error(Contract, #40)"));
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={onSign}
+        />
+      );
+
+      await userEvent.click(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`));
+      await userEvent.click(screen.getByTestId("mst-refund-confirm"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("mst-refund-modal-error")).toHaveTextContent(
+          /insufficient balance to fund this refund/i
+        )
+      );
+      expect(screen.getByTestId(`mst-row-${REFUND_SUB.subscriber}`)).not.toHaveTextContent(
+        "Refunded"
+      );
     });
   });
 });

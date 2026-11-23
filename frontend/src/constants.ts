@@ -42,7 +42,7 @@ export const DEFAULT_EXPIRATION_LEDGER = 30;
  *
  * Source of truth: `contract/src/caps.rs` (batch and page caps) together with
  * the amount/interval guards in `contract/src/lib.rs`. The operator-facing table
- * built from the batch caps lives in `docs/limits.md`; `node
+ * built from the batch caps lives in `docs/LIMITS.md`; `node
  * scripts/emit-caps-table.mjs --check` fails the build's doc check when the two
  * disagree.
  *

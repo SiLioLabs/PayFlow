@@ -26,7 +26,7 @@
  * };
  */
 import { useState, useCallback, useRef, useEffect } from "react";
-import { server } from "../stellar";
+import { server, type TxSimulationPreview } from "../stellar";
 import { useRpcHealthContext } from "../context/RpcHealthContext";
 import {
   enqueueTransaction,
@@ -40,12 +40,23 @@ import { ensureMainnetConfirmed } from "../utils/network";
 
 export type TxStatus = "idle" | "pending" | "success" | "failed";
 
+export interface SubmitOptions {
+  /** Simulation preview captured before the wallet prompt. */
+  preview?: TxSimulationPreview | null;
+  /** Explicit user override for a simulation failure marked safe to override. */
+  allowSimulationOverride?: boolean;
+}
+
 export interface UseTransactionResult {
   status: TxStatus;
   hash: string | null;
   error: string | null;
   isError?: boolean;
-  submit: (buildAndSign: () => Promise<string>, label?: string) => Promise<string>;
+  submit: (
+    buildAndSign: () => Promise<string>,
+    label?: string,
+    options?: SubmitOptions
+  ) => Promise<string>;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -76,7 +87,11 @@ export function useTransaction(): UseTransactionResult {
   }, []);
 
   const submit = useCallback(
-    async (buildAndSign: () => Promise<string>, label = "Transaction"): Promise<string> => {
+    async (
+      buildAndSign: () => Promise<string>,
+      label = "Transaction",
+      options: SubmitOptions = {}
+    ): Promise<string> => {
       if (circuitOpen) {
         const msg = "RPC unavailable";
         setError(msg);
@@ -90,16 +105,25 @@ export function useTransaction(): UseTransactionResult {
         setStatus("failed");
         throw new Error(msg);
       }
+      // Block the wallet prompt when simulation predicted a contract failure,
+      // unless the user explicitly overrode a failure classified as safe.
+      if (options.preview?.blockSigning && !options.allowSimulationOverride) {
+        const msg = options.preview.errorMessage ?? "Simulation failed";
+        setError(msg);
+        setStatus("failed");
+        throw new Error(msg);
+      }
+
       setStatus("pending");
       setHash(null);
       setError(null);
 
       // Create a persisted UI queue entry so interrupted signings survive reload.
       // The retry callback re-simulates before resubmitting (caller rebuilds XDR with simulate).
-      const uiId = enqueue(label, null);
+      const uiId = enqueue(label, null, options.preview ?? null);
       const retryFn = async () => {
         // Re-run the original buildAndSign with a fresh simulation; useTransaction will re-enter its own queue
-        await submit(buildAndSign, label);
+        await submit(buildAndSign, label, options);
       };
       setRetry(uiId, retryFn);
 
