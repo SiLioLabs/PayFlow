@@ -1,5 +1,24 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  ReactNode,
+} from "react";
 import type { Toast, ToastVariant, Notification } from "../hooks/useToast";
+import { useLocalStorage } from "../hooks/useLocalStorage";
+
+export type NotificationPreferences = Record<ToastVariant, boolean>;
+
+const NOTIFICATION_PREFERENCES_KEY = "flowpay_notification_preferences";
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  success: true,
+  error: true,
+  info: true,
+};
 
 interface ToastContextValue {
   toasts: Toast[];
@@ -11,6 +30,8 @@ interface ToastContextValue {
   resumeToast: (id: number) => void;
   markAllRead: () => void;
   clearNotifications: () => void;
+  notificationPreferences: NotificationPreferences;
+  setNotificationPreference: (category: ToastVariant, enabled: boolean) => boolean;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -24,6 +45,27 @@ export function useToastContext(): ToastContextValue {
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const [storedPreferences, persistPreferences] = useLocalStorage<NotificationPreferences>(
+    NOTIFICATION_PREFERENCES_KEY,
+    DEFAULT_NOTIFICATION_PREFERENCES
+  );
+  const notificationPreferences = useMemo(
+    () => ({
+      success:
+        typeof storedPreferences?.success === "boolean"
+          ? storedPreferences.success
+          : DEFAULT_NOTIFICATION_PREFERENCES.success,
+      error:
+        typeof storedPreferences?.error === "boolean"
+          ? storedPreferences.error
+          : DEFAULT_NOTIFICATION_PREFERENCES.error,
+      info:
+        typeof storedPreferences?.info === "boolean"
+          ? storedPreferences.info
+          : DEFAULT_NOTIFICATION_PREFERENCES.info,
+    }),
+    [storedPreferences]
+  );
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     try {
@@ -40,7 +82,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const timers = useRef(new Map<number, { remaining: number; startedAt: number | null; handle: ReturnType<typeof setTimeout> | null }>());
+  const timers = useRef(
+    new Map<
+      number,
+      { remaining: number; startedAt: number | null; handle: ReturnType<typeof setTimeout> | null }
+    >()
+  );
 
   const suspended = useRef(false);
 
@@ -50,6 +97,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (entry.handle !== null) clearTimeout(entry.handle);
     timers.current.delete(id);
   }, []);
+
+  const setNotificationPreference = useCallback(
+    (category: ToastVariant, enabled: boolean) =>
+      persistPreferences({ ...notificationPreferences, [category]: enabled }),
+    [notificationPreferences, persistPreferences]
+  );
 
   const removeToast = useCallback(
     (id: number) => {
@@ -142,11 +195,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  let nextId = 0;
+  useEffect(() => {
+    setToasts((prev) => {
+      const disabled = prev.filter((toast) => !notificationPreferences[toast.variant]);
+      disabled.forEach((toast) => discardTimer(toast.id));
+      return disabled.length
+        ? prev.filter((toast) => notificationPreferences[toast.variant])
+        : prev;
+    });
+  }, [notificationPreferences, discardTimer]);
+
+  const nextId = useRef(0);
 
   const addToast = useCallback(
     (message: string, variant: ToastVariant = "info", txHash?: string) => {
-      const id = ++nextId;
+      if (!notificationPreferences[variant]) return;
+      const id = ++nextId.current;
 
       setToasts((prev) => [...prev, { id, message, variant, txHash }]);
       if (suspended.current) {
@@ -194,7 +258,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         return updated;
       });
     },
-    [startTimer]
+    [notificationPreferences, startTimer]
   );
 
   const markAllRead = useCallback(() => {
@@ -228,6 +292,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     resumeToast,
     markAllRead,
     clearNotifications,
+    notificationPreferences,
+    setNotificationPreference,
   };
 
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;

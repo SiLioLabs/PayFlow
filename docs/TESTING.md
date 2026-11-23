@@ -13,9 +13,19 @@ For deep dives on specific contract test patterns (ledger time manipulation, moc
 ## Running the Tests
 
 ```bash
-cd contract
-cargo test
+cargo test --workspace
 ```
+
+To test one crate, use `cargo test -p flowpay` or `cargo test -p academy-vesting`.
+Frontend tests and coverage thresholds:
+
+```bash
+cd frontend
+npm ci
+npm run test -- --coverage
+```
+
+Vitest uses the V8 provider and writes HTML, LCOV, and terminal reports to `frontend/coverage`. Global thresholds apply to all frontend source, with additional minimums for `src/hooks/` and `src/utils/`. Pull-request and push CI uploads this report as the `frontend-coverage` artifact.
 
 To see printed output while tests run:
 
@@ -59,8 +69,7 @@ These are not functional tests. They measure CPU and memory cost so regressions 
 Run the benchmark tests with nocapture so the printed results stay visible:
 
 ```bash
-cd contract
-cargo test bench -- --nocapture
+cargo test -p flowpay bench -- --nocapture
 ```
 
 That runs the benchmark functions and prints the measured CPU instructions and memory bytes for each one.

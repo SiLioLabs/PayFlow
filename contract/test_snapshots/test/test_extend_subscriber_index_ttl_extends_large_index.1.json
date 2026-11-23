@@ -4421,6 +4421,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -4798,6 +4801,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5175,6 +5181,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5552,6 +5561,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5929,6 +5941,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -6077,6 +6092,9 @@
             "topics": [
               {
                 "symbol": "subscriber_index_ttl_extended"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

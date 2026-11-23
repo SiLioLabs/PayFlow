@@ -11,6 +11,7 @@ PayFlow/
 ├── .husky/              # Git hooks (pre-commit, pre-push)
 ├── .kiro/               # Spec notes under .kiro/specs/
 ├── contract/            # Soroban smart contract (Rust)
+├── vesting/             # Academy vesting contract (Rust)
 ├── deployments/         # deploy-pipeline config + manifest
 ├── docs/                # Project documentation
 ├── frontend/            # React + TypeScript UI
@@ -20,6 +21,8 @@ PayFlow/
 ├── .gitignore
 ├── AGENTS.md            # Agent-oriented project map
 ├── CHANGELOG.md
+├── Cargo.toml           # Workspace (flowpay + academy-vesting)
+├── Cargo.lock           # Shared Soroban dependency lockfile
 ├── CONTRIBUTING.md
 ├── LICENSE              # MIT License
 ├── README.md
@@ -40,17 +43,16 @@ The Soroban smart contract. Written in Rust, compiled to WASM, deployed to the S
 
 ```
 contract/
-├── Cargo.toml           # Rust package `flowpay`, crate-type cdylib
-├── Cargo.lock
+├── Cargo.toml           # flowpay workspace member manifest
 ├── package-lock.json
 ├── src/                 # Contract modules (see below)
 └── test_snapshots/      # soroban-sdk test snapshot JSON
 ```
 
-Release WASM path (after `cargo build --release --target wasm32-unknown-unknown` in this directory):
+Release WASM path (after `cargo build -p flowpay --release --target wasm32-unknown-unknown` from the repository root):
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 ### `contract/src/`
@@ -86,6 +88,8 @@ contract/src/
 ```
 
 ### `vesting/` (Academy Vesting Contract)
+
+Separate Soroban crate documentation: [`vesting/README.md`](../vesting/README.md).
 
 ```
 vesting/
@@ -221,6 +225,13 @@ The task-oriented entry point for everything below is [docs/README.md](README.md
 
 ```
 docs/
+├── ARCHITECTURE.md     # System design, data model, storage strategy
+├── DEPENDENCIES.md     # Dependency management policy and Dependabot configuration
+├── DEPLOYMENT.md       # Build, deploy, keeper setup
+├── TESTING.md          # How to run and write tests
+├── API.md              # Full contract function reference
+├── STRUCTURE.md        # This file
+└── SECURITY.md         # Security model and disclosure policy
 ├── API.md
 ├── ARCHITECTURE.md
 ├── COMPLIANCE.md

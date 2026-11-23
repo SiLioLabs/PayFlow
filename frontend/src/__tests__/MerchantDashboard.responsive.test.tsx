@@ -41,7 +41,7 @@ describe("MerchantDashboard – responsive layout", () => {
     setViewport(375);
     vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
 
     const { container } = render(
       <MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />
@@ -56,7 +56,7 @@ describe("MerchantDashboard – responsive layout", () => {
     setViewport(375);
     vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
 
     const { container } = render(
       <MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />
@@ -73,7 +73,7 @@ describe("MerchantDashboard – responsive layout", () => {
     setViewport(1024);
     vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
 
     const { container } = render(
       <MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />
@@ -89,7 +89,7 @@ describe("MerchantDashboard – responsive layout", () => {
     setViewport(1024);
     vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
 
     const { container } = render(
       <MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />
@@ -103,7 +103,7 @@ describe("MerchantDashboard – responsive layout", () => {
     setViewport(768);
     vi.mocked(stellar.getMerchantSubscribers).mockResolvedValue([]);
     vi.mocked(stellar.getMerchantRevenue).mockResolvedValue(0n);
-    vi.mocked(stellar.getMerchantRevenueHistory).mockResolvedValue([]);
+    vi.mocked(stellar.getMerchantRevenueDays).mockResolvedValue([]);
 
     const { container } = render(
       <MerchantDashboard merchantKey="GMERCHANT" onSign={vi.fn()} refreshTrigger={0} />

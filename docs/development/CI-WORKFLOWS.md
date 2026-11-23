@@ -58,6 +58,14 @@ Runs on `ubuntu-latest`.
 | `scripts/` | `npm audit --audit-level=high --omit=dev` |
 
 `--omit=dev` restricts the audit to production dependencies. Any finding at severity `high` or above fails the step. There is no npm allowlist — resolve or pin away from a vulnerable package rather than suppressing the finding.
+This repository ships two GitHub Actions workflow files in `.github/workflows/`:
+
+| Workflow | File | Triggers |
+| --- | --- | --- |
+| Contract CI | `.github/workflows/contract.yml` | PRs and pushes to `main` touching `contract/` |
+| Frontend CI | `.github/workflows/frontend.yml` | PRs and pushes to `main` touching `frontend/` |
+
+Both workflows must pass before a PR can be merged. Failing `clippy` or a type error blocks the PR.
 
 ---
 
@@ -67,7 +75,7 @@ Run these locally before opening a PR. The CI workflows mirror them exactly; fai
 
 | If you changed… | Run locally |
 | --- | --- |
-| `contract/` | `cd contract && cargo clippy -- -D warnings && cargo test` (or `npm run backend:test`) |
+| Rust workspace | `cargo clippy --workspace && cargo test --workspace` (or `npm run backend:test` / `npm run backend:vesting:test`) |
 | `frontend/` | `npm run typecheck`, then `cd frontend && npm run lint && npm run test && npm run build` |
 | `scripts/` | `cd scripts && npm run typecheck && npm run lint && npm run lint:duplicates && node lint-duplicates.mjs && NODE_OPTIONS=--experimental-sqlite npm test` |
 | Any `*.md` file | `node check-doc-links.mjs` (see [docs/README.md § Documentation tooling](../README.md#documentation-tooling)) |
@@ -83,11 +91,10 @@ The CI workflows do not replace local checks — they are a safety net. Running 
 ## Contract (Rust)
 
 ```bash
-cd contract
 rustup target add wasm32-unknown-unknown
-cargo clippy -- -D warnings
-cargo build
-cargo test
+cargo clippy --workspace
+cargo build --workspace
+cargo test --workspace
 ```
 
 ## Frontend

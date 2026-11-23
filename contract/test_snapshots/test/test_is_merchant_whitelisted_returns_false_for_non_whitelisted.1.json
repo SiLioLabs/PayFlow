@@ -985,6 +985,9 @@
             "topics": [
               {
                 "symbol": "whitelist_enabled"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

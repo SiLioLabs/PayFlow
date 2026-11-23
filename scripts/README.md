@@ -526,7 +526,7 @@ Set the variables that match how you start the process. Prefer the
 ### Purpose
 
 Polls Soroban RPC `getEvents` for the configured contract and upserts events
-into a local SQLite database. On restart it resumes from `meta.last_ledger`
+into a local SQLite database, or into PostgreSQL when `DATABASE_URL` is set. On restart it resumes from `meta.last_ledger`
 so the same events are not re-fetched as duplicates (upsert key
 `tx_hash:event_name`).
 
@@ -555,6 +555,7 @@ tracking guide.
 | `DATA_DIR`         | `data`                                | Directory for the DB file             |
 | `DB_FILE`          | `resolve(DATA_DIR, "events.db")`      | Full path override                    |
 | `START_LEDGER`     | unset → latest ledger                 | First-run start when no `last_ledger` |
+| `DATABASE_URL`     | unset → SQLite                        | `postgres://…` indexes into PostgreSQL instead (see [docs/operations/indexer-postgres.md](../docs/operations/indexer-postgres.md)) |
 
 `indexer.ts` does not read `NETWORK_PASSPHRASE` itself, but its RPC client
 (`rpc-client.ts`) does, along with `RPC_URLS` — see

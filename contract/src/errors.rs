@@ -119,4 +119,20 @@ pub enum ContractError {
     IntervalExceedsMaximum = 46,
     /// Returned when a merchant freeze reason exceeds the 128-byte length limit.
     FreezeReasonTooLong = 47,
+    /// Returned when a trial extension exceeds `MAX_TRIAL_EXTENSION` or would
+    /// push the trial end beyond `MAX_TOTAL_TRIAL` from the current ledger time.
+    TrialExtensionExceedsMaximum = 48,
+    /// Returned when `skip_next_charge` is called again before the cooldown of
+    /// one full billing interval has elapsed since the previous skip.
+    SkipCooldownActive = 49,
+    /// Returned when `refund_last_charge` is called but no scheduled charge has
+    /// been recorded for the subscriber (or the last one was already refunded).
+    NoLastChargeToRefund = 50,
+    /// Returned by `finalize_migration` while fewer accounts have been migrated
+    /// than the operator-supplied total, so the schema version cannot be advanced.
+    MigrationIncomplete = 48,
+    /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
+    InvalidKeeperTipBps = 49,
+    /// Returned when an admin transfer targets the current admin or this contract.
+    InvalidAdminAddress = 48,
 }

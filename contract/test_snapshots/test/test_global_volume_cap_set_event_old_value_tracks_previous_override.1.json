@@ -1060,6 +1060,9 @@
             "topics": [
               {
                 "symbol": "global_volume_cap_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1143,6 +1146,9 @@
             "topics": [
               {
                 "symbol": "global_volume_cap_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

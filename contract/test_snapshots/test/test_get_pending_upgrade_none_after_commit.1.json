@@ -1166,6 +1166,9 @@
             "topics": [
               {
                 "symbol": "upg_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1278,6 +1281,9 @@
             "topics": [
               {
                 "symbol": "upgrade"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

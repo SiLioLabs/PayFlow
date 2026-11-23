@@ -2060,6 +2060,9 @@
             "topics": [
               {
                 "symbol": "fee_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2132,6 +2135,9 @@
             "topics": [
               {
                 "symbol": "fee_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2289,6 +2295,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2663,6 +2672,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -2684,6 +2696,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
