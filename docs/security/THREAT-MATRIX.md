@@ -86,16 +86,11 @@ fn validate_billing_interval(interval: u64) -> Result<(), Error> {
 
 ```rust
 // admin.rs: Authorization check on all admin functions
-fn admin_emergency_freeze(env: Env) -> Result<(), Error> {
-    let admin = env.storage().instance().get::<Address>(&ADMIN_KEY)?;
-    let caller = env.invoker();
-
-    if caller != admin {
-        return Err(Error::Unauthorized);
-    }
-
-    // Execute freeze logic
-    Ok(())
+pub fn require_admin(env: &Env) {
+    let admin = env.storage().instance()
+        .get::<Address>(&DataKey::Admin)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NotInitialized));
+    admin.require_auth();
 }
 
 // validation.rs: Strict permission checking
@@ -111,9 +106,11 @@ fn require_admin(env: &Env) -> Result<Address, Error> {
 **Mitigation Strategy:**
 
 - ✓ Every admin function validates `env.invoker()` against stored admin address
-- ✓ Admin address immutable after deployment (no transfer function)
+- ✓ Administrative authority uses two-step `transfer_admin` / `accept_admin` handoff
 - ✓ All modifications require explicit authorization check
 - ✓ Failed auth attempts logged/emitted as events
+
+The admin is trusted to pause contracts, change billing parameters and fees, freeze merchants, repair/cancel subscriptions, govern migrations, and commit upgrades. It should be a multisig or governed account, not a single hot key. For the complete function-level power and delay table, see [docs/SECURITY.md](../SECURITY.md#administrator-powers-and-trust-assumptions).
 
 ---
 
