@@ -52,10 +52,7 @@ export interface MerchantSubscriberTableProps {
 
 function formatDate(unixSec: number): string {
   if (!unixSec) return "—";
-  return new Date(unixSec * 1000).toLocaleString(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  return formatDateTimeShort(new Date(unixSec * 1000));
 }
 
 /**

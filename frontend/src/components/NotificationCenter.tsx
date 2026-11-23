@@ -41,13 +41,6 @@ function variantIcon(variant: ToastVariant): string {
   return "ℹ️";
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 // ── Long-message expand ───────────────────────────────────────────────────────
 
 const MAX_MSG_LENGTH = 120;
