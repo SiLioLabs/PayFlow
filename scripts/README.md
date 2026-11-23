@@ -143,7 +143,7 @@ Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
 ### backup-indexer-db.ts / restore-indexer-db.ts
 
 Online-safe backup and verified restore for the indexer SQLite database (`data/events.db`).
-Full procedure: **[docs/operations/indexer-backup-restore.md](../docs/operations/indexer-backup-restore.md)**.
+Full procedure: **[docs/operations/INDEXER-BACKUP-RESTORE.md](../docs/operations/INDEXER-BACKUP-RESTORE.md)**.
 
 The backup uses SQLite's `VACUUM INTO` (consistent hot snapshot — the indexer can keep running).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file and a SHA-256 checksum is written next to it (`<backup>.sha256`, `sha256sum` format).
 

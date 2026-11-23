@@ -293,9 +293,15 @@ See [`docs/ONBOARDING.md`](docs/ONBOARDING.md) for a contributor walkthrough and
 | [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend architecture guide |
 | [`docs/FRONTEND-COMPONENTS.md`](docs/FRONTEND-COMPONENTS.md) | Component reference |
 | [`docs/KEEPER.md`](docs/KEEPER.md) | Keeper runtime and configuration |
-| [`docs/integrations/frontend_integration.md`](docs/integrations/frontend_integration.md) | Frontend integration guide |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend integration guide |
 
 All docs live under [`docs/`](docs/).
+
+## Development notes
+
+- [Agent context](AGENTS.md) — workspace description used by AI coding assistants
+- [UI design](UIDesign.md) — Figma design file link
+- [TODO](TODO.md) — open developer tasks
 
 ## License
 

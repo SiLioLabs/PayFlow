@@ -1,0 +1,57 @@
+name: Security Audit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit contract dependencies
+        run: cargo audit --file contract/Cargo.lock --deny warnings --config audit.toml
+
+      - name: Audit vesting dependencies
+        run: cargo audit --file vesting/Cargo.lock --deny warnings --config audit.toml
+
+  npm-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Audit root dependencies
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: .
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: frontend
+
+      - name: Audit scripts dependencies
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: scripts
