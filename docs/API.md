@@ -744,7 +744,7 @@ pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address)
 - Emits `pay_per_use` event with `recipient` in place of `sub.merchant`.
 
 **Use cases:**  
-Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-marketplace--multi-merchant-routing), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
+Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-handling-events), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
 
 CLI example:
 
@@ -1781,6 +1781,22 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_revenue --merchant <MERCHANT_ADDRESS>
 ```
 
+### `withdraw_merchant_revenue`
+
+```
+withdraw_merchant_revenue(env: Env, merchant: Address)
+```
+
+Auth: `merchant.require_auth()`.
+
+Returns: `()`. Transfers the accumulated revenue balance from contract storage to the merchant's wallet and resets the stored balance to zero.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- withdraw_merchant_revenue --merchant <MERCHANT_ADDRESS>
+```
+
 ### `get_merchant_revenue_history`
 
 ```
@@ -1904,6 +1920,22 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- remove_daily_limit --user <USER_ADDRESS>
+```
+
+### `get_daily_limit`
+
+```
+get_daily_limit(env: Env, user: Address) -> Option<i128>
+```
+
+Auth: none.
+
+Returns: `Option<i128>` — `Some(limit)` in stroops if the user has set a daily spending cap, `None` otherwise.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit --user <USER_ADDRESS>
 ```
 
 ### `get_daily_spent`
@@ -2155,6 +2187,54 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- contract_health_check
+```
+
+### `get_subscription_health`
+
+```
+get_subscription_health(env: Env, user: Address) -> SubscriptionHealth
+```
+
+Auth: none.
+
+Returns: [`SubscriptionHealth`](#subscriptionhealth) — a composite snapshot of the subscription's current state for frontend display.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_subscription_health --user <USER_ADDRESS>
+```
+
+### `get_contract_config`
+
+```
+get_contract_config(env: Env) -> ContractConfig
+```
+
+Auth: none.
+
+Returns: [`ContractConfig`](#contractconfig) — a snapshot of contract-wide configuration settings (token, admin, fee, grace period, min interval, whitelist mode, paused flag, schema version).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_contract_config
+```
+
+### `batch_cancel`
+
+```
+batch_cancel(env: Env, users: Vec<Address>) -> Vec<CancelResult>
+```
+
+Auth: each `user.require_auth()` in the batch.
+
+Returns: `Vec<`[`CancelResult`](#cancelresult)`>` — one entry per address indicating whether the cancellation succeeded or why it was skipped.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- batch_cancel --users '["<USER1>","<USER2>"]'
 ```
 
 ### `clear_charge_history`
