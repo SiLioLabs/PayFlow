@@ -406,4 +406,4 @@ Before opening a pull request against `main`:
 - Event catalogue: [`docs/EVENTS.md`](EVENTS.md)
 - Error codes: [`docs/ERROR-CODES.md`](ERROR-CODES.md)
 - Architecture and storage design: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
-- Testing runbook: [`docs/development/testing_runbook.md`](development/testing_runbook.md)
+- Testing runbook: [`docs/development/TESTING-RUNBOOK.md`](development/TESTING-RUNBOOK.md)

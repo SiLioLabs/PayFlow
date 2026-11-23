@@ -5,16 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Versioning note:** `package.json` and `contract/Cargo.toml` declare `0.1.0`.
-> There are no git tags and no GitHub Releases. `[0.1.0]` is the cumulative
-> documented baseline for that declared version. Undated entries under
-> `[Unreleased]` are preserved from the prior changelog and track work not
-> yet cut as a tagged release.
+## Versioning policy
+
+- `package.json`, `contract/Cargo.toml`, `vesting/Cargo.toml`, and `frontend/package.json` currently declare `0.1.0`. No git tags or GitHub Releases exist yet.
+- A release MAJOR/MINOR/PATCH change follows SemVer. **MAJOR** covers incompatible contract or public ABI changes; **MINOR** adds backward-compatible functions or fields; **PATCH** fixes behavior without changing the public interface.
+- Storage layout and migration changes are release-breaking unless an existing instance can migrate automatically. The contract schema version, ABI, and migration requirement must be called out explicitly in the changelog.
+- Breaking entries use `**BREAKING**` and describe the affected function, wire/schema field, migration, and required caller action.
+- Contract WASM and schema changes should be tagged together with a release where practical. Until formal releases exist, `[0.1.0]` is the cumulative baseline and `[Unreleased]` contains work not yet released.
 
 ## [Unreleased]
 
 ### Added
 
+- Add `get_charges_due_between(from, to, offset, limit)`, a bounded keeper read of subscribers due inside a time window, with their `next_charge_at`. The bundled keeper uses it to wake up when the next subscription comes due, and never sleeps longer than `INTERVAL_SECONDS`.
+- Add an optional keeper tip. `set_keeper_tip_bps` (admin, capped at 5000 bps of the protocol fee; default 0) and `charge_with_tip(user, keeper)` pay the keeper out of the protocol fee. Emits `keeper_tip_bps_set` and `keeper_tip`.
+- Add `finalize_migration(expected_total)` and `get_migration_progress()`. Migration is now resumable and tracks processed accounts.
+- Document and test which entrypoints the contract pause blocks (the pause matrix in `docs/spec/LIFECYCLE-SPEC.md`). Exit paths (`cancel`, `resume`, `remove_daily_limit`) stay available while paused.
 - Add `subscribe_with_metadata` composite subscription flow.
 - Enforce global volume cap with rolling hourly volume checks.
 - Add contract pause/unpause emergency guardrails.
@@ -29,10 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve error handling for metadata and volume limit violations.
 - **BREAKING (config):** `.env.example` now documents canonical env var names: `SECRET_KEY` and `NETWORK_PASSPHRASE`. Old names (`KEEPER_SECRET`, `NETWORK_PASSTHRASE`) are deprecated but supported for backwards compatibility.
 - **Fixed:** Charge failure alerting now correctly reads `batch_charge_skips` events with `allowance_insufficient > 0` instead of querying non-existent `charge_failed` event.
-- **Fixed:** `scripts/config.ts` normalizes deprecated aliases to canonical names before validation, with startup warnings for use of legacy names.
+- **BREAKING (migration):** `migrate(users)` no longer advances the schema version. Operators must call `finalize_migration(expected_total)` after processing every account. Before, the version jumped to current after any batch, which could clear `SchemaMigrationRequired` while accounts were still unmigrated. `migrate` is now idempotent per account.
+- **Fixed:** `scripts/migrate-contract.ts` resumes from `migrated_accounts` and simulates `finalize_migration`. It previously referenced an undefined `RPC_URL` and always failed its own version check.
 
 ### Fixed
 
+- **Broken build on `master`:** `contract/src/lib.rs` (`get_next_charge_batch`) and `contract/src/test.rs` had leftover fragments from merge #1222 that did not parse. Removed them. `test.rs` also had three duplicate `test_cancelled_subscription_not_listed` definitions and a truncated grace-period test. Repaired.
+
+### Fixed
+
+- Charge failure alerting now correctly reads `batch_charge_skips` events with `allowance_insufficient > 0` instead of querying no `charge_failed` event.
+- `scripts/config.ts` normalizes deprecated aliases to canonical names before validation, with startup warnings for legacy names.
 - **Dead charge-failure alerting:** Indexer now documents which contract topics map to charge failures; alert-failed-charges reads the correct `batch_charge_skips` event.
 - **Secret key naming chaos:** Config reads canonical `SECRET_KEY` and `NETWORK_PASSPHRASE`; aliases (`KEEPER_SECRET`, `NETWORK_PASSTHRASE`) are supported with deprecation warnings.
 - **ESM/CJS mismatch:** Verified all scripts use consistent ESM (import.meta.url, top-level awaits, .js-style imports). No CJS require.main or module.exports patterns detected.

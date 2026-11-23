@@ -4140,6 +4140,9 @@
             "topics": [
               {
                 "symbol": "grace_period_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -4205,6 +4208,9 @@
             "topics": [
               {
                 "symbol": "grace_period_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -4546,6 +4552,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -4923,6 +4932,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5300,6 +5312,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5406,6 +5421,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -5474,6 +5492,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -5824,6 +5845,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -6159,6 +6183,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -6219,6 +6246,12 @@
                       "lo": 10000000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }
@@ -6237,6 +6270,9 @@
             "topics": [
               {
                 "symbol": "batch_charge_skips"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

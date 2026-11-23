@@ -23,6 +23,7 @@ vi.mock("@stellar/stellar-sdk/rpc", () => {
 
 // Import the implementation AFTER the mock block is securely established
 import {
+  calculateProtocolFee,
   fetchEvents,
   getChargeHistory,
   server,
@@ -663,5 +664,19 @@ describe("subscription health helpers", () => {
       trial_active: false,
       daily_limit_set: false,
     });
+  });
+});
+
+describe("calculateProtocolFee", () => {
+  it("uses the contract's truncating basis-point rounding", () => {
+    expect(calculateProtocolFee(50_000_000n, 100)).toBe(500_000n);
+    expect(calculateProtocolFee(10_000n, 333)).toBe(333n);
+    expect(calculateProtocolFee(1n, 9999)).toBe(0n);
+  });
+
+  it("returns zero when the fee is disabled or the amount is non-positive", () => {
+    expect(calculateProtocolFee(50_000_000n, 0)).toBe(0n);
+    expect(calculateProtocolFee(0n, 100)).toBe(0n);
+    expect(calculateProtocolFee(-10n, 100)).toBe(0n);
   });
 });

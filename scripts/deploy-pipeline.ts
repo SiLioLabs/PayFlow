@@ -1,4 +1,30 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env tsx
+/**
+ * deploy-pipeline.ts — Pre-deployment validation pipeline for FlowPay.
+ *
+ * Runs a sequence of safety gates before a WASM upgrade is committed:
+ *
+ *   1. Schema-version gate  — on-chain version matches the expected value.
+ *   2. WASM-hash gate       — on-chain WASM hash matches the local build artifact.
+ *
+ * If either gate fails the process exits non-zero, blocking the deployment.
+ * Gates that cannot be determined fail **closed** (i.e. they block, not warn).
+ *
+ * Usage:
+ *   CONTRACT_ID=C... RPC_URL=https://... tsx scripts/deploy-pipeline.ts [--help]
+ *   CONTRACT_ID=C... tsx scripts/deploy-pipeline.ts --expected-wasm-hash <hex>
+ *
+ * Environment:
+ *   CONTRACT_ID         Required. Deployed FlowPay contract address.
+ *   RPC_URL             Optional. Soroban RPC endpoint (default: testnet).
+ *   NETWORK_PASSPHRASE  Optional. Network passphrase (default: testnet).
+ *   EXPECTED_SCHEMA_VERSION  Optional. Schema version to assert (default: 2).
+ *
+ * Exit codes:
+ *   0 — all gates passed
+ *   1 — at least one gate failed or an unrecoverable error occurred
+ */
+
 /**
  * deploy-pipeline.ts
  *
@@ -34,17 +60,18 @@
 import * as fs from "fs";
 import * as crypto from "crypto";
 import * as path from "path";
+import { Contract, Networks, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
+import * as fs from "fs";
+import * as crypto from "crypto";
+import * as path from "path";
 import {
   Contract,
   Networks,
   TransactionBuilder,
   BASE_FEE,
-  nativeToScVal,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
 import { fileURLToPath } from "url";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { MultiEndpointServer } from "./rpc-client.js";
 
 export type GateStatus = "pass" | "fail" | "skip" | "warn";
 
@@ -162,7 +189,7 @@ export function computeWasmHash(wasmPath: string): string {
  */
 export async function fetchOnChainWasmHash(
   contractId: string,
-  server: Server
+  server: MultiEndpointServer
 ): Promise<string | null> {
   try {
     // Use getContractData or getLedgerEntries to read ContractCode
@@ -184,7 +211,7 @@ const LATEST_SCHEMA_VERSION = 2;
 
 export async function fetchSchemaVersion(
   contractId: string,
-  server: Server,
+  server: MultiEndpointServer,
   networkPassphrase: string,
   sourceAccount: string
 ): Promise<number | null> {
@@ -218,7 +245,7 @@ export async function fetchSchemaVersion(
  * Gate 1: RPC Health
  * Fails the pipeline if the Soroban RPC node reports unhealthy.
  */
-export async function runHealthGate(server: Server): Promise<GateResult> {
+export async function runHealthGate(server: MultiEndpointServer): Promise<GateResult> {
   try {
     const health = await server.getHealth();
     const healthy = (health as any).status === "healthy";
@@ -247,7 +274,7 @@ export async function runHealthGate(server: Server): Promise<GateResult> {
 export async function runWasmHashGate(
   wasmPath: string | undefined,
   contractId: string,
-  server: Server
+  server: MultiEndpointServer
 ): Promise<GateResult & { localHash: string | null; onChainHash: string | null }> {
   if (!wasmPath) {
     return {
@@ -306,7 +333,7 @@ export async function runWasmHashGate(
  */
 export async function runSchemaVersionGate(
   contractId: string,
-  server: Server,
+  server: MultiEndpointServer,
   networkPassphrase: string,
   sourceAccount: string
 ): Promise<GateResult & { schemaVersion: number | null }> {
@@ -404,7 +431,7 @@ export async function runPipeline(
     return summary;
   }
 
-  const server = new Server(rpcUrl);
+  const server = new MultiEndpointServer(rpcUrl);
 
   // ── Gate 1: RPC Health ─────────────────────────────────────────────────────
   const healthGate = await runHealthGate(server);
@@ -502,7 +529,7 @@ Options:
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain || process.argv[1]?.includes("deploy-pipeline")) {
+if (isMain) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

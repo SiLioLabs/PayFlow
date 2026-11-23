@@ -4,7 +4,7 @@ Daily spending limits are FlowPay's primary consumer-protection control for mete
 
 This guide explains how that cap is implemented in `contract/src/spending_limit.rs`, how the ~24-hour window is approximated with temporary storage TTL (not a wall clock), how both pay-per-use entrypoints share one budget, how to inspect live state, edge cases at TTL boundaries, and how to surface remaining balance in a TypeScript UI.
 
-**Related docs:** [API Reference](./API.md) · [Storage and TTL](./architecture/storage_and_ttl.md) · [Architecture](./ARCHITECTURE.md) · [Error Codes](./ERROR-CODES.md) · [Admin batch limits](./limits.md)
+**Related docs:** [API Reference](./API.md) · [Storage and TTL](./architecture/STORAGE-AND-TTL.md) · [Architecture](./ARCHITECTURE.md) · [Error Codes](./ERROR-CODES.md) · [Admin batch limits](./LIMITS.md)
 
 ---
 
@@ -48,11 +48,11 @@ All daily-limit state lives in **temporary** Soroban storage under three keys (s
 | ------------------ | ---------------------- | ------------------------------------------------ |
 | `DailyLimit(user)` | `i128` (stroops)       | The user-configured cap                          |
 | `DailySpent(user)` | `i128` (stroops)       | Accumulated gross spend in the current window    |
-| `DayStart(user)`   | `()` (presence marker) | Anchors the start of the current ~24-hour window |
+| `DayStart(user)`   | `u64` (ledger timestamp) | Ledger timestamp of the first spend in the current ~24-hour window |
 
 **Units:** All amounts are **stroops**. `1 XLM = 10,000,000` stroops. Example: a 10 XLM limit is `100_000_000` stroops (`10_0000000` in Rust literal style used throughout the contract tests).
 
-**Source of truth:** `contract/src/spending_limit.rs` defines `LEDGERS_PER_DAY = 17_280` and the helpers `get_daily_limit`, `set_daily_limit`, `remove_daily_limit`, `get_daily_spent`, `get_day_start`, `record_spend`, and `enforce_limit`.
+**Source of truth:** `contract/src/spending_limit.rs` defines `LEDGERS_PER_DAY = 17_280` and the helpers `get_daily_limit`, `set_daily_limit`, `remove_daily_limit`, `get_daily_spent`, `get_day_start`, `get_daily_limit_status`, `record_spend`, and `enforce_limit`.
 
 ---
 
@@ -163,6 +163,7 @@ Recurring `charge()` remains exempt: a user can hit their daily pay-per-use cap 
 - **Storage:** Removes `DailyLimit`, `DailySpent`, and `DayStart`
 - **Events:** Emits `daily_limit_removed`
 - **Effect:** Immediately clears the cap **and** today’s tracking; subsequent pay-per-use calls are uncapped until a new limit is set
+- **Fresh window on re-set:** Because `DayStart` is deleted along with the other keys, removing the limit and then calling `set_daily_limit` again starts a **fresh window** — the spend counter is reset to zero and the day-start anchor is re-created on the next spend. This is intentional (the supported way to reset daily tracking early), not a bug; see [Removing the limit mid-window](#removing-the-limit-mid-window).
 
 ### `get_daily_limit(user) -> Option<i128>`
 
@@ -174,43 +175,57 @@ Recurring `charge()` remains exempt: a user can hit their daily pay-per-use cap 
 - **Auth:** none
 - **Returns:** Accumulated spend in the current window, or `0` if `DayStart` is absent (even if a stale `DailySpent` entry somehow remains)
 
-### `get_day_start(user) -> bool`
+### `get_day_start(user) -> Option<u64>`
 
 - **Auth:** none
-- **Returns:** `true` if `DayStart(user)` exists in temporary storage (window is active); `false` if the window has not started or has expired
-- **Semantics:** This is a **presence** check, not a wall-clock timestamp. `DayStart` stores unit `()` — there is no on-chain “started at 10:00 UTC” value to display
+- **Returns:** `Some(timestamp)` if `DayStart(user)` exists in temporary storage (window is active); `None` if the window has not started or has expired
+- **Semantics:** `timestamp` is the ledger timestamp (Unix seconds) of the **first** `pay_per_use` / `pay_per_use_to` of the current window, written by `record_spend` and not updated by later spends. It is displayable (e.g. “window opened at 10:00 UTC”), but the window **ends** when the `DayStart` entry's TTL (~17,280 ledgers from that first spend) expires, not at `timestamp + 86,400` — treat `timestamp + 24h` as an approximation only
+
+### `get_daily_limit_status(user) -> DailyLimitStatus`
+
+- **Auth:** none
+- **Returns:** all daily-limit fields read from one view of temporary storage:
+
+```rust
+pub struct DailyLimitStatus {
+    pub limit: Option<i128>,     // same as get_daily_limit
+    pub spent: i128,             // same as get_daily_spent
+    pub day_start: Option<u64>,  // same as get_day_start
+    pub remaining: Option<i128>, // None when no limit; else max(limit - spent, 0)
+}
+```
+
+Prefer this over three separate reads: one simulation instead of three, and the fields cannot disagree because of a TTL expiry between calls.
 
 ---
 
 ## State Inspection
 
-Use the three read helpers together to render a complete status panel:
+One call renders a complete status panel:
 
 ```text
-limit     = get_daily_limit(user)     // Option<i128>
-spent     = get_daily_spent(user)     // i128
-dayActive = get_day_start(user)       // bool
-
-remaining = if limit is Some(L): max(L - spent, 0) else: unbounded
+status    = get_daily_limit_status(user)  // DailyLimitStatus
+limit     = status.limit                  // Option<i128>
+spent     = status.spent                  // i128
+dayStart  = status.day_start              // Option<u64> — window opened at this ledger timestamp
+remaining = status.remaining              // Option<i128>; None = unbounded
 ```
 
 ### Interpretation matrix
 
-| `get_daily_limit` | `get_day_start` | `get_daily_spent` | Meaning                                                                                              |
-| ----------------- | --------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `None`            | `false`         | `0`               | No cap; no window started                                                                            |
-| `None`            | `true`          | `> 0`             | Cap expired/removed but window marker still alive until TTL (rare mid-transition); treat as uncapped |
-| `Some(L)`         | `false`         | `0`               | Cap set; no spend yet today (or window expired and not yet spent)                                    |
-| `Some(L)`         | `true`          | `S`               | Active window; remaining ≈ `L - S`                                                                   |
+| `limit`   | `day_start` | `spent` | Meaning                                                                                              |
+| --------- | ----------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `None`    | `None`      | `0`     | No cap; no window started                                                                            |
+| `None`    | `Some(t)`   | `> 0`   | Cap expired/removed but window anchor still alive until TTL (rare mid-transition); treat as uncapped |
+| `Some(L)` | `None`      | `0`     | Cap set; no spend yet today (or window expired and not yet spent)                                    |
+| `Some(L)` | `Some(t)`   | `S`     | Active window opened at ledger timestamp `t`; `remaining = max(L - S, 0)`                            |
 
 **Concrete example:** Limit is 10 XLM (`100_000_000` stroops), spent is 7 XLM (`70_000_000` stroops), remaining is **3 XLM** (`30_000_000` stroops). A `pay_per_use` of 4 XLM would panic; 3 XLM would succeed and leave remaining at 0.
 
 CLI inspection:
 
 ```bash
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit --user <USER>
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_spent --user <USER>
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_day_start --user <USER>
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit_status --user <USER>
 ```
 
 ---
@@ -257,7 +272,7 @@ T0 + 6h           pay_per_use(20 XLM)            DayStart unchanged (still expir
 T0 + 10h          pay_per_use(15 XLM)            REJECTED (40+15 > 50)
 
 ~T0 + 1h + 24h    DayStart TTL expires           DayStart gone; get_daily_spent → 0
-                                                 get_day_start → false
+                                                 get_day_start → None
 
 Later             pay_per_use(15 XLM)            New DayStart; DailySpent=15
                                                  Accepted if DailyLimit still present
@@ -281,7 +296,7 @@ There is no partial “half-applied” spend: either `enforce_limit` passes and 
 
 ### TTL expires mid-batch of user actions
 
-Each transaction is atomic. A multi-step UX (two sequential `pay_per_use` txs) can straddle a TTL boundary: the first fills the old window; the second may open a new window with spent reset to the new amount. Always re-query `get_daily_spent` / `get_day_start` between user-initiated payments.
+Each transaction is atomic. A multi-step UX (two sequential `pay_per_use` txs) can straddle a TTL boundary: the first fills the old window; the second may open a new window with spent reset to the new amount. Always re-query `get_daily_limit_status` between user-initiated payments.
 
 ### Ledger time manipulation on Testnet
 
@@ -293,11 +308,11 @@ Local tests and some Testnet scenarios advance `sequence_number` and `timestamp`
 
 ### Limit set but never spent
 
-`DayStart` is created on **first spend**, not on `set_daily_limit`. Until the first `pay_per_use` / `pay_per_use_to`, `get_day_start` is `false` and `get_daily_spent` is `0`, even though a limit exists.
+`DayStart` is created on **first spend**, not on `set_daily_limit`. Until the first `pay_per_use` / `pay_per_use_to`, `get_day_start` is `None` and `get_daily_spent` is `0`, even though a limit exists.
 
 ### Removing the limit mid-window
 
-`remove_daily_limit` deletes all three keys. This is the supported way to **reset early** (see FAQ). Spend tracking does not survive removal.
+`remove_daily_limit` deletes all three keys — `DailyLimit`, `DailySpent`, **and `DayStart`** — together. This is the supported way to **reset early** (see FAQ). Spend tracking does not survive removal: re-setting a limit with `set_daily_limit` afterwards starts a fresh window, and the day-start anchor is re-created on the next spend. Raising the cap with `set_daily_limit` alone (without removing first) does **not** clear `DailySpent` or `DayStart`.
 
 ### Fees and counted spend
 
@@ -316,62 +331,53 @@ import {
   BASE_FEE,
   xdr,
   Address,
+  scValToNative,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
 
 const STROOPS_PER_XLM = 10_000_000n;
 
+/** Decoded `DailyLimitStatus` (`Option` fields decode to `null` when `None`). */
+interface DailyLimitStatus {
+  limit: bigint | null;
+  spent: bigint;
+  day_start: bigint | null;
+  remaining: bigint | null;
+}
+
 function formatXlm(stroops: bigint): string {
   return `${(Number(stroops) / Number(STROOPS_PER_XLM)).toFixed(7)} XLM`;
 }
 
-async function readI128(
+async function readDailyLimitStatus(
   server: Server,
   contractId: string,
   networkPassphrase: string,
   user: string,
-  method: "get_daily_limit" | "get_daily_spent",
-): Promise<bigint | null> {
+): Promise<DailyLimitStatus> {
   const contract = new Contract(contractId);
   const account = await server.getAccount(user);
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase,
   })
-    .addOperation(contract.call(method, new Address(user).toScVal()))
+    .addOperation(
+      contract.call("get_daily_limit_status", new Address(user).toScVal()),
+    )
     .setTimeout(30)
     .build();
 
   const sim = await server.simulateTransaction(tx);
   if ("error" in sim) throw new Error(String(sim.error));
   const retval = (sim as { result?: { retval?: xdr.ScVal } }).result?.retval;
-  if (!retval) return method === "get_daily_limit" ? null : 0n;
-
-  // Decode Option<i128> for get_daily_limit, i128 for get_daily_spent
-  // (use your project's ScVal decoder helpers — see frontend/src/stellar.ts)
-  return retval; // replace with decodeI128 / decodeOption as appropriate
-}
-
-async function readDayStart(
-  server: Server,
-  contractId: string,
-  networkPassphrase: string,
-  user: string,
-): Promise<boolean> {
-  const contract = new Contract(contractId);
-  const account = await server.getAccount(user);
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase,
-  })
-    .addOperation(contract.call("get_day_start", new Address(user).toScVal()))
-    .setTimeout(30)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if ("error" in sim) throw new Error(String(sim.error));
-  const retval = (sim as { result?: { retval?: xdr.ScVal } }).result?.retval;
-  return retval?.b() ?? false;
+  if (!retval) throw new Error("get_daily_limit_status returned no value");
+  const raw = scValToNative(retval);
+  return {
+    limit: raw.limit ?? null,
+    spent: raw.spent,
+    day_start: raw.day_start ?? null,
+    remaining: raw.remaining ?? null,
+  };
 }
 
 /** Display model for a daily-limit progress UI. */
@@ -380,28 +386,23 @@ export async function loadDailyLimitView(user: string) {
   const contractId = import.meta.env.VITE_CONTRACT_ID;
   const networkPassphrase = import.meta.env.VITE_NETWORK_PASSPHRASE;
 
-  const [limit, spent, dayActive] = await Promise.all([
-    readI128(server, contractId, networkPassphrase, user, "get_daily_limit"),
-    readI128(server, contractId, networkPassphrase, user, "get_daily_spent"),
-    readDayStart(server, contractId, networkPassphrase, user),
-  ]);
-
-  const spentVal = spent ?? 0n;
-  const remaining =
-    limit === null || limit === undefined
-      ? null
-      : limit > spentVal
-        ? limit - spentVal
-        : 0n;
+  const { limit, spent, day_start, remaining } = await readDailyLimitStatus(
+    server,
+    contractId,
+    networkPassphrase,
+    user,
+  );
 
   return {
     limitLabel: limit == null ? "Not set" : formatXlm(limit),
-    spentLabel: formatXlm(spentVal),
+    spentLabel: formatXlm(spent),
     remainingLabel: remaining == null ? "Unlimited" : formatXlm(remaining),
-    dayWindowActive: dayActive,
+    // Ledger timestamp (seconds) of the first spend in the current window
+    windowOpenedAt:
+      day_start == null ? null : new Date(Number(day_start) * 1000),
     // Example: limit 10 XLM, spent 7 XLM → remaining 3 XLM
     progressPct:
-      limit != null && limit > 0n ? Number((spentVal * 100n) / limit) : 0,
+      limit != null && limit > 0n ? Number((spent * 100n) / limit) : 0,
   };
 }
 ```
@@ -428,13 +429,13 @@ The spend counter resets when the **`DayStart` temporary entry expires**, which 
 
 Checklist:
 
-1. Call `get_day_start(user)` — if it is still `true`, the window has not expired yet.
+1. Call `get_day_start(user)` — if it still returns `Some(timestamp)`, the window has not expired yet; `timestamp` tells you when it opened.
 2. Remember the clock started at the first `pay_per_use` / `pay_per_use_to` of the window, not at `set_daily_limit`.
 3. On Testnet, ledger timing can drift; wait for sequence advancement or re-check after more ledgers.
 
 ### Can I reset my limit early?
 
-Yes. Call `remove_daily_limit(user)` (requires your signature). That deletes `DailyLimit`, `DailySpent`, and `DayStart` immediately. To keep a cap but clear today’s usage, remove and then `set_daily_limit` again with the desired value — there is no separate “reset spent only” entrypoint. Raising the limit with `set_daily_limit` without removing does **not** clear `DailySpent`; it only raises the ceiling for the current window.
+Yes. Call `remove_daily_limit(user)` (requires your signature). That deletes `DailyLimit`, `DailySpent`, and `DayStart` immediately. To keep a cap but clear today’s usage, remove and then `set_daily_limit` again with the desired value — there is no separate “reset spent only” entrypoint. Because removal also clears `DayStart`, the re-set limit starts a **fresh window** with the spend counter at zero; the day-start anchor is re-created on your next pay-per-use. Raising the limit with `set_daily_limit` without removing does **not** clear `DailySpent`; it only raises the ceiling for the current window.
 
 ### Does `charge()` count toward my daily limit?
 
@@ -472,6 +473,7 @@ Notable cases:
 | `test_pay_per_use_to_daily_limit_shared_with_pay_per_use`                       | Shared budget across entrypoints                    |
 | `test_daily_limit_set_event_emitted` / `test_daily_limit_removed_event_emitted` | Events                                              |
 | `test_get_day_start_visibility`                                                 | `get_day_start` before/after spend and after remove |
+| `test_remove_then_set_daily_limit_starts_fresh_window`                          | Remove-then-set starts a fresh window (DayStart reset) |
 
 ---
 
@@ -480,4 +482,4 @@ Notable cases:
 - Implementation: [`contract/src/spending_limit.rs`](../contract/src/spending_limit.rs)
 - Entrypoints: [`contract/src/lib.rs`](../contract/src/lib.rs) (`pay_per_use`, `pay_per_use_to`, daily-limit methods)
 - Frontend card: [`frontend/src/components/DailyLimitCard.tsx`](../frontend/src/components/DailyLimitCard.tsx)
-- Storage overview: [Storage and TTL](./architecture/storage_and_ttl.md)
+- Storage overview: [Storage and TTL](./architecture/STORAGE-AND-TTL.md)

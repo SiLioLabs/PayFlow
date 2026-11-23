@@ -60,10 +60,6 @@ function parseArgs(argv: string[]): ReplayArgs {
         toLedger = parseInt(argv[++i], 10);
         break;
       default:
-        console.error(`Unknown argument: ${argv[i]}`);
-        console.error(
-          "Usage: replay-events.ts --from-ledger <n> --to-ledger <n>",
-        );
         logger.error(`Unknown argument: ${argv[i]}`);
         logger.error(
           "Usage: replay-events.ts --from-ledger <n> --to-ledger <n>",
@@ -256,9 +252,6 @@ async function main(): Promise<void> {
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`,
-      );
       logger.error(
         `ERROR processing batch ${batchCount} (ledgers ${batchStart}–${batchEnd}): ${message}`,
       );

@@ -129,6 +129,9 @@ describe("BatchPausePanel", () => {
     await userEvent.type(textarea, VALID_ADDR_1);
 
     await userEvent.click(screen.getByRole("button", { name: /pause subscriptions/i }));
+    // Opening the modal now builds a throwaway XDR for the simulation preview;
+    // clear that call so we assert only that confirming performs no submission.
+    vi.mocked(stellar.buildBatchPauseSubscriptionsTx).mockClear();
     await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
 
     expect(stellar.buildBatchPauseSubscriptionsTx).not.toHaveBeenCalled();

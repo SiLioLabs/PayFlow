@@ -19,6 +19,7 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
+import { FreighterAdapter } from "../services/wallets/FreighterAdapter";
 import { NETWORK_PASSPHRASE } from "../stellar";
 import OfflineBanner from "../components/OfflineBanner";
 
@@ -36,6 +37,7 @@ describe("useNetworkStatus", () => {
   }
 
   afterEach(() => {
+    vi.useRealTimers();
     // Restore original navigator.onLine descriptor
     if (originalOnLine) {
       Object.defineProperty(Navigator.prototype, "onLine", originalOnLine);
@@ -218,6 +220,34 @@ describe("useNetworkStatus", () => {
       await waitFor(() => expect(result.current.networkMatch).toBe(false));
       expect(result.current.walletNetwork).toBe("PUBLIC");
       expect(result.current.status).toBe("online");
+    });
+
+    it("detects a wallet network switch without remounting", async () => {
+      setNavigatorOnLine(true);
+      let network = {
+        network: "TESTNET",
+        networkPassphrase: NETWORK_PASSPHRASE,
+      };
+      mockFreighterGetNetwork(() => Promise.resolve(network));
+      vi.useFakeTimers();
+
+      const adapter = new FreighterAdapter();
+      const { result } = renderHook(() => useNetworkStatus(adapter));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(result.current.networkMatch).toBe(true);
+
+      network = {
+        network: "PUBLIC",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      };
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(result.current.networkMatch).toBe(false);
+      expect(result.current.walletNetwork).toBe("PUBLIC");
     });
 
     it("ignores a wallet check that settles after unmount", async () => {

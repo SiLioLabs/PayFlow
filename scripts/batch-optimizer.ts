@@ -33,16 +33,14 @@ import {
   xdr,
   scValToNative,
 } from "@stellar/stellar-sdk";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { fileURLToPath } from "node:url";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const CONTRACT_ID =
   process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
-const RPC_URL =
-  process.env.RPC_URL ??
-  process.env.VITE_RPC_URL ??
-  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.NETWORK_PASSPHRASE ??
   process.env.VITE_NETWORK_PASSPHRASE ??
@@ -59,7 +57,25 @@ const PAGE_SIZE = Math.min(
 );
 
 const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-const DEFAULT_MAX_BATCH = 50;
+
+/**
+ * Default number of subscribers per `batch_charge` call.
+ * Mirrors the contract's `DEFAULT_BATCH_SIZE` (contract/src/caps.rs).
+ */
+export const DEFAULT_MAX_BATCH = 50;
+
+/**
+ * Hard ceiling for a batch size. Mirrors the contract's
+ * `MAX_BATCH_SIZE_CEILING` (contract/src/caps.rs) — no configured batch limit
+ * may exceed it.
+ */
+export const MAX_BATCH_SIZE_CEILING = 200;
+
+/**
+ * Fraction of the grace window that counts as "approaching expiry".
+ * A subscription inside the final 25% of its grace window is charged first.
+ */
+export const GRACE_URGENCY_FRACTION = 0.25;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,7 +135,7 @@ Environment:
 
 // ── Contract helpers ─────────────────────────────────────────────────────────
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 
 function addressVal(addr: string): xdr.ScVal {
   return nativeToScVal(Address.fromString(addr), { type: "address" });
@@ -197,6 +213,101 @@ async function getSubscription(
 }
 
 /**
+ * Clamp a batch size to the range the contract accepts: at least 1, and never
+ * more than `MAX_BATCH_SIZE_CEILING`.
+ */
+export function clampMaxBatchSize(value: number): number {
+  return Math.min(MAX_BATCH_SIZE_CEILING, Math.max(1, value));
+}
+
+/**
+ * Resolve the effective batch size.
+ *
+ * An explicit `MAX_BATCH_SIZE` environment override always wins. Without one,
+ * the on-chain `get_max_batch_size()` value is used, falling back to
+ * `DEFAULT_MAX_BATCH` when it cannot be read. The result is always clamped to
+ * the contract's ceiling.
+ */
+export function resolveMaxBatchSize(
+  envMaxBatch: number | undefined,
+  onChainMax: number | undefined,
+): number {
+  let size =
+    envMaxBatch && envMaxBatch > 0 ? envMaxBatch : DEFAULT_MAX_BATCH;
+  if (!envMaxBatch && onChainMax && onChainMax > 0) {
+    size = onChainMax;
+  }
+  return clampMaxBatchSize(size);
+}
+
+/**
+ * Grace-window state for a subscription that is due.
+ *
+ * `approaching_grace_expiry` is true when the remaining grace window is
+ * inside the final `GRACE_URGENCY_FRACTION` (25%) of the window — those
+ * subscribers are charged first so their grace period does not lapse.
+ */
+export function computeGraceState(
+  nextChargeAt: number,
+  nowSeconds: number,
+  gracePeriod: number,
+): { grace_remaining_seconds: number | null; approaching_grace_expiry: boolean } {
+  if (gracePeriod <= 0) {
+    return { grace_remaining_seconds: null, approaching_grace_expiry: false };
+  }
+  const graceEnd = nextChargeAt + gracePeriod;
+  const graceRemaining = Math.max(0, graceEnd - nowSeconds);
+  return {
+    grace_remaining_seconds: graceRemaining,
+    approaching_grace_expiry: graceRemaining <= gracePeriod * GRACE_URGENCY_FRACTION,
+  };
+}
+
+/**
+ * Whether a subscription may be charged at all.
+ *
+ * A missing subscription, an inactive (cancelled) one, a paused one, or one
+ * with a non-positive interval is never chargeable.
+ */
+export function isChargeableSubscription(
+  sub: SubscriptionFields | null,
+): boolean {
+  if (!sub) return false;
+  return sub.active && !sub.paused && sub.interval > 0;
+}
+
+/**
+ * Build the `ReadySubscriber` record for a due, chargeable subscription.
+ *
+ * Returns `null` for a subscription that must not be charged (see
+ * {@link isChargeableSubscription}), which is the "not due" filter the
+ * optimizer applies to every subscriber it reads.
+ */
+export function toReadySubscriber(
+  address: string,
+  sub: SubscriptionFields | null,
+  nowSeconds: number,
+  gracePeriod: number,
+  urgencyScore = 0,
+): ReadySubscriber | null {
+  if (!isChargeableSubscription(sub)) return null;
+  const s = sub as SubscriptionFields;
+
+  const nextChargeAt = s.last_charged + s.interval;
+  const overdue = Math.max(0, nowSeconds - nextChargeAt);
+  const grace = computeGraceState(nextChargeAt, nowSeconds, gracePeriod);
+
+  return {
+    address,
+    next_charge_at: nextChargeAt,
+    overdue_seconds: overdue,
+    grace_remaining_seconds: grace.grace_remaining_seconds,
+    approaching_grace_expiry: grace.approaching_grace_expiry,
+    urgency_score: urgencyScore,
+  };
+}
+
+/**
  * Simulate get_next_charge_batch by paging the subscriber index and filtering
  * with is_charge_due (contract has no dedicated get_next_charge_batch entrypoint).
  */
@@ -225,27 +336,16 @@ export async function getNextChargeBatchSimulation(
       if (!due) continue;
 
       const sub = await getSubscription(address);
-      if (!sub || !sub.active || sub.paused || sub.interval <= 0) continue;
-
-      const nextChargeAt = sub.last_charged + sub.interval;
-      const overdue = Math.max(0, nowSeconds - nextChargeAt);
-      let graceRemaining: number | null = null;
-      let approaching = false;
-      if (gracePeriod > 0) {
-        const graceEnd = nextChargeAt + gracePeriod;
-        graceRemaining = Math.max(0, graceEnd - nowSeconds);
-        // Treat the final 25% of the grace window as urgent.
-        approaching = graceRemaining <= gracePeriod * 0.25;
-      }
-
-      ready.push({
+      const candidate = toReadySubscriber(
         address,
-        next_charge_at: nextChargeAt,
-        overdue_seconds: overdue,
-        grace_remaining_seconds: graceRemaining,
-        approaching_grace_expiry: approaching,
-        urgency_score: urgencyScores[address] ?? 0
-      });
+        sub,
+        nowSeconds,
+        gracePeriod,
+        urgencyScores[address] ?? 0,
+      );
+      if (!candidate) continue;
+
+      ready.push(candidate);
     }
   }
 
@@ -308,15 +408,13 @@ export async function buildOptimizedBatches(options?: {
     throw new Error("CONTRACT_ID environment variable is required");
   }
 
-  let maxBatchSize =
-    ENV_MAX_BATCH && ENV_MAX_BATCH > 0 ? ENV_MAX_BATCH : DEFAULT_MAX_BATCH;
+  let maxBatchSize = resolveMaxBatchSize(ENV_MAX_BATCH, undefined);
   try {
     const onChain = await getU32("get_max_batch_size");
-    if (!ENV_MAX_BATCH && onChain > 0) maxBatchSize = onChain;
+    maxBatchSize = resolveMaxBatchSize(ENV_MAX_BATCH, onChain);
   } catch {
     // Fall back to env / default when RPC read fails.
   }
-  maxBatchSize = Math.min(200, Math.max(1, maxBatchSize));
 
   let gracePeriod = 0;
   try {
@@ -409,9 +507,9 @@ async function main(): Promise<void> {
   }
 }
 
-const isDirectRun =
-  process.argv[1]?.endsWith("batch-optimizer.ts") ||
-  process.argv[1]?.endsWith("batch-optimizer.js");
+// ESM entrypoint guard: only auto-run when executed directly, not when
+// imported (e.g. by keeper.ts / replay-dlq.ts, which reuse buildOptimizedBatches).
+const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isDirectRun) {
   main().catch((err) => {

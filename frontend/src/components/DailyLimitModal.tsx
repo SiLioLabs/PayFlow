@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { buildSetDailyLimitTx, getDailyLimit } from "../stellar";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
@@ -24,6 +24,11 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
   const modalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(modalRef, true, onClose);
+
+  const handleAmountChange = useCallback((val: bigint | null) => {
+    setAmountStroops(val);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     async function loadLimit() {
@@ -68,7 +73,7 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         ref={modalRef}
         className="modal-card card"
@@ -88,12 +93,19 @@ export default function DailyLimitModal({ userKey, onSign, onClose, onSuccess, a
           </p>
         )}
         <StroopInput
+          id="daily-limit-amount"
           label="Daily limit"
-          onChange={setAmountStroops}
+          onChange={handleAmountChange}
           disabled={submitting}
           initialValue={currentLimit !== null ? currentLimit : undefined}
+          isInvalid={Boolean(error)}
+          ariaDescribedBy={error ? "daily-limit-error" : undefined}
         />
-        {error && <p className="text-error">{error}</p>}
+        {error && (
+          <p id="daily-limit-error" className="text-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose} disabled={submitting}>
             Cancel

@@ -108,7 +108,7 @@ An admin operating a batch cancel could not distinguish a routine cancel from on
 
 ## Changes
 - `contract/src/batch.rs` — enum expanded, batch_cancel logic updated
-- `docs/cancel-results.md` — comprehensive wire encoding documentation (NEW)
+- `docs/CANCEL-RESULTS.md` — comprehensive wire encoding documentation (NEW)
 - `scripts/EVENT-MAPPING.md` — documented new variants
 - `contract_tests_addon.rs` — 3 new tests
 

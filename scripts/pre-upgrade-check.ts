@@ -35,8 +35,8 @@ import {
   TransactionBuilder,
   BASE_FEE,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
 import { fileURLToPath } from "url";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { computeWasmHash, type GateResult } from "./deploy-pipeline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ export function checkContractId(contractId: string): GateResult {
   };
 }
 
-export async function checkRpcReachable(server: Server): Promise<GateResult> {
+export async function checkRpcReachable(server: MultiEndpointServer): Promise<GateResult> {
   try {
     const health = await server.getHealth();
     const healthy = (health as any).status === "healthy";
@@ -130,7 +130,7 @@ export async function checkRpcReachable(server: Server): Promise<GateResult> {
 }
 
 export async function checkSourceAccountFunded(
-  server: Server,
+  server: MultiEndpointServer,
   sourceAccount: string
 ): Promise<GateResult> {
   if (!sourceAccount) {
@@ -158,7 +158,7 @@ export async function checkSourceAccountFunded(
 }
 
 export async function checkSchemaVersion(
-  server: Server,
+  server: MultiEndpointServer,
   contractId: string,
   networkPassphrase: string,
   sourceAccount: string
@@ -258,7 +258,7 @@ export async function runPreUpgradeCheck(options: {
     return report;
   }
 
-  const server = new Server(options.rpcUrl);
+  const server = new MultiEndpointServer(options.rpcUrl);
 
   // RPC reachability
   const rpcCheck = await checkRpcReachable(server);
@@ -353,7 +353,7 @@ Options:
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain || process.argv[1]?.includes("pre-upgrade-check")) {
+if (isMain) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

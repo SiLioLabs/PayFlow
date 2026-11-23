@@ -41,6 +41,7 @@ vi.mock("../components/TransferSubscriptionModal", () => ({
 
 // Mock the stellar module — getAllowance and getTrialEnd are used by SubscriptionCard
 const mockGetAllowance = vi.fn();
+const mockGetPauseUntil = vi.fn();
 const mockGetTrialEnd = vi.fn();
 const mockGetSubscriptionHealth = vi.fn();
 const mockSimulateCharge = vi.fn();
@@ -49,6 +50,7 @@ vi.mock("../stellar", async (importOriginal) => {
   return {
     ...actual,
     getAllowance: (...args: unknown[]) => mockGetAllowance(...args),
+    getPauseUntil: (...args: unknown[]) => mockGetPauseUntil(...args),
     getTrialEnd: (...args: unknown[]) => mockGetTrialEnd(...args),
     getSubscriptionHealth: (...args: unknown[]) => mockGetSubscriptionHealth(...args),
     simulateCharge: (...args: unknown[]) => mockSimulateCharge(...args),
@@ -63,9 +65,10 @@ vi.mock("../hooks/useSubscriptionSync", () => ({
   }),
 }));
 
-const { mockPause, mockPauseUntil } = vi.hoisted(() => ({
+const { mockPause, mockPauseUntil, mockPauseTx } = vi.hoisted(() => ({
   mockPause: vi.fn(),
   mockPauseUntil: vi.fn(),
+  mockPauseTx: { state: "idle", error: null as string | null, isError: false },
 }));
 
 vi.mock("../hooks/usePauseResume", () => ({
@@ -73,9 +76,9 @@ vi.mock("../hooks/usePauseResume", () => ({
     pause: mockPause,
     pauseUntil: mockPauseUntil,
     resume: vi.fn(),
-    pauseTx: { state: "idle", error: null },
-    pauseUntilTx: { state: "idle", error: null },
-    resumeTx: { state: "idle", error: null },
+    pauseTx: mockPauseTx,
+    pauseUntilTx: { state: "idle", error: null, isError: false },
+    resumeTx: { state: "idle", error: null, isError: false },
   }),
 }));
 
@@ -117,6 +120,7 @@ describe("SubscriptionCard pause/cancel dialog accessibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAllowance.mockResolvedValue(300000000n);
+    mockGetPauseUntil.mockResolvedValue(null);
     mockGetTrialEnd.mockResolvedValue(null);
     mockPause.mockResolvedValue(undefined);
     mockPauseUntil.mockResolvedValue(undefined);
@@ -270,6 +274,7 @@ describe("SubscriptionCard", () => {
     vi.clearAllMocks();
     // Default: healthy allowance (>=3x amount = 300000000)
     mockGetAllowance.mockResolvedValue(300000000n);
+    mockGetPauseUntil.mockResolvedValue(null);
     // Default: no trial active
     mockGetTrialEnd.mockResolvedValue(null);
     mockGetSubscriptionHealth.mockResolvedValue({
@@ -892,6 +897,77 @@ describe("SubscriptionCard", () => {
       expect(typeof expiryArg).toBe("bigint");
       expect(expiryArg).toBeGreaterThan(BigInt(Math.floor(Date.now() / 1000)));
     });
+
+    it("rejects a past date before signing and shows error 27", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+
+      const past = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const pad = (value: number) => String(value).padStart(2, "0");
+      const localValue = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(
+        past.getDate()
+      )}T${pad(past.getHours())}:${pad(past.getMinutes())}`;
+      await userEvent.type(screen.getByTestId("pause-until-input"), localValue);
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
+
+      expect(screen.getByTestId("pause-until-error")).toHaveTextContent(/future/i);
+      expect(mockPauseUntil).not.toHaveBeenCalled();
+    });
+
+    it("shows the auto-resume date after a bounded pause succeeds", async () => {
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /pause subscription/i }));
+      await userEvent.click(screen.getByLabelText(/pause until a specific date/i));
+
+      const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const pad = (value: number) => String(value).padStart(2, "0");
+      const localValue = `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(
+        future.getDate()
+      )}T${pad(future.getHours())}:${pad(future.getMinutes())}`;
+      await userEvent.type(screen.getByTestId("pause-until-input"), localValue);
+      await userEvent.click(screen.getByRole("button", { name: /Pause$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("auto-resume-date")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("scheduled-resume")).toHaveTextContent(/auto-resumes/i);
+    });
+
+    it("restores the auto-resume date for an already-paused subscription", async () => {
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+      mockGetPauseUntil.mockResolvedValue(expiry);
+
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: true })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("auto-resume-date")).toBeInTheDocument();
+      });
+      expect(mockGetPauseUntil).toHaveBeenCalledWith(mockUserKey);
+    });
   });
 
   describe("Subscription health widget", () => {
@@ -1077,6 +1153,36 @@ describe("SubscriptionCard", () => {
       expect(screen.queryByTestId("transfer-subscription-modal")).not.toBeInTheDocument();
       await userEvent.click(screen.getByTestId("transfer-subscription-button"));
       expect(screen.getByTestId("transfer-subscription-modal")).toBeInTheDocument();
+    });
+  });
+
+  describe("Structured transaction error handling (Issue #1262)", () => {
+    afterEach(() => {
+      mockPauseTx.state = "idle";
+      mockPauseTx.error = null;
+      mockPauseTx.isError = false;
+    });
+
+    it("displays error with role='alert' and warning icon when status is failed without relying on Error prefix", () => {
+      mockPauseTx.state = "failed";
+      mockPauseTx.error = "Connection dropped unexpectedly";
+      mockPauseTx.isError = true;
+
+      render(
+        <SubscriptionCard
+          subscription={createMockSubscription({ active: true, paused: false })}
+          userKey={mockUserKey}
+          onSign={mockOnSign}
+          onRefresh={mockOnRefresh}
+        />
+      );
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(/Connection dropped unexpectedly/);
+      const status = screen.getByTestId("subscription-card-status");
+      expect(status).toHaveTextContent(/⚠️ Connection dropped unexpectedly/);
+      expect(status).toHaveClass("text-error");
     });
   });
 });

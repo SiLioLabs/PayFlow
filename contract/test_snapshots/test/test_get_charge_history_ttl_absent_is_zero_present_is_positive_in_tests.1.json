@@ -1942,6 +1942,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2202,6 +2205,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2262,6 +2268,12 @@
                       "lo": 1000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }
