@@ -16,7 +16,7 @@ function SkeletonBlock({
 /** Mirrors the SubscriptionCard layout: title row, three data rows, button placeholder. */
 export default function SubscriptionCardSkeleton() {
   return (
-    <div className="card" aria-busy="true" aria-label="Loading subscription">
+    <div className="card" role="status" aria-busy="true" aria-label="Loading subscription">
       {/* Title row */}
       <div
         style={{
@@ -47,6 +47,7 @@ export function MerchantSubscriberSkeleton() {
   return (
     <div
       className="subscription-row merchant-subscriber-row"
+      role="status"
       aria-busy="true"
       aria-label="Loading subscriber"
     >
