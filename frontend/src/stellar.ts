@@ -1,7 +1,11 @@
 /**
- * stellar.ts — thin wrapper around @stellar/stellar-sdk for FlowPay
+ * stellar.ts — Re-export barrel for backward compatibility during deprecation period.
  *
- * All contract interactions go through here so the UI stays clean.
+ * @deprecated This module is deprecated and will be removed in a future release.
+ * Please import directly from the modular services:
+ * - `services/rpc` for RPC configuration, Server instances, and explorer URLs
+ * - `services/builders` for transaction construction functions
+ * - `services/reads` for contract read, query, and simulation functions
  */
 
 import {
@@ -1774,3 +1778,6 @@ export function getReferrer(user: string): Promise<string | null> {
     }
   });
 }
+export * from "./services/rpc";
+export * from "./services/builders";
+export * from "./services/reads";

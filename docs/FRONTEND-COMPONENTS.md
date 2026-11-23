@@ -4,7 +4,8 @@ This document provides the component-by-component API reference for PayFlow's Re
 
 > **Component Inventory & Status**: For the complete inventory of canonical vs. unmounted status and validation-rule ownership, see [`docs/frontend/COMPONENTS.md`](frontend/COMPONENTS.md).  
 > **Architecture Guide**: For application architecture, data flow, and provider hierarchies, see [`docs/FRONTEND.md`](FRONTEND.md).  
-> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).
+> **Contributing Guide**: For coding guidelines, testing conventions, styling tokens, and PR requirements, see [`docs/CONTRIBUTING-FRONTEND.md`](CONTRIBUTING-FRONTEND.md).  
+> **Component Catalogue**: Run `npm run catalogue` inside `frontend/` to browse all component states interactively. Stories live in `frontend/src/stories/`.
 
 ---
 
@@ -16,6 +17,7 @@ This document provides the component-by-component API reference for PayFlow's Re
   - [AllowanceDisplay](#allowancedisplay)
   - [AmountUnitToggle](#amountunittoggle)
   - [BalanceDisplay](#balancedisplay)
+  - [ChargeReceipt](#chargereceipt)
   - [ConfirmModal](#confirmmodal)
   - [ConnectWallet](#connectwallet)
   - [ContractPauseBanner](#contractpausebanner)
@@ -152,6 +154,26 @@ Compact XLM balance indicator designed for header bars and form headers.
 
 - **Hooks**: `useStellarBalance(address)`
 - **Edge cases**: Renders a skeleton loader only when initial load is in progress and no stale cached balance exists.
+
+---
+
+### ChargeReceipt
+
+**File:** `frontend/src/components/ChargeReceipt.tsx`
+
+Printable / PDF-friendly receipt for a single charge event. Opened from `SubscriptionHistory` via the "Receipt" button on each charge row. Renders in an accessible modal overlay by default; set `modal={false}` for inline embedding.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `event` | `ChargeEvent` | yes | The charge event to display (date, amount, txHash, merchant). |
+| `merchantName` | `string` | no | Optional display name for the merchant. When provided, the raw address is shown as a secondary row. |
+| `onClose` | `() => void` | no | Called when the user clicks "Close" or the modal backdrop. |
+| `modal` | `boolean` | no | When `true` (default) wraps the receipt in a `modal-overlay`. Pass `false` to embed inline. |
+
+- **Explorer link**: Uses `explorerTxUrl()` from `stellar.ts` — always points at the configured network (Testnet/Mainnet).
+- **Protocol fee**: When `VITE_PROTOCOL_FEE_BPS` is set, an additional fee and net-to-merchant row are shown.
+- **Print styles**: `window.print()` is triggered by the "Print / Save PDF" button. `@media print` rules in `index.css` hide all other page content and reveal the letterhead and footer that are hidden on screen.
+- **Accessibility**: `role="document"` on the receipt body; modal dialog has `role="dialog"` with `aria-modal="true"`.
 
 ---
 
