@@ -37,6 +37,7 @@ pub struct ChargeEventData {
     pub charged_at: u64,
     pub ledger_sequence: u32,
     pub paid_to: Option<Address>,
+    pub fee_bps: u32,
 }
 
 #[soroban_sdk::contracttype]
@@ -122,10 +123,14 @@ pub fn publish_charged(
     net: i128,
     charged_at: u64,
     paid_to: Option<Address>,
+    fee_bps: u32,
 ) {
-    publish_versioned(
-        env,
-        (Symbol::new(env, "charged"), user.clone()),
+    // Charge payload gained `fee_bps`; mark only this event v3 so existing
+    // consumers can continue decoding the v2 payload shape for other events.
+    let mut topics = (Symbol::new(env, "charged"), user.clone()).into_val(env);
+    topics.push_back(Symbol::new(env, "v3").into_val(env));
+    env.events().publish(
+        topics,
         ChargeEventData {
             merchant: sub.merchant.clone(),
             gross: sub.amount,
@@ -134,6 +139,7 @@ pub fn publish_charged(
             charged_at,
             ledger_sequence: env.ledger().sequence(),
             paid_to,
+            fee_bps,
         },
     );
 }
@@ -687,6 +693,39 @@ pub fn publish_fee_bounds_set(env: &Env, min_bps: u32, max_bps: u32) {
         (Symbol::new(env, "fee_bounds_set"),),
         (min_bps, max_bps),
     );
+}
+
+pub fn publish_operator_changed(env: &Env, operator: &Option<Address>) {
+    publish_versioned(env, (Symbol::new(env, "operator_changed"),), operator.clone());
+}
+
+pub fn publish_merchant_fee_bps_set(env: &Env, merchant: &Address, bps: Option<u32>) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_fee_bps_set"), merchant.clone()),
+        bps,
+    );
+}
+
+pub fn publish_referral_reward_accrued(
+    env: &Env,
+    user: &Address,
+    referrer: &Address,
+    amount: i128,
+) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "referral_reward_accrued"), user.clone()),
+        (referrer.clone(), amount),
+    );
+}
+
+pub fn publish_referral_reward_withdrawn(env: &Env, referrer: &Address, amount: i128) {
+    publish_versioned(env, (Symbol::new(env, "referral_reward_withdrawn"), referrer.clone()), amount);
+}
+
+pub fn publish_referral_reward_policy(env: &Env, bps: u32, max_charges: u32) {
+    publish_versioned(env, (Symbol::new(env, "referral_reward_policy"),), (bps, max_charges));
 }
 
 pub fn publish_global_volume_cap_set(env: &Env, old: i128, new: i128) {

@@ -65,7 +65,9 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
 | 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
 | 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
-| 48   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
+| 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -852,7 +854,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
-### 48 — `InvalidAdminAddress`
+### 52 — `InvalidAdminAddress`
 
 | Field               | Detail |
 | ------------------- | ------ |
@@ -952,7 +954,9 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | 47           | “Merchant freeze reason must be 128 bytes or fewer.”          |
 | 48           | “Storage migration is not finished yet; process every account first.” |
 | 49           | “Keeper tip must be at most 5000 bps (half of the protocol fee).” |
-| 48           | “Choose an admin address different from the current admin and contract.” |
+| 52           | “Choose an admin address different from the current admin and contract.” |
+| 50           | “Merchant fee must be within the configured protocol fee bounds.” |
+| 51           | “Operator cannot be the contract address.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |

@@ -386,7 +386,16 @@ pub fn execute_charge(
     env.storage().persistent().set(key, sub);
     extend_subscription_ttl(env, user);
     subscription_history::record_charge(env, user, now);
-    events::publish_charged(env, user, sub, fee_amount, net, now, paid_to);
+    events::publish_charged(
+        env,
+        user,
+        sub,
+        fee_amount,
+        net,
+        now,
+        paid_to,
+        fee::effective_fee_bps(env, &sub.merchant),
+    );
 
     if tip > 0 {
         if let Some(keeper_addr) = keeper {

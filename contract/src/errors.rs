@@ -125,5 +125,9 @@ pub enum ContractError {
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
     InvalidKeeperTipBps = 49,
     /// Returned when an admin transfer targets the current admin or this contract.
-    InvalidAdminAddress = 48,
+    InvalidAdminAddress = 52,
+    /// Merchant fee override exceeds current configured protocol bounds.
+    InvalidMerchantFeeBps = 50,
+    /// Operator cannot be the contract itself.
+    InvalidOperatorAddress = 51,
 }
