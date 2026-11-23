@@ -10,11 +10,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:check": "npm run build && node scripts/check-bundle-size.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test": "vitest run && node --test scripts/check-bundle-size.node-test.mjs",
+    "test:e2e": "playwright test",
     "catalogue": "ladle serve",
     "catalogue:build": "ladle build"
   },
