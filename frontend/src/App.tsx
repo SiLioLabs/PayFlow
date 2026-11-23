@@ -130,7 +130,7 @@ function AppInner() {
 
       {/* Header — NetworkBadge is persistent in shell so users always see Testnet/Mainnet */}
       <div style={{ marginBottom: 32, textAlign: "center" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ FlowPay</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ PayFlow</h1>
         <p style={{ color: "#64748b", marginTop: 6, fontSize: 14 }}>
           Decentralized recurring payments on Stellar
         </p>
