@@ -1,0 +1,32 @@
+{
+  "createdAt": "YYYY-MM-DDTHH:mm:ss.sssZ",
+  "updatedAt": "YYYY-MM-DDTHH:mm:ss.sssZ",
+  "network": "Test SDF Network ; September 2015",
+  "contractId": "YOUR_CONTRACT_ID_HERE",
+  "tokenAddress": "YOUR_TOKEN_SAC_ADDRESS_HERE",
+  "admin": {
+    "role": "admin",
+    "name": "Admin Account",
+    "publicKey": "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "secretKey": "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  },
+  "merchant": {
+    "role": "merchant",
+    "name": "Primary Test Merchant",
+    "publicKey": "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "secretKey": "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  },
+  "subscribers": [
+    {
+      "role": "subscriber",
+      "name": "Test Subscriber 1",
+      "publicKey": "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "secretKey": "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "subscription": {
+        "amountStroops": "100000000",
+        "amountXlm": "10.0",
+        "intervalSeconds": 86400
+      }
+    }
+  ]
+}
