@@ -66,6 +66,9 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
 | 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
 | 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
+| 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 48   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -891,6 +894,19 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
 2. Refund only once per charge; a new charge creates a new refundable snapshot.
+### 48 — `InvalidAdminAddress`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `transfer_admin(new_admin)` targets the current admin or the contract itself. |
+| **Immediate cause** | The proposed address would make the two-step handoff a no-op or leave no usable account to call `accept_admin()`. |
+
+**Recovery steps**
+
+1. Choose a reachable account or multisig that differs from both the current admin and the FlowPay contract address.
+2. Call `transfer_admin(new_admin)` again, then have the proposed address call `accept_admin()`.
+
+**Prevention:** Verify the proposed address during the admin-rotation preflight. See [the two-step admin playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md#playbook-c--admin-rotation).
 
 ---
 
@@ -979,6 +995,9 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | 48           | “Trial extension exceeds the maximum allowed duration.”       |
 | 49           | “You can only skip one billing cycle per interval.”           |
 | 50           | “There is no charge available to refund.”                     |
+| 48           | “Storage migration is not finished yet; process every account first.” |
+| 49           | “Keeper tip must be at most 5000 bps (half of the protocol fee).” |
+| 48           | “Choose an admin address different from the current admin and contract.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |

@@ -33,6 +33,9 @@
  *   48 TrialExtensionExceedsMaximum
  *   49 SkipCooldownActive
  *   50 NoLastChargeToRefund
+ *   48 MigrationIncomplete
+ *   49 InvalidKeeperTipBps
+ *   48 InvalidAdminAddress
  *
  * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
@@ -106,6 +109,11 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
   "error(contract, #49)": "You can only skip one billing cycle per interval.",
   "error(contract, #50)": "There is no charge available to refund.",
+  // 48 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
+  // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
+  "error(contract, #49)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  "error(contract, #48)": "Choose an admin address different from the current admin and contract.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").
@@ -159,4 +167,20 @@ export function friendlyError(raw: string): string {
   }
 
   return raw;
+}
+
+/**
+ * Extract a canonical contract error code from a raw RPC/simulation message.
+ *
+ * Returns the code in `#N` form so it can be matched against both
+ * `CONTRACT_ERRORS["error(contract, #N)"]` and the bare-code aliases.
+ */
+export function extractContractErrorCode(raw: string): string | null {
+  const contractMatch = raw.match(/error\(\s*contract\s*,\s*#(\d+)\s*\)/i);
+  if (contractMatch) return `#${contractMatch[1]}`;
+
+  const bareMatch = raw.match(/#(\d+)\b/);
+  if (bareMatch) return `#${bareMatch[1]}`;
+
+  return null;
 }

@@ -1208,6 +1208,9 @@
             "topics": [
               {
                 "symbol": "upg_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1275,6 +1278,9 @@
             "topics": [
               {
                 "symbol": "upg_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

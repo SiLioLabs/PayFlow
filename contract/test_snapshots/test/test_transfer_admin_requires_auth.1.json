@@ -1036,6 +1036,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1118,6 +1121,9 @@
             "topics": [
               {
                 "symbol": "admin_transferred"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

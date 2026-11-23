@@ -42,6 +42,36 @@ describe("TxQueuePanel", () => {
     expect(screen.getByText("Subscribe")).toBeInTheDocument();
   });
 
+  it("shows the simulated fee and error for queued transactions", async () => {
+    render(<TxQueuePanel />);
+
+    act(() => {
+      txQueue.enqueue("Subscribe", null, {
+        feeStroops: 1200,
+        feeXlm: "0.0001200",
+        errorCode: null,
+        errorMessage: null,
+        overrideAllowed: false,
+        blockSigning: false,
+        rpcError: null,
+      });
+      txQueue.enqueue("Cancel", null, {
+        feeStroops: null,
+        feeXlm: null,
+        errorCode: "#8",
+        errorMessage: "Increase your token allowance and try again.",
+        overrideAllowed: false,
+        blockSigning: true,
+        rpcError: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tx-preview-fee-2")).toHaveTextContent("0.0001200 XLM");
+      expect(screen.getByTestId("tx-preview-error-1")).toHaveTextContent("#8");
+    });
+  });
+
   it("shows 'Pending' status for a newly enqueued entry", async () => {
     render(<TxQueuePanel />);
 

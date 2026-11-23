@@ -19,7 +19,7 @@ From zero to a charged subscription on Stellar Testnet using the real repo scrip
 
 | Tool | Version | Install |
 | --- | --- | --- |
-| Rust | 1.70+ | `curl https://sh.rustup.rs -sSf \| sh` |
+| Rust | 1.78+ | `curl https://sh.rustup.rs -sSf \| sh` |
 | WASM target | — | `rustup target add wasm32-unknown-unknown` |
 | Stellar/Soroban CLI | current | `cargo install --locked soroban-cli` |
 | Node.js | 18+ (20 recommended) | [nodejs.org](https://nodejs.org/) |
@@ -67,7 +67,7 @@ Edit `deployments/config.json` (checked-in values are already testnet):
   "feeBps": 0,
   "feeCollector": "<YOUR_ADMIN_G_ADDRESS>",
   "initialMerchants": [],
-  "wasmPath": "contract/target/wasm32-unknown-unknown/release/flow_pay.wasm"
+  "wasmPath": "target/wasm32-unknown-unknown/release/flowpay.wasm"
 }
 ```
 
@@ -100,7 +100,7 @@ npx tsx scripts/deploy-pipeline.ts
 
 The pipeline runs, in order:
 
-1. **Build** — `cargo build --release --target wasm32-unknown-unknown` in `contract/`
+1. **Build** — `cargo build -p flowpay --release --target wasm32-unknown-unknown` from the repository root
 2. **Deploy** — `stellar contract deploy --wasm <wasmPath> ...`, parses a `C…` contract ID
 3. **Initialize** — `initialize(token, admin)` unless already configured
 4. **Health gate** — re-reads `contract_health_check`, aborts if token/admin missing

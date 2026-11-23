@@ -74,10 +74,72 @@ export async function loadSnapshotsFromDb(dbPath: string): Promise<SubscriptionS
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
+    // Continue to support snapshots written by older tools/tests that keep a
+    // materialized subscriptions table. New indexer databases use event rows.
+    const hasSubscriptionsTable = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'")
+      .get();
+    if (hasSubscriptionsTable) {
+      const rows = db.prepare(
+        "SELECT user, amount, interval, last_charged, active, paused, charge_history FROM subscriptions",
+      ).all() as Array<Record<string, unknown>>;
+      return rows.map((row) => {
+        let chargeHistory: number[] = [];
+        try {
+          const parsed: unknown = JSON.parse(String(row.charge_history ?? "[]"));
+          if (Array.isArray(parsed)) chargeHistory = parsed.map(Number).filter(Number.isFinite);
+        } catch {
+          chargeHistory = [];
+        }
+        return {
+          user: String(row.user ?? ""),
+          amount: Number(row.amount ?? 0),
+          interval: Number(row.interval ?? 0),
+          last_charged: Number(row.last_charged ?? 0),
+          active: Boolean(row.active),
+          paused: Boolean(row.paused),
+          charge_history: chargeHistory,
+        };
+      });
+    const hasSubscriptionsTable = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'",
+      )
+      .get();
+
+    // Snapshot databases (and the fixtures used by the tests) carry a
+    // pre-aggregated `subscriptions` table. The indexer DB only has `events`,
+    // so fall back to reconstructing snapshots from charge/lifecycle events.
+    if (hasSubscriptionsTable) {
+      const rows = db
+        .prepare(
+          "SELECT user, amount, interval, last_charged, active, paused, charge_history FROM subscriptions",
+        )
+        .all() as unknown as Array<{
+        user: string;
+        amount: number;
+        interval: number;
+        last_charged: number;
+        active: number;
+        paused: number;
+        charge_history: string;
+      }>;
+
+      return rows.map((row) => ({
+        user: row.user,
+        amount: Number(row.amount),
+        interval: Number(row.interval),
+        last_charged: Number(row.last_charged),
+        active: Boolean(row.active),
+        paused: Boolean(row.paused),
+        charge_history: JSON.parse(row.charge_history ?? "[]") as number[],
+      }));
+    }
+
     const rows = db
       .prepare(
-        "SELECT event_type, user, amount, timestamp FROM events " +
-          "WHERE event_type IN ('charged', 'subscribed', 'cancelled') " +
+        "SELECT event_name AS event_type, address AS user, amount, timestamp FROM events " +
+          "WHERE event_name IN ('charged', 'subscribed', 'cancelled') " +
           "ORDER BY timestamp ASC",
       )
       .all() as unknown as EventRow[];
@@ -308,12 +370,6 @@ function formatHumanReadable(report: ForecastReport): string {
   return lines.join("\n");
 }
 
-// Only run main() when THIS file is the entry point (not when imported for testing)
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-
-if (isMain) {
-  main().catch((err: unknown) => {
-    console.error(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 const isMain = (() => {
@@ -327,6 +383,14 @@ const isMain = (() => {
 if (isMain) {
   main().catch((err) => {
     console.error(`Fatal: ${err instanceof Error ? err.message : err}`);
+// Only run main() when THIS file is the entry point (not when imported for testing)
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  main().catch((err: unknown) => {
+    console.error(
+      `Fatal error: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   });
 }

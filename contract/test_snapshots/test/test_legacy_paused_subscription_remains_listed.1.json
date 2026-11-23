@@ -1526,6 +1526,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1645,6 +1648,10 @@
               "vec": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  "u64": 0
+                },
+                {
+                  "u32": 10
                 }
               ]
             }
@@ -1786,6 +1793,11 @@
                   }
                 }
               ]
+                "symbol": "get_active_subscriber_page"
+              }
+            ],
+            "data": {
+              "vec": []
             }
           }
         }
@@ -1808,6 +1820,7 @@
               },
               {
                 "symbol": "get_active_subscriber_page"
+                "symbol": "get_subscriber_page"
               }
             ],
             "data": {

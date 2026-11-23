@@ -1,0 +1,67 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+
+jobs:
+  frontend:
+    name: lint · typecheck · test · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # ── ESLint ───────────────────────────────────────────────────────────
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      # ── Prettier ─────────────────────────────────────────────────────────
+      - name: Prettier format check
+        working-directory: frontend
+        run: npx prettier --check .
+
+      # ── TypeScript ───────────────────────────────────────────────────────
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+
+      # ── Vitest ───────────────────────────────────────────────────────────
+      - name: Test (Vitest)
+        working-directory: frontend
+        run: npm run test -- --reporter=verbose --coverage
+
+      # ── Upload coverage report ───────────────────────────────────────────
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: frontend/coverage/
+          retention-days: 14
+
+      # ── Production build ─────────────────────────────────────────────────
+      - name: Build
+        working-directory: frontend
+        run: npm run build

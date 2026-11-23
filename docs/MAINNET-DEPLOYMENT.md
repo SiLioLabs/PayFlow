@@ -36,7 +36,7 @@ There is no in-repo override that weakens this requirement.
 > Real funds must not flow through an unaudited Mainnet deployment.
 
 - [ ] **Independent security audit complete** — see [Audit gate](#audit-gate-mandatory--do-not-skip). _Why:_ Mainnet holds user allowances and merchant revenue.
-- [ ] **Audit WASM hash matches release artifact** — SHA256 of the release WASM (`flow_pay.wasm` per [`deployments/config.json`](../deployments/config.json)) recorded in release notes. _Why:_ prevents deploying an unaudited binary.
+- [ ] **Audit WASM hash matches release artifact** — SHA256 of the release WASM (`flowpay.wasm` per [`deployments/config.json`](../deployments/config.json)) recorded in release notes. _Why:_ prevents deploying an unaudited binary.
 - [ ] **Key management plan approved**
   - [ ] Admin key on a **hardware wallet** (or equivalent HSM)
   - [ ] Prefer **multisig / multi-party** admin (Stellar multisig thresholds) over a single hot key
@@ -170,7 +170,7 @@ Run these **before** proposing a WASM swap on Mainnet. They are separate scripts
 
 ```bash
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts
-CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./target/wasm32-unknown-unknown/release/flowpay.wasm
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --skip-key-check --upgrade-config ./upgrade-config.json
 ```
 
@@ -214,22 +214,21 @@ Absence of a flag is **not** authorization to use real funds. Confirm passphrase
 - [ ] **Build release WASM**
 
 ```bash
-cd contract
-cargo build --release --target wasm32-unknown-unknown
+cargo build -p flowpay --release --target wasm32-unknown-unknown
 ```
 
 Expected artifact path used by [`deployments/config.json`](../deployments/config.json) and `scripts/deploy-pipeline.ts`:
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 - [ ] **Record WASM hash**
 
 ```bash
-sha256sum contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+sha256sum target/wasm32-unknown-unknown/release/flowpay.wasm
 # Windows PowerShell:
-Get-FileHash contract\target\wasm32-unknown-unknown\release\flow_pay.wasm -Algorithm SHA256
+Get-FileHash target\wasm32-unknown-unknown\release\flowpay.wasm -Algorithm SHA256
 ```
 
 - [ ] **Schema version check** — confirm `get_schema_version` expectations match [`DEPLOYMENT.md`](DEPLOYMENT.md#migration-history).
@@ -272,7 +271,7 @@ Save the printed **contract ID**.
 soroban contract upload \
   --source <DEPLOYER> \
   --network mainnet \
-  --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 # Expected: prints WASM hash (hex)
 
 # 2) Deploy instance

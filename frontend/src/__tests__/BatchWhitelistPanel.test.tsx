@@ -161,6 +161,9 @@ describe("BatchWhitelistPanel", () => {
     await userEvent.type(textarea, VALID_ADDR_1);
 
     await userEvent.click(screen.getByRole("button", { name: /add to whitelist/i }));
+    // Opening the modal builds a throwaway XDR for the simulation preview;
+    // clear it so this assertion only covers the confirm/submit path.
+    vi.mocked(stellar.buildWhitelistBatchAddTx).mockClear();
     await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
 
     expect(stellar.buildWhitelistBatchAddTx).not.toHaveBeenCalled();

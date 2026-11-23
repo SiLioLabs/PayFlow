@@ -158,6 +158,7 @@
     "protocol_version": 21,
     "sequence_number": 0,
     "timestamp": 7200,
+    "timestamp": 3601,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -1564,6 +1565,9 @@
             "topics": [
               {
                 "symbol": "grace_period_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1629,6 +1633,9 @@
             "topics": [
               {
                 "symbol": "grace_period_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1779,6 +1786,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

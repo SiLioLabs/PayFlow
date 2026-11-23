@@ -318,6 +318,10 @@ export function useToast() {
   } catch {
     // Fall back to local state if not within a ToastProvider
     // This maintains backward compatibility with tests that mock useToast directly
-    return createLocalToastState();
+    return {
+      ...createLocalToastState(),
+      notificationPreferences: { success: true, error: true, info: true },
+      setNotificationPreference: () => true,
+    };
   }
 }

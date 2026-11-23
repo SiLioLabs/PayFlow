@@ -1,6 +1,22 @@
-use soroban_sdk::{Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
 use crate::Subscription;
+
+/// Current event wire-schema marker. V1 is the historical shape with no marker.
+const EVENT_SCHEMA_V2: &str = "v2";
+
+/// Publish an event while appending its schema version after existing topics.
+/// Keeping the marker last preserves the established event name and actor topic
+/// positions for consumers that already index those fields.
+fn publish_versioned<Topics, Data>(env: &Env, topics: Topics, data: Data)
+where
+    Topics: IntoVal<Env, Vec<Val>>,
+    Data: IntoVal<Env, Val>,
+{
+    let mut topics = topics.into_val(env);
+    topics.push_back(Symbol::new(env, EVENT_SCHEMA_V2).into_val(env));
+    env.events().publish(topics, data);
+}
 
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,7 +61,8 @@ pub struct CancelledWithRefundEventData {
 }
 
 pub fn publish_subscribed(env: &Env, user: &Address, sub: &Subscription) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "subscribed"), user.clone()),
         SubscribedEventData {
             merchant: sub.merchant.clone(),
@@ -58,7 +75,8 @@ pub fn publish_subscribed(env: &Env, user: &Address, sub: &Subscription) {
 
 /// Publishes `cancelled(user)` after a subscription is cancelled.
 pub fn publish_cancelled(env: &Env, user: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "cancelled"), user.clone()),
         CancelledEventData {
             ledger_sequence: env.ledger().sequence(),
@@ -70,7 +88,8 @@ pub fn publish_cancelled(env: &Env, user: &Address) {
 /// cancels the subscription. `refund` is the amount transferred back to the
 /// subscriber, in the subscription's token.
 pub fn publish_cancelled_with_refund(env: &Env, user: &Address, refund: i128) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "cancelled_with_refund"), user.clone()),
         CancelledWithRefundEventData {
             refund_amount: refund,
@@ -149,7 +168,8 @@ pub fn publish_charge_skipped(
 /// The recipient is carried in the payload as `merchant` so indexers keying on
 /// `(event, user)` still see every payment the subscriber made.
 pub fn publish_pay_per_use(env: &Env, user: &Address, merchant: &Address, amount: i128) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "pay_per_use"), user.clone()),
         PayPerUseEventData {
             merchant: merchant.clone(),
@@ -169,7 +189,8 @@ pub fn publish_charged(
     charged_at: u64,
     paid_to: Option<Address>,
 ) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "charged"), user.clone()),
         ChargeEventData {
             merchant: sub.merchant.clone(),
@@ -203,7 +224,8 @@ pub struct AdminTransferProposedEventData {
 
 /// Publishes `admin_transfer_proposed(new_admin)` when a transfer is staged.
 pub fn publish_admin_transfer_proposed(env: &Env, new_admin: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (
             Symbol::new(env, "admin_transfer_proposed"),
             new_admin.clone(),
@@ -245,7 +267,8 @@ pub struct MetadataClearedEventData {
 
 /// Publishes `metadata_set(user)` with the written label.
 pub fn publish_metadata_set(env: &Env, user: &Address, label: &String) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "metadata_set"), user.clone()),
         MetadataSetEventData {
             user: user.clone(),
@@ -257,7 +280,8 @@ pub fn publish_metadata_set(env: &Env, user: &Address, label: &String) {
 
 /// Publishes `metadata_cleared(user)`.
 pub fn publish_metadata_cleared(env: &Env, user: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "metadata_cleared"), user.clone()),
         MetadataClearedEventData {
             user: user.clone(),
@@ -296,7 +320,8 @@ pub struct MerchantRevenuePrunedEventData {
 
 /// Publishes `merchant_revenue_reset(merchant)`.
 pub fn publish_merchant_revenue_reset(env: &Env, merchant: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "merchant_revenue_reset"), merchant.clone()),
         MerchantRevenueResetEventData {
             merchant: merchant.clone(),
@@ -308,7 +333,8 @@ pub fn publish_merchant_revenue_reset(env: &Env, merchant: &Address) {
 /// Publishes `merchant_revenue_pruned(merchant)` with the number of removed
 /// day buckets.
 pub fn publish_merchant_revenue_pruned(env: &Env, merchant: &Address, removed_days: u32) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (
             Symbol::new(env, "merchant_revenue_pruned"),
             merchant.clone(),
@@ -372,8 +398,7 @@ pub struct BatchChargeSkipsEventData {
 /// Publishes the `batch_charge_skips` summary. Callers must only invoke this
 /// when at least one interesting (non-`Charged`, non-`Skipped`) outcome occurred.
 pub fn publish_batch_charge_skips(env: &Env, data: BatchChargeSkipsEventData) {
-    env.events()
-        .publish((Symbol::new(env, "batch_charge_skips"),), data);
+    publish_versioned(env, (Symbol::new(env, "batch_charge_skips"),), data);
 }
 
 #[soroban_sdk::contracttype]
@@ -390,7 +415,8 @@ pub fn publish_trial_extended(
     additional_seconds: u64,
     new_last_charged: u64,
 ) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "trial_extended"), user.clone()),
         TrialExtendedEventData {
             additional_seconds,
@@ -408,7 +434,8 @@ pub struct MinIntervalSetEventData {
 }
 
 pub fn publish_min_interval_set(env: &Env, old: u64, new: u64) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "min_interval_set"),),
         MinIntervalSetEventData { old, new },
     );
@@ -422,24 +449,30 @@ pub struct MaxBatchSizeSetEventData {
 }
 
 pub fn publish_max_batch_size_set(env: &Env, old: u32, new: u32) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "max_batch_size_set"),),
         MaxBatchSizeSetEventData { old, new },
     );
 }
 pub fn publish_max_whitelist_batch_size_set(env: &Env, old: u32, new: u32) {
-    env.events()
-        .publish((Symbol::new(env, "max_wl_batch_size_set"),), (old, new));
+    publish_versioned(
+        env,
+        (Symbol::new(env, "max_wl_batch_size_set"),),
+        (old, new),
+    );
 }
 
 pub fn publish_merchant_history_cleared(env: &Env, merchant: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "merch_hist_cleared"),), merchant.clone());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merch_hist_cleared"),),
+        merchant.clone(),
+    );
 }
 
 pub fn publish_paused(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "paused"), user.clone()), ());
+    publish_versioned(env, (Symbol::new(env, "paused"), user.clone()), ());
 }
 
 #[soroban_sdk::contracttype]
@@ -450,7 +483,8 @@ pub struct PauseUntilEventData {
 }
 
 pub fn publish_pause_until(env: &Env, user: &Address, expiry_timestamp: u64) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "pause_until"), user.clone()),
         PauseUntilEventData {
             expiry_timestamp,
@@ -460,17 +494,20 @@ pub fn publish_pause_until(env: &Env, user: &Address, expiry_timestamp: u64) {
 }
 
 pub fn publish_resumed(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "resumed"), user.clone()), ());
+    publish_versioned(env, (Symbol::new(env, "resumed"), user.clone()), ());
 }
 
 pub fn publish_subscription_paused(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "subscription_paused"), user.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "subscription_paused"), user.clone()),
+        (),
+    );
 }
 
 pub fn publish_subscription_transferred(env: &Env, old_user: &Address, new_user: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "sub_transferred"), old_user.clone()),
         new_user.clone(),
     );
@@ -482,7 +519,8 @@ pub fn publish_subscription_transferred_detailed(
     to: &Address,
     sub: &Subscription,
 ) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (
             Symbol::new(env, "subscription_transferred"),
             from.clone(),
@@ -498,47 +536,55 @@ pub fn publish_subscription_transferred_detailed(
 }
 
 pub fn publish_upgraded(env: &Env, new_wasm_hash: &BytesN<32>) {
-    env.events()
-        .publish((Symbol::new(env, "upgrade"),), new_wasm_hash.clone());
+    publish_versioned(env, (Symbol::new(env, "upgrade"),), new_wasm_hash.clone());
 }
 
 pub fn publish_upgrade_proposed(env: &Env, new_wasm_hash: &BytesN<32>) {
-    env.events()
-        .publish((Symbol::new(env, "upg_proposed"),), new_wasm_hash.clone());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "upg_proposed"),),
+        new_wasm_hash.clone(),
+    );
 }
 
 pub fn publish_upgrade_cancelled(env: &Env) {
-    env.events()
-        .publish((Symbol::new(env, "upg_cancelled"),), ());
+    publish_versioned(env, (Symbol::new(env, "upg_cancelled"),), ());
 }
 
 pub fn publish_contract_paused(env: &Env) {
-    env.events()
-        .publish((Symbol::new(env, "contract_paused"),), ());
+    publish_versioned(env, (Symbol::new(env, "contract_paused"),), ());
 }
 
 pub fn publish_contract_unpaused(env: &Env) {
-    env.events()
-        .publish((Symbol::new(env, "contract_unpaused"),), ());
+    publish_versioned(env, (Symbol::new(env, "contract_unpaused"),), ());
 }
 
 pub fn publish_daily_limit_set(env: &Env, user: &Address, limit: i128) {
-    env.events()
-        .publish((Symbol::new(env, "daily_limit_set"), user.clone()), limit);
+    publish_versioned(
+        env,
+        (Symbol::new(env, "daily_limit_set"), user.clone()),
+        limit,
+    );
 }
 
 pub fn publish_daily_limit_removed(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "daily_limit_removed"), user.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "daily_limit_removed"), user.clone()),
+        (),
+    );
 }
 
 pub fn publish_fee_cleared(env: &Env) {
-    env.events().publish((Symbol::new(env, "fee_cleared"),), ());
+    publish_versioned(env, (Symbol::new(env, "fee_cleared"),), ());
 }
 
 pub fn publish_daily_window_started(env: &Env, user: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "daily_window_started"), user.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "daily_window_started"), user.clone()),
+        (),
+    );
 }
 pub fn publish_subscription_amount_updated(
     env: &Env,
@@ -546,7 +592,8 @@ pub fn publish_subscription_amount_updated(
     old_amount: i128,
     new_amount: i128,
 ) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "sub_amount_updated"), user.clone()),
         (old_amount, new_amount),
     );
@@ -558,106 +605,129 @@ pub fn publish_subscription_interval_updated(
     old_interval: u64,
     new_interval: u64,
 ) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "sub_interval_updated"), user.clone()),
         (old_interval, new_interval),
     );
 }
 
 pub fn publish_referred(env: &Env, user: &Address, referrer: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "referred"), user.clone()),
         referrer.clone(),
     );
 }
 
 pub fn publish_admin_transferred(env: &Env, old_admin: &Address, new_admin: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "admin_transferred"),),
         (old_admin.clone(), new_admin.clone()),
     );
 }
 
 pub fn publish_fee_proposed(env: &Env, collector: &Address, bps: u32) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "fee_proposed"),),
         (collector.clone(), bps),
     );
 }
 
 pub fn publish_fee_committed(env: &Env, collector: &Address, bps: u32) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "fee_committed"),),
         (collector.clone(), bps),
     );
 }
 
 pub fn publish_merchant_added(env: &Env, merchant: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "merchant_added"), merchant.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_added"), merchant.clone()),
+        (),
+    );
 }
 
 pub fn publish_merchant_removed(env: &Env, merchant: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "merchant_removed"), merchant.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_removed"), merchant.clone()),
+        (),
+    );
 }
 
 pub fn publish_merchant_frozen(env: &Env, merchant: &Address) {
-    env.events()
-        .publish((Symbol::new(env, "merchant_frozen"), merchant.clone()), ());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_frozen"), merchant.clone()),
+        (),
+    );
 }
 
 pub fn publish_merchant_unfrozen(env: &Env, merchant: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "merchant_unfrozen"), merchant.clone()),
         (),
     );
 }
 
 pub fn publish_grace_period_proposed(env: &Env, seconds: u64) {
-    env.events()
-        .publish((Symbol::new(env, "grace_period_proposed"),), seconds);
+    publish_versioned(env, (Symbol::new(env, "grace_period_proposed"),), seconds);
 }
 
 pub fn publish_grace_period_committed(env: &Env, seconds: u64) {
-    env.events()
-        .publish((Symbol::new(env, "grace_period_committed"),), seconds);
+    publish_versioned(env, (Symbol::new(env, "grace_period_committed"),), seconds);
 }
 
 pub fn publish_subscription_auto_resumed(env: &Env, user: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "subscription_auto_resumed"), user.clone()),
         (),
     );
 }
 
 pub fn publish_migration_completed(env: &Env, version: u32, user_count: u32) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "migration_completed"),),
         (version, user_count),
     );
 }
 
 pub fn publish_subscriber_index_ttl_extended(env: &Env, count: u64) {
-    env.events()
-        .publish((Symbol::new(env, "subscriber_index_ttl_extended"),), count);
+    publish_versioned(
+        env,
+        (Symbol::new(env, "subscriber_index_ttl_extended"),),
+        count,
+    );
 }
 
 pub fn publish_merchant_state_ttl_extended(env: &Env, count: u64) {
-    env.events()
-        .publish((Symbol::new(env, "merchant_state_ttl_extended"),), count);
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_state_ttl_extended"),),
+        count,
+    );
 }
 
 /// Audit event for a successful admin repair of a stale subscriber index slot.
 pub fn publish_subscriber_index_cleared(env: &Env, user: &Address, index: u64) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "subscriber_index_cleared"), user.clone()),
         index,
     );
 }
 
 pub fn publish_merchant_fee_recipient_set(env: &Env, merchant: &Address, recipient: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (
             Symbol::new(env, "merchant_fee_recipient_set"),
             merchant.clone(),
@@ -667,7 +737,8 @@ pub fn publish_merchant_fee_recipient_set(env: &Env, merchant: &Address, recipie
 }
 
 pub fn publish_merchant_fee_recipient_cleared(env: &Env, merchant: &Address) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (
             Symbol::new(env, "merchant_fee_recipient_cleared"),
             merchant.clone(),
@@ -677,23 +748,52 @@ pub fn publish_merchant_fee_recipient_cleared(env: &Env, merchant: &Address) {
 }
 
 pub fn publish_fee_bounds_set(env: &Env, min_bps: u32, max_bps: u32) {
-    env.events()
-        .publish((Symbol::new(env, "fee_bounds_set"),), (min_bps, max_bps));
+    publish_versioned(
+        env,
+        (Symbol::new(env, "fee_bounds_set"),),
+        (min_bps, max_bps),
+    );
 }
 
 pub fn publish_global_volume_cap_set(env: &Env, old: i128, new: i128) {
-    env.events()
-        .publish((Symbol::new(env, "global_volume_cap_set"),), (old, new));
+    publish_versioned(
+        env,
+        (Symbol::new(env, "global_volume_cap_set"),),
+        (old, new),
+    );
 }
 
 pub fn publish_whitelist_enabled(env: &Env, enabled: bool) {
-    env.events()
-        .publish((Symbol::new(env, "whitelist_enabled"),), enabled);
+    publish_versioned(env, (Symbol::new(env, "whitelist_enabled"),), enabled);
 }
 
 pub fn publish_merchant_withdrawal(env: &Env, merchant: &Address, amount: i128) {
-    env.events().publish(
+    publish_versioned(
+        env,
         (Symbol::new(env, "merchant_withdrawal"), merchant.clone()),
         amount,
     );
+}
+
+/// Publishes `keeper_tip_bps_set(old, new)` when the admin changes the keeper tip.
+pub fn publish_keeper_tip_bps_set(env: &Env, old: u32, new: u32) {
+    env.events()
+        .publish((Symbol::new(env, "keeper_tip_bps_set"),), (old, new));
+}
+
+/// Publishes `keeper_tip(keeper, user, tip)` when a `charge_with_tip` call pays
+/// the keeper its share of the protocol fee. `tip` is in token base units.
+pub fn publish_keeper_tip(env: &Env, keeper: &Address, user: &Address, tip: i128) {
+    env.events().publish(
+        (Symbol::new(env, "keeper_tip"), keeper.clone()),
+        (user.clone(), tip),
+    );
+}
+
+/// Publishes `migration_progress(migrated_accounts)` after a `migrate` batch
+/// processes at least one new account. `migrated_accounts` is the running total
+/// for this upgrade, so indexers can follow progress without polling.
+pub fn publish_migration_progress(env: &Env, migrated_accounts: u64) {
+    env.events()
+        .publish((Symbol::new(env, "migration_progress"),), migrated_accounts);
 }

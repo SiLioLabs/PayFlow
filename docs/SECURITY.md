@@ -55,6 +55,35 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 
 ---
 
+## Administrator powers and trust assumptions
+
+The contract admin is a highly trusted role. An admin-compromised deployment may change billing parameters, stop charges, alter subscriptions, freeze merchants, or replace the contract WASM. The account should be a governed multisig rather than a single hot key; run proposals and commits as separate reviewed transactions, keep a tested recovery playbook, and store any multisig signer keys independently.
+
+| Admin-gated functions | Effective power | Delay / governance |
+| --- | --- | --- |
+| `initialize`, `set_initial_admin` | Configures the token and initial admin. | Setup only; `initialize` requires the supplied admin signature and cannot be repeated. |
+| `transfer_admin`, `accept_admin` | Transfers administrative authority to a pending address. | Two-step: current admin proposes; pending admin accepts. |
+| `pause_contract`, `unpause_contract` | Pauses or resumes all contract billing entrypoints. | Direct, no on-chain delay. |
+| `set_subscription_amount`, `set_subscription_interval` | Rewrites an existing user's amount or billing interval. | Direct; only the stored subscription is changed. |
+| `set_min_interval` | Raises or lowers the minimum allowed subscription interval. | Direct, no on-chain delay. |
+| `batch_pause_subscriptions`, `batch_cancel` | Pauses or cancels many subscriptions in one call. | Direct batch action; subject to batch limits. |
+| `freeze_merchant`, `unfreeze_merchant` | Blocks or restores merchant subscription activity. | Direct, no on-chain delay. |
+| `add_merchant`, `remove_merchant`, `set_whitelist_enabled`, `whitelist_batch_add`, `whitelist_batch_remove` | Changes which merchants may receive subscriptions. | Direct; batch calls are size-limited. |
+| `clear_fee`, `propose_fee`, `commit_fee` | Removes or changes the protocol fee collector and basis points. | `propose_fee`/`commit_fee` is two-step; a pending proposal expires from temporary storage after roughly 24 hours (17,280 ledgers). |
+| `set_fee_bounds` | Changes the allowed minimum and maximum protocol fee. | Direct, no on-chain delay. |
+| `set_global_volume_cap` | Replaces or removes the configurable rolling-volume cap. | Direct, no on-chain delay. |
+| `set_max_batch_size`, `set_max_whitelist_batch_size` | Raises or lowers batch and whitelist operation ceilings. | Direct; values remain subject to protocol ceilings. |
+| `propose_grace_period`, `commit_grace_period` | Changes the contract-wide grace window. | Two-step; pending grace periods expire from temporary storage after roughly 24 hours. |
+| `clear_charge_history`, `prune_charge_history` | Deletes or trims a user's charge timestamps. | Direct cleanup only; affects audit/history data, not the subscription. |
+| `clear_subscriber_index_entry`, `extend_subscriber_index_ttl`, `extend_merchant_state_ttl` | Removes a subscriber-index slot or extends subscriber/merchant index storage lifetime. | Direct maintenance; no on-chain delay. |
+| `clear_merchant_revenue_history`, `reset_merchant_revenue`, `prune_merchant_revenue_days` | Deletes or rewrites merchant accounting/history data. | Direct; destructive to derived or historical views, not token balances. |
+| `propose_upgrade`, `cancel_pending_upgrade`, `commit_upgrade` | Queues, removes, or installs replacement contract WASM. | Proposal is pending for roughly 24 hours (17,280 ledgers); commit performs the upgrade. |
+| `migrate` | Applies storage schema migrations for supplied subscriptions. | Direct, after deployment of compatible WASM; callers supply the affected user set. |
+
+See [Security specification and threat matrix](security/threat_matrix.md) for role boundaries and mitigations. The table above is an operator summary; the contract source and [Auth Model](#auth-model) remain authoritative.
+
+---
+
 ## Auth Model
 
 | Function | Required signer |
@@ -91,7 +120,8 @@ The contract is built to fail closed. If a precondition is violated, the call pa
 | `extend_subscriber_index_ttl()`, `clear_subscriber_index_entry()` | admin |
 | `pause_contract()`, `unpause_contract()` | admin |
 | `propose_upgrade()`, `commit_upgrade()`, `cancel_pending_upgrade()` | admin |
-| `migrate()` | admin |
+| `migrate()`, `finalize_migration()` | admin |
+| `set_keeper_tip_bps()` | admin |
 | `charge()`, `batch_charge()` | none |
 | `extend_subscription_ttl()`, `batch_extend_subscription_ttl()` | none |
 | `bump_subscription()`, `bump_instance_ttl()` | none |

@@ -14,6 +14,8 @@ export class XBullAdapter implements WalletAdapter {
   id = "xbull";
   name = "xBull";
   icon = "🐂";
+  installUrl = "https://xbull.app";
+  installHint = "Install the xBull browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.xBullSDK;
@@ -24,6 +26,11 @@ export class XBullAdapter implements WalletAdapter {
       throw new Error("xBull wallet not found. Install it from xbull.app");
     }
     await window.xBullSDK.connect({ canRequestPublicKey: true, canRequestSign: true });
+    return window.xBullSDK.getPublicKey();
+  }
+
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.xBullSDK) return null;
     return window.xBullSDK.getPublicKey();
   }
 

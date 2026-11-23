@@ -1046,6 +1046,9 @@
             "topics": [
               {
                 "symbol": "max_batch_size_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

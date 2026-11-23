@@ -16,6 +16,7 @@ This document provides the high-level architecture, technology stack, directory 
 - [Blockchain Integration (`stellar.ts`)](#blockchain-integration-stellarts)
   - [Read Operations](#read-operations)
   - [Write Operations](#write-operations)
+  - [Simulation preview before signing](#simulation-preview-before-signing)
 - [Hook Composition Pattern](#hook-composition-pattern)
 - [Wallet Architecture & Multi-Wallet Support](#wallet-architecture--multi-wallet-support)
 - [Component Tree & Application Hierarchy](#component-tree--application-hierarchy)
@@ -51,7 +52,7 @@ The frontend is architected around strict separation of concerns:
 | **TypeScript 5** | End-to-end static typing and contract type definitions |
 | **Vite** | Fast development server and production bundler |
 | **@stellar/stellar-sdk** | Soroban transaction building, XDR serialization, and RPC client |
-| **Wallet Adapters** | Multi-wallet support (Freighter, xBull, Albedo) via modular adapters |
+| **Wallet Adapters** | Multi-wallet support (Freighter, xBull, Lobstr, Hana, Albedo, Rabet, WalletConnect) via modular adapters |
 | **Vanilla CSS** | Token-driven styling (`index.css`) with CSS custom properties and light/dark theme support |
 | **Vitest & RTL** | Unit, component, and integration testing with jsdom |
 
@@ -117,10 +118,17 @@ Read operations query contract state without spending gas or prompting for walle
 Write operations construct, simulate, and request signatures for transactions that modify ledger state:
 
 1. **Build Transaction**: Create an unsigned Stellar transaction using `@stellar/stellar-sdk` and contract invocation operations.
-2. **Simulate**: Simulate the transaction against Soroban RPC to calculate resource fees and verify preconditions.
-3. **Sign**: Request signing from the user's connected wallet adapter (e.g. Freighter).
-4. **Submit & Poll**: Submit the transaction envelope to the network and poll until confirmation.
-5. **Parse Results**: Decode return values and error codes, returning a typed result to the calling hook.
+2. **Simulate**: Simulate the transaction against Soroban RPC to calculate resource fees and verify preconditions. `buildTx` caches the simulation result as a `TxSimulationPreview` keyed by the assembled XDR.
+3. **Preview**: `useTransactionPreview` rebuilds the XDR when a confirmation modal opens and reads the cached (or fresh) preview. `TransactionPreview` renders the estimated resource fee in stroops/XLM and any simulated contract error code with its friendly message. The admin batch panels pass this state into `ConfirmModal`, which disables Confirm for blocking failures.
+4. **Sign**: Request signing from the user's connected wallet adapter.
+5. **Submit & Poll**: `useTransaction` refuses to enqueue a mutation whose preview has `blockSigning: true`, unless the caller passes `allowSimulationOverride: true` for a failure the preview marked `overrideAllowed`. It then submits the envelope and polls until confirmation.
+6. **Parse Results**: Decode return values and error codes, returning a typed result to the calling hook.
+
+#### Simulation preview before signing
+
+Only benign conditions the contract re-checks itself (`#6` IntervalNotElapsed, `#9` GracePeriodElapsed, `#24` SubscriptionAlreadyActive) are marked safe to override. Allowance, limit and fee failures are always blocking. The fee/error preview is also attached to every entry created through `useTransaction` and rendered in `TxQueuePanel`, so all queued mutations expose their simulation outcome. RPC-level simulation failures do not block signing — the contract remains the authoritative guard.
+
+Tests: `src/__tests__/useTransactionPreview.test.ts`, `src/__tests__/ConfirmModal.preview.test.tsx`, `src/__tests__/useTransaction.simulation.test.tsx`, and `src/__tests__/TxQueuePanel.test.tsx`.
 
 ---
 
@@ -142,11 +150,15 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Dashboard
 Key architectural hooks:
 
 - `useWallet()`: Connects, disconnects, tracks public keys, and handles signing across wallet adapters.
-- `useNetworkStatus()`: Validates that the connected wallet's network passphrase matches the app configuration.
+- `useNetworkStatus()`: Validates the connected wallet's network passphrase and polls for network switches; wallet adapters are also polled for account changes so dashboard hooks receive the new account without a reload.
 - `useAdmin(publicKey)`: Checks whether the connected account is the contract administrator.
 - `useContractPaused()`: Monitors protocol pause status and circuit-breaker conditions.
 - `useRpcHealthContext()`: Tracks RPC endpoint latency, failure rates, and circuit breaker status.
 - `useSubscriptionSync(userKey)`: Synchronizes on-chain subscription state with automatic polling and cache invalidation.
+
+The notification centre stores per-category success, error, and general-update preferences in `localStorage`. Disabled categories are filtered before entering the toast and notification queues.
+
+The merchant dashboard can export daily revenue buckets as CSV. Revenue amounts are represented exactly in both stroops and XLM; the day buckets are loaded through the contract's paginated revenue-day reader.
 
 ---
 
@@ -154,13 +166,29 @@ Key architectural hooks:
 
 Wallet management is decoupled from specific browser extensions through the `WalletAdapter` interface (`src/services/wallets/WalletAdapter.ts`):
 
-1. **Detection**: `AVAILABLE_WALLETS` detects supported extensions (Freighter, xBull, Albedo).
+1. **Detection**: `AVAILABLE_WALLETS` (`src/hooks/useWallet.ts`) registers every supported adapter and `WalletSelectModal` calls `isInstalled()` on each in parallel.
 2. **Connection Flow**:
    - The user selects a wallet in `WalletSelectModal`.
    - The adapter requests account authorization.
    - The active public key is persisted to `localStorage` for session resumption.
 3. **Network Gating**: `useNetworkStatus` compares the wallet network against `VITE_NETWORK_PASSPHRASE`. If mismatched, an actionable gate banner prompts the user to switch networks before executing writes.
 4. **Transaction Signing**: When a write transaction is initiated, the active adapter prompts the user to sign the transaction XDR.
+
+### Supported adapters
+
+| Adapter | `id` | Availability | Install guidance |
+| --- | --- | --- | --- |
+| Freighter | `freighter` | Browser extension | https://freighter.app |
+| xBull | `xbull` | Browser extension | https://xbull.app |
+| Lobstr | `lobstr` | Browser extension | https://lobstr.co |
+| Hana | `hana` | Browser extension | https://hanawallet.com |
+| Albedo | `albedo` | Injected `window.albedo` provider | https://albedo.link |
+| Rabet | `rabet` | Injected `window.rabet` provider | https://rabet.io |
+| WalletConnect | `walletconnect` | Injected `window.walletConnect` mobile bridge | https://walletconnect.com |
+
+Adding a wallet requires only a new `WalletAdapter` implementation under `src/services/wallets/` and one entry in `AVAILABLE_WALLETS`. `WalletSelectModal` is adapter-driven, so new wallets appear automatically.
+
+Adapters expose optional `installUrl` and `installHint` fields. When `isInstalled()` returns `false`, the modal renders the hint and a "Get <wallet>" link so unavailable wallets show actionable install guidance instead of a dead-end badge. WalletConnect requires the host page to bootstrap a WalletConnect bridge provider; the adapter deliberately stays dependency-free and follows the same injected-provider contract as the extension wallets. Adapter unit tests live in `src/__tests__/walletAdapters.test.ts` and use injected provider mocks.
 
 ---
 
@@ -216,11 +244,12 @@ App
 │       ├── [Tab: "subscribe"]
 │       │   └── SubscribeForm
 │       │       ├── IntervalSelector
+│       │       ├── Trial period (days)
 │       │       ├── BalanceDisplay
 │       │       ├── AllowanceDisplay
 │       │       ├── AddressBook
-│       │       │   └── ConfirmModal
 │       │       ├── ReferralPanel
+│       │       ├── ConfirmModal (pre-sign fee breakdown)
 │       │       ├── StroopInput
 │       │       └── ToastContainer
 │       │
@@ -275,9 +304,21 @@ App
     └── ShortcutHelpOverlay      # Keyboard shortcut overlay ('?' key)
 ```
 
+### Subscribe Confirmation Summary
+
+`SubscribeForm` does not sign a subscription transaction directly. It first opens `ConfirmModal` with the gross charge, protocol fee, net merchant amount, billing interval, trial length and first-charge date. The fee uses the contract's truncating `amount * bps / 10_000` rule via `calculateProtocolFee`, and the first charge is `now + trialSeconds + interval`, matching `subscribe_inner`. An optional allowance warning appears when the current allowance is below the gross amount.
+
+### Referral Share Links
+
+`ReferralPanel` builds `/?ref=<ADDRESS>&merchant=<ADDRESS>` with `buildReferralUrl`. `parseSubscribeLinkParams` validates both addresses, ignores invalid values with a notice, and flags self-referral (error 11). `App` opens the Subscribe tab for links containing either param; `SubscribeForm` pre-fills the merchant and referrer fields and blocks signing on self-referral. See [`REFERRALS.md`](./REFERRALS.md#frontend-referralpanel).
+
+### Merchant Prorated Refunds
+
+`MerchantSubscriberTable` exposes a `cancel_and_refund_prorated` row action when a merchant wallet and signing callback are supplied. The preview uses the contract's saturating, truncating `(amount × remaining) / interval` calculation via `calculateProratedRefund`. The connected wallet must match the row's merchant (error 38), zero-refund periods are blocked (error 39), and an underfunded merchant is surfaced with the friendly error 40 message. A successful refund marks the row `Refunded` and calls `onRefunded` so the parent can refresh. See [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#cancel-with-prorated-refund--cancel_and_refund_prorateduser-merchant).
+
 ### Tab Navigation & Admin View
 
-`App.tsx` controls navigation via `useState<Tab>("dashboard")`:
+`App.tsx` controls navigation via `useState<Tab>("dashboard")`, defaulting to `subscribe` when the URL contains `?ref=` or `?merchant=`:
 - **Subscriber views**: `dashboard` and `subscribe` are visible to all users.
 - **Merchant view**: `merchant` tab renders `MerchantDashboard` for batch charging, revenue tracking, and subscriber exports.
 - **Admin view**: `admin` tab is conditionally visible only when `useAdmin(publicKey).isAdmin` evaluates to true. It renders `AdminDashboard` from `src/pages/AdminDashboard.tsx`.
