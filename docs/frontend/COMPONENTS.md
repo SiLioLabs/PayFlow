@@ -75,20 +75,20 @@ The table below lists all 45 components in the root `components/` directory:
 | **IntervalSelector** | `components/IntervalSelector.tsx` | Billing frequency selector presets | `SubscribeForm` | Canonical |
 | **LastUpdated** | `components/LastUpdated.tsx` | Cache freshness and timestamp indicator | `Dashboard`, `MerchantDashboard` | Canonical |
 | **MerchantDashboard** | `components/MerchantDashboard.tsx` | Merchant revenue tracking and batch charging | `App` (tab: `"merchant"`) | Canonical |
-| **MerchantSubscriberTable** | `components/MerchantSubscriberTable.tsx` | Sortable and filterable subscriber table | Tests only (`MerchantSubscriberTable.test.tsx`) | Unmounted |
+| **MerchantSubscriberTable** | `components/MerchantSubscriberTable.tsx` | Sortable/filterable subscriber table with prorated refund preview and row action | Tests only (`MerchantSubscriberTable.test.tsx`) | Unmounted |
 | **NetworkBadge** | `components/NetworkBadge.tsx` | Persistent Testnet / Mainnet status badge | `App` header, `WalletBar` | Canonical |
 | **NextChargeCountdown** | `components/NextChargeCountdown.tsx` | Countdown timer to next scheduled billing cycle | `SubscriptionCard` | Canonical |
 | **NotificationCenter** | `components/NotificationCenter.tsx` | Toast notification bell and history drawer | `WalletBar` | Canonical |
 | **OfflineBanner** | `components/OfflineBanner.tsx` | Full-width network connectivity banner | `App` | Canonical |
 | **PayPerUseForm** | `components/PayPerUseForm.tsx` | Instant metered micro-payment form | `Dashboard` | Canonical |
-| **ReferralPanel** | `components/ReferralPanel.tsx` | Referral link display and attribution input | `Dashboard`, `SubscribeForm` | Canonical |
+| **ReferralPanel** | `components/ReferralPanel.tsx` | Shareable `?ref=&merchant=` link, referred count, self-referral warning | `Dashboard`, `SubscribeForm` | Canonical |
 | **RevenueSparkline** | `components/RevenueSparkline.tsx` | 7-day revenue trend SVG visualization | `MerchantDashboard` | Canonical |
 | **RpcSettings** | `components/RpcSettings.tsx` | RPC endpoint configuration modal | `App` (via RPC failure banner) | Canonical |
 | **ShortcutHelpOverlay** | `components/ShortcutHelpOverlay.tsx` | Keyboard shortcuts cheat sheet ('?' key) | `App` | Canonical |
 | **Skeleton** | `components/Skeleton.tsx` | Skeleton loading state placeholders | `Dashboard`, `MerchantDashboard`, `SubscriptionHistory` | Canonical |
 | **Spinner** | `components/Spinner.tsx` | CSS loading spinner | `ConnectWallet`, `DailyLimitCard`, `PayPerUseForm`, `SubscriptionExport`, etc. | Canonical |
 | **StroopInput** | `components/StroopInput.tsx` | Dual-unit amount input field (XLM / Stroops) | `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
-| **SubscribeForm** | `components/SubscribeForm.tsx` | New subscription checkout form with pre-sign fee/allowance summary and optional trial length | `App` (tab: `"subscribe"`) | Canonical |
+| **SubscribeForm** | `components/SubscribeForm.tsx` | Checkout form with fee/allowance summary, trial length, and referral link pre-fill | `App` (tab: `"subscribe"`) | Canonical |
 | **SubscriberRecoveryPanel** | `components/SubscriberRecoveryPanel.tsx` | Subscription data integrity diagnostic panel | `Dashboard` | Canonical |
 | **SubscriptionCard** | `components/SubscriptionCard.tsx` | Active subscription details, health, and actions | `Dashboard` | Canonical |
 | **SubscriptionExport** | `components/SubscriptionExport.tsx` | CSV and JSON export utility for subscriptions | `Dashboard`, `MerchantDashboard` | Canonical |

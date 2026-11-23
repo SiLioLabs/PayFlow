@@ -1629,6 +1629,37 @@ button.allowance-health-badge:focus-visible {
   color: var(--color-danger-text);
 }
 
+.mst-status-badge--refunded {
+  background: var(--color-primary);
+  color: white;
+}
+
+.mst-refund-btn {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.mst-refund-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.mst-refund-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+}
+
+.mst-refund-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
 /* Skeleton */
 .mst-row--skeleton .mst-cell {
   padding: var(--space-3) var(--space-4);

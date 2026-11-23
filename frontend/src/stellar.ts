@@ -72,6 +72,7 @@ export function explorerTxUrl(hash: string, passphrase: string = NETWORK_PASSPHR
 
 export interface MerchantSubscriber {
   subscriber: string;
+  merchant?: string;
   amount: string;
   interval: number;
   lastCharged: number;
@@ -178,6 +179,14 @@ export async function buildSubscribeTx(
 
 export async function buildCancelTx(user: string): Promise<string> {
   return buildTx(user, "cancel", [addressVal(user)]);
+}
+
+/**
+ * Builds a merchant-funded prorated refund. The transaction is sourced from the
+ * merchant wallet; the contract also requires the subscriber's authorization.
+ */
+export async function buildCancelAndRefundTx(merchant: string, user: string): Promise<string> {
+  return buildTx(merchant, "cancel_and_refund_prorated", [addressVal(user), addressVal(merchant)]);
 }
 
 export async function buildPayPerUseTx(user: string, amount: bigint): Promise<string> {
@@ -849,6 +858,7 @@ export async function getMerchantSubscribers(merchant: string): Promise<Merchant
 
       subscribers.push({
         subscriber: userAddress,
+        merchant: subscribe.merchant,
         amount: subscribe.amount,
         interval: subscribe.interval,
         lastCharged,
@@ -1307,6 +1317,22 @@ export function getProtocolFee(caller: string): Promise<ProtocolFee | null> {
 export function calculateProtocolFee(gross: bigint, bps: number): bigint {
   if (bps <= 0 || gross <= 0n) return 0n;
   return (gross * BigInt(bps)) / 10_000n;
+}
+
+/**
+ * Mirrors `cancel_and_refund_prorated`: elapsed time saturates at the interval
+ * and the unused fraction is truncated to whole stroops.
+ */
+export function calculateProratedRefund(
+  amount: bigint,
+  intervalSec: number,
+  lastCharged: number,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): bigint {
+  if (amount <= 0n || intervalSec <= 0) return 0n;
+  const elapsed = Math.max(0, Math.floor(nowSec) - Math.floor(lastCharged));
+  const remaining = Math.max(0, intervalSec - elapsed);
+  return (amount * BigInt(remaining)) / BigInt(intervalSec);
 }
 
 /** Reads aggregate protocol stats (active count, fee, grace, pause, schema version). */

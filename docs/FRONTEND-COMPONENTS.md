@@ -368,14 +368,18 @@ Merchant portal for inspecting subscriber metrics, revenue history, batch chargi
 
 **File:** `frontend/src/components/MerchantSubscriberTable.tsx`
 
-Sortable, filterable table for viewing merchant subscribers with status badges and search.
+Sortable, filterable table for viewing merchant subscribers with status badges and merchant-funded prorated refunds.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
 | `subscribers` | `MerchantSubscriber[]` | yes | Array of subscriber records. |
-| `onCharge` | `(sub: MerchantSubscriber) => void`| no | Individual subscriber charge callback. |
-| `debounceMs` | `number` | no | Search input debounce delay in ms (default: 300). |
+| `merchantKey` | `string \| null` | no | Connected merchant wallet; refund actions are disabled on mismatch. |
+| `onSign` | `(xdr: string) => Promise<string>` | no | Signing helper used for `cancel_and_refund_prorated`. |
+| `onRefunded` | `(sub: MerchantSubscriber, hash: string) => void` | no | Called after a successful refund. |
+| `isPaused` | `boolean` | no | Disables refund actions during maintenance. |
+| `debounceMs` | `number` | no | Filter debounce delay in ms (default: 150). |
 
+- Refund preview uses the contract's saturating, truncating `(amount × remaining) / interval` rule. Error 38 blocks a mismatched merchant wallet, 39 blocks a zero refund, and 40 is surfaced with a friendly underfunded-merchant message.
 - **Status**: Unmounted in production (covered by Vitest unit tests; `MerchantDashboard` renders its own virtualized row list).
 
 ---
@@ -455,13 +459,12 @@ Instant metered payment form allowing one-off microtransactions against an activ
 
 **File:** `frontend/src/components/ReferralPanel.tsx`
 
-Referral program interface displaying subscriber referral links and partner attribution.
+Referral program interface displaying a shareable `?ref=<ADDRESS>&merchant=<ADDRESS>` link, referred count, and self-referral warning.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
-| `userKey` | `string` | yes | Current user's public key. |
-| `referrer` | `string \| null` | no | Optional active referrer address. |
-| `onSetReferrer` | `(ref: string) => void` | no | Callback to set a referral partner. |
+| `publicKey` | `string \| null` | no | Connected wallet public key used as the referral code. |
+| `merchant` | `string \| null` | no | Merchant address pre-filled into the share link. |
 
 ---
 
@@ -549,7 +552,7 @@ Dual-unit amount input allowing users to enter amounts in XLM with real-time con
 
 **File:** `frontend/src/components/SubscribeForm.tsx`
 
-Checkout form for creating a new recurring subscription.
+Checkout form for creating a new recurring subscription. It opens the Subscribe tab for share links, pre-fills `?ref=` / `?merchant=` params, shows the referrer, ignores invalid link addresses with a notice, and blocks self-referral (error 11) before signing.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
