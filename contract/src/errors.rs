@@ -119,4 +119,6 @@ pub enum ContractError {
     IntervalExceedsMaximum = 46,
     /// Returned when a merchant freeze reason exceeds the 128-byte length limit.
     FreezeReasonTooLong = 47,
+    /// Returned when an admin transfer targets the current admin or this contract.
+    InvalidAdminAddress = 48,
 }

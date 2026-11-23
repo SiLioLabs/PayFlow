@@ -1,3 +1,66 @@
+#!/usr/bin/env tsx
+/**
+ * deploy-pipeline.ts — Pre-deployment validation pipeline for FlowPay.
+ *
+ * Runs a sequence of safety gates before a WASM upgrade is committed:
+ *
+ *   1. Schema-version gate  — on-chain version matches the expected value.
+ *   2. WASM-hash gate       — on-chain WASM hash matches the local build artifact.
+ *
+ * If either gate fails the process exits non-zero, blocking the deployment.
+ * Gates that cannot be determined fail **closed** (i.e. they block, not warn).
+ *
+ * Usage:
+ *   CONTRACT_ID=C... RPC_URL=https://... tsx scripts/deploy-pipeline.ts [--help]
+ *   CONTRACT_ID=C... tsx scripts/deploy-pipeline.ts --expected-wasm-hash <hex>
+ *
+ * Environment:
+ *   CONTRACT_ID         Required. Deployed FlowPay contract address.
+ *   RPC_URL             Optional. Soroban RPC endpoint (default: testnet).
+ *   NETWORK_PASSPHRASE  Optional. Network passphrase (default: testnet).
+ *   EXPECTED_SCHEMA_VERSION  Optional. Schema version to assert (default: 2).
+ *
+ * Exit codes:
+ *   0 — all gates passed
+ *   1 — at least one gate failed or an unrecoverable error occurred
+ */
+
+/**
+ * deploy-pipeline.ts
+ *
+ * Hardened deployment pipeline for FlowPay contract upgrades.
+ *
+ * Runs a preflight checklist before any WASM upgrade is performed:
+ *   1. RPC health gate  — abort if the Soroban RPC node is not healthy
+ *   2. WASM hash gate   — verify the on-chain hash matches the local binary
+ *   3. Schema version   — record current version; warn if migration is pending
+ *   4. Summary artifact — write a machine-readable JSON file with run results
+ *
+ * Usage:
+ *   npx ts-node scripts/deploy-pipeline.ts [options]
+ *
+ * Options:
+ *   --wasm <path>         Path to compiled .wasm file (required unless --dry-run)
+ *   --contract <id>       Deployed contract ID
+ *   --rpc-url <url>       Soroban RPC URL
+ *   --network <pass>      Network passphrase
+ *   --source <keypair>    Source Stellar address for simulated queries
+ *   --summary-out <path>  Where to write the JSON summary (default: deploy-summary.json)
+ *   --dry-run             Validate config and print what would happen without calling RPC
+ *
+ * Environment variables:
+ *   RPC_URL / VITE_RPC_URL
+ *   CONTRACT_ID / VITE_CONTRACT_ID
+ *   NETWORK_PASSPHRASE / VITE_NETWORK_PASSPHRASE
+ *   SOROBAN_SOURCE_ACCOUNT
+ *
+ * Closes: https://github.com/SiLioLabs/PayFlow/issues/897
+ */
+
+import * as fs from "fs";
+import * as crypto from "crypto";
+import * as path from "path";
+import { Contract, Networks, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import * as path from "path";
@@ -9,8 +72,6 @@ import {
 } from "@stellar/stellar-sdk";
 import { fileURLToPath } from "url";
 import { MultiEndpointServer } from "./rpc-client.js";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type GateStatus = "pass" | "fail" | "skip" | "warn";
 

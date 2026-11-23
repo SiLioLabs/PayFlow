@@ -8,7 +8,7 @@ Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-
 
 | Tool             | Version | Install                                     |
 | ---------------- | ------- | ------------------------------------------- |
-| Rust             | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`      |
+| Rust             | 1.78+   | `curl https://sh.rustup.rs -sSf \| sh`      |
 | wasm32 target    | —       | `rustup target add wasm32-unknown-unknown`  |
 | Stellar CLI      | current | used by the pipeline as `stellar contract deploy` |
 | Soroban CLI      | 21.x    | `cargo install --locked soroban-cli` (invokes and reads) |
@@ -18,7 +18,7 @@ Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-
 Verify your setup:
 
 ```bash
-rustc --version    # 1.70+
+rustc --version    # 1.78+
 stellar --version  # required for live `stellar contract deploy`
 soroban --version  # 21.x (optional; used for manual invoke/read)
 node --version     # v18+
@@ -37,14 +37,13 @@ cd scripts && npm install && cd ..
 From the repository root:
 
 ```bash
-cd contract
-cargo build --release --target wasm32-unknown-unknown
+cargo build -p flowpay --release --target wasm32-unknown-unknown
 ```
 
 The artifact used by [`deployments/config.json`](../deployments/config.json) and `scripts/deploy-pipeline.ts` is:
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 The pipeline also runs this build as its first step unless `deployments/manifest.json` already records `steps.build = true`.
@@ -69,7 +68,7 @@ Edit `deployments/config.json` before a live run. Required fields:
 | `feeBps`            | Protocol fee (proposed then committed)    |
 | `feeCollector`      | Fee collector address                     |
 | `initialMerchants`  | Optional list for `whitelist_batch_add`   |
-| `wasmPath`          | Path to `flow_pay.wasm`                   |
+| `wasmPath`          | Path to `flowpay.wasm`                   |
 
 If `NETWORK_PASSPHRASE` or `VITE_NETWORK_PASSPHRASE` is set, it must equal `networkPassphrase` in the config file.
 
@@ -96,7 +95,7 @@ npx tsx scripts/deploy-pipeline.ts
 
 The pipeline, in order:
 
-1. **Build** — `cargo build --release --target wasm32-unknown-unknown` in `contract/`.
+1. **Build** — `cargo build -p flowpay --release --target wasm32-unknown-unknown` from the repository root.
 2. **Deploy** — `stellar contract deploy --wasm <wasmPath> --source <DEPLOYER_SECRET_KEY> --rpc-url <rpcUrl> --network-passphrase <networkPassphrase>`. Parses a `C…` contract ID from stdout.
 3. **Initialize** — `initialize(token, admin)` unless `contract_health_check` already reports `admin_configured` and `token_configured`.
 4. **Health gate (in-pipeline)** — re-reads `contract_health_check` and aborts if token/admin are not configured.
@@ -305,7 +304,7 @@ Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. D
 
 ```bash
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts
-CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 From `scripts/`: `npm run pre-upgrade-check` → `tsx pre-upgrade-check.ts`.
@@ -326,7 +325,7 @@ npx tsx scripts/snapshot-diff.ts before.json after.json
 soroban contract upload \
   --source admin \
   --network testnet \
-  --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 
 # 2. Propose
 soroban contract invoke \

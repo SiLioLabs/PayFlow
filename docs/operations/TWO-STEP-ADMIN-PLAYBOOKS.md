@@ -4,6 +4,10 @@ Step-by-step runbooks for **contract WASM upgrade** and **protocol fee rotation*
 
 For security rationale and state diagrams, see [`architecture/TWO-STEP-AUTH.md`](../architecture/TWO-STEP-AUTH.md). Implementation references: [`contract/src/upgrade.rs`](../../contract/src/upgrade.rs), [`contract/src/fee.rs`](../../contract/src/fee.rs), [`scripts/soroban-admin.ts`](../../scripts/soroban-admin.ts), [`scripts/rotate-fee-collector.ts`](../../scripts/rotate-fee-collector.ts), [`scripts/pre-upgrade-check.ts`](../../scripts/pre-upgrade-check.ts).
 
+## Playbook C — Admin rotation
+
+The two-step `transfer_admin(new_admin)` → `accept_admin()` flow only accepts a distinct, usable address. `transfer_admin` rejects both the current admin and the contract's own address with `InvalidAdminAddress` (48), preventing a no-op handoff and a handoff that the contract cannot accept. Select a reachable Stellar account or multisig, stage the transfer, and have that address call `accept_admin`.
+
 ---
 
 ## Timing budget
