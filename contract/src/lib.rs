@@ -1116,8 +1116,8 @@ impl FlowPay {
     /// # Auth
     ///
     /// Requires authorization from the current admin.
-    pub fn transfer_admin(env: Env, new_admin: Address) {
-        admin::transfer_admin(&env, &new_admin);
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        admin::transfer_admin(&env, &new_admin)
     }
 
     /// Accepts a pending admin transfer (step 2 of two-step transfer).
@@ -1852,14 +1852,9 @@ impl FlowPay {
         let mut i: u32 = 0;
         while i < wl_size {
             let key = DataKey::WhitelistIndex(i);
-            if let Some(merchant) =
-                env.storage().persistent().get::<_, Address>(&key)
-            {
+            if let Some(merchant) = env.storage().persistent().get::<_, Address>(&key) {
                 bump_merchant_state_ttl(&env, &key);
-                bump_merchant_state_ttl(
-                    &env,
-                    &DataKey::MerchantWhitelist(merchant.clone()),
-                );
+                bump_merchant_state_ttl(&env, &DataKey::MerchantWhitelist(merchant.clone()));
                 let slot = DataKey::WhitelistIndexSlot(merchant.clone());
                 if env.storage().persistent().has(&slot) {
                     bump_merchant_state_ttl(&env, &slot);
@@ -1875,23 +1870,24 @@ impl FlowPay {
         let mut j: u32 = 0;
         while j < mi_size {
             let key = DataKey::MerchantIndex(j);
-            if let Some(merchant) =
-                env.storage().persistent().get::<_, Address>(&key)
-            {
+            if let Some(merchant) = env.storage().persistent().get::<_, Address>(&key) {
                 bump_merchant_state_ttl(&env, &key);
                 bump_merchant_state_ttl(&env, &DataKey::MerchantKnown(merchant.clone()));
                 bump_merchant_state_ttl(&env, &DataKey::MerchantRevenue(merchant.clone()));
                 bump_merchant_state_ttl(&env, &DataKey::MerchantSubCount(merchant.clone()));
-                if env.storage().persistent().has(&DataKey::MerchantFrozen(merchant.clone())) {
+                if env
+                    .storage()
+                    .persistent()
+                    .has(&DataKey::MerchantFrozen(merchant.clone()))
+                {
                     bump_merchant_state_ttl(&env, &DataKey::MerchantFrozen(merchant.clone()));
-                    bump_merchant_state_ttl(
-                        &env,
-                        &DataKey::MerchantFreezeReason(merchant.clone()),
-                    );
+                    bump_merchant_state_ttl(&env, &DataKey::MerchantFreezeReason(merchant.clone()));
                 }
                 let day_index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
-                if let Some(days) =
-                    env.storage().persistent().get::<_, Vec<u64>>(&day_index_key)
+                if let Some(days) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, Vec<u64>>(&day_index_key)
                 {
                     bump_merchant_state_ttl(&env, &day_index_key);
                     for day in days.iter() {
@@ -1901,10 +1897,7 @@ impl FlowPay {
                         );
                     }
                 }
-                bump_merchant_state_ttl(
-                    &env,
-                    &DataKey::MerchantRevenueHistory(merchant.clone()),
-                );
+                bump_merchant_state_ttl(&env, &DataKey::MerchantRevenueHistory(merchant.clone()));
                 merchants_extended += 1;
             }
             j += 1;
@@ -2619,9 +2612,11 @@ fn extend_subscription_ttl(env: &Env, user: &Address) {
 /// exists. No-op for absent keys so the sweep is safe over sparse indexes.
 fn bump_merchant_state_ttl(env: &Env, key: &DataKey) {
     if env.storage().persistent().has(key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 }
 

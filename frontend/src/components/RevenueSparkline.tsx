@@ -53,6 +53,26 @@ const RevenueSparklineComponent: React.FC<Props> = ({ history }) => {
           stroke: var(--color-text);
           stroke-width: 2.5;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .sparkline-point {
+            transition: none !important;
+          }
+        }
+        @media (forced-colors: active) {
+          .sparkline-point {
+            stroke: CanvasText;
+            fill: ButtonText;
+          }
+          .sparkline-point:hover,
+          .sparkline-point:focus-visible {
+            fill: Highlight;
+            stroke: Highlight;
+          }
+          .sparkline-point:focus-visible {
+            outline: 2px solid Highlight;
+            outline-offset: 2px;
+          }
+        }
       `}</style>
       <svg
         role="img"

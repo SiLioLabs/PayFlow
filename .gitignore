@@ -194,6 +194,7 @@ skills-lock.json
 
 contract/target/
 vesting/target/
+/target/
 
 # Webhook Dead Letter Queue
 data/webhook-dlq.jsonl

@@ -1729,28 +1729,29 @@ fn test_extend_merchant_state_ttl_extends_each_key_group() {
     client.add_merchant(&rev_merchant);
     let today = env.ledger().timestamp() / 86400;
     env.as_contract(&contract_id, || {
-        env.storage()
-            .persistent()
-            .set(&DataKey::MerchantRevenue(rev_merchant.clone()), &5_000_000_000i128);
+        env.storage().persistent().set(
+            &DataKey::MerchantRevenue(rev_merchant.clone()),
+            &5_000_000_000i128,
+        );
         env.storage()
             .persistent()
             .set(&DataKey::MerchantSubCount(rev_merchant.clone()), &1u32);
         let mut days = Vec::new(&env);
         days.push_back(today);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MerchantRevenueDayIndex(rev_merchant.clone()), &days);
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::MerchantRevenueDay(rev_merchant.clone(), today),
-                &5_000_000_000i128,
-            );
+        env.storage().persistent().set(
+            &DataKey::MerchantRevenueDayIndex(rev_merchant.clone()),
+            &days,
+        );
+        env.storage().persistent().set(
+            &DataKey::MerchantRevenueDay(rev_merchant.clone(), today),
+            &5_000_000_000i128,
+        );
         let mut history = Vec::new(&env);
         history.push_back(5_000_000_000i128);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MerchantRevenueHistory(rev_merchant.clone()), &history);
+        env.storage().persistent().set(
+            &DataKey::MerchantRevenueHistory(rev_merchant.clone()),
+            &history,
+        );
     });
 
     client.extend_merchant_state_ttl();
@@ -1778,10 +1779,22 @@ fn test_extend_merchant_state_ttl_extends_each_key_group() {
         );
         assert_window(&DataKey::MerchantIndexSize, "MerchantIndexSize");
         assert_window(&DataKey::MerchantIndex(0), "MerchantIndex(0)");
-        assert_window(&DataKey::MerchantKnown(frz_merchant.clone()), "MerchantKnown");
-        assert_window(&DataKey::MerchantFrozen(frz_merchant.clone()), "MerchantFrozen");
-        assert_window(&DataKey::MerchantRevenue(rev_merchant.clone()), "MerchantRevenue");
-        assert_window(&DataKey::MerchantSubCount(rev_merchant.clone()), "MerchantSubCount");
+        assert_window(
+            &DataKey::MerchantKnown(frz_merchant.clone()),
+            "MerchantKnown",
+        );
+        assert_window(
+            &DataKey::MerchantFrozen(frz_merchant.clone()),
+            "MerchantFrozen",
+        );
+        assert_window(
+            &DataKey::MerchantRevenue(rev_merchant.clone()),
+            "MerchantRevenue",
+        );
+        assert_window(
+            &DataKey::MerchantSubCount(rev_merchant.clone()),
+            "MerchantSubCount",
+        );
         assert_window(
             &DataKey::MerchantRevenueDayIndex(rev_merchant.clone()),
             "MerchantRevenueDayIndex",
@@ -1801,8 +1814,14 @@ fn test_extend_merchant_state_ttl_extends_each_key_group() {
     let (_, topics, data) = events.get(events.len() - 1).unwrap();
     let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let count: u64 = data.try_into_val(&env).unwrap();
-    assert_eq!(topic_symbol, Symbol::new(&env, "merchant_state_ttl_extended"));
-    assert!(count > 0, "merchant_state_ttl_extended must report a positive count");
+    assert_eq!(
+        topic_symbol,
+        Symbol::new(&env, "merchant_state_ttl_extended")
+    );
+    assert!(
+        count > 0,
+        "merchant_state_ttl_extended must report a positive count"
+    );
 }
 
 /// Re-freeze (freeze → unfreeze → freeze) extends the TTL on the second freeze
@@ -6907,6 +6926,30 @@ fn test_transfer_admin() {
 
     let current_admin = env.as_contract(&contract_id, || storage::get_admin(&env));
     assert_eq!(current_admin, new_admin);
+}
+
+#[test]
+fn test_transfer_admin_rejects_current_admin() {
+    let (env, contract_id, _token_addr, admin, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin));
+
+    assert_eq!(
+        client.try_transfer_admin(&admin),
+        Err(Ok(ContractError::InvalidAdminAddress))
+    );
+}
+
+#[test]
+fn test_transfer_admin_rejects_contract_address() {
+    let (env, contract_id, _token_addr, admin, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin));
+
+    assert_eq!(
+        client.try_transfer_admin(&contract_id),
+        Err(Ok(ContractError::InvalidAdminAddress))
+    );
 }
 
 #[test]
@@ -13546,9 +13589,11 @@ fn find_batch_charge_skips(env: &Env) -> Option<crate::events::BatchChargeSkipsE
         if topic_symbol == Symbol::new(env, "batch_charge_skips") {
             assert_eq!(
                 topics.len(),
-                1,
-                "batch_charge_skips carries no address topic"
+                2,
+                "batch_charge_skips carries only event name and schema version"
             );
+            let version: Symbol = topics.get(1).unwrap().try_into_val(env).unwrap();
+            assert_eq!(version, Symbol::new(env, "v2"));
             assert!(
                 found.is_none(),
                 "at most one summary event per batch_charge call"
@@ -15875,6 +15920,7 @@ fn test_batch_charge_survives_extreme_grace_period() {
 
     // batch_charge must return a per-user result vector and not trap, even
     // with a near-u64::MAX grace period configured.
+    // It returns a per-user result vector and does not trap.
     let mut users = soroban_sdk::Vec::new(&env);
     users.push_back(user.clone());
     let results = client.batch_charge(&users);
@@ -15889,29 +15935,14 @@ fn test_batch_charge_survives_extreme_grace_period() {
 // from get_active_subscriber_page (design invariant regression test)
 // ─────────────────────────────────────────────────────────────
 
-/// Regression test: a subscription row that has `active = false` but
-/// `paused = true` (the legacy "paused" state written by `pause_until`
-/// before issue #1009 fixed the flag semantics) must remain EXCLUDED from
-/// `get_active_subscriber_page`.
-///
-/// The page reader uses `sub.active` intentionally (not `!is_cancelled`):
-/// it lists currently-active subscriptions, and legacy `paused && !active`
-/// rows are not considered active. The raw append-only `get_subscriber_page`
-/// still returns them, but the active-filtered page must not.
-///
-/// `is_cancelled` semantics: `!active && !paused`. A legacy row has
-/// `paused=true`, so `is_cancelled` returns `false` — the row is NOT
-/// cancelled. But it is also not active, so the active page correctly
-/// excludes it.
-///
-/// See `scenario_legacy_paused_inactive_row_reader_semantics` in
-/// `scenario.rs` for the full scenario-level coverage of this invariant.
+/// A legacy paused row stays in the raw index but is excluded from active readers.
 #[test]
 fn test_legacy_paused_subscription_remains_listed() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     // Subscribe so the user is in the subscriber index.
     let interval: u64 = 3600;
+    let interval: u64 = 86_400;
     client.subscribe(
         &user,
         &merchant,
@@ -15961,21 +15992,23 @@ fn test_legacy_paused_subscription_remains_listed() {
         raw_page.contains(&user),
         "legacy row must still appear in the raw get_subscriber_page"
     );
+    assert!(!client
+        .get_active_subscriber_page(&0u64, &10u32)
+        .contains(&user));
+    assert!(client.get_subscriber_page(&0u64, &10u32).contains(&user));
 }
 
-/// Complementary: a truly cancelled row (active=false, paused=false) must
-/// NOT appear in get_active_subscriber_page. This confirms that the active
-/// page excludes both cancelled and legacy paused rows.
 #[test]
 fn test_cancelled_subscription_not_listed() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-
+    let interval: u64 = 86_400;
     client.subscribe(
         &user,
         &merchant,
         &1_0000000,
         &3600u64,
+        &interval,
         &token_addr,
         &None,
         &None,
@@ -15990,6 +16023,10 @@ fn test_cancelled_subscription_not_listed() {
         !page.contains(&user),
         "cancelled subscription must not appear in get_active_subscriber_page"
     );
+    client.cancel(&user);
+    assert!(!client
+        .get_active_subscriber_page(&0u64, &10u32)
+        .contains(&user));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -16096,16 +16133,16 @@ fn test_subscription_health_within_grace_no_grace_period() {
     );
 }
 
-/// When grace_period > 0 and we are inside the grace window, both charge_due
-/// and within_grace must be true (existing behaviour must be preserved).
+/// A subscription that is due inside a configured grace window remains chargeable.
 #[test]
 fn test_subscription_health_within_grace_with_grace_period() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     install_admin(&env, &contract_id);
-
-    let grace: u64 = 7200;
-    let interval: u64 = 3600;
+    let grace: u64 = 7_200;
+    let interval: u64 = 3_600;
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
     client.subscribe(
         &user,
         &merchant,
@@ -16129,6 +16166,35 @@ fn test_subscription_health_within_grace_with_grace_period() {
         health.within_grace,
         "within_grace must be true inside grace window"
     );
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp += interval + 1);
+    let health = client.get_subscription_health(&user);
+    assert!(health.charge_due);
+    assert!(health.within_grace);
+}
+
+#[test]
+fn test_cancelled_subscription_remains_excluded_inside_grace_period() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    install_admin(&env, &contract_id);
+    let grace: u64 = 3_600;
+    let interval: u64 = 3_600;
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &interval,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.cancel(&user);
+    assert!(!client
+        .get_active_subscriber_page(&0u64, &10u32)
+        .contains(&user));
 }
 
 /// When grace_period > 0 and we are past the grace window, both charge_due
@@ -16208,6 +16274,10 @@ fn test_clear_metadata_emits_exactly_one_publisher() {
         }
     }
     assert_eq!(count, 1, "exactly one metadata_cleared event must be emitted");
+    assert_eq!(
+        count, 1,
+        "exactly one metadata_cleared event must be emitted"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -16230,9 +16300,33 @@ fn test_scan_sparse_index_skips_tombstones() {
     let user_c = setup_funded_user(&env, &contract_id, &token_addr);
 
     // Subscribe all three users — they occupy slots 0, 1, 2.
-    client.subscribe(&user_a, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-    client.subscribe(&user_b, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-    client.subscribe(&user_c, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(
+        &user_a,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &user_b,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &user_c,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
     assert_eq!(client.get_subscriber_count(), 3);
 
     // Cancel user_b — this tombstones slot 1 automatically via remove_subscriber_index.
@@ -16254,7 +16348,15 @@ fn test_scan_all_tombstoned_page_returns_empty() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     // Subscribe and immediately cancel — cancel tombstones the slot automatically.
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
     client.cancel(&user);
 
     // The only slot is tombstoned — page must be empty.
@@ -16269,18 +16371,38 @@ fn test_scan_offset_past_end_returns_empty() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
     assert_eq!(client.get_subscriber_count(), 1);
 
     // offset 1 == size — out of bounds.
     let page = client.get_subscriber_page(&1u64, &10u32);
-    assert_eq!(page.len(), 0, "get_subscriber_page: offset at size must return empty");
+    assert_eq!(
+        page.len(),
+        0,
+        "get_subscriber_page: offset at size must return empty"
+    );
 
     let active_page = client.get_active_subscriber_page(&1u64, &10u32);
-    assert_eq!(active_page.len(), 0, "get_active_subscriber_page: offset at size must return empty");
+    assert_eq!(
+        active_page.len(),
+        0,
+        "get_active_subscriber_page: offset at size must return empty"
+    );
 
     let batch = client.get_next_charge_batch(&1u64, &10u32, &None);
-    assert_eq!(batch.len(), 0, "get_next_charge_batch: offset at size must return empty");
+    assert_eq!(
+        batch.len(),
+        0,
+        "get_next_charge_batch: offset at size must return empty"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -16430,7 +16552,15 @@ fn test_set_daily_limit_negative_rejected() {
 fn test_daily_limit_exact_limit_spend_allowed() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
     client.set_daily_limit(&user, &5_0000000);
     client.pay_per_use(&user, &2_0000000);
     client.pay_per_use(&user, &3_0000000);
@@ -16444,7 +16574,15 @@ fn test_daily_limit_exact_limit_spend_allowed() {
 fn test_daily_limit_over_limit_spend_rejected() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &token_addr,
+        &None,
+        &None,
+    );
     client.set_daily_limit(&user, &5_0000000);
     client.pay_per_use(&user, &5_0000000);
     client.pay_per_use(&user, &1);

@@ -5,11 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Versioning note:** `package.json` and `contract/Cargo.toml` declare `0.1.0`.
-> There are no git tags and no GitHub Releases. `[0.1.0]` is the cumulative
-> documented baseline for that declared version. Undated entries under
-> `[Unreleased]` are preserved from the prior changelog and track work not
-> yet cut as a tagged release.
+## Versioning policy
+
+- `package.json`, `contract/Cargo.toml`, `vesting/Cargo.toml`, and `frontend/package.json` currently declare `0.1.0`. No git tags or GitHub Releases exist yet.
+- A release MAJOR/MINOR/PATCH change follows SemVer. **MAJOR** covers incompatible contract or public ABI changes; **MINOR** adds backward-compatible functions or fields; **PATCH** fixes behavior without changing the public interface.
+- Storage layout and migration changes are release-breaking unless an existing instance can migrate automatically. The contract schema version, ABI, and migration requirement must be called out explicitly in the changelog.
+- Breaking entries use `**BREAKING**` and describe the affected function, wire/schema field, migration, and required caller action.
+- Contract WASM and schema changes should be tagged together with a release where practical. Until formal releases exist, `[0.1.0]` is the cumulative baseline and `[Unreleased]` contains work not yet released.
 
 ## [Unreleased]
 
@@ -40,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Broken build on `master`:** `contract/src/lib.rs` (`get_next_charge_batch`) and `contract/src/test.rs` had leftover fragments from merge #1222 that did not parse. Removed them. `test.rs` also had three duplicate `test_cancelled_subscription_not_listed` definitions and a truncated grace-period test. Repaired.
 
+### Fixed
+
+- Charge failure alerting now correctly reads `batch_charge_skips` events with `allowance_insufficient > 0` instead of querying no `charge_failed` event.
+- `scripts/config.ts` normalizes deprecated aliases to canonical names before validation, with startup warnings for legacy names.
 - **Dead charge-failure alerting:** Indexer now documents which contract topics map to charge failures; alert-failed-charges reads the correct `batch_charge_skips` event.
 - **Secret key naming chaos:** Config reads canonical `SECRET_KEY` and `NETWORK_PASSPHRASE`; aliases (`KEEPER_SECRET`, `NETWORK_PASSTHRASE`) are supported with deprecation warnings.
 - **ESM/CJS mismatch:** Verified all scripts use consistent ESM (import.meta.url, top-level awaits, .js-style imports). No CJS require.main or module.exports patterns detected.

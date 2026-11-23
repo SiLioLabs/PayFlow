@@ -12756,6 +12756,9 @@
             "topics": [
               {
                 "symbol": "max_wl_batch_size_set"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -12987,6 +12990,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13008,6 +13014,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13029,6 +13038,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13050,6 +13062,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13071,6 +13086,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13092,6 +13110,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13113,6 +13134,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13134,6 +13158,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13155,6 +13182,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6J5N"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13176,6 +13206,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB6KO"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13197,6 +13230,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDWC6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13218,6 +13254,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFO3O"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13239,6 +13278,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13260,6 +13302,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13281,6 +13326,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13302,6 +13350,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13323,6 +13374,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOHR6"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13344,6 +13398,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABR4OP"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13365,6 +13422,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13386,6 +13446,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVM7P"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13407,6 +13470,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABXEX7"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13428,6 +13494,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABY5MP"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13449,6 +13518,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2VE7"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13470,6 +13542,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4N5P"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13491,6 +13566,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6FV7"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13512,6 +13590,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBKTY"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13533,6 +13614,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACDC3I"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13554,6 +13638,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACF2CY"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13575,6 +13662,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACHSKI"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13596,6 +13686,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACILRY"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13617,6 +13710,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACKDZI"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13638,6 +13734,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACM3AY"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13659,6 +13758,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACOTII"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13680,6 +13782,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACRIXZ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13701,6 +13806,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACTA7J"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13722,6 +13830,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACVYGZ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13743,6 +13854,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACXQOJ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13764,6 +13878,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACYJVZ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13785,6 +13902,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC2B5J"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13806,6 +13926,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4ZEZ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13827,6 +13950,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC6RMJ"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13848,6 +13974,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADBG3K"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13869,6 +13998,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADDOT2"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13890,6 +14022,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADFWKK"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13911,6 +14046,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADH6C2"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13932,6 +14070,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADIHZK"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13953,6 +14094,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADKPR2"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13974,6 +14118,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADMXIK"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -13995,6 +14142,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADO7A2"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -14016,6 +14166,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADRE7L"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"
@@ -14037,6 +14190,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADTMX3"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": "void"

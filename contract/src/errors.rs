@@ -124,4 +124,6 @@ pub enum ContractError {
     MigrationIncomplete = 48,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
     InvalidKeeperTipBps = 49,
+    /// Returned when an admin transfer targets the current admin or this contract.
+    InvalidAdminAddress = 48,
 }

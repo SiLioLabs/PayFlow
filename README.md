@@ -126,7 +126,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, storage 
 
 | Tool | Version |
 |------|---------|
-| Rust | 1.70+ |
+| Rust | 1.78+ |
 | wasm32 target | `wasm32-unknown-unknown` |
 | Soroban CLI | 21.x |
 | Node.js | 18+ |
@@ -134,9 +134,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, storage 
 ### Contract
 
 ```bash
-cd contract
-cargo build --release --target wasm32-unknown-unknown
-cargo test
+cargo build -p flowpay --release --target wasm32-unknown-unknown
+cargo test -p flowpay
+cargo test --workspace
 ```
 
 ### Frontend
@@ -171,7 +171,9 @@ A keeper is an off-chain scheduler (cron job, AWS Lambda, or any scripted proces
 
 ### How do I spin up a local validation environment for testing?
 
-All contract tests run fully in-memory with no network connection required — `soroban-sdk`'s `Env::default()` provides an isolated Soroban runtime. Install Rust 1.70+ with the `wasm32-unknown-unknown` target, then run `cd contract && cargo test` to execute the full suite. To simulate time passing (e.g. advancing past a billing interval), use `env.ledger().with_mut(|l| { l.timestamp += seconds; })` inside your test. For frontend validation, run `cd frontend && npm run test` using Vitest. Full setup steps are in [Testing Guide](docs/TESTING.md).
+All contract tests run fully in-memory with no network connection required — `soroban-sdk`'s `Env::default()` provides an isolated Soroban runtime. Install Rust 1.78+ with the `wasm32-unknown-unknown` target, then run `cargo test --workspace` from the repository root to test both the main and vesting contracts. To test one package, run `cargo test -p flowpay` or `cargo test -p academy-vesting`. To simulate time passing (e.g. advancing past a billing interval), use `env.ledger().with_mut(|l| { l.timestamp += seconds; })` inside your test. For frontend validation, run `cd frontend && npm run test` using Vitest. Full setup steps are in [Testing Guide](docs/TESTING.md).
+
+Vesting schedule semantics, claim behavior, and revocation constraints are described in [the vesting contract guide](docs/VESTING.md).
 
 ### What tokens does FlowPay support?
 
@@ -197,6 +199,8 @@ Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entr
 
 FlowPay is **currently deployed on Testnet only** and has not been formally audited — it should not be used to manage real funds on Mainnet until an independent Soroban security audit is completed and published. The frontend targets the network specified by three environment variables in `frontend/.env`: `VITE_CONTRACT_ID` (your deployed contract address), `VITE_RPC_URL` (defaults to `https://soroban-testnet.stellar.org`), and `VITE_NETWORK_PASSPHRASE` (defaults to `Networks.TESTNET`). Switching to Mainnet requires updating all three variables to point to your Mainnet contract and RPC endpoint. The planned audit roadmap is documented in [Security](docs/SECURITY.md#audit-roadmap). For the full Mainnet go-live checklist (security gates, key management, deploy, verification, announcement), see [Mainnet Deployment Checklist](docs/MAINNET-DEPLOYMENT.md).
 
+Review [administrator powers and trust assumptions](docs/SECURITY.md#administrator-powers-and-trust-assumptions) before granting or operating an admin key.
+
 ### Why is `charge()` permissionless — isn't that a security risk?
 
 `charge()` has no `require_auth()` check by design, so any account (including a keeper bot) can trigger a charge without holding user keys. The contract enforces correctness independently: the subscription must exist, `active` must be `true`, and the billing interval must have elapsed — if any condition fails, the transaction panics and no funds move. Because the token transfer uses `transfer_from` against a pre-approved allowance, FlowPay can never move more than the user explicitly approved. This is covered in detail under [Security — Auth Model](docs/SECURITY.md#auth-model).
@@ -215,7 +219,7 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 
 | Tool          | Version | Install                                    |
 | ------------- | ------- | ------------------------------------------ |
-| Rust          | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`     |
+| Rust          | 1.78+   | `curl https://sh.rustup.rs -sSf \| sh`     |
 | wasm32 target | —       | `rustup target add wasm32-unknown-unknown` |
 | Soroban CLI   | 21.x    | `cargo install --locked soroban-cli`       |
 

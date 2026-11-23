@@ -1,6 +1,13 @@
-# CI Workflows — Local Checks
+# CI Workflows
 
-This repository does **not** ship any GitHub Actions workflow files (there is no `.github/workflows/` directory), so nothing is enforced automatically on pull requests. Every check below must be run locally before opening a PR.
+This repository ships two GitHub Actions workflow files in `.github/workflows/`:
+
+| Workflow | File | Triggers |
+| --- | --- | --- |
+| Contract CI | `.github/workflows/contract.yml` | PRs and pushes to `main` touching `contract/` |
+| Frontend CI | `.github/workflows/frontend.yml` | PRs and pushes to `main` touching `frontend/` |
+
+Both workflows must pass before a PR can be merged. Failing `clippy` or a type error blocks the PR.
 
 ---
 
@@ -8,7 +15,7 @@ This repository does **not** ship any GitHub Actions workflow files (there is no
 
 | If you changed… | Run locally (from the repo root) |
 | --- | --- |
-| `contract/` | `cd contract && cargo clippy -- -D warnings && cargo test` (or `npm run backend:test`) |
+| Rust workspace | `cargo clippy --workspace && cargo test --workspace` (or `npm run backend:test` / `npm run backend:vesting:test`) |
 | `frontend/` | `npm run typecheck`, then `cd frontend && npm run lint && npm run test && npm run build` |
 | `scripts/` | `npm run typecheck:scripts` and `npm run test:scripts` |
 | Any `*.md` file | `node check-doc-links.mjs` (see [docs/README.md § Documentation tooling](../README.md#documentation-tooling)) |
@@ -20,11 +27,10 @@ This repository does **not** ship any GitHub Actions workflow files (there is no
 ## Contract (Rust)
 
 ```bash
-cd contract
 rustup target add wasm32-unknown-unknown
-cargo clippy -- -D warnings
-cargo build
-cargo test
+cargo clippy --workspace
+cargo build --workspace
+cargo test --workspace
 ```
 
 ## Frontend
