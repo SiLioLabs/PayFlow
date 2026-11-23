@@ -25,6 +25,11 @@ export class HanaAdapter implements WalletAdapter {
     return window.hanaWallet.getPublicKey();
   }
 
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.hanaWallet) return null;
+    return window.hanaWallet.getPublicKey();
+  }
+
   async disconnect(): Promise<void> {
     // Basic disconnect
   }

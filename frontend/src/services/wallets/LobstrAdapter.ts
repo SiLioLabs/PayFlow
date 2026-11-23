@@ -26,6 +26,11 @@ export class LobstrAdapter implements WalletAdapter {
     return window.lobstr.getPublicKey();
   }
 
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.lobstr || !window.lobstr.isConnected()) return null;
+    return window.lobstr.getPublicKey();
+  }
+
   async disconnect(): Promise<void> {
     // Basic disconnect
   }

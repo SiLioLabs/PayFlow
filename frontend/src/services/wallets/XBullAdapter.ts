@@ -27,6 +27,11 @@ export class XBullAdapter implements WalletAdapter {
     return window.xBullSDK.getPublicKey();
   }
 
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.xBullSDK) return null;
+    return window.xBullSDK.getPublicKey();
+  }
+
   async disconnect(): Promise<void> {
     // Basic disconnect
   }

@@ -142,11 +142,15 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Dashboard
 Key architectural hooks:
 
 - `useWallet()`: Connects, disconnects, tracks public keys, and handles signing across wallet adapters.
-- `useNetworkStatus()`: Validates that the connected wallet's network passphrase matches the app configuration.
+- `useNetworkStatus()`: Validates the connected wallet's network passphrase and polls for network switches; wallet adapters are also polled for account changes so dashboard hooks receive the new account without a reload.
 - `useAdmin(publicKey)`: Checks whether the connected account is the contract administrator.
 - `useContractPaused()`: Monitors protocol pause status and circuit-breaker conditions.
 - `useRpcHealthContext()`: Tracks RPC endpoint latency, failure rates, and circuit breaker status.
 - `useSubscriptionSync(userKey)`: Synchronizes on-chain subscription state with automatic polling and cache invalidation.
+
+The notification centre stores per-category success, error, and general-update preferences in `localStorage`. Disabled categories are filtered before entering the toast and notification queues.
+
+The merchant dashboard can export daily revenue buckets as CSV. Revenue amounts are represented exactly in both stroops and XLM; the day buckets are loaded through the contract's paginated revenue-day reader.
 
 ---
 

@@ -40,6 +40,7 @@ This document provides the component-by-component API reference for PayFlow's Re
   - [PayPerUseForm](#payperuseform)
   - [ReferralPanel](#referralpanel)
   - [RevenueSparkline](#revenuesparkline)
+  - [RevenueExport](#revenueexport)
   - [RpcSettings](#rpcsettings)
   - [ShortcutHelpOverlay](#shortcuthelpoverlay)
   - [Skeleton](#skeleton)
@@ -386,6 +387,19 @@ Merchant portal for inspecting subscriber metrics, revenue history, batch chargi
 
 ---
 
+### RevenueExport
+
+**File:** `frontend/src/components/RevenueExport.tsx`
+
+Exports the merchant's retained daily revenue buckets as CSV, including the cumulative dashboard total and exact stroops/XLM amounts. Daily rows are loaded through paginated contract queries.
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `merchantKey` | `string` | yes | Merchant's Stellar public key. |
+| `totalRevenue` | `bigint` | yes | Cumulative revenue shown in the dashboard. |
+
+---
+
 ### MerchantSubscriberTable
 
 **File:** `frontend/src/components/MerchantSubscriberTable.tsx`
@@ -433,7 +447,7 @@ Live countdown timer indicating time remaining until the next scheduled recurrin
 
 **File:** `frontend/src/components/NotificationCenter.tsx`
 
-Notification bell icon with badge count and dropdown drawer showing transient toast history.
+Notification bell icon with badge count, a dropdown drawer showing transient toast history, and persisted success/error/general-update category controls.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
