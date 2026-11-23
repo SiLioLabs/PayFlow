@@ -4,7 +4,6 @@ use crate::caps::{
     MAX_MERCHANT_SUB_COUNT_BATCH, MAX_PRUNE_REVENUE_DAYS, REVENUE_DAY_PAGE_SIZE,
     TOP_MERCHANTS_PAGE_SIZE,
 };
-use crate::caps::{MAX_MERCHANT_SUB_COUNT_BATCH, REVENUE_DAY_PAGE_SIZE, TOP_MERCHANTS_PAGE_SIZE};
 use crate::DataKey;
 use crate::MERCHANT_STATE_TTL_LEDGERS;
 
@@ -56,9 +55,11 @@ pub fn increment_revenue(env: &Env, merchant: &Address, amount: i128) {
     }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &(current + amount));
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 }
 
 /// Returns the merchant's revenue history as a Vec (oldest -> newest), limited to the
@@ -108,9 +109,11 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
         .persistent()
         .set(&day_key, &(current_day + amount));
     // extend TTL: 1,555,200 ledgers (~90 days)
-    env.storage()
-        .persistent()
-        .extend_ttl(&day_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &day_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     if is_new_day {
         let index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
@@ -121,9 +124,11 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
             .unwrap_or_else(|| Vec::new(env));
         index.push_back(today);
         env.storage().persistent().set(&index_key, &index);
-        env.storage()
-            .persistent()
-            .extend_ttl(&index_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &index_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 
     // append to consolidated history Vec, keeping only the newest
@@ -140,9 +145,11 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
     }
     history.push_back(amount);
     env.storage().persistent().set(&hist_key, &history);
-    env.storage()
-        .persistent()
-        .extend_ttl(&hist_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &hist_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 }
 
 /// Returns the number of active subscribers for a merchant.
@@ -194,20 +201,26 @@ pub fn index_merchant(env: &Env, merchant: &Address) {
         let slot = get_merchant_index_size(env);
         let index_key = DataKey::MerchantIndex(slot);
         env.storage().persistent().set(&index_key, merchant);
-        env.storage()
-            .persistent()
-            .extend_ttl(&index_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &index_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
 
         env.storage().persistent().set(&known_key, &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&known_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &known_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
 
         let size_key = DataKey::MerchantIndexSize;
         env.storage().persistent().set(&size_key, &(slot + 1));
-        env.storage()
-            .persistent()
-            .extend_ttl(&size_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &size_key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 }
 
@@ -238,9 +251,11 @@ pub fn unindex_merchant(env: &Env, merchant: &Address) {
                             env.storage().persistent().get::<_, Address>(&last_key)
                         {
                             env.storage().persistent().set(&key, &last_addr);
-                            env.storage()
-                                .persistent()
-                                .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                            env.storage().persistent().extend_ttl(
+                                &key,
+                                MERCHANT_STATE_TTL_LEDGERS,
+                                MERCHANT_STATE_TTL_LEDGERS,
+                            );
                         }
                     }
                     env.storage()
@@ -249,9 +264,11 @@ pub fn unindex_merchant(env: &Env, merchant: &Address) {
 
                     let size_key = DataKey::MerchantIndexSize;
                     env.storage().persistent().set(&size_key, &(size - 1));
-                    env.storage()
-                        .persistent()
-                        .extend_ttl(&size_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+                    env.storage().persistent().extend_ttl(
+                        &size_key,
+                        MERCHANT_STATE_TTL_LEDGERS,
+                        MERCHANT_STATE_TTL_LEDGERS,
+                    );
                     break;
                 }
             }
@@ -319,9 +336,11 @@ pub fn increment_subscriber_count(env: &Env, merchant: &Address) {
     let count = get_merchant_subscriber_count(env, merchant);
     let key = DataKey::MerchantSubCount(merchant.clone());
     env.storage().persistent().set(&key, &(count + 1));
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 }
 
 /// Decrements the per-merchant subscriber count by 1 (floor 0).
@@ -330,9 +349,11 @@ pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
     if count > 0 {
         let key = DataKey::MerchantSubCount(merchant.clone());
         env.storage().persistent().set(&key, &(count - 1));
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 }
 
@@ -368,9 +389,11 @@ pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
     }
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &0i128);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     // Drop every per-day bucket referenced by the day-index before emptying it,
     // so a single-day read cannot return pre-reset data.
@@ -389,9 +412,11 @@ pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
     // Empty the day-index so repeated reset cycles don't grow it unboundedly.
     let empty: Vec<u64> = Vec::new(env);
     env.storage().persistent().set(&index_key, &empty);
-    env.storage()
-        .persistent()
-        .extend_ttl(&index_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &index_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     // Clear the consolidated history so summary readers (count/min/max) report
     // the same cleared state as the cumulative total.
@@ -402,9 +427,11 @@ pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
 pub fn bump_merchant_revenue_day(env: &Env, merchant: &Address, day: u64) {
     let key = DataKey::MerchantRevenueDay(merchant.clone(), day);
     if env.storage().persistent().has(&key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
     }
 }
 
@@ -463,9 +490,11 @@ pub fn prune_merchant_revenue_days(env: &Env, merchant: &Address, days: Vec<u64>
     };
 
     env.storage().persistent().set(&index_key, &final_index);
-    env.storage()
-        .persistent()
-        .extend_ttl(&index_key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &index_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 }
 
 /// Retrieves a specific daily revenue bucket.

@@ -139,7 +139,7 @@ interface DlqEntry {
   attempts: number;
 }
 
-function writeToDlq(entry: DlqEntry): void {
+function writeDlqEntry(entry: DlqEntry): void {
   try {
     appendFileSync(DLQ_PATH, JSON.stringify(entry) + "\n", "utf-8");
     console.error(`[webhook] Payload written to DLQ: ${DLQ_PATH}`);
@@ -215,7 +215,7 @@ export async function deliverWebhook(url: string, payload: unknown): Promise<voi
     }
   }
 
-  writeToDlq({
+  writeDlqEntry({
     url,
     payload,
     lastError,

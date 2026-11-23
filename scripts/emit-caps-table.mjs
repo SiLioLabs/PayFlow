@@ -4,12 +4,12 @@
  *
  * Usage:
  *   node scripts/emit-caps-table.mjs            # print the table to stdout
- *   node scripts/emit-caps-table.mjs --check    # compare against docs/limits.md; exit 1 on drift
+ *   node scripts/emit-caps-table.mjs --check    # compare against docs/LIMITS.md; exit 1 on drift
  *
  * The source of truth is scripts/lib/contract-limits.ts (compiled/imported via
  * a lightweight inline parse so this script has no build step dependency).
  *
- * The --check flag is used as a CI gate to ensure docs/limits.md stays in
+ * The --check flag is used as a CI gate to ensure docs/LIMITS.md stays in
  * sync with the script module and (transitively) with contract/src/*.
  */
 
@@ -143,34 +143,34 @@ if (!CHECK_MODE) {
   process.exit(0);
 }
 
-// --check: compare against docs/limits.md
-const docsPath = resolve(__dirname, "..", "docs", "limits.md");
+// --check: compare against docs/LIMITS.md
+const docsPath = resolve(__dirname, "..", "docs", "LIMITS.md");
 let existing;
 try {
   existing = readFileSync(docsPath, "utf-8");
 } catch {
-  console.error(`docs/limits.md not found at ${docsPath}. Run without --check to generate it.`);
+  console.error(`docs/LIMITS.md not found at ${docsPath}. Run without --check to generate it.`);
   process.exit(1);
 }
 
 if (existing.trimEnd() === TABLE.trimEnd()) {
-  console.log("✓ docs/limits.md is in sync with scripts/lib/contract-limits.ts");
+  console.log("✓ docs/LIMITS.md is in sync with scripts/lib/contract-limits.ts");
   process.exit(0);
 } else {
-  console.error("✗ docs/limits.md is OUT OF SYNC with scripts/lib/contract-limits.ts");
+  console.error("✗ docs/LIMITS.md is OUT OF SYNC with scripts/lib/contract-limits.ts");
   console.error("");
-  console.error("Run:  node scripts/emit-caps-table.mjs > docs/limits.md");
+  console.error("Run:  node scripts/emit-caps-table.mjs > docs/LIMITS.md");
   console.error("to regenerate the file, then commit the result.");
   process.exit(1);
 }
-// Drift check for docs/limits.md.
+// Drift check for docs/LIMITS.md.
 //
 // Parses the authoritative constants out of contract/src/caps.rs and asserts
-// that docs/limits.md states the same number for each one. A constant change
+// that docs/LIMITS.md states the same number for each one. A constant change
 // without a doc change fails here.
 //
 //   node scripts/emit-caps-table.mjs           # print the table
-//   node scripts/emit-caps-table.mjs --check   # exit 1 if docs/limits.md is stale
+//   node scripts/emit-caps-table.mjs --check   # exit 1 if docs/LIMITS.md is stale
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -178,9 +178,9 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const CAPS = join(ROOT, "contract", "src", "caps.rs");
-const DOC = join(ROOT, "docs", "limits.md");
+const DOC = join(ROOT, "docs", "LIMITS.md");
 
-/** Every constant docs/limits.md promises to document. */
+/** Every constant docs/LIMITS.md promises to document. */
 const DOCUMENTED = [
   "DEFAULT_BATCH_SIZE",
   "MAX_BATCH_SIZE_CEILING",
@@ -202,15 +202,15 @@ for (const m of src.matchAll(/^pub const (\w+): u32 = (\d+);/gm)) actual[m[1]] =
 const missingInSource = DOCUMENTED.filter((k) => !(k in actual));
 if (missingInSource.length) {
   console.error(`contract/src/caps.rs no longer defines: ${missingInSource.join(", ")}`);
-  console.error("docs/limits.md must be updated to match.");
+  console.error("docs/LIMITS.md must be updated to match.");
   process.exit(1);
 }
 
 const undocumented = Object.keys(actual).filter((k) => !DOCUMENTED.includes(k));
 if (undocumented.length) {
-  console.error(`contract/src/caps.rs defines a constant docs/limits.md does not cover:`);
+  console.error(`contract/src/caps.rs defines a constant docs/LIMITS.md does not cover:`);
   for (const k of undocumented) console.error(`  ${k} = ${actual[k]}`);
-  console.error("Add it to DOCUMENTED in this script and to the table in docs/limits.md.");
+  console.error("Add it to DOCUMENTED in this script and to the table in docs/LIMITS.md.");
   process.exit(1);
 }
 
@@ -222,7 +222,7 @@ for (const r of rows) console.log(r);
 if (!process.argv.includes("--check")) process.exit(0);
 
 if (!existsSync(DOC)) {
-  console.error("\ndocs/limits.md not found");
+  console.error("\ndocs/LIMITS.md not found");
   process.exit(1);
 }
 const md = readFileSync(DOC, "utf8");
@@ -239,7 +239,7 @@ for (const k of DOCUMENTED) {
 }
 
 if (stale.length) {
-  console.error("\nSTALE: docs/limits.md disagrees with contract/src/caps.rs:");
+  console.error("\nSTALE: docs/LIMITS.md disagrees with contract/src/caps.rs:");
   for (const s of stale) console.error(`  ${s}`);
   process.exit(1);
 }
@@ -338,4 +338,4 @@ if (tableDrift.length) {
   process.exit(1);
 }
 
-console.log(`\nOK: all ${DOCUMENTED.length} constants in contract/src/caps.rs match docs/limits.md.`);
+console.log(`\nOK: all ${DOCUMENTED.length} constants in contract/src/caps.rs match docs/LIMITS.md.`);

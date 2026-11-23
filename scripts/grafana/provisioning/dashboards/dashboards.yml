@@ -1,0 +1,13 @@
+# Grafana dashboard provisioning — loads dashboards from /etc/grafana/provisioning/dashboards.
+apiVersion: 1
+
+providers:
+  - name: PayFlow
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

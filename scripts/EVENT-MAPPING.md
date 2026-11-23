@@ -10,6 +10,7 @@ The indexer stores events in SQLite:
 CREATE TABLE events (
   id         TEXT    PRIMARY KEY,      -- Stable dedup key: <tx_hash>:<op_index>:<event_index>
   event_name TEXT    NOT NULL,         -- Topic[0] from contract event
+  schema_version INTEGER NOT NULL DEFAULT 1, -- Topic marker; legacy events are v1
   address    TEXT    NOT NULL,         -- Topic[1] (subscriber/actor address)
   amount     TEXT,                     -- Extracted from event value (gross, amount, net, fee)
   ledger     INTEGER NOT NULL,         -- Ledger sequence
@@ -43,6 +44,21 @@ The indexer maintains the following indexes on `events`:
 
 ## Contract Events → Indexer Rows
 
+### Event schema versions
+
+Current contract events append the Soroban `Symbol("v2")` marker as the last
+topic. Existing topic positions and event payloads are unchanged. Historical
+events without that marker are schema v1; the indexer strips the trailing v2
+marker before parsing and persists `schema_version` as 1 or 2. This lets readers
+branch on the wire version while retaining old event rows and actor-address
+lookups.
+
+For future changes, additive payload fields can use a new schema version when
+consumers need to distinguish them. Changes to event names, existing topic
+positions, or payload meaning require a new version and matching indexer
+support before deployment. Keep prior-version parsing in place for archived
+ledger ranges and databases.
+
 ### Subscription Lifecycle
 
 | Event | Topic[0] | Topic[1] | Example Row |
@@ -60,7 +76,7 @@ The indexer maintains the following indexes on `events`:
 **Note:** As of the latest contract version, `batch_cancel` distinguishes between
 routine cancels (`Cancelled`), paused subscription cancels (`PausedCancelled`),
 and merchant-frozen cancels (`MerchantFrozen`). All three emit the same `cancelled`
-event; the distinction is in the return value discriminant. See `docs/cancel-results.md`.
+event; the distinction is in the return value discriminant. See `docs/CANCEL-RESULTS.md`.
 
 ### Charging & Pay-Per-Use
 

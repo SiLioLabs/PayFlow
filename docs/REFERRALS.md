@@ -2,7 +2,7 @@
 
 This document is the **canonical** referral guide for PayFlow: data model, subscribe authentication, self-referral, events, frontend (`ReferralPanel`), and operations.
 
-[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/STORAGE-AND-TTL.md`](./architecture/STORAGE-AND-TTL.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 
@@ -45,8 +45,8 @@ Referrals are **on-chain attribution**, not an on-chain reward vault. A subscrib
 | Contract `subscribe` / `subscribe_with_metadata` | User signs; optional `referrer` is stored                                   |
 | Contract `get_referrer` / `get_referral`         | Public reads of the referral key                                            |
 | Indexer / RPC consumers                          | Index topic `referred`                                                      |
-| Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>`, referred-count display, self-referral warning |
-| Frontend `SubscribeForm`                         | Optional referrer text field passed into `buildSubscribeTx`                 |
+| Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>&merchant=<ADDRESS>`, referred-count display, self-referral warning |
+| Frontend `SubscribeForm`                         | Parses link params, pre-fills referrer/merchant, passes referrer into `buildSubscribeTx` |
 
 This is an attribution layer only. Protocol fees (`fee.rs`) do not pay referrers.
 
@@ -213,7 +213,7 @@ if r == user {
 
 Playbook: [`ERROR-CODES.md` — 11 `SelfReferral`](./ERROR-CODES.md#11--selfreferral).
 
-The dashboard [`ReferralPanel`](#frontend-referralpanel) warns when `?ref=` matches the connected wallet. That UI copy currently says the referral “will be ignored”; **on-chain the call panics** with `SelfReferral`. Do not treat self-referral as a silent no-op.
+The dashboard [`ReferralPanel`](#frontend-referralpanel) and `SubscribeForm` both warn when `?ref=` matches the connected wallet, and the form disables subscribe before signing. **On-chain the call panics** with `SelfReferral` (error 11) if a self-referral is submitted by any other client; do not treat it as a silent no-op.
 
 ---
 
@@ -575,23 +575,23 @@ soroban contract invoke \
 
 ## Frontend: ReferralPanel
 
-Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` as `<ReferralPanel publicKey={userKey} />`.
+Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` (and `SubscribeForm.tsx`) as `<ReferralPanel publicKey={userKey} merchant={merchant} />`.
 
-| Surface             | Behavior                                                                            |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Referral code       | Connected wallet public key (the shareable identifier)                              |
-| Share link          | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>` |
-| Copy                | Clipboard buttons for code and full URL (`useClipboard`)                            |
-| Users referred      | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts`                 |
-| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey`                       |
+| Surface             | Behavior                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| Referral code       | Connected wallet public key (the shareable identifier)                                          |
+| Share link          | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>&merchant=<ADDRESS>` |
+| Copy                | Clipboard buttons for code and full URL (`useClipboard`)                                        |
+| Users referred      | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts`                             |
+| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey`                                   |
 
-**Subscribe input is not on this panel.** [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) has an optional “Referrer (optional)” field; on submit it passes `referrer.trim() || null` into `buildSubscribeTx`. The form does **not** auto-fill from `?ref=` (the helper `getReferrerFromSearch` is used on the panel for the warning only). Integrators who want `?ref=` → subscribe should wire that themselves (see snippets below).
+**Link round-trip.** [`frontend/src/utils/subscribeLink.ts`](../frontend/src/utils/subscribeLink.ts) builds and parses the share link. `App.tsx` opens the Subscribe tab when `?ref=` or `?merchant=` is present. `SubscribeForm` pre-fills both fields from `parseSubscribeLinkParams`, shows the referrer from the link, ignores invalid addresses with a notice, and blocks self-referral before signing. The manual “Referrer (optional)” field remains available; on submit the form passes `referrer.trim() || null` into `buildSubscribeTx`.
 
 ---
 
 ## Frontend Integration (TypeScript)
 
-The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` accepts `referrer: string | null`. `SubscribeForm` exposes a manual referrer field. The snippets below show an end-to-end `?ref=` → resolve → subscribe pattern (off-chain codes still need a backend lookup).
+The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` accepts `referrer: string | null`. `SubscribeForm` now fills that value from either the URL or its manual referrer field. The snippets below show a lower-level `?ref=` → resolve → subscribe pattern for integrators (off-chain codes still need a backend lookup).
 
 ### Resolve URL code and subscribe
 
@@ -852,8 +852,9 @@ See [`ERROR-CODES.md`](./ERROR-CODES.md) for the full catalog.
 | [`contract/src/errors.rs`](../contract/src/errors.rs)                                       | `SelfReferral = 11`                                                       |
 | [`contract/src/fee.rs`](../contract/src/fee.rs)                                             | Protocol fee split (not referrer-aware)                                   |
 | [`frontend/src/stellar.ts`](../frontend/src/stellar.ts)                                     | `buildSubscribeTx(..., referrer, ...)`                                    |
-| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning                         |
-| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Optional referrer field on subscribe                                      |
+| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning                                          |
+| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Referrer pre-fill from link, validation, subscribe                        |
+| [`frontend/src/utils/subscribeLink.ts`](../frontend/src/utils/subscribeLink.ts)             | Build/parse `?ref=` and `?merchant=` link params                          |
 | [`docs/REFERRAL.md`](./REFERRAL.md)                                                         | Compatibility stub → this file                                            |
 | [`docs/EVENTS.md`](./EVENTS.md)                                                             | `referred` event schema                                                   |
 | [`docs/API.md`](./API.md)                                                                   | Full API reference                                                        |

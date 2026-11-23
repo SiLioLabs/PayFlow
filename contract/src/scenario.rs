@@ -806,9 +806,10 @@ fn scenario_schema_version_guard_blocks_mutation() {
         "no partial writes escaped the guard"
     );
 
-    // Migration unblocks the batch for every user at once.
+    // Migrating both accounts and then finalizing unblocks the batch for everyone at once.
     let everyone = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
     client.migrate(&everyone);
+    client.finalize_migration(&2u64);
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
 
     for user in [user_a.clone(), user_b.clone()] {

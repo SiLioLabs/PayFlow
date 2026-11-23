@@ -57,7 +57,7 @@ npx vitest run AdminRepairPanel
 **Files Changed:**
 - `contract/src/batch.rs` (enum expanded, logic updated)
 - `contract_tests_addon.rs` (new tests added - to be integrated into `contract/src/test.rs`)
-- `docs/cancel-results.md` (new documentation file)
+- `docs/CANCEL-RESULTS.md` (new documentation file)
 - `scripts/EVENT-MAPPING.md` (updated with note about new variants)
 
 **Status:** ✅ Complete (tests pending integration into main test file)
@@ -117,7 +117,7 @@ cd contract && cargo test resume && cargo test grace
 
 1. **`contract_tests_addon.rs`** - Contains all new tests for issues 2-4. These tests should be manually integrated into `contract/src/test.rs` at appropriate locations.
 
-2. **`docs/cancel-results.md`** - Comprehensive documentation for `CancelResult` wire encoding, mirroring the structure of `charge-results.md`.
+2. **`docs/CANCEL-RESULTS.md`** - Comprehensive documentation for `CancelResult` wire encoding, mirroring the structure of `CHARGE-RESULTS.md`.
 
 3. **`IMPLEMENTATION_SUMMARY.md`** - This file.
 
@@ -164,7 +164,7 @@ cargo build --release --target wasm32-unknown-unknown
 - ✅ CancelResult distinguishes paused and frozen-merchant cancels
 - ✅ Existing discriminants 0–2 are unchanged
 - ✅ The enum doc comment states the append-only rule
-- ✅ Documentation updated in `docs/cancel-results.md` and `scripts/EVENT-MAPPING.md`
+- ✅ Documentation updated in `docs/CANCEL-RESULTS.md` and `scripts/EVENT-MAPPING.md`
 - ⏳ Tests passing (requires cargo to be accessible)
 
 ### Issue 4:
