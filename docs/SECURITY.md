@@ -63,7 +63,8 @@ The contract admin is a highly trusted role. An admin-compromised deployment may
 | --- | --- | --- |
 | `initialize`, `set_initial_admin` | Configures the token and initial admin. | Setup only; `initialize` requires the supplied admin signature and cannot be repeated. |
 | `transfer_admin`, `accept_admin` | Transfers administrative authority to a pending address. | Two-step: current admin proposes; pending admin accepts. |
-| `pause_contract`, `unpause_contract` | Pauses or resumes all contract billing entrypoints. | Direct, no on-chain delay. |
+| `set_operator` | Assigns or clears the emergency operator. | Admin-signed direct change with `operator_changed` event. |
+| `pause_contract`, `unpause_contract`, `freeze_merchant`, `unfreeze_merchant` | Emergency billing pause and merchant freeze controls. | Admin or designated operator; operator cannot use fee setters or upgrades. |
 | `set_subscription_amount`, `set_subscription_interval` | Rewrites an existing user's amount or billing interval. | Direct; only the stored subscription is changed. |
 | `set_min_interval` | Raises or lowers the minimum allowed subscription interval. | Direct, no on-chain delay. |
 | `batch_pause_subscriptions`, `batch_cancel` | Pauses or cancels many subscriptions in one call. | Direct batch action; subject to batch limits. |
@@ -71,6 +72,7 @@ The contract admin is a highly trusted role. An admin-compromised deployment may
 | `add_merchant`, `remove_merchant`, `set_whitelist_enabled`, `whitelist_batch_add`, `whitelist_batch_remove` | Changes which merchants may receive subscriptions. | Direct; batch calls are size-limited. |
 | `clear_fee`, `propose_fee`, `commit_fee` | Removes or changes the protocol fee collector and basis points. | `propose_fee`/`commit_fee` is two-step; a pending proposal expires from temporary storage after roughly 24 hours (17,280 ledgers). |
 | `set_fee_bounds` | Changes the allowed minimum and maximum protocol fee. | Direct, no on-chain delay. |
+| `set_merchant_fee_bps`, `set_referral_reward_policy` | Sets a bounded merchant fee override or referral share policy. | Admin-only; merchant rates must be inside configured fee bounds. |
 | `set_global_volume_cap` | Replaces or removes the configurable rolling-volume cap. | Direct, no on-chain delay. |
 | `set_max_batch_size`, `set_max_whitelist_batch_size` | Raises or lowers batch and whitelist operation ceilings. | Direct; values remain subject to protocol ceilings. |
 | `propose_grace_period`, `commit_grace_period` | Changes the contract-wide grace window. | Two-step; pending grace periods expire from temporary storage after roughly 24 hours. |
@@ -111,14 +113,16 @@ See [Security specification and threat matrix](security/threat_matrix.md) for ro
 | `set_min_interval()` | admin |
 | `add_merchant()`, `remove_merchant()` | admin |
 | `set_whitelist_enabled()` | admin |
-| `freeze_merchant()`, `unfreeze_merchant()` | admin |
+| `freeze_merchant()`, `unfreeze_merchant()`, `pause_contract()`, `unpause_contract()` | admin or configured operator |
 | `clear_fee()`, `propose_fee()`, `commit_fee()` | admin |
 | `propose_grace_period()`, `commit_grace_period()` | admin |
 | `clear_charge_history()`, `prune_charge_history()` | admin |
 | `clear_merchant_revenue_history()`, `reset_merchant_revenue()` | admin |
 | `prune_merchant_revenue_days()` | admin |
 | `extend_subscriber_index_ttl()`, `clear_subscriber_index_entry()` | admin |
-| `pause_contract()`, `unpause_contract()` | admin |
+| `set_operator()` | admin |
+| `set_merchant_fee_bps()`, `set_referral_reward_policy()` | admin |
+| `withdraw_referral_rewards(token, referrer)` | referrer |
 | `propose_upgrade()`, `commit_upgrade()`, `cancel_pending_upgrade()` | admin |
 | `migrate()`, `finalize_migration()` | admin |
 | `set_keeper_tip_bps()` | admin |

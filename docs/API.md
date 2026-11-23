@@ -1506,7 +1506,9 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_top_merchant
 freeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
+
+When an operator is configured with `set_operator`, the configured operator may also call `freeze_merchant`, `unfreeze_merchant`, `pause_contract`, and `unpause_contract`. Operator authority does not extend to upgrades, fee configuration, or other admin setters.
 
 Returns: `()`.
 
@@ -1522,7 +1524,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 unfreeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
 
 Returns: `()`.
 
@@ -2795,3 +2797,13 @@ For a complete reference of all events with detailed schemas and examples, see [
 All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
 
 For the complete error codes reference with detailed recovery steps and prevention guidance, see [ERROR-CODES.md](./ERROR-CODES.md).
+
+## Merchant fee overrides and emergency operator
+
+`set_merchant_fee_bps(env, merchant, bps: Option<u32>)` is admin-only. The configured rate must be within the current `MinFeeBps` / `MaxFeeBps`; pass `None` to clear the override and inherit the global rate. `get_merchant_fee_bps` returns the override and `get_effective_fee_bps` returns the applied rate. Successful `charged` event payloads include `fee_bps`.
+
+`set_operator(env, operator: Option<Address>)` is admin-only and emits `operator_changed`. The designated operator may call only the emergency controls `pause_contract`, `unpause_contract`, `freeze_merchant`, and `unfreeze_merchant`. Admin authority remains valid and all fee setters and upgrade methods remain admin-only.
+
+## Referral reward withdrawals
+
+The default referral policy reserves 10% of each protocol fee for the first 12 successful recurring charges. Admins configure it with `set_referral_reward_policy(bps, max_charges)`; `bps` is capped at 5,000. `get_referral_reward_balance(token, referrer)` reports the token-specific claim. `withdraw_referral_rewards(token, referrer)` requires referrer authorization and transfers the accrued balance from the contract reserve.

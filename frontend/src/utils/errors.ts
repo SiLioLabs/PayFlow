@@ -35,7 +35,7 @@
  *   50 NoLastChargeToRefund
  *   48 MigrationIncomplete
  *   49 InvalidKeeperTipBps
- *   48 InvalidAdminAddress
+ *   52 InvalidAdminAddress
  *
  * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
@@ -113,7 +113,9 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
   // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
   "error(contract, #49)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
-  "error(contract, #48)": "Choose an admin address different from the current admin and contract.",
+  "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
+  "error(contract, #50)": "Merchant fee must be within the configured protocol fee bounds.",
+  "error(contract, #51)": "Operator cannot be the contract address.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").

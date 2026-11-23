@@ -9686,6 +9686,88 @@ fn test_merchant_revenue_settles_directly_non_custodial() {
     );
 }
 
+/// Token conservation across charge, pay-per-use and prorated refund. Merchant
+/// revenue remains a tracking counter because funds settle directly to wallets.
+#[test]
+fn test_accounting_invariant_across_charge_pay_per_use_and_refund() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let amount = 10_000_000i128;
+    let interval = 10_000u64;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let total = || token.balance(&user) + token.balance(&merchant) + token.balance(&contract_id);
+    let before = total();
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&user);
+    assert_eq!(total(), before, "charge: token balances must be conserved");
+    assert_eq!(client.get_merchant_revenue(&merchant), amount, "charge: revenue counter must equal merchant settlement");
+
+    client.pay_per_use(&user, &1_000_000);
+    assert_eq!(total(), before, "pay_per_use: token balances must be conserved");
+    assert_eq!(client.get_merchant_revenue(&merchant), amount + 1_000_000, "pay_per_use: revenue counter must include net settlement");
+
+    client.cancel_and_refund_prorated(&user, &merchant);
+    assert_eq!(total(), before, "refund: token balances must be conserved");
+}
+
+#[test]
+fn test_referral_reward_accrues_once_per_charge_and_can_be_withdrawn() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let admin_addr = Address::generate(&env);
+    let collector = Address::generate(&env);
+    let referrer = Address::generate(&env);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin_addr));
+    client.propose_fee(&collector, &1_000);
+    client.commit_fee();
+    let amount = 10_000_000i128;
+    let interval = 1_000u64;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &Some(referrer.clone()));
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&user);
+    let first_reward = client.get_referral_reward_balance(&token_addr, &referrer);
+    assert_eq!(first_reward, 100_000, "charge: reward should be 10% of the 10% protocol fee");
+    assert_eq!(token.balance(&contract_id), first_reward, "charge: contract balance should equal undistributed referral rewards");
+
+    let new_user = Address::generate(&env);
+    StellarAssetClient::new(&env, &token_addr).mint(&new_user, &amount);
+    token.approve(&new_user, &contract_id, &amount, &200_000);
+    client.transfer_subscription(&user, &new_user);
+    assert_eq!(client.get_referrer(&new_user), Some(referrer.clone()), "transfer: referral attribution must follow the subscription");
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&new_user);
+    assert_eq!(client.get_referral_reward_balance(&token_addr, &referrer), first_reward * 2, "second charge: reward must accrue exactly once");
+    client.withdraw_referral_rewards(&token_addr, &referrer);
+    assert_eq!(client.get_referral_reward_balance(&token_addr, &referrer), 0, "withdrawal: reward liability must clear");
+    assert_eq!(token.balance(&contract_id), 0, "withdrawal: contract must release the reward reserve");
+}
+
+#[test]
+fn test_merchant_fee_override_bounds_and_operator_assignment() {
+    let (env, contract_id, _token_addr, admin_addr, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin_addr));
+    client.set_fee_bounds(&100, &500);
+    client.set_merchant_fee_bps(&merchant, &Some(250));
+    assert_eq!(client.get_merchant_fee_bps(&merchant), Some(250));
+    assert_eq!(client.get_effective_fee_bps(&merchant), 250);
+    assert_eq!(client.get_effective_fee_bps(&Address::generate(&env)), 0, "unset merchants inherit the global rate");
+    assert!(matches!(client.try_set_merchant_fee_bps(&merchant, &Some(50)), Err(Ok(ContractError::InvalidMerchantFeeBps))));
+    client.set_merchant_fee_bps(&merchant, &None);
+    assert_eq!(client.get_merchant_fee_bps(&merchant), None);
+
+    let operator = Address::generate(&env);
+    client.set_operator(&Some(operator.clone()));
+    assert_eq!(client.get_operator(), Some(operator));
+    client.set_operator(&None);
+    assert_eq!(client.get_operator(), None);
+}
+
 #[test]
 fn test_next_charge_at_none_for_paused_subscription() {
     let (env, contract_id, token_addr, user, merchant) = setup();

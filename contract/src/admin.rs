@@ -9,6 +9,17 @@ pub fn require_admin(env: &Env) {
     admin.require_auth();
 }
 
+/// Authorize the emergency operator or the admin, who retains full control.
+pub fn require_operator_or_admin(env: &Env) {
+    let operator: Option<Address> = env.storage().instance().get(&DataKey::Operator);
+    let invoker = env.invoker();
+    if operator.as_ref().is_some_and(|configured| configured == &invoker) {
+        invoker.require_auth();
+    } else {
+        get_admin(env).require_auth();
+    }
+}
+
 /// Authorize `admin` and persist it as the sole contract admin.
 ///
 /// Called from `initialize` *before* the default token is stored so deploy
