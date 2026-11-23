@@ -60,3 +60,17 @@ deployed contract.  The authoritative values live in:
 | Constant | Value | Description |
 |---|---|---|
 | `HOUR_IN_SECONDS` | 3600 | Seconds per hour |
+
+## Duplicate address behaviour in batch calls
+
+| Entry point | Duplicate behaviour |
+|---|---|
+| `batch_charge` | The first occurrence of an address is processed normally and its result (`Charged`, `Skipped`, `Inactive`, …) is recorded at that position. Every subsequent occurrence of the same address records `Skipped` **without** touching contract state — the user is never charged more than once per call. The returned `Vec` always has the same length as the input `Vec`. |
+| `batch_pause_subscriptions` | The first occurrence of an address is paused (if active and not already paused). Subsequent occurrences are silently skipped — no additional state changes and no additional `subscription_paused` events are emitted. |
+| `whitelist_batch_add` | Idempotent by design: adding the same merchant address twice is equivalent to adding it once. Both calls write the same `true` value to the same storage key. |
+| `whitelist_batch_remove` | Idempotent by design: removing the same merchant address twice is equivalent to removing it once. Both calls attempt to remove the same storage key; the second is a no-op. |
+
+> **Implementation note:** `batch_charge` and `batch_pause_subscriptions` perform
+> a linear deduplication scan inside the loop (O(n²) in the number of unique addresses,
+> bounded by the respective batch-size caps of 200 and 25).  No external data structure
+> is used — soroban-sdk's `Vec::iter().any()` is sufficient at these sizes.

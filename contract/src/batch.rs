@@ -35,6 +35,14 @@ pub(crate) fn get_max_batch_size(env: &Env) -> u32 {
 ///
 /// Individual failures do **not** abort the batch — every address is
 /// processed and its outcome is recorded in the returned `Vec`.
+///
+/// ## Duplicate handling
+///
+/// If the same address appears more than once in `users`, only the first
+/// occurrence is processed.  Subsequent occurrences are recorded as
+/// `ChargeResult::Skipped` without touching contract state.  This
+/// guarantees a user is charged at most once per `batch_charge` call
+/// regardless of how the caller constructed the input list.
 pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
     let mut results: Vec<ChargeResult> = Vec::new(env);
 
@@ -46,7 +54,19 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
     let now = env.ledger().timestamp();
     let grace_period = grace::get_grace_period(env);
 
+    // Track addresses already processed this call so duplicates are
+    // skipped rather than double-charged.
+    let mut seen: Vec<Address> = Vec::new(env);
+
     for user in users.iter() {
+        // Duplicate guard: linear scan (batch is capped at 200 entries).
+        let already_seen = seen.iter().any(|s| s == user);
+        if already_seen {
+            results.push_back(ChargeResult::Skipped);
+            continue;
+        }
+        seen.push_back(user.clone());
+
         let key = DataKey::Subscription(user.clone());
 
         let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);

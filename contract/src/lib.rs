@@ -630,7 +630,9 @@ impl FlowPay {
     /// For every valid active subscription, sets `paused = true`, persists the
     /// update, extends the subscription TTL, and emits a `subscription_paused`
     /// event. Invalid (non-existent) and already-paused entries are silently
-    /// skipped. The contract pause flag does **not** block this call.
+    /// skipped. Duplicate addresses are processed at most once — a second
+    /// occurrence of the same address is a no-op. The contract pause flag does
+    /// **not** block this call.
     pub fn batch_pause_subscriptions(env: Env, users: Vec<Address>) {
         admin::require_admin(&env);
 
@@ -639,7 +641,17 @@ impl FlowPay {
             env.panic_with_error(ContractError::BatchTooLarge);
         }
 
+        // Duplicate guard: skip addresses already processed this call.
+        let mut seen: Vec<Address> = Vec::new(&env);
+
         for user in users.iter() {
+            // Linear scan — batch is capped at 25 entries.
+            let already_seen = seen.iter().any(|s| s == user);
+            if already_seen {
+                continue;
+            }
+            seen.push_back(user.clone());
+
             let key = DataKey::Subscription(user.clone());
 
             let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
