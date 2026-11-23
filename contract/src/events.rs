@@ -37,6 +37,7 @@ pub struct ChargeEventData {
     pub charged_at: u64,
     pub ledger_sequence: u32,
     pub paid_to: Option<Address>,
+    pub fee_bps: u32,
 }
 
 #[soroban_sdk::contracttype]
@@ -98,6 +99,72 @@ pub fn publish_cancelled_with_refund(env: &Env, user: &Address, refund: i128) {
     );
 }
 
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundedEventData {
+    pub merchant: Address,
+    pub amount: i128,
+    pub fee: i128,
+    pub net: i128,
+    pub charged_at: u64,
+    pub ledger_sequence: u32,
+}
+
+/// Publishes `refunded(user)` after a merchant refunds the last scheduled
+/// charge without cancelling the subscription. `amount` is the gross amount
+/// returned to the subscriber; `fee` and `net` are the reversed bookkeeping
+/// legs booked at charge time (`fee + net == amount`).
+pub fn publish_refunded(
+    env: &Env,
+    user: &Address,
+    merchant: &Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "refunded"), user.clone()),
+        RefundedEventData {
+            merchant: merchant.clone(),
+            amount,
+            fee,
+            net,
+            charged_at,
+            ledger_sequence: env.ledger().sequence(),
+        },
+    );
+}
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChargeSkippedEventData {
+    pub interval: u64,
+    pub new_last_charged: u64,
+    pub next_charge_at: u64,
+    pub ledger_sequence: u32,
+}
+
+/// Publishes `charge_skipped(user)` after `skip_next_charge` advances the
+/// subscription schedule by exactly one interval.
+pub fn publish_charge_skipped(
+    env: &Env,
+    user: &Address,
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "charge_skipped"), user.clone()),
+        ChargeSkippedEventData {
+            interval,
+            new_last_charged,
+            next_charge_at,
+            ledger_sequence: env.ledger().sequence(),
+        },
+    );
+}
+
 /// Publishes `pay_per_use(user)` for an instant micro-transfer to `merchant`.
 /// The recipient is carried in the payload as `merchant` so indexers keying on
 /// `(event, user)` still see every payment the subscriber made.
@@ -122,10 +189,14 @@ pub fn publish_charged(
     net: i128,
     charged_at: u64,
     paid_to: Option<Address>,
+    fee_bps: u32,
 ) {
-    publish_versioned(
-        env,
-        (Symbol::new(env, "charged"), user.clone()),
+    // Charge payload gained `fee_bps`; mark only this event v3 so existing
+    // consumers can continue decoding the v2 payload shape for other events.
+    let mut topics = (Symbol::new(env, "charged"), user.clone()).into_val(env);
+    topics.push_back(Symbol::new(env, "v3").into_val(env));
+    env.events().publish(
+        topics,
         ChargeEventData {
             merchant: sub.merchant.clone(),
             gross: sub.amount,
@@ -134,6 +205,7 @@ pub fn publish_charged(
             charged_at,
             ledger_sequence: env.ledger().sequence(),
             paid_to,
+            fee_bps,
         },
     );
 }
@@ -687,6 +759,39 @@ pub fn publish_fee_bounds_set(env: &Env, min_bps: u32, max_bps: u32) {
         (Symbol::new(env, "fee_bounds_set"),),
         (min_bps, max_bps),
     );
+}
+
+pub fn publish_operator_changed(env: &Env, operator: &Option<Address>) {
+    publish_versioned(env, (Symbol::new(env, "operator_changed"),), operator.clone());
+}
+
+pub fn publish_merchant_fee_bps_set(env: &Env, merchant: &Address, bps: Option<u32>) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "merchant_fee_bps_set"), merchant.clone()),
+        bps,
+    );
+}
+
+pub fn publish_referral_reward_accrued(
+    env: &Env,
+    user: &Address,
+    referrer: &Address,
+    amount: i128,
+) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "referral_reward_accrued"), user.clone()),
+        (referrer.clone(), amount),
+    );
+}
+
+pub fn publish_referral_reward_withdrawn(env: &Env, referrer: &Address, amount: i128) {
+    publish_versioned(env, (Symbol::new(env, "referral_reward_withdrawn"), referrer.clone()), amount);
+}
+
+pub fn publish_referral_reward_policy(env: &Env, bps: u32, max_charges: u32) {
+    publish_versioned(env, (Symbol::new(env, "referral_reward_policy"),), (bps, max_charges));
 }
 
 pub fn publish_global_volume_cap_set(env: &Env, old: i128, new: i128) {

@@ -10,7 +10,7 @@ use crate::storage;
 use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
-use crate::{extend_subscription_ttl, DataKey, Subscription, MAX_AMOUNT};
+use crate::{extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, MAX_AMOUNT};
 
 /// ─────────────────────────────────────────────────────────────
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
@@ -381,12 +381,33 @@ pub fn execute_charge(
 
     crate::check_and_update_global_volume(env, sub.amount);
     merchant_stats::increment_revenue_with_daily(env, &sub.merchant, net);
+    storage::set_last_charge(
+        env,
+        user,
+        &LastChargeRecord {
+            merchant: sub.merchant.clone(),
+            token: sub.token.clone(),
+            amount: sub.amount,
+            fee: fee_amount,
+            net,
+            charged_at: now,
+        },
+    );
 
     sub.last_charged = now;
     env.storage().persistent().set(key, sub);
     extend_subscription_ttl(env, user);
     subscription_history::record_charge(env, user, now);
-    events::publish_charged(env, user, sub, fee_amount, net, now, paid_to);
+    events::publish_charged(
+        env,
+        user,
+        sub,
+        fee_amount,
+        net,
+        now,
+        paid_to,
+        fee::effective_fee_bps(env, &sub.merchant),
+    );
 
     if tip > 0 {
         if let Some(keeper_addr) = keeper {

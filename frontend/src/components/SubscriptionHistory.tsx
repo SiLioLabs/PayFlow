@@ -15,14 +15,6 @@ interface Props {
 /** Number of charge events shown per page. */
 const PAGE_SIZE = 20;
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function truncateHash(hash: string): string {
   if (hash.length <= 12) return hash;
   return `${hash.slice(0, 6)}…${hash.slice(-4)}`;

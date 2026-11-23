@@ -4,7 +4,7 @@ This document provides a complete reference for all events emitted by the FlowPa
 
 > **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). For delivering events over signed HTTP webhooks with retries and dead-letter queues, see [`docs/WEBHOOKS.md`](WEBHOOKS.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
-> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-09-26. All 53 `publish_*` helpers are documented below.
+> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-11-22. Every event emitted by the contract is documented below.
 
 ## Permanent abbreviated topics
 
@@ -155,6 +155,36 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### refunded
+
+- **Trigger**: `refund_last_charge()` (merchant-initiated refund of the last scheduled charge; subscription stays active)
+- **Topic keys**: `["refunded", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["refunded", "GABC...XYZ"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "amount": 10000000,
+      "fee": 500000,
+      "net": 9500000,
+      "charged_at": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### subscription_paused
 
 - **Trigger**: `batch_pause_subscriptions()` (admin batch operation)
@@ -205,6 +235,32 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### charge_skipped
+
+- **Trigger**: `skip_next_charge()`
+- **Topic keys**: `["charge_skipped", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["charge_skipped", "GABC...XYZ"],
+    "data": {
+      "interval": 2592000,
+      "new_last_charged": 1721980800,
+      "next_charge_at": 1724572800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ---
 
 ## Charge & Payment Events
@@ -215,6 +271,7 @@ Events related to charges and payments.
 
 - **Trigger**: `charge()` or `batch_charge()`
 - **Topic keys**: `["charged", user_address]`
+- **Schema marker**: `v3` (appended after existing topics)
 - **Payload schema**:
   ```rust
   {
@@ -224,7 +281,8 @@ Events related to charges and payments.
     net: i128,
     charged_at: u64,
     ledger_sequence: u32,
-    paid_to: Option<Address>
+    paid_to: Option<Address>,
+    fee_bps: u32
   }
   ```
 - **JSON example**:
@@ -238,11 +296,13 @@ Events related to charges and payments.
       "net": 49500000,
       "charged_at": 1719388800,
       "ledger_sequence": 12345,
-      "paid_to": "GCOLLECTOR...XYZ"
+      "paid_to": "GCOLLECTOR...XYZ",
+      "fee_bps": 100
     }
   }
   ```
-- **Fee destination (`paid_to`)**: Records the address receiving the protocol fee leg (`MerchantFeeRecipient` if configured for the merchant, otherwise the global `FeeCollector`). Appended at the end of `ChargeEventData` as `Option<Address>` for auditability; evaluates to `null` (`None`) when no fee is charged.
+- **Fee destination (`paid_to`)**: Records the address receiving the collector share (`MerchantFeeRecipient` if configured for the merchant, otherwise the global `FeeCollector`). It is `None` when no protocol fee is charged.
+- **Effective rate (`fee_bps`)**: The merchant override when configured, otherwise the global rate. The marker advances to `v3` so consumers can distinguish this payload from v2.
 
 ### batch_charge_skips
 

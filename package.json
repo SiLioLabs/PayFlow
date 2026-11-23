@@ -24,6 +24,8 @@
     "backend:vesting:test": "cd vesting && cargo test",
     "check:contract-api": "node scripts/check-contract-api.mjs",
     "generate:types": "bash scripts/generate-types.sh",
+    "generate:env-docs": "tsx scripts/generate-env-reference.ts",
+    "check:env-docs": "tsx scripts/generate-env-reference.ts --check",
     "test": "tsx --test tests/*.test.ts"
   },
   "devDependencies": {
@@ -33,5 +35,4 @@
     "tsx": "^4.19.0",
     "typescript": "^5.6.3"
   }
-  
 }

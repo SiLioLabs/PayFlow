@@ -1,0 +1,17 @@
+[
+  {
+    "id": "billing",
+    "url": "https://billing.example.com/payflow",
+    "events": ["charged", "cancelled", "batch_charge_skips"],
+    "secrets": [{ "id": "billing-2026-11", "secretEnv": "WEBHOOK_SECRET_BILLING" }]
+  },
+  {
+    "id": "crm",
+    "url": "https://crm.example.com/hooks/payflow",
+    "events": ["subscribed", "cancelled", "paused", "resumed"],
+    "secrets": [
+      { "id": "crm-k2", "secretEnv": "WEBHOOK_SECRET_CRM_NEXT" },
+      { "id": "crm-k1", "secretEnv": "WEBHOOK_SECRET_CRM" }
+    ]
+  }
+]

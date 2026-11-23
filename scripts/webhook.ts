@@ -17,13 +17,38 @@
  *   WEBHOOK_TIMEOUT Optional. Per-attempt timeout in ms (default: 10 000).
  *   DLQ_PATH        Optional. Path to the DLQ NDJSON file (default: dlq.ndjson).
  *   MAX_RETRIES     Optional. Maximum delivery attempts (default: 3).
+ *   WEBHOOK_LEGACY_SIGNATURE  Optional. "false" stops sending the legacy
+ *                   body-only signature headers (default: sent).
+ *
+ * Signing (replay protection, #1486)
+ *   Every attempt sends:
+ *     X-PayFlow-Timestamp:    unix seconds at send time
+ *     X-PayFlow-Signature-V2: hex HMAC-SHA256(secret, "<timestamp>.<raw body>")
+ *   Receivers must recompute the V2 signature and reject requests whose
+ *   timestamp is outside their tolerance window (default 300s); see
+ *   verifyWebhookSignature() and docs/MERCHANT-INTEGRATION.md.
+ *   The legacy body-only headers (X-PayFlow-Signature / X-Signature-SHA256)
+ *   are still sent during the transition and can be replayed — receivers
+ *   should migrate to V2.
+ *
+ * Multiple endpoints, event filters and secret rotation (#1485)
+ *   WEBHOOK_ENDPOINTS_FILE points at a JSON list of endpoints, each with an
+ *   optional event-type filter and up to two active secrets identified by key
+ *   id. Deliveries using it also send:
+ *     X-PayFlow-Key-Id:     id of the primary (first) secret
+ *     X-PayFlow-Signatures: "<kid>=<v2 sig>[,<kid>=<v2 sig>]" — one V2 signature
+ *                           per active secret, so receivers holding either the
+ *                           old or the new secret keep verifying while you rotate.
+ *   See loadWebhookEndpoints() and docs/MERCHANT-INTEGRATION.md.
  */
 
-import { createHmac } from "node:crypto";
-import { appendFileSync } from "node:fs";
-import { appendJsonLine } from "./soroban-admin.js";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { appendFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
+import { appendJsonLine } from "./soroban-admin.js";
 import { logger } from "./logger.js";
+import { z } from "zod";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -32,6 +57,67 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "";
 const TIMEOUT_MS     = parseInt(process.env.WEBHOOK_TIMEOUT ?? "10000", 10);
 const DLQ_PATH       = process.env.DLQ_PATH ?? "dlq.ndjson";
 const MAX_RETRIES    = parseInt(process.env.MAX_RETRIES ?? "3", 10);
+const SEND_LEGACY_SIGNATURE = process.env.WEBHOOK_LEGACY_SIGNATURE !== "false";
+
+/** Default receiver tolerance for X-PayFlow-Timestamp, in seconds. */
+export const DEFAULT_SIGNATURE_TOLERANCE_SECONDS = 300;
+
+// ── Timestamped signatures (#1486) ───────────────────────────────────────────
+
+const hmacHex = (secret: string, data: string): string =>
+  createHmac("sha256", secret).update(data).digest("hex");
+
+/**
+ * Headers proving `body` was sent by the secret holder at `timestamp`.
+ * Signs "<timestamp>.<body>" so a captured request cannot be replayed
+ * outside the receiver's tolerance window.
+ */
+export function signWebhookPayload(
+  secret: string,
+  body: string,
+  timestamp: number = Math.floor(Date.now() / 1000),
+): { "X-PayFlow-Timestamp": string; "X-PayFlow-Signature-V2": string } {
+  return {
+    "X-PayFlow-Timestamp": String(timestamp),
+    "X-PayFlow-Signature-V2": hmacHex(secret, `${timestamp}.${body}`),
+  };
+}
+
+/**
+ * Receiver-side check: valid V2 signature AND timestamp within
+ * `toleranceSeconds` of `now` (both in unix seconds).
+ */
+export function verifyWebhookSignature(params: {
+  /** One secret, or the receiver's active secrets during a rotation. */
+  secret: string | string[];
+  body: string;
+  timestamp: string | undefined;
+  /** X-PayFlow-Signature-V2 */
+  signature: string | undefined;
+  /** Optional X-PayFlow-Signatures ("kid=sig,kid=sig"); any entry may match. */
+  signatures?: string;
+  toleranceSeconds?: number;
+  now?: number;
+}): boolean {
+  const { body, timestamp } = params;
+  if (!timestamp || !/^\d+$/.test(timestamp)) return false;
+  const now = params.now ?? Math.floor(Date.now() / 1000);
+  const tolerance = params.toleranceSeconds ?? DEFAULT_SIGNATURE_TOLERANCE_SECONDS;
+  if (Math.abs(now - Number(timestamp)) > tolerance) return false;
+
+  const candidates = [
+    ...(params.signature ? [params.signature] : []),
+    ...(params.signatures ?? "").split(",").map((e) => e.slice(e.indexOf("=") + 1).trim()).filter(Boolean),
+  ];
+  const secrets = Array.isArray(params.secret) ? params.secret : [params.secret];
+  return secrets.some((secret) => {
+    const expected = Buffer.from(hmacHex(secret, `${timestamp}.${body}`));
+    return candidates.some((sig) => {
+      const given = Buffer.from(sig);
+      return expected.length === given.length && timingSafeEqual(expected, given);
+    });
+  });
+}
 
 // ── HMAC Signing ─────────────────────────────────────────────────────────────
 
@@ -72,7 +158,12 @@ function writeDlqEntry(entry: DlqEntry): void {
  * @returns `true` on HTTP 2xx, `false` otherwise.
  */
 async function attemptDelivery(url: string, body: string): Promise<boolean> {
-  const signature = signPayload(body);
+  // Signed per attempt so retries carry a fresh timestamp.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...signWebhookPayload(WEBHOOK_SECRET, body),
+  };
+  if (SEND_LEGACY_SIGNATURE) headers["X-Signature-SHA256"] = `sha256=${signPayload(body)}`;
 
   let response: Response;
   try {
@@ -82,10 +173,7 @@ async function attemptDelivery(url: string, body: string): Promise<boolean> {
       url,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Signature-SHA256": `sha256=${signature}`,
-        },
+        headers,
         body,
       },
       TIMEOUT_MS
@@ -137,7 +225,7 @@ export async function deliverWebhook(url: string, payload: unknown): Promise<voi
   throw new Error(`[webhook] All ${MAX_RETRIES} attempts failed. Payload in DLQ.`);
 }
 
-// ── CLI Entry-point ───────────────────────────────────────────────────────────
+// ── Config-based delivery (used by watch-events.ts) ──────────────────────────
 
 // Exported to allow injecting a mock fetch during tests
 export let _webhookFetch = global.fetch;
@@ -147,9 +235,24 @@ export function setWebhookFetch(mock: typeof global.fetch) {
 
 export interface WebhookConfig {
   url: string;
+  /** Primary signing secret. */
   secret: string;
   dlqFile: string;
   maxRetries?: number;
+  /** Key id of `secret`; when set, X-PayFlow-Key-Id / X-PayFlow-Signatures are sent (#1485). */
+  keyId?: string;
+  /** Second active secret during a rotation; also signs X-PayFlow-Signatures. */
+  secondarySecret?: WebhookSecret;
+}
+
+/** Key-id headers for a delivery signed with every active secret. */
+function keyIdHeaders(config: WebhookConfig, body: string, timestamp: string): Record<string, string> {
+  if (!config.keyId) return {};
+  const keys = [{ id: config.keyId, secret: config.secret }, ...(config.secondarySecret ? [config.secondarySecret] : [])];
+  return {
+    "X-PayFlow-Key-Id": config.keyId,
+    "X-PayFlow-Signatures": keys.map((k) => `${k.id}=${hmacHex(k.secret, `${timestamp}.${body}`)}`).join(","),
+  };
 }
 
 /**
@@ -159,7 +262,7 @@ export interface WebhookConfig {
  */
 export async function sendWebhook(payload: unknown, config: WebhookConfig): Promise<void> {
   const body = JSON.stringify(payload);
-  const signature = createHmac("sha256", config.secret).update(body).digest("hex");
+  const legacySignature = createHmac("sha256", config.secret).update(body).digest("hex");
   const maxRetries = config.maxRetries ?? 5;
   const maxAttempts = 1 + maxRetries;
 
@@ -171,11 +274,15 @@ export async function sendWebhook(payload: unknown, config: WebhookConfig): Prom
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      // Signed per attempt so retries carry a fresh timestamp.
+      const signed = signWebhookPayload(config.secret, body);
       const response = await _webhookFetch(config.url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-PayFlow-Signature": signature,
+          ...signed,
+          ...keyIdHeaders(config, body, signed["X-PayFlow-Timestamp"]),
+          ...(SEND_LEGACY_SIGNATURE ? { "X-PayFlow-Signature": legacySignature } : {}),
           "Connection": "close",
         },
         body,
@@ -225,7 +332,91 @@ export async function sendWebhook(payload: unknown, config: WebhookConfig): Prom
 
   // Reached permanent failure or exhausted retries
   logger.error(`Webhook delivery failed permanently after ${attempt - 1} attempts. Writing to DLQ.`);
-  await writeToDlq(payload, config, lastError, attempt - 1);
+  await writeConfigDlq(payload, config, lastError, attempt - 1);
+}
+
+// ── Multiple endpoints with event filters (#1485) ────────────────────────────
+
+export interface WebhookSecret {
+  id: string;
+  secret: string;
+}
+
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  /** Event types to deliver (e.g. ["charged", "cancelled"]); omitted or ["*"] = all. */
+  events?: string[];
+  /** Active secrets, primary first. Two during a rotation, otherwise one. */
+  secrets: WebhookSecret[];
+}
+
+const secretSchema = z
+  .object({
+    id: z.string().min(1),
+    secret: z.string().min(1).optional(),
+    /** Name of an env var holding the secret, to keep secrets out of the file. */
+    secretEnv: z.string().min(1).optional(),
+  })
+  .refine((s) => Boolean(s.secret) !== Boolean(s.secretEnv), "set exactly one of secret / secretEnv");
+
+const endpointsSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1),
+      url: z.string().url().refine((u) => /^https?:\/\//.test(u), "url must be http(s)"),
+      events: z.array(z.string().min(1)).min(1).optional(),
+      secrets: z.array(secretSchema).min(1).max(2, "at most two active secrets (current + next)"),
+    }),
+  )
+  .min(1)
+  .refine((eps) => new Set(eps.map((e) => e.id)).size === eps.length, "endpoint ids must be unique");
+
+/**
+ * Parse and validate an endpoints config (the contents of WEBHOOK_ENDPOINTS_FILE).
+ * `env` resolves `secretEnv` references.
+ */
+export function parseWebhookEndpoints(json: string, env: NodeJS.ProcessEnv = process.env): WebhookEndpoint[] {
+  const parsed = endpointsSchema.parse(JSON.parse(json));
+  return parsed.map((ep) => ({
+    id: ep.id,
+    url: ep.url,
+    events: ep.events,
+    secrets: ep.secrets.map((s) => {
+      const secret = s.secret ?? env[s.secretEnv!];
+      if (!secret) throw new Error(`Webhook endpoint "${ep.id}": env var ${s.secretEnv} for key "${s.id}" is not set`);
+      return { id: s.id, secret };
+    }),
+  }));
+}
+
+export function loadWebhookEndpoints(path: string, env: NodeJS.ProcessEnv = process.env): WebhookEndpoint[] {
+  return parseWebhookEndpoints(readFileSync(path, "utf-8"), env);
+}
+
+/** Endpoints whose filter accepts `eventType`. */
+export function endpointsForEvent(endpoints: WebhookEndpoint[], eventType: string): WebhookEndpoint[] {
+  return endpoints.filter((ep) => !ep.events || ep.events.includes("*") || ep.events.includes(eventType));
+}
+
+/** Deliver `payload` to every endpoint subscribed to `eventType`. Never rejects. */
+export async function dispatchWebhookEvent(
+  eventType: string,
+  payload: unknown,
+  endpoints: WebhookEndpoint[],
+  dlqFile: string,
+): Promise<void> {
+  await Promise.all(
+    endpointsForEvent(endpoints, eventType).map((ep) =>
+      sendWebhook(payload, {
+        url: ep.url,
+        secret: ep.secrets[0].secret,
+        keyId: ep.secrets[0].id,
+        secondarySecret: ep.secrets[1],
+        dlqFile,
+      }).catch((err) => logger.error(`Webhook endpoint "${ep.id}" failed: ${err}`)),
+    ),
+  );
 }
 
 // Exported for overriding in tests
@@ -234,7 +425,7 @@ export function setSleep(mock: (ms: number) => Promise<void>) {
   sleep = mock;
 }
 
-async function writeToDlq(payload: unknown, config: WebhookConfig, error: string | null, attempts: number): Promise<void> {
+async function writeConfigDlq(payload: unknown, config: WebhookConfig, error: string | null, attempts: number): Promise<void> {
   const dlqEntry = {
     timestamp: new Date().toISOString(),
     destination: config.url, // Only save URL context, never the secret
@@ -249,7 +440,10 @@ async function writeToDlq(payload: unknown, config: WebhookConfig, error: string
   }
 }
 
-if (process.argv[1]?.endsWith("webhook.ts") || process.argv[1]?.endsWith("webhook.js")) {
+// ── CLI Entry-point ───────────────────────────────────────────────────────────
+
+// Exact entry-point check: `endsWith("webhook.ts")` also matched test-webhook.ts.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!WEBHOOK_URL) {
     console.error("Error: WEBHOOK_URL environment variable is required");
     process.exit(1);

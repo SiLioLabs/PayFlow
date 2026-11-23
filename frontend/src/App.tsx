@@ -3,6 +3,7 @@ import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
 import { useRpcHealthContext } from "./context/RpcHealthContext";
 import { ToastProvider } from "./context/ToastContext";
+import { I18nProvider } from "./i18n";
 import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
@@ -148,7 +149,7 @@ function AppInner() {
 
       {/* Header — NetworkBadge is persistent in shell so users always see Testnet/Mainnet */}
       <div style={{ marginBottom: 32, textAlign: "center" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ FlowPay</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ PayFlow</h1>
         <p style={{ color: "#64748b", marginTop: 6, fontSize: 14 }}>
           Decentralized recurring payments on Stellar
         </p>
@@ -372,8 +373,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppInner />
-    </ToastProvider>
+    <I18nProvider>
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
+    </I18nProvider>
   );
 }

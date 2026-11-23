@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { formatDateTime } from "../utils/format";
 
 interface Props {
   nextChargeTimestamp: number; // Unix seconds
@@ -58,7 +59,7 @@ export default function NextChargeCountdown({ nextChargeTimestamp }: Props) {
   }
 
   const { days, hours, minutes } = countdown;
-  const exactDate = new Date(nextChargeTimestamp * 1000).toLocaleString();
+  const exactDate = formatDateTime(new Date(nextChargeTimestamp * 1000));
   const label = `Next charge in ${days} days, ${hours} hours, and ${minutes} minutes`;
   return (
     <span className="text-mono" title={exactDate} aria-label={label}>

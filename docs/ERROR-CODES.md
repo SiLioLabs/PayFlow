@@ -63,9 +63,14 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 45   | `NoPendingAdmin`            | State        | `accept_admin` with no staged transfer |
 | 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
 | 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
+| 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
+| 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
+| 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
 | 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
 | 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
-| 48   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
+| 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -852,6 +857,46 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
+### 52 — `InvalidAdminAddress`
+### 48 — `TrialExtensionExceedsMaximum`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `extend_trial()` adds more than `MAX_TRIAL_EXTENSION` (90 days) in one call, or would push `last_charged` past `now + MAX_TOTAL_TRIAL` (365 days). |
+| **Immediate cause** | The bounded trial policy rejects the extension before writing storage or emitting `trial_extended`. |
+
+**Recovery steps**
+
+1. Retry with `additional_seconds <= MAX_TRIAL_EXTENSION`.
+2. If the total-trial cap is already reached, wait until the current trial elapses instead of chaining more extensions.
+
+---
+
+### 49 — `SkipCooldownActive`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `skip_next_charge()` is called again before one full billing interval has elapsed since the last skip. |
+| **Immediate cause** | The per-subscriber `last_skip_at` cooldown guard in `BillingState` rejects the call. |
+
+**Recovery steps**
+
+1. Wait until `last_skip_at + interval`.
+2. Retry `skip_next_charge()`; each accepted call advances the schedule by exactly one interval.
+
+---
+
+### 50 — `NoLastChargeToRefund`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `refund_last_charge()` is called when no scheduled `charge` has been recorded, or the recorded charge was already refunded. |
+| **Immediate cause** | The `BillingState` last-charge snapshot is absent; the record is cleared after a successful refund to prevent double refunds. |
+
+**Recovery steps**
+
+1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
+2. Refund only once per charge; a new charge creates a new refundable snapshot.
 ### 48 — `InvalidAdminAddress`
 
 | Field               | Detail |
@@ -874,8 +919,8 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | -------------- | ------------------------------------------------------------ | ----------------------------- |
 | Auth / access  | 8, 10, 22                                                    | User + admin                  |
 | State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47 | Client / admin tooling   |
-| Limit / timing | 6, 9, 15, 20, 25, 28, 40                                     | Keeper + user                 |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49                                 | Keeper + user                 |
 
 ---
 
@@ -950,9 +995,14 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | 11           | “You cannot refer yourself.”                                  |
 | 14           | “Label must be 64 bytes or fewer.”                            |
 | 47           | “Merchant freeze reason must be 128 bytes or fewer.”          |
+| 48           | “Trial extension exceeds the maximum allowed duration.”       |
+| 49           | “You can only skip one billing cycle per interval.”           |
+| 50           | “There is no charge available to refund.”                     |
 | 48           | “Storage migration is not finished yet; process every account first.” |
 | 49           | “Keeper tip must be at most 5000 bps (half of the protocol fee).” |
-| 48           | “Choose an admin address different from the current admin and contract.” |
+| 52           | “Choose an admin address different from the current admin and contract.” |
+| 50           | “Merchant fee must be within the configured protocol fee bounds.” |
+| 51           | “Operator cannot be the contract address.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |
