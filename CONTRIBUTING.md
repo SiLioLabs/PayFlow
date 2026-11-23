@@ -100,7 +100,7 @@ See [`scripts/README.md`](scripts/README.md) and [`docs/ONBOARDING.md`](docs/ONB
 
 ## CI workflows
 
-Two GitHub Actions workflows run automatically on every PR and push to `main`:
+Two GitHub Actions workflows run automatically on every PR and push to `master`:
 
 - **`scripts-ci.yml`** — runs TypeScript typecheck, ESLint lint, duplicate lint (`npm run lint:duplicates` and `node lint-duplicates.mjs`), and Vitest tests for the `scripts/` package, with Node 22 and `NODE_OPTIONS=--experimental-sqlite`.
 - **`security-audit.yml`** — runs `cargo audit` against `contract/Cargo.lock` and `vesting/Cargo.lock`, and `npm audit --omit=dev` for the root, `frontend/`, and `scripts/` packages; also runs on a weekly schedule (every Monday). High-severity dependency vulnerabilities block the PR.

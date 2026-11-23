@@ -438,7 +438,7 @@ npx tsx watch-events.ts
 
 ### What runs in CI today
 
-Two workflows run on every PR and push to `main` (full command reference in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
+Two workflows run on every PR and push to `master` (full command reference in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
 
 | Workflow | Checks |
 | --- | --- |

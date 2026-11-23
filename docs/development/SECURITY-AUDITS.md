@@ -1,6 +1,6 @@
 # Security Audits
 
-The `security-audit.yml` workflow runs dependency audits automatically on every pull request, every push to `main`, and weekly (every Monday at 06:00 UTC). It covers both the Rust dependency trees (via `cargo audit`) and the npm dependency graphs (via `npm audit`). High-severity findings fail the workflow and block merging.
+The `security-audit.yml` workflow runs dependency audits automatically on every pull request, every push to `master`, and weekly (every Monday at 06:00 UTC). It covers both the Rust dependency trees (via `cargo audit`) and the npm dependency graphs (via `npm audit`). High-severity findings fail the workflow and block merging.
 
 ---
 

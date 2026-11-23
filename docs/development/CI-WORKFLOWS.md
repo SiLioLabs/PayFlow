@@ -1,6 +1,6 @@
 # CI Workflows
 
-Two GitHub Actions workflows now run automatically on every pull request and push to `main`. They mirror the checks you would run locally, so a green CI run is a reliable signal before merge.
+Two GitHub Actions workflows now run automatically on every pull request and push to `master`. They mirror the checks you would run locally, so a green CI run is a reliable signal before merge.
 
 ---
 
@@ -8,7 +8,7 @@ Two GitHub Actions workflows now run automatically on every pull request and pus
 
 **File:** `.github/workflows/scripts-ci.yml`
 
-**Triggers:** pull requests (all branches) and pushes to `main`.
+**Triggers:** pull requests (all branches) and pushes to `master`.
 
 **Job:** `scripts` — runs on `ubuntu-latest`, Node 22.
 
@@ -31,7 +31,7 @@ Two GitHub Actions workflows now run automatically on every pull request and pus
 
 **File:** `.github/workflows/security-audit.yml`
 
-**Triggers:** pull requests (all branches), pushes to `main`, and a weekly schedule (every Monday at 06:00 UTC, cron `0 6 * * 1`).
+**Triggers:** pull requests (all branches), pushes to `master`, and a weekly schedule (every Monday at 06:00 UTC, cron `0 6 * * 1`).
 
 ### cargo-audit job
 
