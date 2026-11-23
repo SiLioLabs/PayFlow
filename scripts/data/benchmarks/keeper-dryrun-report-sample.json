@@ -1,0 +1,75 @@
+{
+  "timestamp": "2026-08-26T10:00:00.000Z",
+  "mode": "dry-run",
+  "contractId": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "estimatedOutcomes": {
+    "totalChecked": 8,
+    "totalCharged": 3,
+    "totalVolumeStroops": "150000000",
+    "skipCounts": {
+      "Skipped": 2,
+      "GracePeriodElapsed": 1,
+      "Paused": 1,
+      "NoSubscription": 1
+    }
+  },
+  "candidates": [
+    {
+      "user": "GABC1EXAMPLESUBSCRIBER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Charged",
+      "amountStroops": "50000000"
+    },
+    {
+      "user": "GABC2EXAMPLESUBSCRIBER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Charged",
+      "amountStroops": "50000000"
+    },
+    {
+      "user": "GABC3EXAMPLESUBSCRIBER3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Charged",
+      "amountStroops": "50000000"
+    },
+    {
+      "user": "GABC4EXAMPLESUBSCRIBER4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Skipped",
+      "amountStroops": "0"
+    },
+    {
+      "user": "GABC5EXAMPLESUBSCRIBER5AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Skipped",
+      "amountStroops": "0"
+    },
+    {
+      "user": "GABC6EXAMPLESUBSCRIBER6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "GracePeriodElapsed",
+      "amountStroops": "0"
+    },
+    {
+      "user": "GABC7EXAMPLESUBSCRIBER7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "Paused",
+      "amountStroops": "0"
+    },
+    {
+      "user": "GABC8EXAMPLESUBSCRIBER8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "result": "NoSubscription",
+      "amountStroops": "0"
+    }
+  ],
+  "lastLiveCycle": {
+    "timestamp": "2026-08-25T10:00:00.000Z",
+    "contractId": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+    "totalChecked": 10,
+    "totalCharged": 5,
+    "totalVolume": "250000000",
+    "totalSkips": 5
+  },
+  "comparison": {
+    "checkedDelta": -2,
+    "chargedDelta": -2,
+    "volumeDelta": "-100000000",
+    "lastLiveAgeMs": 86400000,
+    "lastLiveAgeHuman": "24.0 hours"
+  },
+  "errors": []
+}

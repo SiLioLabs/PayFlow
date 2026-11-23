@@ -2,14 +2,37 @@ use soroban_sdk::{Address, Env};
 
 use crate::{errors::ContractError, events, DataKey, SUBSCRIPTION_TTL_LEDGERS};
 
-/// Returns the referrer for a given subscriber, if one was recorded.
-pub fn get_referrer(env: &Env, user: &Address) -> Option<Address> {
+/// Removes the referrer for a given subscriber.
+///
+/// Called during cancel/unsubscribe to keep the index accurate —
+/// no orphaned `Referral` entries remain after a clean removal.
+pub fn remove_referral(env: &Env, user: &Address) {
     env.storage()
         .persistent()
-        .get(&DataKey::Referral(user.clone()))
+        .remove(&DataKey::Referral(user.clone()));
+}
+
+/// Returns the referrer for a given subscriber, if one was recorded.
+///
+/// Bumps the TTL on every successful read so that active referral
+/// relations remain live as long as the subscription is in use.
+pub fn get_referrer(env: &Env, user: &Address) -> Option<Address> {
+    let key = DataKey::Referral(user.clone());
+    let result: Option<Address> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+    result
 }
 
 /// Stores the referrer for a subscriber. Clears any prior referrer when `None`.
+///
+/// Extends the TTL of the `Referral(user)` key to match subscription
+/// lifetime so that attribution is never silently lost to archival.
 pub fn store_referral(env: &Env, user: &Address, referrer: &Option<Address>) {
     let key = DataKey::Referral(user.clone());
     if let Some(ref r) = referrer {
@@ -19,19 +42,33 @@ pub fn store_referral(env: &Env, user: &Address, referrer: &Option<Address>) {
         env.storage().persistent().set(&key, r);
         env.storage().persistent().extend_ttl(
             &key,
-            SUBSCRIPTION_TTL_LEDGERS,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
             SUBSCRIPTION_TTL_LEDGERS,
         );
 
         events::publish_referred(env, user, r);
-    } else {
+    } else if env.storage().persistent().has(&key) {
         env.storage().persistent().remove(&key);
     }
 }
 
-/// Removes the referral entry for a subscriber, if one exists.
-/// Safe to call even when no referral was ever recorded.
-pub fn remove_referral(env: &Env, user: &Address) {
-    let key = DataKey::Referral(user.clone());
-    env.storage().persistent().remove(&key);
+/// Transfers the referral from one subscriber to another.
+/// Moves the referrer attribution from `old_user` to `new_user`, clears the old entry, and extends TTL.
+pub fn transfer_referral(env: &Env, old_user: &Address, new_user: &Address) {
+    let old_key = DataKey::Referral(old_user.clone());
+    let new_key = DataKey::Referral(new_user.clone());
+
+    // Get the referral from the old address
+    if let Some(referrer) = env.storage().persistent().get::<DataKey, Address>(&old_key) {
+        // Move it to the new address
+        env.storage().persistent().set(&new_key, &referrer);
+        env.storage().persistent().extend_ttl(
+            &new_key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+
+    // Clear the old address's referral
+    env.storage().persistent().remove(&old_key);
 }

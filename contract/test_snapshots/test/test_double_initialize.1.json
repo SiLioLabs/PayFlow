@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -70,7 +71,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }
@@ -79,6 +80,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
@@ -246,12 +248,36 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "SchemaVersion"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 3
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Token"
                             }
                           ]
                         },
                         "val": {
                           "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WhitelistEnabled"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bool": false
                         }
                       }
                     ]
@@ -261,7 +287,7 @@
             },
             "ext": "v0"
           },
-          100000
+          6307200
         ]
       ],
       [
@@ -417,7 +443,7 @@
                         "symbol": "live_until_ledger"
                       },
                       "val": {
-                        "u32": 200
+                        "u32": 200000
                       }
                     }
                   ]
@@ -426,7 +452,7 @@
             },
             "ext": "v0"
           },
-          201
+          200001
         ]
       ],
       [
@@ -632,7 +658,7 @@
             },
             "ext": "v0"
           },
-          100000
+          6307200
         ]
       ]
     ]
@@ -880,7 +906,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }
@@ -919,7 +945,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }

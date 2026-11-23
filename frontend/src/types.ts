@@ -15,3 +15,12 @@ export interface ChargeEvent {
   txHash: string;
   merchant: string;
 }
+
+/** On-chain diagnostic report returned by `validate_subscription`. */
+export interface SubscriptionValidationReport {
+  isValid: boolean;
+  violations: string[];
+  missingRecords: string[];
+  invalidStateTransitions: string[];
+  corruptedReferences: string[];
+}

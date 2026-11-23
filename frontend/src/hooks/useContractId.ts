@@ -7,6 +7,15 @@ interface UseContractIdResult {
   error: string | null;
 }
 
+function isValidContractIdShape(id: string): boolean {
+  return (
+    typeof id === "string" && id.startsWith("C") && id.length === 56 && /^[A-Z0-9]+$/i.test(id)
+  );
+}
+
+/**
+ * useContractId - Reads and validates the configured Soroban contract id.
+ */
 export function useContractId(): UseContractIdResult {
   const [contractId, setContractId] = useState<string>("");
   const [valid, setValid] = useState(false);
@@ -21,7 +30,7 @@ export function useContractId(): UseContractIdResult {
       return;
     }
 
-    if (!StrKey.isValidContract(id)) {
+    if (!isValidContractIdShape(id) || !StrKey.isValidContract(id)) {
       setError("VITE_CONTRACT_ID is not a valid Soroban contract address");
       setValid(false);
       return;

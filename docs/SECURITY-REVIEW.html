@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PayFlow Security Review — Top 3 Issues (2026-08-28)</title>
+<meta name="description" content="Point-in-time security review of PayFlow (FlowPay) Soroban contract and frontend — top 3 issues, impact, and mitigations. Not a formal audit.">
+<style>
+  :root {
+    --bg: #0f0f14;
+    --card: #1a1a2e;
+    --border: #2d2d3f;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --subtle: #64748b;
+    --primary: #7c3aed;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --success: #4ade80;
+    --info: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  header {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 20px 20px;
+    text-align: center;
+  }
+  header h1 { font-size: 28px; font-weight: 800; margin: 0; color: #a78bfa; }
+  header p { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
+  .badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  .badge-warn { background: #451a03; color: var(--warn); border: 1px solid #92400e; }
+  .badge-info { background: #1e1b4b; color: #c7d2fe; border: 1px solid #4338ca; }
+  main { max-width: 880px; margin: 0 auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card h2 { font-size: 18px; margin: 0 0 6px; }
+  .card h3 { font-size: 14px; color: var(--muted); margin: 16px 0 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .severity { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .sev-high { background: #3f1515; color: var(--danger); }
+  .sev-medium { background: #451a03; color: var(--warn); }
+  .sev-low { background: rgba(74,222,128,0.12); color: var(--success); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+  th { background: #1e1e2e; color: var(--muted); font-weight: 600; }
+  td { color: var(--text); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #1e1e2e; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); }
+  pre { background: #1e1e2e; border: 1px solid var(--border); border-radius: 8px; padding: 14px; overflow-x: auto; font-size: 12px; color: #cbd5e1; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { max-width: 880px; margin: 0 auto; padding: 16px 20px 40px; color: var(--subtle); font-size: 12px; text-align: center; }
+  .toc { list-style: none; padding: 0; margin: 8px 0 0; }
+  .toc li { margin: 4px 0; }
+  .callout { border-left: 3px solid var(--warn); padding: 12px 16px; background: rgba(251,191,36,0.06); border-radius: 8px; font-size: 13px; color: var(--muted); }
+  .issue-num { color: var(--primary); font-weight: 800; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ PayFlow Security Review</h1>
+  <p>Point-in-time review — Top 3 security issues found in <strong>PayFlow (FlowPay)</strong> — Soroban contract + React frontend</p>
+  <p>
+    <span class="badge badge-warn">Not a formal audit — Testnet only</span>
+    <span class="badge badge-info" style="margin-left:8px;">Revision: 2026-08-28</span>
+  </p>
+  <p style="margin-top:12px; font-size:12px; color:var(--subtle);">
+    Scope: <code>contract/src/lib.rs</code>, <code>spending_limit.rs</code>, <code>admin.rs</code>, <code>fee.rs</code>, <code>frontend/src/stellar.ts</code>, <code>useWallet.ts</code>/hooks, <code>docs/SECURITY.md</code>. &nbsp;|&nbsp;
+    Disclosure: <a href="mailto:security@payflow.dev">security@payflow.dev</a> &nbsp;|&nbsp;
+    <a href="./SECURITY.md">Threat model</a>
+  </p>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="summary-title">
+    <h2 id="summary-title">Executive Summary</h2>
+    <p style="color:var(--muted); font-size:14px;">
+      This review was performed against the current <code>master</code> without running a full audit toolchain. It surfaces the three most load-bearing risks a reviewer or auditor should validate first. All three are <em>acknowledged</em> in existing docs (<code>docs/SECURITY.md</code>, <code>DAILY-LIMITS.md</code>, <code>SECURITY.md</code>), but require concrete product mitigations before mainnet.
+    </p>
+    <table aria-label="Summary of top 3 issues">
+      <thead><tr><th>#</th><th>Issue</th><th>Severity</th><th>Primary location</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><span class="issue-num">1</span></td><td>Overly broad token allowance without mandatory daily cap</td><td><span class="severity sev-high">High</span></td><td><code>pay_per_use</code> / <code>fee::transfer_*</code> + <code>stellar.ts</code></td><td>Acknowledged — docs warn, UI now adds proactive limit UX</td></tr>
+        <tr><td><span class="issue-num">2</span></td><td>Single admin key with broad powers</td><td><span class="severity sev-high">High</span></td><td><code>admin.rs</code>, <code>lib.rs</code> pause/fee/whitelist</td><td>Acknowledged — two-step transfer + audit roadmap</td></tr>
+        <tr><td><span class="issue-num">3</span></td><td>Storage TTL expiry &amp; keeper liveness (temporary entries + persistent TTL)</td><td><span class="severity sev-medium">Medium</span></td><td><code>spending_limit.rs</code>, <code>storage.rs</code>, <code>DAILY-LIMITS.md</code></td><td>Acknowledged — TTL docs, <code>extend_subscription_ttl</code> / <code>bump_instance_ttl</code> exist</td></tr>
+      </tbody>
+    </table>
+    <div class="callout" role="note">
+      <strong>Method:</strong> Static read of contract entrypoints, auth matrix (<code>docs/SECURITY.md:60-99</code>), storage/TTL notes, and frontend allowance/limit flows. No fuzzing or on-chain exploit was executed. Severity reflects ease of abuse × blast radius if left unmitigated.
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="issue1-title">
+    <h2 id="issue1-title"><span class="issue-num">#1</span> Overly broad token allowance + pay-per-use drain if daily limit not set</h2>
+    <span class="severity sev-high">Severity: High — user funds at risk</span>
+    <p style="color:var(--muted); font-size:13px;">Location: <code>contract/src/lib.rs:pay_per_use</code>, <code>contract/src/fee.rs:transfer_pay_per_use</code>, <code>contract/src/spending_limit.rs</code>, <code>frontend/src/stellar.ts:getAllowance / buildApproveTx</code>, <code>components/AllowanceDisplay.tsx</code>, <code>components/DailyLimitCard.tsx</code>, <code>DailyLimitModal.tsx</code></p>
+
+    <h3>Description</h3>
+    <p>
+      Subscribing approves the contract to <code>transfer_from</code> the user's SAC token. Recurring <code>charge()</code> is bounded by fixed <code>amount</code>/<code>interval</code>, but <code>pay_per_use</code> and <code>pay_per_use_to</code> pull <em>arbitrary</em> amounts on demand. If a user approves a large allowance (or infinite) and never calls <code>set_daily_limit</code>, a buggy or compromised frontend/merchant integration can repeatedly call <code>pay_per_use</code> until allowance is exhausted. <code>spending_limit::enforce_limit</code> only checks when a limit is present (<code>Some(limit)</code>); otherwise spending is uncapped by that control.
+    </p>
+
+    <h3>Impact</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li>Single compromised merchant or wallet-signed promise can drain allowance without further user prompts.</li>
+      <li>Fees are counted toward the daily limit, but do not reduce net received — UI that only shows “merchant received” misreads budget.</li>
+      <li>Shared pool across <code>pay_per_use</code> and <code>pay_per_use_to</code> means “pay to custom recipient” uses the same budget — easy to miss without UX.</li>
+    </ul>
+
+    <h3>Reproduction (static)</h3>
+    <pre>1. subscribe(user, merchant, amount=5 XLM, interval, token, ...)  — approve 1_000 XLM
+2. (do NOT call set_daily_limit)
+3. pay_per_use(user, 100 XLM)  — succeeds, repeated until allowance gone
+4. get_daily_limit(user) → None, get_daily_spent → 0, DayStart → false — no warning</pre>
+
+    <h3>Recommendation</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li><strong>Product:</strong> Proactively surface <code>limit / spent / remaining</code> + reset timing (<code>day_start</code>) in the pay-per-use flow and block the wallet prompt when <code>amount &gt; remaining</code> (implemented in this PR: <code>PayPerUseForm.tsx:remaining</code>, <code>DailyLimitCard.tsx</code> progress + “resets ~24h after first spend”). Simulate before signing to catch <code>DailyLimitExceeded (code 24)</code>.</li>
+      <li><strong>Allowance hygiene:</strong> Encourage minimal allowances via <code>AllowanceDisplay</code> + <code>IncreaseAllowanceModal</code>; document “approve exactly what you need” in <code>docs/SECURITY.md</code> and the subscribe flow.</li>
+      <li><strong>Defaults:</strong> Consider prompting for a daily limit during <code>subscribe</code> (or defaulting to e.g. 2× subscription amount) — currently opt-in.</li>
+      <li><strong>Docs:</strong> <code>docs/DAILY-LIMITS.md:413-420</code> already lists UX recommendations; enforce them in UI.</li>
+    </ul>
+
+    <h3>Status</h3>
+    <p style="color:var(--muted); font-size:14px;">Acknowledged. This PR (Issues <code>#845</code> / 050) adds <code>getDayStart</code> + <code>getDailyLimitStatus</code> helpers, remaining/progress UI, and pre-wallet validation. Formal audit still required before mainnet (<code>SECURITY.md</code> roadmap).</p>
+  </section>
+
+  <section class="card" aria-labelledby="issue2-title">
+    <h2 id="issue2-title"><span class="issue-num">#2</span> Single admin key with broad, pause/fee/whitelist powers</h2>
+    <span class="severity sev-high">Severity: High — protocol-wide trust</span>
+    <p style="color:var(--muted); font-size:13px;">Location: <code>contract/src/admin.rs</code>, <code>contract/src/lib.rs:freeze_merchant / set_subscription_amount / propose_fee / pause_contract</code>, <code>docs/SECURITY.md:60-99</code> auth matrix</p>
+
+    <h3>Description</h3>
+    <p>
+      The contract admin can freeze merchants, adjust subscription amounts/intervals, set minimum interval, propose/commit fee and grace-period changes, toggle whitelist, pause the whole contract, clear merchant revenue history, upgrade via two-step propose/commit, and batch-pause subscriptions. The auth matrix documents this correctly. Until governance is tightened, the admin key is a single point of compromise. This is <em>by design</em> pre-audit, but the blast radius is high: a compromised admin could pause the protocol, redirect fees, or whitelist a malicious merchant.
+    </p>
+
+    <h3>Impact</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li>Stolen admin key → can pause charges, change fees, or upgrade the contract (upgrade authority review noted in <code>docs/SECURITY.md:122-140</code>).</li>
+      <li>Admin powers are documented as “broad and should be treated as high trust until governance is tightened” — but frontend does not surface this risk to merchants/users.</li>
+    </ul>
+
+    <h3>Reproduction (static)</h3>
+    <pre>// As admin:
+propose_fee(new_collector, 500) → commit_fee()  // fee now 5%
+freeze_merchant(victim, None)                     // blocks new subs
+pause_contract()                                 // all charge/pay_per_use panics
+// All require admin.require_auth(); verify via
+//   contract/src/admin.rs:require_admin</pre>
+
+    <h3>Recommendation</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li><strong>Governance:</strong> Move admin to a multisig or timelock before mainnet; publish the audit-candidate WASM hash and freeze non-essential admin powers post-audit.</li>
+      <li><strong>Two-step:</strong> Keep existing two-step flows (<code>transfer_admin</code>/<code>accept_admin</code>, <code>propose_fee</code>/<code>commit_fee</code>, <code>propose_grace_period</code>/<code>commit_grace_period</code>, <code>propose_upgrade</code>/<code>commit_upgrade</code>) and add UI confirmation (“You are performing an admin action — this is high trust”).</li>
+      <li><strong>Monitoring:</strong> Index <code>fee_proposed / fee_committed / paused</code> events for alerts; keep <code>ContractPauseBanner</code> as the single source of truth (already sticky, z-index 300).</li>
+      <li><strong>Docs:</strong> Tighten <code>docs/SECURITY.md</code> “Admin powers are broad” into a checklist with owners before mainnet.</li>
+    </ul>
+
+    <h3>Status</h3>
+    <p style="color:var(--muted); font-size:14px;">Acknowledged — documented in <code>docs/SECURITY.md:142-148</code> known limitations and audit roadmap. No code change in this PR beyond surfacing the risk; governance hardening is a follow-up.</p>
+  </section>
+
+  <section class="card" aria-labelledby="issue3-title">
+    <h2 id="issue3-title"><span class="issue-num">#3</span> Storage TTL expiry &amp; keeper liveness (temporary + persistent)</h2>
+    <span class="severity sev-medium">Severity: Medium — availability &amp; accounting</span>
+    <p style="color:var(--muted); font-size:13px;">Location: <code>contract/src/spending_limit.rs:LEDGERS_PER_DAY=17_280</code>, <code>contract/src/storage.rs</code>, <code>contract/src/lib.rs:extend_subscription_ttl / bump_instance_ttl</code>, <code>docs/DAILY-LIMITS.md:58-102</code>, <code>docs/SECURITY.md:104-122</code></p>
+
+    <h3>Description</h3>
+    <p>
+      Daily-limit keys (<code>DailyLimit</code>, <code>DailySpent</code>, <code>DayStart</code>) live in <em>temporary</em> storage with TTL ≈ 17,280 ledgers (~24h). <code>DailyLimit</code> can expire after ~1 day of inactivity, silently removing the cap (<code>get_daily_limit → None</code>) while <code>DayStart</code> remains until its own window expires — a confusing mid-transition (<code>docs/DAILY-LIMITS.md:199-204</code>). Separately, subscription entries are in <em>persistent</em> storage but can be archived if TTL is not refreshed; users must call <code>extend_subscription_ttl</code>. The keeper (<code>charge</code>/<code>batch_charge</code>) is an external liveness dependency with no decentralized dispute layer.
+    </p>
+
+    <h3>Impact</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li>User sets a cap, goes inactive for a day, limit expires — next <code>pay_per_use</code> is uncapped until they re-apply.</li>
+      <li>Spend window is ledger-count based, not wall-clock; “resets at midnight” assumptions fail. Testnet ledgers are less regular.</li>
+      <li>If persistent TTL is not bumped, <code>Subscription</code> can be archived (<code>entryExpired / -32700</code>) and reads fail until <code>extend_subscription_ttl</code> / <code>SubscriptionRepairPanel</code>.</li>
+      <li>Keeper downtime → delayed charges; no on-chain retry — users may miss grace windows.</li>
+    </ul>
+
+    <h3>Reproduction (static)</h3>
+    <pre>// From contract/src/test.rs: test_daily_limit_day_start_boundary
+set_daily_limit(user, 10 XLM);
+pay_per_use(user, 4 XLM);          // DayStart created, DailySpent=4
+// Advance 17_281 ledgers
+env.ledger().sequence_number += 17281;
+pay_per_use(user, 8 XLM);          // passes — DayStart expired, spent reset to 8
+get_day_start(user) → None→ fresh window
+
+// Allowance TTL edge:
+set_daily_limit(user, 5 XLM);      // TTL ~1 day from now
+// wait ~1 day inactive, then pay_per_use → limit is None, uncapped</pre>
+
+    <h3>Recommendation</h3>
+    <ul style="color:var(--muted); font-size:14px;">
+      <li><strong>UI:</strong> Show <code>limit / spent / remaining</code> + “resets ~24h after first spend today” + progress bar; warn when a previously known limit becomes <code>None</code> (TTL expiry) and offer to re-apply (done in this PR).</li>
+      <li><strong>Refresh:</strong> Auto-bump persistent TTL on lifecycle mutations (<code>subscribe / charge / pause / resume</code> already do) and expose <code>extend_subscription_ttl</code> / <code>bump_subscription</code> keepers for dormant accounts (already exists).</li>
+      <li><strong>Keeper:</strong> Document liveness SLA; consider <code>batch_extend_subscription_ttl</code> keepers for cold subscribers.</li>
+      <li><strong>Error mapping:</strong> Preserve <code>isArchivedError</code> handling (codes <code>-32700 / entryExpired / archived</code>) and <code>ErrorRecovery</code> restore flow.</li>
+    </ul>
+
+    <h3>Status</h3>
+    <p style="color:var(--muted); font-size:14px;">Acknowledged — TTL design is intentional (temporary = safe to recompute, persistent = less likely evicted). Mitigations are docs + UI + keepers; audit should validate <code>extend_ttl</code> coverage and keeper incentives.</p>
+  </section>
+
+  <section class="card" aria-labelledby="method-title">
+    <h2 id="method-title">Methodology &amp; Non-Goals</h2>
+    <div class="grid">
+      <div>
+        <h3>What was checked</h3>
+        <ul style="color:var(--muted); font-size:13px;">
+          <li>Auth matrix vs <code>lib.rs</code> / <code>admin.rs</code> / <code>migration.rs</code> / <code>upgrade.rs</code></li>
+          <li>Storage keys (<code>DataKey</code>) and TTL strategy</li>
+          <li><code>pay_per_use</code> shared-budget + fee split atomicity</li>
+          <li>Frontend allowance/daily-limit flows</li>
+          <li>Pause banner / toast priority, RPC health, allowlists</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What was NOT checked</h3>
+        <ul style="color:var(--muted); font-size:13px;">
+          <li>Fuzzing / formal verification / full audit</li>
+          <li>Third-party SAC or Freighter internals</li>
+          <li>Off-chain keeper/indexer correctness</li>
+          <li>Economic caps beyond code constants</li>
+        </ul>
+      </div>
+    </div>
+    <h3>How to verify</h3>
+    <pre>cd contract && cargo test daily_limit        # spending_limit suite (9 cases)
+cd frontend && npm run test -- DailyLimit         # limit UX + PayPerUseForm limit
+cd frontend && npm run test -- network            # mainnet gate
+cd frontend && npm run test -- txQueue            # persistence + recovery
+# Open this file directly: docs/SECURITY-REVIEW.html</pre>
+    <p style="color:var(--muted); font-size:13px;">
+      Related: <a href="./DAILY-LIMITS.md">DAILY-LIMITS.md</a> · <a href="./SECURITY.md">SECURITY.md</a> · <a href="../SECURITY.md">Root SECURITY.md</a> · <a href="./ERROR-CODES.md">ERROR-CODES.md</a>
+    </p>
+  </section>
+
+  <section class="card" aria-labelledby="disclosure-title">
+    <h2 id="disclosure-title">Disclosure &amp; Next Steps</h2>
+    <p style="color:var(--muted); font-size:14px;">
+      Found something else? Report privately via <a href="https://github.com/SiLioLabs/PayFlow/security/advisories">GitHub Security Advisories</a> or email <code>security@payflow.dev</code> with subject <code>[FlowPay Security] …</code>. Please include steps to reproduce, impact, and suggested mitigation. We aim to acknowledge within 48h (<code>SECURITY.md</code>).
+    </p>
+    <p style="color:var(--muted); font-size:14px;">
+      Before mainnet: complete <code>docs/security/audit-preparation.md</code> checklist, freeze an audit candidate commit, publish the WASM hash, and engage a Soroban-focused auditor. This HTML is a <em>point-in-time</em> review and does not replace that audit.
+    </p>
+    <p style="font-size:12px; color:var(--subtle); margin-top:12px;">
+      Generated for PR closing <code>#846</code>, <code>#847</code>, <code>#845</code>, and review <code>#793</code>. Source: <code>contract/src/lib.rs</code>, <code>docs/DAILY-LIMITS.md</code>, <code>frontend/src/components/DailyLimitCard.tsx</code>, <code>PayPerUseForm.tsx</code>, <code>services/txQueue.ts</code>.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <p>PayFlow (FlowPay) — Decentralized subscriptions on Stellar · Testnet only · <a href="https://github.com/SiLioLabs/PayFlow">SiLioLabs/PayFlow</a></p>
+  <p style="margin-top:6px;">This document is static HTML with no external dependencies. Print-friendly · Accessible · No JS required.</p>
+</footer>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import React from "react";
-import { useFreighterAvailable } from "../hooks/useFreighterAvailable";
+import ThemeToggle from "./ThemeToggle";
 import Spinner from "./Spinner";
 
 interface Props {
@@ -9,28 +9,27 @@ interface Props {
 }
 
 export default function ConnectWallet({ onConnect, error, loading = false }: Props) {
-  const { available, installUrl } = useFreighterAvailable();
-
   return (
     <div className="card connect-wallet">
-      <p className="connect-wallet__hint">Connect your Freighter wallet to get started.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <p className="connect-wallet__hint" style={{ margin: 0 }}>Connect a wallet to get started.</p>
+        <ThemeToggle />
+      </div>
 
-      {available ? (
-        <button onClick={onConnect} className="btn-primary w-full" disabled={loading}>
-          {loading ? <Spinner size="sm" /> : "Connect Wallet"}
-        </button>
-      ) : (
-        <a
-          href={installUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-primary w-full connect-wallet__install-link"
-        >
-          Install Freighter
-        </a>
+      <button
+        onClick={onConnect}
+        className="btn-primary w-full"
+        disabled={loading}
+        aria-label={loading ? "Connecting…" : undefined}
+      >
+        {loading ? <Spinner size="sm" /> : "Connect Wallet"}
+      </button>
+
+      {error && (
+        <p role="alert" className="text-danger mt-2">
+          {error}
+        </p>
       )}
-
-      {error && <p className="text-error">{error}</p>}
     </div>
   );
 }

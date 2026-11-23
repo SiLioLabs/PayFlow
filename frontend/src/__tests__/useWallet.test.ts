@@ -8,9 +8,7 @@ vi.mock("../stellar", () => ({
     sendTransaction: vi.fn(),
   },
 }));
-
-import { useWallet } from "../hooks/useWallet";
-
+import { useWallet, AVAILABLE_WALLETS } from "../hooks/useWallet";
 const STORAGE_KEY = "pf_wallet_pk";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -155,7 +153,7 @@ describe("useWallet", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await result.current.connect();
+      await result.current.connect(AVAILABLE_WALLETS[0]);
     });
 
     expect(result.current.publicKey).toBe(key);
@@ -167,7 +165,7 @@ describe("useWallet", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await result.current.connect();
+      await result.current.connect(AVAILABLE_WALLETS[0]);
     });
 
     expect(result.current.error).toMatch(/freighter wallet not found/i);
@@ -184,7 +182,7 @@ describe("useWallet", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await result.current.connect();
+      await result.current.connect(AVAILABLE_WALLETS[0]);
     });
 
     expect(result.current.error).toMatch(/unlock freighter/i);
@@ -195,6 +193,7 @@ describe("useWallet", () => {
   it("disconnect() clears publicKey and removes localStorage entry", async () => {
     const key = "GDISCONNECT";
     localStorage.setItem(STORAGE_KEY, key);
+    localStorage.setItem("pf_wallet_id", "freighter");
     (window as any).freighter = buildFreighterMock({
       isConnected: true,
       publicKey: key,
@@ -204,11 +203,12 @@ describe("useWallet", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(result.current.publicKey).toBe(key);
 
-    act(() => {
-      result.current.disconnect();
+    await act(async () => {
+      await result.current.disconnect();
     });
 
     expect(result.current.publicKey).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem("pf_wallet_id")).toBeNull();
   });
 });

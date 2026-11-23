@@ -23,6 +23,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -70,7 +71,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }
@@ -79,6 +80,7 @@
         }
       ]
     ],
+    [],
     []
   ],
   "ledger": {
@@ -207,14 +209,27 @@
                     "executable": {
                       "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     },
-                    "storage": null
+                    "storage": [
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WhitelistEnabled"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bool": false
+                        }
+                      }
+                    ]
                   }
                 }
               }
             },
             "ext": "v0"
           },
-          4095
+          6307200
         ]
       ],
       [
@@ -337,7 +352,7 @@
                         "symbol": "live_until_ledger"
                       },
                       "val": {
-                        "u32": 200
+                        "u32": 200000
                       }
                     }
                   ]
@@ -346,7 +361,7 @@
             },
             "ext": "v0"
           },
-          201
+          200001
         ]
       ],
       [
@@ -552,7 +567,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6307200
         ]
       ]
     ]
@@ -800,7 +815,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }
@@ -839,7 +854,7 @@
                   }
                 },
                 {
-                  "u32": 200
+                  "u32": 200000
                 }
               ]
             }
@@ -891,6 +906,99 @@
               "vec": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "batch_charge_skips"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "allowance_insufficient"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "charged"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "grace_elapsed"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "inactive"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "ledger_sequence"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "no_subscription"
+                  },
+                  "val": {
+                    "u32": 1
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "not_due"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "paused"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "total"
+                  },
+                  "val": {
+                    "u32": 1
+                  }
                 }
               ]
             }

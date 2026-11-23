@@ -1,92 +1,147 @@
 import React, { useState, useEffect } from "react";
-import { STROOPS_PER_XLM, MIN_STROOPS, MAX_STROOPS } from "../constants";
+import { MAX_STROOPS } from "../constants";
+import { stroopsToXlm } from "../utils/format";
 import { useDebounce } from "../hooks/useDebounce";
+import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import { validateStroopAmount } from "../utils/validation";
+import type { AmountUnit } from "../utils/format";
 
 interface Props {
   label: string;
   onChange: (stroops: bigint | null) => void;
   disabled?: boolean;
+  initialValue?: bigint;
+  id?: string;
+  testId?: string;
+  isInvalid?: boolean;
+  ariaDescribedBy?: string;
 }
 
-function validate(raw: string): { stroops: bigint | null; error: string | null } {
-  if (!raw) return { stroops: null, error: null };
-  const num = parseFloat(raw);
-  if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
-  const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-  if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-  const stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
-  if (stroops < MIN_STROOPS) {
-    return { stroops: null, error: `Must be at least ${Number(MIN_STROOPS) / STROOPS_PER_XLM} XLM` };
-  }
-  if (stroops > MAX_STROOPS) {
-    return { stroops: null, error: `Must be at most ${Number(MAX_STROOPS) / STROOPS_PER_XLM} XLM` };
-  }
-  return { stroops, error: null };
+/**
+ * validateStroopInput — thin wrapper around the canonical validateStroopAmount
+ * that supplies a default maxStroops. Kept for backward-compatibility with
+ * existing callers (e.g. amounts.test.ts) that rely on this export name and
+ * signature.
+ */
+export function validateStroopInput(
+  raw: string,
+  unit: AmountUnit,
+  maxStroops: bigint = MAX_STROOPS
+): { stroops: bigint | null; error: string | null } {
+  return validateStroopAmount(raw, unit, maxStroops);
 }
 
-export default function StroopInput({ label, onChange, disabled }: Props) {
+// Keep the aliased export so callers that import validateStroopAmount from
+// this module continue to work without changes.
+export { validateStroopInput as validateStroopAmount };
+
+export default function StroopInput({
+  label,
+  onChange,
+  disabled,
+  initialValue,
+  id = "amount-input",
+  testId = "amount-input",
+  isInvalid,
+  ariaDescribedBy,
+}: Props) {
+  const { unit } = useAmountDisplay();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isDebouncing, setIsDebouncing] = useState(false);
   const [lastValue, setLastValue] = useState(value);
   const debouncedValue = useDebounce(value, 300);
   const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
 
+  // Initialize value from initialValue if provided
+  useEffect(() => {
+    if (initialValue !== undefined && initialValue !== null) {
+      setConvertedStroops(initialValue);
+      if (unit === "XLM") {
+        setValue(stroopsToXlm(initialValue));
+      } else {
+        setValue(initialValue.toString());
+      }
+    }
+  }, [initialValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep input value in sync when the global unit preference changes
+  useEffect(() => {
+    if (convertedStroops !== null) {
+      if (unit === "XLM") {
+        setValue(stroopsToXlm(convertedStroops));
+      } else {
+        setValue(convertedStroops.toString());
+      }
+    }
+  }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (value !== lastValue) {
-      setIsDebouncing(true);
       setLastValue(value);
     }
   }, [value, lastValue]);
 
   useEffect(() => {
-    const { stroops, error: err } = validate(debouncedValue);
+    const { stroops, error: err } = validateStroopAmount(debouncedValue, unit, MAX_STROOPS);
     setConvertedStroops(stroops);
     setError(err);
-    setIsDebouncing(false);
     onChange(stroops);
-  }, [debouncedValue, onChange]);
+  }, [debouncedValue, unit, onChange]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     setValue(raw);
-    // validation is debounced to avoid firing on every keystroke
   }
 
   function handleBlur() {
-    // validate immediately on blur
-    const { stroops, error: err } = validate(value);
+    const { stroops, error: err } = validateStroopAmount(value, unit, MAX_STROOPS);
     setConvertedStroops(stroops);
     setError(err);
-    setIsDebouncing(false);
     onChange(stroops);
   }
 
-  const stateClass = !value ? "" : error ? "input--error" : "input--valid";
+  const hasAnyError = Boolean(error || isInvalid);
+  const stateClass = !value ? "" : hasAnyError ? "input--error" : "input--valid";
+  const errorId = `${id}-error`;
 
-  const formatXLM = (stroops: bigint): string => {
-    const xlm = Number(stroops) / STROOPS_PER_XLM;
-    return xlm.toFixed(7);
+  const describedBy = ariaDescribedBy || (error ? errorId : undefined);
+
+  const formatAlternate = (stroops: bigint): string => {
+    if (unit === "XLM") {
+      return `${stroops.toLocaleString("en-US")} STROOP`;
+    } else {
+      return `${stroopsToXlm(stroops)} XLM`;
+    }
   };
 
   return (
-    <label className="form-group">
-      <span className="form-label">{label}</span>
+    <label className="form-group" htmlFor={id}>
+      <span className="form-label">
+        {label} ({unit})
+      </span>
       <input
+        id={id}
+        data-testid={testId}
         className={`input ${stateClass}`.trim()}
         type="number"
-        min="0.0000001"
-        step="0.0000001"
-        placeholder="5"
+        min={unit === "XLM" ? "0.0000001" : "1"}
+        step={unit === "XLM" ? "0.0000001" : "1"}
+        placeholder={unit === "XLM" ? "5" : "50000000"}
         value={value}
         onChange={handleChange}
         onBlur={handleBlur}
         disabled={disabled}
         required
+        aria-invalid={hasAnyError ? true : undefined}
+        aria-describedby={describedBy}
       />
-      {error && <span className="text-error">{error}</span>}
+      {error && (
+        <span id={errorId} className="text-error" role="alert">
+          {error}
+        </span>
+      )}
       {convertedStroops !== null && !error && (
-        <span className="text-muted">= {formatXLM(convertedStroops)} XLM</span>
+        <span className="text-muted">= {formatAlternate(convertedStroops)}</span>
       )}
     </label>
   );

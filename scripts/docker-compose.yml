@@ -1,0 +1,156 @@
+services:
+  keeper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: payflow-keeper:latest
+    container_name: payflow-keeper
+
+    # Load all keeper configuration from a local .env file.
+    # Copy scripts/.env.example to scripts/.env and fill in the values.
+    # The .env file is never baked into the image.
+    env_file:
+      - .env
+
+    # Restart the container automatically unless it was explicitly stopped.
+    restart: unless-stopped
+
+    # Resource limits — keeper is lightweight; cap to avoid runaway memory on
+    # unexpected SDK bugs.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+    # Write structured JSON logs to a rotating file alongside stdout so they
+    # survive container restarts without a dedicated log shipper.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # Shared volume for the SQLite event DB written by indexer.ts.
+    volumes:
+      - events-data:/app/data
+
+    # Graceful shutdown: give the keeper up to 60 s to finish its current
+    # charge page before Docker sends SIGKILL.
+    stop_grace_period: 60s
+
+    # Health check: RPC getHealth endpoint (inherited from Dockerfile).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- \"${RPC_URL:-https://soroban-testnet.stellar.org}\" --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}' --header='Content-Type: application/json' | grep -q '\"status\":\"healthy\"'"]
+      interval: 60s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: payflow-keeper:latest
+    container_name: payflow-indexer
+
+    # Override CMD to run the indexer instead of keeper.
+    command: ["tsx", "indexer.ts"]
+
+    # Load all configuration from a local .env file.
+    env_file:
+      - .env
+
+    # Indexer should run continuously; restart unless explicitly stopped.
+    restart: unless-stopped
+
+    # Resource limits — indexer is lightweight; cap to avoid runaway memory.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+    # Structured JSON logs with rotation.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # Shared volume for SQLite event DB — indexer writes events.db here.
+    volumes:
+      - events-data:/app/data
+
+    # Graceful shutdown: allow indexer to finish current poll and close DB.
+    stop_grace_period: 30s
+
+    # Health check: RPC getHealth endpoint (inherited from Dockerfile).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- \"${RPC_URL:-https://soroban-testnet.stellar.org}\" --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}' --header='Content-Type: application/json' | grep -q '\"status\":\"healthy\"'"]
+      interval: 60s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  metrics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: payflow-keeper:latest
+    container_name: payflow-metrics
+
+    # Override CMD to run the metrics server instead of keeper.
+    command: ["tsx", "metrics-server.ts"]
+
+    # Load all configuration from a local .env file.
+    env_file:
+      - .env
+
+    # Metrics server should run continuously; restart unless explicitly stopped.
+    restart: unless-stopped
+
+    # Resource limits — metrics server is very lightweight.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+
+    # Structured JSON logs with rotation.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # Expose metrics port for Prometheus scraping.
+    ports:
+      - "${METRICS_PORT:-9090}:9090"
+
+    # Graceful shutdown: stop the HTTP server cleanly.
+    stop_grace_period: 10s
+
+    # Health check: verify the HTTP server is responding.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  events-data:
+    driver: local

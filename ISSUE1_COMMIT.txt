@@ -1,0 +1,36 @@
+fix: rename SubscriptionRepairPanel components to resolve naming collision
+
+Resolves naming ambiguity between subscriber-facing and admin-facing repair panels.
+
+## Problem
+Two different components shared the name SubscriptionRepairPanel:
+- components/SubscriptionRepairPanel.tsx (287 lines) — subscriber-facing archived-TTL recovery
+- components/admin/SubscriptionRepairPanel.tsx (337 lines) — admin diagnostics
+
+The subscriber-facing recovery flow was unreachable in production even though stellar.ts
+has dedicated error mapping for archived entries.
+
+## Solution
+- Renamed subscriber component: SubscriptionRepairPanel → SubscriberRecoveryPanel
+- Renamed admin component: admin/SubscriptionRepairPanel → admin/AdminRepairPanel
+- Integrated SubscriberRecoveryPanel into Dashboard.tsx to render when getSubscription
+  reports an archived entry
+- Updated all test files and imports accordingly
+
+## Changes
+- Renamed: frontend/src/components/SubscriptionRepairPanel.tsx
+       → frontend/src/components/SubscriberRecoveryPanel.tsx
+- Renamed: frontend/src/components/admin/SubscriptionRepairPanel.tsx
+       → frontend/src/components/admin/AdminRepairPanel.tsx
+- Modified: frontend/src/components/Dashboard.tsx (integrated recovery panel)
+- Modified: frontend/src/pages/AdminDashboard.tsx (updated import)
+- Renamed: All 3 test files updated with new component names
+
+## Production Path
+Dashboard.tsx now checks error with isArchivedError() and renders SubscriberRecoveryPanel
+when a subscription is archived, providing users a path to restore their data.
+
+## Testing
+All TypeScript files pass diagnostics (0 errors).
+Test files: SubscriberRecoveryPanel.test.tsx, AdminRepairPanel.test.tsx,
+AdminRepairPanel.skeleton.test.tsx

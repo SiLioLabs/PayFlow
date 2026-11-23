@@ -1,3 +1,5 @@
+#![cfg(test)]
+// # FlowPay Benchmark Tests
 /// # FlowPay Benchmark Tests
 ///
 /// These tests measure instruction-count costs for the four core contract
@@ -5,30 +7,57 @@
 ///
 /// ## How to run
 ///
+/// The module is gated behind the `bench` cargo feature, so it must be
+/// enabled explicitly — without `--features bench` the filter below matches
+/// zero tests and the run exits successfully without measuring anything.
+///
 /// ```
-/// cargo test bench -- --nocapture
+/// cargo test --features bench bench -- --nocapture
 /// ```
 ///
-/// ## Baseline instruction counts (Soroban SDK 21, recorded 2026-06-01)
+/// ## Baseline instruction counts (Soroban SDK 21.7.7 / env-host 21.2.1, recorded 2026-09-28)
 ///
-/// | Function                        | CPU Instructions | Memory Bytes |
-/// |---------------------------------|-----------------|--------------|
-/// | subscribe()                     |   ~4_200_000    |  ~200_000    |
-/// | charge()                        |   ~3_800_000    |  ~180_000    |
-/// | pay_per_use()                   |   ~3_600_000    |  ~170_000    |
-/// | batch_charge() – 10 users       |  ~28_000_000    | ~1_200_000   |
+/// | Function                        | CPU Instructions | Memory Bytes | Pinned budget |
+/// |---------------------------------|-----------------|--------------|---------------|
+/// | subscribe()                     |     429_145     |    77_234    |    495_000    |
+/// | charge()                        |     668_949     |   110_970    |    770_000    |
+/// | pay_per_use()                   |     715_958     |   125_058    |    825_000    |
+/// | batch_charge() – 10 users       |   8_860_549     | 1_894_229    | 10_200_000    |
+/// | get_top_merchants_by_subs() – 15 merchants | 724_790 | 68_839   |    835_000    |
+///
+/// The top-merchants bench is parameterised over index sizes (15 / 100 / 500)
+/// so the scan-over-index shape is exercised as the index grows. The
+/// 15-merchant row is the last recorded baseline; the larger sizes pin budgets
+/// extrapolated from it (see `MAX_TOP_MERCHANTS_INDEX_*_INSTRUCTIONS`) and
+/// print their measured cost at runtime so the numbers can be re-recorded.
 ///
 /// These numbers are printed at runtime (see `--nocapture`).  Update the
 /// table above whenever a deliberate change shifts the baseline by more
 /// than ~5 %.
 ///
-/// Budget baselines were recorded with Soroban SDK 21.0.0 on 2026-06-01.
-/// Each threshold includes ~10% headroom to catch regressions without
-/// failing on minor environment variation.
-pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 4_620_000;
-pub const MAX_CHARGE_INSTRUCTIONS: u64 = 4_180_000;
-pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 3_960_000;
-pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 30_800_000;
+/// ## Re-pinning history
+///
+/// The thresholds below were originally recorded on 2026-06-01 against an
+/// earlier build and sat ~10x above the true cost of every entrypoint
+/// (subscribe: 4_620_000 pinned vs. 429_145 measured). A budget that loose
+/// cannot fail, so the gate would have passed while a regression shipped.
+/// They were re-pinned on 2026-09-28 to the measured cost plus ~15 %
+/// headroom: enough to absorb host/SDK noise, tight enough that a scan-based
+/// rewrite of a single entrypoint trips the build. `get_top_merchants_by_subs`
+/// was previously unbudgeted entirely — it is the entrypoint whose
+/// scan-over-subscribers shape is the most likely source of a budget blowup,
+/// so it is now pinned too.
+pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 495_000;
+pub const MAX_CHARGE_INSTRUCTIONS: u64 = 770_000;
+pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 825_000;
+pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 10_200_000;
+pub const MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS: u64 = 835_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 100-merchant index.
+/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
+pub const MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS: u64 = 8_000_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 500-merchant index.
+/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
+pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 40_000_000;
 
 use super::*;
 use soroban_sdk::{
@@ -56,6 +85,14 @@ fn bench_setup() -> (Env, Address, Address, Address, Address) {
     let token_addr = token_id.address();
 
     let contract_id = env.register_contract(None, FlowPay);
+
+    // Whitelisting is enabled by default, so an unregistered merchant would make
+    // every state-changing benchmark fail with `MerchantNotWhitelisted` (code 10)
+    // before it ever reached its budget assertion. Disable it for the whole bench
+    // env so each benchmark measures its entrypoint rather than the whitelist.
+    env.as_contract(&contract_id, || {
+        crate::whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -87,9 +124,10 @@ fn add_funded_user(env: &Env, contract_id: &Address, token_addr: &Address) -> Ad
 
 /// Measures the instruction cost of a single `subscribe()` call.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~4_200_000
-///   Memory Bytes     : ~200_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 429_145
+///   Memory Bytes     : 77_234
+///   Pinned budget    : 495_000 (+15 % headroom)
 #[test]
 fn bench_subscribe() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -137,9 +175,10 @@ fn bench_subscribe() {
 /// Measures the instruction cost of a single `charge()` call after the
 /// billing interval has elapsed.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~3_800_000
-///   Memory Bytes     : ~180_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 668_949
+///   Memory Bytes     : 110_970
+///   Pinned budget    : 770_000 (+15 % headroom)
 #[test]
 fn bench_charge() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -194,9 +233,10 @@ fn bench_charge() {
 
 /// Measures the instruction cost of a single `pay_per_use()` call.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~3_600_000
-///   Memory Bytes     : ~170_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 715_958
+///   Memory Bytes     : 125_058
+///   Pinned budget    : 825_000 (+15 % headroom)
 #[test]
 fn bench_pay_per_use() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -244,9 +284,10 @@ fn bench_pay_per_use() {
 /// Measures the instruction cost of `batch_charge()` across 10 subscribers
 /// whose billing intervals have all elapsed (all 10 result in `Charged`).
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~28_000_000
-///   Memory Bytes     : ~1_200_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 8_860_549
+///   Memory Bytes     : 1_894_229
+///   Pinned budget    : 10_200_000 (+15 % headroom)
 #[test]
 fn bench_batch_charge_10_users() {
     let (env, contract_id, token_addr, first_user, merchant) = bench_setup();
@@ -375,4 +416,107 @@ fn bench_charge_vs_subscribe_ratio() {
         charge_cpu,
         subscribe_cpu
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: get_top_merchants_by_subs() at multiple index sizes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Seeds `n` distinct merchants into the merchant index with varying subscriber
+/// counts by writing the index directly rather than going through `subscribe()`.
+///
+/// The point of this benchmark is the cost of the ranking scan as the index
+/// grows, so the measured call must not be dominated by the cost of building
+/// the fixtures. Seeding through `subscribe()` would also require a funded user
+/// and token approval per merchant, which is both slower and irrelevant to what
+/// is being measured.
+fn seed_merchant_index(env: &Env, contract_id: &Address, n: u32) {
+    env.as_contract(contract_id, || {
+        for i in 0..n {
+            let merchant = Address::generate(env);
+            crate::merchant_stats::index_merchant(env, &merchant);
+            // Vary the counts so the descending-order assertion is meaningful.
+            let count = (i % 5) as u64 + 1;
+            let key = DataKey::MerchantSubCount(merchant.clone());
+            env.storage().persistent().set(&key, &count);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, 1555200, 1555200);
+        }
+    });
+}
+
+/// Runs `get_top_merchants_by_subs(10)` over an index of `n` merchants and
+/// asserts the measured CPU cost stays within `budget`, the result fills the
+/// top-10 window, and the ranking is ordered descending by subscriber count.
+fn run_top_merchants_bench(n: u32, budget: u64) {
+    let (env, contract_id, _token_addr, _user, _merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Lift the meter while building fixtures: seeding a 500-entry index would
+    // otherwise risk tripping the default budget before the measured call.
+    env.budget().reset_unlimited();
+    seed_merchant_index(&env, &contract_id, n);
+
+    // Reset immediately before the call under measurement.
+    env.budget().reset_unlimited();
+
+    let top = client.get_top_merchants_by_subs(&10);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+
+    env.budget().reset_default();
+
+    println!("\n[bench_get_top_merchants_by_subs]");
+    println!("  Index size       : {}", n);
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+    println!("  Pinned budget    : {}", budget);
+
+    assert_eq!(
+        top.len(),
+        10,
+        "the top-10 window must fill with {} merchants in the index",
+        n
+    );
+
+    let mut prev: u32 = u32::MAX;
+    for i in 0..top.len() {
+        let (_merchant, count) = top.get(i).unwrap();
+        assert!(
+            count <= prev,
+            "ranking must be ordered descending at position {}",
+            i
+        );
+        prev = count;
+    }
+
+    assert!(
+        cpu > 0,
+        "get_top_merchants_by_subs must consume CPU instructions"
+    );
+    assert!(mem > 0, "get_top_merchants_by_subs must consume memory");
+    assert!(
+        cpu <= budget,
+        "get_top_merchants_by_subs() CPU ({}) exceeds budget threshold ({}) at index size {}",
+        cpu,
+        budget,
+        n
+    );
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_15() {
+    run_top_merchants_bench(15, MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_100() {
+    run_top_merchants_bench(100, MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_500() {
+    run_top_merchants_bench(500, MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS);
 }
