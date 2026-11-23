@@ -412,6 +412,63 @@ Source: [`frontend/.env.example`](../frontend/.env.example).
 
 ---
 
+## Error reporting (optional, disabled by default)
+
+The root `ErrorBoundary` in `main.tsx` accepts an optional `onError` reporter. It is **disabled by default** — no error data leaves the browser unless you explicitly opt in.
+
+### Opt-in
+
+Set `VITE_ERROR_REPORT_URL` in `frontend/.env` (or your host environment):
+
+```bash
+VITE_ERROR_REPORT_URL=https://errors.example.com/report
+```
+
+When set, the boundary POSTs a JSON payload to that URL whenever a React component tree crash is caught:
+
+```json
+{
+  "message": "Cannot read properties of undefined (reading 'amount')",
+  "name": "TypeError",
+  "componentStack": "\n    at SubscriptionCard\n    at Dashboard\n    ...",
+  "timestamp": "2025-01-15T15:04:05.000Z"
+}
+```
+
+### Privacy — what is redacted before sending
+
+Before the payload is built, the boundary runs `redactError` on `message` and `componentStack`. The following patterns are replaced with `[redacted]`:
+
+| Pattern | Example | Replaced by |
+| ------- | ------- | ----------- |
+| Stellar secret key (`S` + 55 base32 chars) | `SABC...XYZ` | `[redacted]` |
+| Contract ID (`C` + 55 base32 chars) | `CABC...XYZ` | `[redacted]` |
+| Public key (`G` + 55 base32 chars) | `GABC...XYZ` | `[redacted]` |
+
+Secret keys are matched first so they cannot be mis-classified as public keys. No wallet address or signing key ever appears in a report.
+
+### Pluggable reporter interface
+
+The reporter is any function matching `(report: ErrorReport) => void`. To use a custom reporter instead of the built-in `fetch`-based one, pass it directly to `<ErrorBoundary onError={myReporter}>` in `main.tsx`:
+
+```tsx
+import ErrorBoundary, { type ErrorReporter } from "./components/ErrorBoundary";
+
+const myReporter: ErrorReporter = (report) => {
+  // e.g. send to Sentry, Datadog, or a custom backend
+  mySdk.captureError(report);
+};
+
+// In main.tsx:
+<ErrorBoundary onError={myReporter}>
+  <App />
+</ErrorBoundary>
+```
+
+Errors thrown inside the reporter are silently swallowed so a broken reporting endpoint cannot affect the user experience.
+
+---
+
 ## Content-Security-Policy and hardening headers
 
 `frontend/index.html` ships a `<meta http-equiv="Content-Security-Policy">` tag that is active in every deployment regardless of host. It restricts:
