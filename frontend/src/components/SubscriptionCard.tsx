@@ -27,6 +27,7 @@ import { BILLING_INTERVALS } from "../constants";
 import {
   ChargeSimResult,
   getAllowance,
+  getPauseUntil,
   getTrialEnd,
   buildCancelTx,
   isSubscriptionHealthy,
@@ -38,6 +39,7 @@ import { usePauseResume } from "../hooks/usePauseResume";
 import { useRegisterShortcuts } from "../context/ShortcutRegistry";
 import { useResponsive } from "../hooks/useResponsive";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import { friendlyError } from "../utils/errors";
 import { useToast } from "../hooks/useToast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { formatDateTime } from "../utils/format";
@@ -67,6 +69,13 @@ function formatInterval(secs: number): string {
   if (secs >= weekly) return `${Math.round(secs / weekly)}w`;
   if (secs >= daily) return `${Math.round(secs / daily)}d`;
   return `${secs}s`;
+}
+
+function toDateTimeLocalValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
 /**
@@ -224,6 +233,7 @@ export default function SubscriptionCard({
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelStatus, setCancelStatus] = useState("");
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // ── Pause / resume via hook ────────────────────────────────────────────────
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
@@ -339,6 +349,24 @@ export default function SubscriptionCard({
       .catch(() => setTrialEndTimestamp(null)); // RPC error → hide badge, don't crash
   }, [userKey, active]);
 
+  useEffect(() => {
+    if (!active || !paused) {
+      setScheduledResumeAt(null);
+      return;
+    }
+    let cancelled = false;
+    getPauseUntil(userKey)
+      .then((expiry) => {
+        if (!cancelled) setScheduledResumeAt(expiry);
+      })
+      .catch(() => {
+        if (!cancelled) setScheduledResumeAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userKey, active, paused]);
+
   const handleCancel = async () => {
     // Guard against a double-submit: cancelLoading only reflects the previous
     // render, so without this latch two rapid clicks would sign twice.
@@ -356,12 +384,14 @@ export default function SubscriptionCard({
         { active: false }
       );
       setCancelStatus("Cancelled successfully.");
+      setCancelError(null);
       setShowCancelConfirm(false);
       onCancelled?.();
     } catch (e: unknown) {
-      const msg = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      const msg = e instanceof Error ? e.message : String(e);
+      setCancelError(msg);
       setCancelStatus(msg);
-      addToast(msg, "error");
+      addToast(`Error: ${msg}`, "error");
     } finally {
       cancelSubmittingRef.current = false;
       setCancelLoading(false);
@@ -381,7 +411,7 @@ export default function SubscriptionCard({
         const expirySeconds = Math.floor(new Date(pauseUntilInput).getTime() / 1000);
         const nowSeconds = Math.floor(Date.now() / 1000);
         if (!Number.isFinite(expirySeconds) || expirySeconds <= nowSeconds) {
-          setPauseValidationError("Resume time must be in the future.");
+          setPauseValidationError(friendlyError("error(contract, #27)"));
           return;
         }
         setPauseValidationError(null);
@@ -425,15 +455,15 @@ export default function SubscriptionCard({
       ? `Paused until ${formatDateTime(new Date(scheduledResumeAt * 1000))}.`
       : "Paused successfully.";
   } else if (pauseTx.state === "failed") {
-    derivedPauseStatus = `Error: ${pauseTx.error || "Failed to pause"}`;
+    derivedPauseStatus = pauseTx.error || "Failed to pause";
   } else if (pauseUntilTx.state === "failed") {
-    derivedPauseStatus = `Error: ${pauseUntilTx.error || "Failed to pause"}`;
+    derivedPauseStatus = pauseUntilTx.error || "Failed to pause";
   } else if (resumeTx.state === "pending") {
     derivedPauseStatus = "Resuming…";
   } else if (resumeTx.state === "success") {
     derivedPauseStatus = "Resumed successfully.";
   } else if (resumeTx.state === "failed") {
-    derivedPauseStatus = `Error: ${resumeTx.error || "Failed to resume"}`;
+    derivedPauseStatus = resumeTx.error || "Failed to resume";
   }
 
   const isInTrial = trialEndTimestamp !== null && trialEndTimestamp > Math.floor(Date.now() / 1000);
@@ -495,14 +525,20 @@ export default function SubscriptionCard({
         <StackedRow label="Interval" value={formatInterval(interval)} isMobile={isMobile} />
         <div className={`subscription-row${isMobile ? " subscription-row--stacked" : ""}`}>
           <span className="subscription-row__label">
-            {paused ? "Status" : isInTrial ? "First charge" : "Next charge"}
+            {paused || scheduledResumeAt ? "Status" : isInTrial ? "First charge" : "Next charge"}
           </span>
           <span className="subscription-row__value">
             {active ? (
-              paused ? (
-                <span className="badge badge-warning" aria-label="Subscription is paused">
-                  Paused
-                </span>
+              paused || scheduledResumeAt ? (
+                scheduledResumeAt ? (
+                  <span data-testid="scheduled-resume">
+                    Auto-resumes <span data-testid="auto-resume-date">{new Date(scheduledResumeAt * 1000).toLocaleString()}</span>
+                  </span>
+                ) : (
+                  <span className="badge badge-warning" aria-label="Subscription is paused">
+                    Paused
+                  </span>
+                )
               ) : (
                 <NextChargeCountdown nextChargeTimestamp={nextChargeTimestamp} />
               )
@@ -557,11 +593,6 @@ export default function SubscriptionCard({
         )}
         {active && paused && (
           <>
-            {scheduledResumeAt && (
-              <p className="text-sm text-muted" data-testid="scheduled-resume">
-                Scheduled to resume {formatDateTime(new Date(scheduledResumeAt * 1000))}
-              </p>
-            )}
             <button
               onClick={handleResume}
               disabled={resumeTx.state === "pending"}
@@ -634,7 +665,7 @@ export default function SubscriptionCard({
                     data-testid="pause-until-input"
                     aria-label="Resume date and time"
                     value={pauseUntilInput}
-                    min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                    min={toDateTimeLocalValue(new Date(Date.now() + 60_000))}
                     onChange={(e) => {
                       setPauseUntilInput(e.target.value);
                       setPauseValidationError(null);
@@ -748,35 +779,43 @@ export default function SubscriptionCard({
         />
       )}
 
-      {(derivedPauseStatus || cancelStatus) && (
-        <p
-          className="form-status"
-          style={{
-            color:
-              derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")
-                ? "var(--color-danger)"
-                : "var(--color-success)",
-          }}
-        >
-          {derivedPauseStatus || cancelStatus}
-        </p>
-      )}
+      {(() => {
+        const hasPauseError =
+          pauseTx.state === "failed" || pauseUntilTx.state === "failed" || resumeTx.state === "failed";
+        const pauseErrorMsg = pauseTx.error || pauseUntilTx.error || resumeTx.error;
+        const isError = hasPauseError || cancelError !== null;
+        const displayStatus = hasPauseError ? derivedPauseStatus : (cancelStatus || derivedPauseStatus);
+        const activeError = hasPauseError ? pauseErrorMsg : cancelError;
 
-      {(derivedPauseStatus.startsWith("Error") || cancelStatus.startsWith("Error")) && (
-        <ErrorRecovery
-          error={
-            derivedPauseStatus.startsWith("Error")
-              ? pauseTx.error || pauseUntilTx.error || resumeTx.error
-              : cancelStatus
-          }
-          health={subHealth}
-          onIncreaseAllowance={
-            subHealth && !subHealth.has_sufficient_allowance
-              ? () => setShowAllowanceModal(true)
-              : undefined
-          }
-        />
-      )}
+        if (!displayStatus) return null;
+
+        return (
+          <>
+            <p
+              className={`form-status ${isError ? "text-error" : "text-success"}`}
+              role="status"
+              data-testid="subscription-card-status"
+              style={{
+                color: isError ? "var(--color-danger)" : "var(--color-success)",
+              }}
+            >
+              {isError ? `⚠️ ${displayStatus}` : displayStatus}
+            </p>
+
+            {isError && (
+              <ErrorRecovery
+                error={activeError || displayStatus}
+                health={subHealth}
+                onIncreaseAllowance={
+                  subHealth && !subHealth.has_sufficient_allowance
+                    ? () => setShowAllowanceModal(true)
+                    : undefined
+                }
+              />
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

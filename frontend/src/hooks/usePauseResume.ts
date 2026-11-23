@@ -57,14 +57,17 @@ export function usePauseResume(
     pauseTx: {
       state: pTx.status,
       error: pTx.error,
+      isError: pTx.isError,
     },
     pauseUntilTx: {
       state: puTx.status,
       error: puTx.error,
+      isError: puTx.isError,
     },
     resumeTx: {
       state: rTx.status,
       error: rTx.error,
+      isError: rTx.isError,
     },
   };
 }

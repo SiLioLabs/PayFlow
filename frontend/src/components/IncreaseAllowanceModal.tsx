@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
@@ -32,6 +32,11 @@ export default function IncreaseAllowanceModal({
   const modalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(modalRef, true, onClose);
+
+  const handleAmountChange = useCallback((val: bigint | null) => {
+    setAmountStroops(val);
+    setError(null);
+  }, []);
 
   const tokenContractId = TOKEN_CONTRACT_ID;
   const recommendedAllowance = useMemo(
@@ -91,7 +96,7 @@ export default function IncreaseAllowanceModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         ref={modalRef}
         className="modal-card card"
@@ -112,12 +117,19 @@ export default function IncreaseAllowanceModal({
           <strong>{Math.floor(Number(amountStroops || 0n) / Number(subscriptionAmount))}</strong>.
         </p>
         <StroopInput
+          id="increase-allowance-amount"
           label="Total allowance"
-          onChange={setAmountStroops}
+          onChange={handleAmountChange}
           disabled={submitting}
           initialValue={recommendedAllowance}
+          isInvalid={Boolean(error)}
+          ariaDescribedBy={error ? "increase-allowance-error" : undefined}
         />
-        {error && <p className="text-error">{error}</p>}
+        {error && (
+          <p id="increase-allowance-error" className="text-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose} disabled={submitting}>
             Cancel

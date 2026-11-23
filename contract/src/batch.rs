@@ -7,8 +7,6 @@ use crate::grace;
 use crate::validation;
 use crate::{DataKey, Subscription};
 
-pub use crate::caps::DEFAULT_BATCH_SIZE as MAX_BATCH_SIZE;
-
 // ─────────────────────────────────────────────────────────────
 // Decode-compatibility note
 // ─────────────────────────────────────────────────────────────
@@ -26,7 +24,7 @@ pub use crate::caps::DEFAULT_BATCH_SIZE as MAX_BATCH_SIZE;
 //   GracePeriodElapsed  = 5
 //   AllowanceInsufficient = 6
 //
-// The full wire-format description lives in `docs/charge-results.md`.
+// The full wire-format description lives in `docs/CHARGE-RESULTS.md`.
 //
 // When adding new variants ALWAYS append at the end so existing
 // off-chain parsers continue to recognise the original codes.
@@ -45,12 +43,7 @@ pub use crate::caps::DEFAULT_BATCH_SIZE as MAX_BATCH_SIZE;
 /// **APPEND-ONLY INVARIANT:** New variants must always be appended at the end
 /// so existing off-chain parsers that know 0-2 continue to work.
 /// Renaming or reordering discriminants is a breaking change for all consumers.
-/// See `docs/cancel-results.md` for the complete wire encoding specification.
-/// Variants are returned in-order, one per input address. Off-chain consumers
-/// (keepers, indexers) decode this enum from its u32 discriminant. When adding
-/// new variants ALWAYS append at the end so existing parsers continue to
-/// recognise the original codes (0–2). Renaming or reordering is a breaking
-/// change. See the ChargeResult comment above for the full rationale.
+/// See `docs/CANCEL-RESULTS.md` for the complete wire encoding specification.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum CancelResult {
@@ -63,8 +56,6 @@ pub enum CancelResult {
     /// A paused (but active) subscription was cancelled.
     PausedCancelled,
     /// Subscription belongs to a frozen merchant and was cancelled.
-    /// Subscription was paused; cancel succeeded but state was unusual.
-    PausedCancelled,
     /// Subscription's merchant was frozen; cancel succeeded but state was unusual.
     MerchantFrozen,
 }
@@ -185,7 +176,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         {
                             ChargeResult::AllowanceInsufficient
                         } else {
-                            charge_exec::execute_charge(env, &user, &key, &mut sub, now);
+                            charge_exec::execute_charge(env, &user, &key, &mut sub, now, None);
                             ChargeResult::Charged
                         }
                     }
@@ -394,7 +385,7 @@ mod tests {
                 get_max_batch_size(&env),
                 crate::caps::get_max_batch_size(&env)
             );
-            assert_eq!(get_max_batch_size(&env), MAX_BATCH_SIZE);
+            assert_eq!(get_max_batch_size(&env), crate::MAX_BATCH_SIZE);
         });
     }
 
@@ -455,23 +446,13 @@ pub fn batch_cancel(env: &Env, users: Vec<Address>) -> Vec<CancelResult> {
                     CancelResult::AlreadyCancelled
                 } else {
                     // Check for unusual states before cancelling
-                    let merchant_frozen = crate::whitelist::is_merchant_frozen(env, &sub.merchant);
-                    
-                    // Cancel regardless of state
-                    crate::cancel_inner(env, &user);
-                    crate::events::publish_cancelled(env, &user);
-                    
-                    // Return appropriate result based on the state we observed
-                    if merchant_frozen {
-                        CancelResult::MerchantFrozen
-                    } else if sub.paused {
                     let was_paused = sub.paused;
                     let merchant_frozen = crate::whitelist::is_frozen(env, &sub.merchant);
 
+                    // Cancel regardless of state, exactly once.
                     crate::cancel_inner(env, &user);
                     crate::events::publish_cancelled(env, &user);
 
-                    // Return distinct result codes for unusual state cancellations
                     if merchant_frozen {
                         CancelResult::MerchantFrozen
                     } else if was_paused {
@@ -488,4 +469,3 @@ pub fn batch_cancel(env: &Env, users: Vec<Address>) -> Vec<CancelResult> {
 
     results
 }
-

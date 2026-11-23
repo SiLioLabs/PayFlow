@@ -6,6 +6,11 @@ import ReferralPanel, {
   buildReferralUrl,
   getReferrerFromSearch,
 } from "../components/ReferralPanel";
+import {
+  getMerchantFromSearch,
+  hasSubscribeLinkParams,
+  parseSubscribeLinkParams,
+} from "../utils/subscribeLink";
 
 // Mock fetchEvents so we don't hit real RPC
 const mockFetchEvents = vi.fn();
@@ -23,6 +28,8 @@ vi.mock("../hooks/useClipboard", () => ({
 }));
 
 const TEST_PUBLIC_KEY = "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ";
+const TEST_MERCHANT = "GARWT7ZMBP23JGTISGFVDSX55SC3LMAAD5PSFBYTS3EDTMDNY4XHW3SZ";
+const VALID_REFERRER = "GDBD3A73O4IRLQMJTPFBPRHTR5T4S6B4XPCPAEKY4LHWE7U7NSBH3ODR";
 
 // ── Pure helper unit tests ─────────────────────────────────────────────────────
 
@@ -250,5 +257,60 @@ describe("SubscribeForm referrer pre-fill", () => {
 
   it("returns null when ref value is only whitespace", () => {
     expect(getReferrerFromSearch("?ref=%20%20")).toBeNull();
+  });
+});
+
+describe("referral share links", () => {
+  it("appends the merchant parameter when provided", () => {
+    expect(
+      buildReferralUrl(TEST_PUBLIC_KEY, "https://app.payflow.io", TEST_MERCHANT)
+    ).toBe(`https://app.payflow.io/?ref=${TEST_PUBLIC_KEY}&merchant=${TEST_MERCHANT}`);
+  });
+
+  it("renders a share link that pre-fills the merchant", () => {
+    render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} merchant={TEST_MERCHANT} />);
+    expect(screen.getByTestId("referral-link")).toHaveAttribute(
+      "href",
+      `https://app.payflow.io/?ref=${TEST_PUBLIC_KEY}&merchant=${TEST_MERCHANT}`
+    );
+  });
+
+  it("shows self-referral warning when ?ref= matches the connected wallet", () => {
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, search: `?ref=${TEST_PUBLIC_KEY}` },
+    });
+    render(<ReferralPanel publicKey={TEST_PUBLIC_KEY} />);
+    expect(screen.getByTestId("self-referral-warning")).toHaveTextContent(/cannot refer yourself/i);
+  });
+});
+
+describe("subscribe link parsing", () => {
+  it("reads valid ref and merchant parameters", () => {
+    const search = `?ref=${VALID_REFERRER}&merchant=${TEST_MERCHANT}`;
+    expect(getReferrerFromSearch(search)).toBe(VALID_REFERRER);
+    expect(getMerchantFromSearch(search)).toBe(TEST_MERCHANT);
+    expect(hasSubscribeLinkParams(search)).toBe(true);
+    expect(hasSubscribeLinkParams("")).toBe(false);
+    expect(parseSubscribeLinkParams(search, "GOTHER")).toEqual({
+      referrer: VALID_REFERRER,
+      merchant: TEST_MERCHANT,
+      selfReferral: false,
+      notices: [],
+    });
+  });
+
+  it("flags a self-referral so the form can block error 11", () => {
+    const parsed = parseSubscribeLinkParams(`?ref=${TEST_PUBLIC_KEY}`, TEST_PUBLIC_KEY);
+    expect(parsed.selfReferral).toBe(true);
+    expect(parsed.notices.join(" ")).toMatch(/cannot refer yourself/i);
+  });
+
+  it("ignores invalid addresses with notices", () => {
+    const parsed = parseSubscribeLinkParams("?ref=not-an-address&merchant=also-invalid");
+    expect(parsed.referrer).toBeNull();
+    expect(parsed.merchant).toBeNull();
+    expect(parsed.notices.join(" ")).toMatch(/ignored invalid referral address/i);
+    expect(parsed.notices.join(" ")).toMatch(/ignored invalid merchant address/i);
   });
 });

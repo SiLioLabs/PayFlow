@@ -18,7 +18,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 import { ConfigSchema, formatConfigErrors } from "./config.js";
-import { logger } from "./logger.js";
+import { logger, SECRET_MASK } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -90,7 +90,7 @@ function main(): void {
     logger.info("Configuration values:");
     logger.info("  CONTRACT_ID .........", result.data.CONTRACT_ID);
     logger.info("  RPC_URL .............", result.data.RPC_URL);
-    logger.info("  SECRET_KEY ..........", "********** (present)");
+    logger.info("  SECRET_KEY ..........", `${SECRET_MASK} (present)`);
     logger.info("  BATCH_SIZE ..........", result.data.BATCH_SIZE);
     logger.info("  INTERVAL_SECONDS ....", result.data.INTERVAL_SECONDS);
 

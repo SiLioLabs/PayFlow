@@ -9,13 +9,11 @@ pub fn propose_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
     env.storage()
         .temporary()
         .set(&DataKey::PendingUpgrade, &new_wasm_hash);
-    env.storage()
-        .temporary()
-        .extend_ttl(
-            &DataKey::PendingUpgrade,
-            PENDING_UPGRADE_TTL_LEDGERS,
-            PENDING_UPGRADE_TTL_LEDGERS,
-        );
+    env.storage().temporary().extend_ttl(
+        &DataKey::PendingUpgrade,
+        PENDING_UPGRADE_TTL_LEDGERS,
+        PENDING_UPGRADE_TTL_LEDGERS,
+    );
     events::publish_upgrade_proposed(env, &new_wasm_hash);
 }
 

@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
+import {
+  buildSubscribeTx,
+  calculateProtocolFee,
+  DEFAULT_TOKEN,
+  getAllowance,
+  getProtocolFee,
+} from "../stellar";
 import {
   useFormValidation,
   validateAddress,
@@ -8,7 +14,14 @@ import {
   type FormFields,
 } from "../hooks/useFormValidation";
 import { isValidStellarAddress } from "../utils/addressValidation";
-import { BILLING_INTERVALS, CONTRACT_LIMITS, STROOPS_PER_XLM } from "../constants";
+import { formatAddress, formatXlm } from "../utils/format";
+import { parseSubscribeLinkParams, type SubscribeLinkParams } from "../utils/subscribeLink";
+import {
+  BILLING_INTERVALS,
+  CONTRACT_LIMITS,
+  SECONDS_PER_DAY,
+  STROOPS_PER_XLM,
+} from "../constants";
 import IntervalSelector from "./IntervalSelector";
 import BalanceDisplay from "./BalanceDisplay";
 import AllowanceDisplay from "./AllowanceDisplay";
@@ -19,6 +32,7 @@ import { useToast } from "../hooks/useToast";
 import { friendlyError } from "../utils/errors";
 import { useDirtyPreroute } from "../hooks/useDirtyPreroute";
 import StroopInput from "./StroopInput";
+import ConfirmModal from "./ConfirmModal";
 
 interface Props {
   userKey: string;
@@ -76,19 +90,30 @@ export default function SubscribeForm({
   isPaused = false,
   isOffline = false,
 }: Props) {
-  const [merchant, setMerchant] = useState("");
+  const [linkParams] = useState<SubscribeLinkParams>(() =>
+    parseSubscribeLinkParams(window.location.search, userKey)
+  );
+  const [merchant, setMerchant] = useState(linkParams.merchant ?? "");
   const [amountStroops, setAmountStroops] = useState<bigint | null>(null);
   const [interval, setInterval] = useState(BILLING_INTERVALS[2].value);
-  const [referrer, setReferrer] = useState("");
+  const [referrer, setReferrer] = useState(linkParams.referrer ?? "");
   const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
+  const [linkNotice] = useState<string | null>(
+    linkParams.notices.length ? linkParams.notices.join(" ") : null
+  );
   const [touched, setTouched] = useState<TouchedFields>({
     merchant: false,
     amount: false,
     interval: false,
-    referrer: false,
+    referrer: linkParams.selfReferral,
     tokenAddress: false,
   });
   const [showAddressBook, setShowAddressBook] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [feeBps, setFeeBps] = useState(0);
+  const [allowanceStroops, setAllowanceStroops] = useState<bigint | null>(null);
+  const [firstChargeAt, setFirstChargeAt] = useState(0);
+  const [trialDays, setTrialDays] = useState("0");
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -99,8 +124,17 @@ export default function SubscribeForm({
     amountStroops !== null ? (Number(amountStroops) / STROOPS_PER_XLM).toString() : "";
   const fields: FormFields = { merchant, amount: amountString, interval, tokenAddress };
   const referrerValidation = validateReferrer(referrer, userKey);
+  const trialDaysValue = Number(trialDays);
+  const trialValid =
+    trialDays.trim() !== "" &&
+    Number.isInteger(trialDaysValue) &&
+    trialDaysValue >= 0 &&
+    trialDaysValue <= 3650;
+  const trialSeconds = trialValid ? BigInt(trialDaysValue) * BigInt(SECONDS_PER_DAY) : 0n;
+  const feeStroops = amountStroops === null ? 0n : calculateProtocolFee(amountStroops, feeBps);
   const canSubmit =
     fieldsAreValid(fields, referrerValidation.valid) &&
+    trialValid &&
     !pending &&
     !isValidating &&
     !isPaused &&
@@ -111,7 +145,8 @@ export default function SubscribeForm({
     amountStroops !== null ||
     referrer.trim() !== "" ||
     interval !== BILLING_INTERVALS[2].value ||
-    tokenAddress !== DEFAULT_TOKEN;
+    tokenAddress !== DEFAULT_TOKEN ||
+    trialDays !== "0";
 
   useDirtyPreroute(isDirty && !pending);
 
@@ -138,6 +173,26 @@ export default function SubscribeForm({
   useEffect(() => {
     cancelValidation();
   }, [merchant, amountStroops, interval, tokenAddress, referrer, cancelValidation]);
+
+  useEffect(() => {
+    if (!showConfirm) return;
+    let cancelled = false;
+    setFirstChargeAt(Math.floor(Date.now() / 1000) + Number(trialSeconds) + interval);
+    Promise.all([getProtocolFee(userKey), getAllowance(userKey, tokenAddress)])
+      .then(([fee, allowance]) => {
+        if (cancelled) return;
+        setFeeBps(fee?.bps ?? 0);
+        setAllowanceStroops(allowance);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFeeBps(0);
+        setAllowanceStroops(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showConfirm, userKey, tokenAddress, interval, trialSeconds]);
 
   function handleBlur(field: keyof TouchedFields) {
     setTouched((prev) => ({ ...prev, [field]: true }));
@@ -169,9 +224,14 @@ export default function SubscribeForm({
     });
     setStatus(null);
 
-    if (!validate(fields) || amountStroops === null) return;
+    if (!validate(fields) || amountStroops === null || !trialValid) return;
     if (!(await validateAsync(fields))) return;
 
+    setShowConfirm(true);
+  }
+
+  async function handleConfirm() {
+    if (amountStroops === null || pending) return;
     setPending(true);
     announce?.("Transaction submitted");
     try {
@@ -182,9 +242,11 @@ export default function SubscribeForm({
         BigInt(interval),
         tokenAddress,
         referrer.trim() || null,
-        ""
+        "",
+        trialSeconds
       );
       const hash = await onSign(xdr);
+      setShowConfirm(false);
       setStatus(`Subscribed! tx: ${hash.slice(0, 12)}…`);
       addToast("Subscribed!", "success", hash);
       announce?.("Transaction confirmed");
@@ -214,8 +276,19 @@ export default function SubscribeForm({
         <BalanceDisplay address={userKey} tokenId={tokenAddress} />
       </div>
 
+      {linkNotice && (
+        <p className="form-status text-muted" role="status" data-testid="referral-link-notice">
+          {linkNotice}
+        </p>
+      )}
+      {linkParams.referrer && !linkParams.selfReferral && (
+        <p className="form-status" data-testid="referrer-from-link">
+          Referred by <strong>{formatAddress(linkParams.referrer)}</strong>
+        </p>
+      )}
+
       {/* Referral Panel */}
-      <ReferralPanel publicKey={userKey} />
+      <ReferralPanel publicKey={userKey} merchant={merchant} />
 
       {/* Merchant Field */}
       <div className="form-group">
@@ -252,7 +325,13 @@ export default function SubscribeForm({
 
       {/* Amount Field */}
       <div data-testid="amount-wrapper" onBlur={() => handleBlur("amount")}>
-        <StroopInput label="Amount" onChange={setAmountStroops} disabled={pending || isPaused} />
+        <StroopInput
+          label="Amount"
+          onChange={setAmountStroops}
+          disabled={pending || isPaused}
+          isInvalid={Boolean(amountError)}
+          ariaDescribedBy={amountError ? "amount-error" : undefined}
+        />
         {amountError && (
           <span
             id="amount-error"
@@ -266,12 +345,14 @@ export default function SubscribeForm({
       </div>
 
       {/* Interval Field */}
-      <div data-testid="interval-wrapper" tabIndex={-1} onBlur={() => handleBlur("interval")}>
+      <div data-testid="interval-wrapper" onBlur={() => handleBlur("interval")}>
         <IntervalSelector
+          id="interval-select"
           value={interval}
           onChange={(seconds) => {
             setInterval(seconds);
           }}
+          onBlur={() => handleBlur("interval")}
         />
         {intervalError && (
           <span
@@ -281,6 +362,36 @@ export default function SubscribeForm({
             role="alert"
           >
             {intervalError}
+          </span>
+        )}
+      </div>
+
+      <div className="form-group">
+        <label className="form-label" htmlFor="trial-days-input">
+          Trial period (days, optional)
+        </label>
+        <input
+          id="trial-days-input"
+          data-testid="trial-days-input"
+          name="trialDays"
+          className="input"
+          type="number"
+          min="0"
+          max="3650"
+          step="1"
+          value={trialDays}
+          onChange={(e) => setTrialDays(e.target.value)}
+          aria-invalid={!trialValid ? true : undefined}
+          aria-describedby={!trialValid ? "trial-days-error" : undefined}
+        />
+        {!trialValid && (
+          <span
+            id="trial-days-error"
+            data-testid="trial-days-error"
+            className="error-message text-error"
+            role="alert"
+          >
+            Enter a whole number of days between 0 and 3650.
           </span>
         )}
       </div>
@@ -381,6 +492,63 @@ export default function SubscribeForm({
           }}
           onClose={() => setShowAddressBook(false)}
         />
+      )}
+
+      {showConfirm && amountStroops !== null && (
+        <ConfirmModal
+          message="Review your subscription before signing"
+          onConfirm={handleConfirm}
+          onCancel={() => setShowConfirm(false)}
+          confirmDisabled={pending}
+          confirmTestId="subscribe-confirm"
+          cancelTestId="subscribe-cancel"
+          confirmLabel={pending ? "Subscribing…" : "Subscribe"}
+        >
+          <div className="subscribe-summary" data-testid="subscribe-summary">
+            <div className="flex-between">
+              <span className="text-sm text-muted">Gross charge</span>
+              <span className="text-mono" data-testid="summary-gross">
+                {formatXlm(amountStroops)}
+              </span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Protocol fee ({feeBps} bps)</span>
+              <span className="text-mono" data-testid="summary-fee">
+                {formatXlm(feeStroops)}
+              </span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Merchant receives</span>
+              <span className="text-mono" data-testid="summary-net">
+                {formatXlm(amountStroops - feeStroops)}
+              </span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Billing interval</span>
+              <span data-testid="summary-interval">
+                {BILLING_INTERVALS.find((i) => i.value === interval)?.label ?? `${interval}s`}
+              </span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Trial</span>
+              <span data-testid="summary-trial">
+                {trialValid && trialDaysValue > 0 ? `${trialDays} day(s)` : "None"}
+              </span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">First charge</span>
+              <span data-testid="summary-first-charge">
+                {new Date(firstChargeAt * 1000).toLocaleString()}
+              </span>
+            </div>
+            {allowanceStroops !== null && allowanceStroops < amountStroops && (
+              <p className="text-error" data-testid="summary-allowance-warning" role="alert">
+                Your allowance ({formatXlm(allowanceStroops)}) is below the gross charge. Increase
+                it before the first charge.
+              </p>
+            )}
+          </div>
+        </ConfirmModal>
       )}
 
       <ToastContainer

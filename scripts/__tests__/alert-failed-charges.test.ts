@@ -137,7 +137,9 @@ describe("alert-failed-charges fixture", () => {
 
     // Simulate the alert logic: skip if allowance_insufficient is 0
     const shouldAlert = parsed.allowance_insufficient && parsed.allowance_insufficient > 0;
-    expect(shouldAlert).toBe(false);
+    // `0 && ...` evaluates to 0, not false, so assert falsiness rather than
+    // strict equality with `false`.
+    expect(shouldAlert).toBeFalsy();
   });
 
   it("should aggregate multiple batch_charge_skips events in alert payload", () => {

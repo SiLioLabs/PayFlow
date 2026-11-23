@@ -1,5 +1,10 @@
-import React, { useRef } from "react";
+import React, { useCallback, useRef } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import {
+  useTransactionPreview,
+  type TransactionPreviewState,
+} from "../hooks/useTransactionPreview";
+import TransactionPreview from "./TransactionPreview";
 
 interface Props {
   message: string;
@@ -11,6 +16,11 @@ interface Props {
   confirmDisabled?: boolean;
   confirmTestId?: string;
   cancelTestId?: string;
+  confirmLabel?: string;
+  /** When provided, the transaction is simulated on open and previewed before confirming. */
+  buildXdr?: (() => Promise<string>) | null;
+  /** Externally managed preview state (used by panels that also submit the transaction). */
+  previewState?: TransactionPreviewState | null;
 }
 
 export default function ConfirmModal({
@@ -21,8 +31,19 @@ export default function ConfirmModal({
   confirmDisabled = false,
   confirmTestId,
   cancelTestId,
+  confirmLabel = "Confirm",
+  buildXdr = null,
+  previewState = null,
 }: Props) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const internal = useTransactionPreview(buildXdr, !!buildXdr && !previewState);
+  const preview = previewState ?? internal;
+  const blocked = confirmDisabled || preview.blocked;
+
+  const handleConfirm = useCallback(() => {
+    if (blocked) return;
+    onConfirm();
+  }, [blocked, onConfirm]);
 
   useFocusTrap(modalRef, true, onCancel);
 
@@ -37,12 +58,33 @@ export default function ConfirmModal({
         aria-labelledby="confirm-modal-message"
       >
         <p id="confirm-modal-message">{message}</p>
+        {(buildXdr || previewState) && (
+          <TransactionPreview
+            preview={preview.preview}
+            loading={preview.loading}
+            error={preview.error}
+            override={preview.override}
+            onOverrideChange={preview.setOverride}
+          />
+        )}
         {children}
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
+          <button type="button" className="btn-secondary" onClick={onCancel} data-testid={cancelTestId}>
             Cancel
           </button>
-          <button className="btn-danger" onClick={onConfirm} disabled={confirmDisabled} data-testid={confirmTestId}>
+          <button
+            type="button"
+            className="btn-danger"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            data-testid={confirmTestId}
+          >
+            {confirmLabel}
+            className="btn-danger"
+            onClick={handleConfirm}
+            disabled={blocked}
+            data-testid={confirmTestId}
+          >
             Confirm
           </button>
         </div>

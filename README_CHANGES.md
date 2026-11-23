@@ -23,7 +23,7 @@ This branch (`fix/rename-subscription-repair-panels`) resolves **four critical i
 - **`contract_tests_addon.rs`** - 6 new tests to integrate into `contract/src/test.rs`
 
 ### 📚 **Documentation**
-- **`docs/cancel-results.md`** - New comprehensive wire encoding documentation
+- **`docs/CANCEL-RESULTS.md`** - New comprehensive wire encoding documentation
 - **`scripts/EVENT-MAPPING.md`** - Updated with new CancelResult variants
 
 ## 🚀 Quick Start - Push Changes
@@ -57,7 +57,7 @@ See **`MANUAL_GIT_STEPS.md`** for detailed instructions and troubleshooting.
 - ✅ Expanded `resume` function documentation
 
 ### Documentation (2 files)
-- ✅ Created `docs/cancel-results.md`
+- ✅ Created `docs/CANCEL-RESULTS.md`
 - ✅ Updated `scripts/EVENT-MAPPING.md`
 
 ## ✨ Key Improvements

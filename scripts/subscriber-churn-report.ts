@@ -13,9 +13,17 @@
  *     --db <path-to-indexer.db> [--out report.json]
  *
  * Expected tables:
- *   events(event_name TEXT, data TEXT, timestamp INTEGER)
- *   Optionally: daily_active_subscribers(date TEXT, active_count INTEGER)
- *   Falls back to total unique subscribers if daily active table is absent.
+ *   events(event_name TEXT, address TEXT, raw_data TEXT, timestamp INTEGER)
+ *   The subscriber is stored in the `address` column (see indexer.ts parseEvent),
+ *   not inside `raw_data`.
+ *
+ * Active-subscriber denominator:
+ *   If a `daily_active_subscribers(date TEXT, active_count INTEGER)` table exists
+ *   it is used for per-day active counts. Nothing in the indexer creates that
+ *   table, so in practice the report falls back to the total number of distinct
+ *   subscribers seen in `subscribed` events (via the `address` column). This
+ *   fallback is intentional and documented here: it yields a conservative,
+ *   non-zero churn rate rather than a silently-zero one.
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -62,10 +70,6 @@ function tableExists(db: DatabaseSync, name: string): boolean {
 function main() {
   const dbPath = getArg("--db");
   if (!dbPath) {
-    console.error("--db <path> required");
-    process.exit(1);
-  }
-  if (!dbPath) {
     logger.error("--db <path> required");
     process.exit(1);
   }
@@ -89,10 +93,12 @@ function main() {
       .all() as { date: string; active_count: number }[];
     for (const r of activeRows) activeMap.set(r.date, r.active_count);
   } else {
-    // Fallback: use total subscriber count from events
+    // Documented fallback: no daily_active_subscribers table exists (the indexer
+    // never creates one), so use the total distinct subscribers from the
+    // `address` column of `subscribed` events as the denominator.
     const totalRow = db
       .prepare(
-        "SELECT COUNT(DISTINCT json_extract(raw_data, '$.user')) as n FROM events WHERE event_name = 'subscribed'",
+        "SELECT COUNT(DISTINCT address) as n FROM events WHERE event_name = 'subscribed'",
       )
       .get() as { n: number };
     const fallbackTotal = totalRow?.n ?? 0;
@@ -132,10 +138,6 @@ function main() {
 
   const out = getArg("--out");
   const json = JSON.stringify(report, null, 2);
-  if (out) {
-    writeFileSync(out, json);
-    console.log(`Wrote report to ${out}`);
-  } else process.stdout.write(json + "\n");
   if (out) {
     writeFileSync(out, json);
     logger.info(`Wrote report to ${out}`);

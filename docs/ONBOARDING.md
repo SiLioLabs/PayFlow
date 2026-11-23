@@ -2,7 +2,7 @@
 
 Welcome! This guide walks you from "I just heard about FlowPay" to "my first PR is open," assuming only general Rust and TypeScript experience — no prior Soroban, Stellar, or smart-contract background required.
 
-This is a narrative walkthrough. For reference material once you're up and running, see:
+For a copy-paste path from zero to a charged subscription (deploy, subscribe, charge, withdraw with expected outputs), see [`docs/TESTNET-QUICKSTART.md`](TESTNET-QUICKSTART.md). For reference material once you're up and running, see:
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — full contribution reference (branching, commit style, PR checklist)
 - [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md) — contract/Rust conventions in depth
@@ -94,17 +94,31 @@ Don't be surprised that the CLI identifies itself as `stellar` rather than `soro
 
 ### 1.4 Install Node.js
 
-You need Node 18 or newer (the frontend CI runs Node 20). Install via [nodejs.org](https://nodejs.org/) or a version manager (`nvm`, `fnm`, etc.). Verify:
+PayFlow requires **Node.js ≥ 22.5.0** (and npm ≥ 10).  The minimum is set by
+`node:sqlite` (`--experimental-sqlite`) used by the indexer scripts.  The repo
+ships a `.nvmrc` / `.node-version` file at the root so that `nvm`, `fnm`,
+`volta`, and similar tools pick the right version automatically.
+
+```bash
+# With nvm
+nvm install       # reads .nvmrc
+nvm use
+
+# Or download from nodejs.org
+# https://nodejs.org/en/download
+```
+
+Verify:
 
 ```bash
 node --version
 npm --version
 ```
 
-Expected output (any Node ≥18 / recent npm is fine):
+Expected output (any Node ≥22.5 / npm ≥10 is fine):
 
 ```text
-v20.20.2
+v22.5.0
 10.8.2
 ```
 
@@ -172,7 +186,7 @@ npm run dev
 
 You'll need a `VITE_CONTRACT_ID` in `.env.local` pointing at a deployed testnet contract to interact with real data — see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) if you want to deploy your own testnet instance. For contract-only or frontend-UI-only contributions, you generally don't need this step.
 
-For a complete reference of all environment variables and how RPC, passphrase, and contract ID must align across frontend, scripts, and contract tests, see [`docs/development/network-matrix.md`](development/network-matrix.md).
+For a complete reference of all environment variables and how RPC, passphrase, and contract ID must align across frontend, scripts, and contract tests, see [`docs/development/NETWORK-MATRIX.md`](development/NETWORK-MATRIX.md).
 
 ### 2.5 Backend / scripts path (keeper & indexer)
 
@@ -343,7 +357,7 @@ Cross-check [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md) — it h
 ### How the review process works
 
 1. Open the PR against `master` on the upstream repository (not your fork's `master`).
-2. CI runs automatically — the `Backend (Rust)` and `Frontend` GitHub Actions workflows (see [`.github/workflows/`](../.github/workflows/)) must pass before a maintainer will review in depth.
+2. This repository has no CI workflows, so run the local checks in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md) (`cargo test`, `npm run typecheck`) and make sure they pass before a maintainer reviews in depth.
 3. A maintainer reviews for correctness, adherence to the conventions in `CONTRIBUTING*.md`, and test coverage.
 4. Expect review feedback — this is normal, not a sign your PR was bad. Address comments with new commits (don't force-push over review history mid-review unless asked to).
 
@@ -363,7 +377,7 @@ Before opening, run through [`CONTRIBUTING.md`](../CONTRIBUTING.md#pull-request-
 
 ## 6. Troubleshooting
 
-For environment variable alignment issues (RPC URL, network passphrase, contract ID mismatch between frontend/scripts), see the [network matrix](development/network-matrix.md).
+For environment variable alignment issues (RPC URL, network passphrase, contract ID mismatch between frontend/scripts), see the [network matrix](development/NETWORK-MATRIX.md).
 
 | Problem                                                                              | Likely cause                                                                                                        | Fix                                                                                                                                                                                                                                                            |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -371,6 +385,6 @@ For environment variable alignment issues (RPC URL, network passphrase, contract
 | `cargo test` fails with `unresolved import` or dependency errors right after cloning | Stale/partial `Cargo.lock` or first-time dependency download interrupted                                            | `cd contract && cargo clean && cargo test`                                                                                                                                                                                                                     |
 | `npm run test` / `npm run build` fails immediately with module-not-found errors      | `npm install` wasn't run, or was run in the wrong directory                                                         | Make sure you're in `frontend/` (not repo root) before running `npm install`                                                                                                                                                                                   |
 | `cargo clippy -- -D warnings` fails on code you didn't touch                         | You're on a stale `master` that predates a clippy/toolchain update                                                  | `git fetch origin && git rebase origin/master`                                                                                                                                                                                                                 |
-| Frontend dev server starts but the UI shows contract errors / can't fetch data       | `VITE_CONTRACT_ID` not set (or points at a contract that isn't deployed on the network your `VITE_RPC_URL` targets) | Follow [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) to deploy a testnet contract, then set `.env.local` accordingly — or skip running the live UI if your change doesn't need it. Also check the [network matrix](development/network-matrix.md) for alignment rules. |
+| Frontend dev server starts but the UI shows contract errors / can't fetch data       | `VITE_CONTRACT_ID` not set (or points at a contract that isn't deployed on the network your `VITE_RPC_URL` targets) | Follow [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) to deploy a testnet contract, then set `.env.local` accordingly — or skip running the live UI if your change doesn't need it. Also check the [network matrix](development/NETWORK-MATRIX.md) for alignment rules. |
 
 If you hit something not covered here, open a GitHub Discussion or comment on your issue — see [Questions](../CONTRIBUTING.md#questions) in `CONTRIBUTING.md`.

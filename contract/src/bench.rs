@@ -492,7 +492,10 @@ fn run_top_merchants_bench(n: u32, budget: u64) {
         prev = count;
     }
 
-    assert!(cpu > 0, "get_top_merchants_by_subs must consume CPU instructions");
+    assert!(
+        cpu > 0,
+        "get_top_merchants_by_subs must consume CPU instructions"
+    );
     assert!(mem > 0, "get_top_merchants_by_subs must consume memory");
     assert!(
         cpu <= budget,
