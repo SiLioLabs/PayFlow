@@ -27,6 +27,7 @@ import { BILLING_INTERVALS } from "../constants";
 import {
   ChargeSimResult,
   getAllowance,
+  getPauseUntil,
   getTrialEnd,
   buildCancelTx,
   isSubscriptionHealthy,
@@ -38,6 +39,7 @@ import { usePauseResume } from "../hooks/usePauseResume";
 import { useRegisterShortcuts } from "../context/ShortcutRegistry";
 import { useResponsive } from "../hooks/useResponsive";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
+import { friendlyError } from "../utils/errors";
 import { useToast } from "../hooks/useToast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
@@ -66,6 +68,13 @@ function formatInterval(secs: number): string {
   if (secs >= weekly) return `${Math.round(secs / weekly)}w`;
   if (secs >= daily) return `${Math.round(secs / daily)}d`;
   return `${secs}s`;
+}
+
+function toDateTimeLocalValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
 /**
@@ -339,6 +348,24 @@ export default function SubscriptionCard({
       .catch(() => setTrialEndTimestamp(null)); // RPC error → hide badge, don't crash
   }, [userKey, active]);
 
+  useEffect(() => {
+    if (!active || !paused) {
+      setScheduledResumeAt(null);
+      return;
+    }
+    let cancelled = false;
+    getPauseUntil(userKey)
+      .then((expiry) => {
+        if (!cancelled) setScheduledResumeAt(expiry);
+      })
+      .catch(() => {
+        if (!cancelled) setScheduledResumeAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userKey, active, paused]);
+
   const handleCancel = async () => {
     // Guard against a double-submit: cancelLoading only reflects the previous
     // render, so without this latch two rapid clicks would sign twice.
@@ -383,7 +410,7 @@ export default function SubscriptionCard({
         const expirySeconds = Math.floor(new Date(pauseUntilInput).getTime() / 1000);
         const nowSeconds = Math.floor(Date.now() / 1000);
         if (!Number.isFinite(expirySeconds) || expirySeconds <= nowSeconds) {
-          setPauseValidationError("Resume time must be in the future.");
+          setPauseValidationError(friendlyError("error(contract, #27)"));
           return;
         }
         setPauseValidationError(null);
@@ -497,14 +524,20 @@ export default function SubscriptionCard({
         <StackedRow label="Interval" value={formatInterval(interval)} isMobile={isMobile} />
         <div className={`subscription-row${isMobile ? " subscription-row--stacked" : ""}`}>
           <span className="subscription-row__label">
-            {paused ? "Status" : isInTrial ? "First charge" : "Next charge"}
+            {paused || scheduledResumeAt ? "Status" : isInTrial ? "First charge" : "Next charge"}
           </span>
           <span className="subscription-row__value">
             {active ? (
-              paused ? (
-                <span className="badge badge-warning" aria-label="Subscription is paused">
-                  Paused
-                </span>
+              paused || scheduledResumeAt ? (
+                scheduledResumeAt ? (
+                  <span data-testid="scheduled-resume">
+                    Auto-resumes <span data-testid="auto-resume-date">{new Date(scheduledResumeAt * 1000).toLocaleString()}</span>
+                  </span>
+                ) : (
+                  <span className="badge badge-warning" aria-label="Subscription is paused">
+                    Paused
+                  </span>
+                )
               ) : (
                 <NextChargeCountdown nextChargeTimestamp={nextChargeTimestamp} />
               )
@@ -559,11 +592,6 @@ export default function SubscriptionCard({
         )}
         {active && paused && (
           <>
-            {scheduledResumeAt && (
-              <p className="text-sm text-muted" data-testid="scheduled-resume">
-                Scheduled to resume {new Date(scheduledResumeAt * 1000).toLocaleString()}
-              </p>
-            )}
             <button
               onClick={handleResume}
               disabled={resumeTx.state === "pending"}
@@ -636,7 +664,7 @@ export default function SubscriptionCard({
                     data-testid="pause-until-input"
                     aria-label="Resume date and time"
                     value={pauseUntilInput}
-                    min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                    min={toDateTimeLocalValue(new Date(Date.now() + 60_000))}
                     onChange={(e) => {
                       setPauseUntilInput(e.target.value);
                       setPauseValidationError(null);

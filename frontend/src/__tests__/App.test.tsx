@@ -345,6 +345,26 @@ describe("App — tab shell navigation", () => {
     expect(screen.getByTestId("dashboard")).toBeInTheDocument();
   });
 
+  it("opens Subscribe view when loaded with a referral link", () => {
+    const originalSearch = window.location.search;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, search: "?ref=GREFERRER&merchant=GMERCHANT" },
+    });
+
+    try {
+      mockUseWallet(CONNECTED_STATE);
+      render(<App />);
+      expect(screen.getByTestId("subscribe-form")).toBeInTheDocument();
+      expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "location", {
+        writable: true,
+        value: { ...window.location, search: originalSearch },
+      });
+    }
+  });
+
   it("switches to Subscribe view when Subscribe tab is clicked", () => {
     mockUseWallet(CONNECTED_STATE);
     render(<App />);

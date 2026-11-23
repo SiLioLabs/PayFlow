@@ -244,11 +244,12 @@ App
 │       ├── [Tab: "subscribe"]
 │       │   └── SubscribeForm
 │       │       ├── IntervalSelector
+│       │       ├── Trial period (days)
 │       │       ├── BalanceDisplay
 │       │       ├── AllowanceDisplay
 │       │       ├── AddressBook
-│       │       │   └── ConfirmModal
 │       │       ├── ReferralPanel
+│       │       ├── ConfirmModal (pre-sign fee breakdown)
 │       │       ├── StroopInput
 │       │       └── ToastContainer
 │       │
@@ -303,9 +304,21 @@ App
     └── ShortcutHelpOverlay      # Keyboard shortcut overlay ('?' key)
 ```
 
+### Subscribe Confirmation Summary
+
+`SubscribeForm` does not sign a subscription transaction directly. It first opens `ConfirmModal` with the gross charge, protocol fee, net merchant amount, billing interval, trial length and first-charge date. The fee uses the contract's truncating `amount * bps / 10_000` rule via `calculateProtocolFee`, and the first charge is `now + trialSeconds + interval`, matching `subscribe_inner`. An optional allowance warning appears when the current allowance is below the gross amount.
+
+### Referral Share Links
+
+`ReferralPanel` builds `/?ref=<ADDRESS>&merchant=<ADDRESS>` with `buildReferralUrl`. `parseSubscribeLinkParams` validates both addresses, ignores invalid values with a notice, and flags self-referral (error 11). `App` opens the Subscribe tab for links containing either param; `SubscribeForm` pre-fills the merchant and referrer fields and blocks signing on self-referral. See [`REFERRALS.md`](./REFERRALS.md#frontend-referralpanel).
+
+### Merchant Prorated Refunds
+
+`MerchantSubscriberTable` exposes a `cancel_and_refund_prorated` row action when a merchant wallet and signing callback are supplied. The preview uses the contract's saturating, truncating `(amount × remaining) / interval` calculation via `calculateProratedRefund`. The connected wallet must match the row's merchant (error 38), zero-refund periods are blocked (error 39), and an underfunded merchant is surfaced with the friendly error 40 message. A successful refund marks the row `Refunded` and calls `onRefunded` so the parent can refresh. See [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#cancel-with-prorated-refund--cancel_and_refund_prorateduser-merchant).
+
 ### Tab Navigation & Admin View
 
-`App.tsx` controls navigation via `useState<Tab>("dashboard")`:
+`App.tsx` controls navigation via `useState<Tab>("dashboard")`, defaulting to `subscribe` when the URL contains `?ref=` or `?merchant=`:
 - **Subscriber views**: `dashboard` and `subscribe` are visible to all users.
 - **Merchant view**: `merchant` tab renders `MerchantDashboard` for batch charging, revenue tracking, and subscriber exports.
 - **Admin view**: `admin` tab is conditionally visible only when `useAdmin(publicKey).isAdmin` evaluates to true. It renders `AdminDashboard` from `src/pages/AdminDashboard.tsx`.

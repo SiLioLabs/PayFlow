@@ -78,6 +78,7 @@ export function explorerTxUrl(hash: string, passphrase: string = NETWORK_PASSPHR
 
 export interface MerchantSubscriber {
   subscriber: string;
+  merchant?: string;
   amount: string;
   interval: number;
   lastCharged: number;
@@ -283,22 +284,36 @@ export async function buildSubscribeTx(
   intervalSec: bigint,
   tokenAddr: string,
   referrer: string | null,
-  label: string
+  label: string,
+  trialPeriodSec: bigint | null = null
 ): Promise<string> {
   const referrerVal = referrer ? { tag: "Some", val: addressVal(referrer) } : { tag: "None" };
-  return buildTx(user, "subscribe", [
+  const trialVal =
+    trialPeriodSec === null
+      ? { tag: "None" }
+      : { tag: "Some", val: nativeToScVal(trialPeriodSec, { type: "u64" }) };
+  return buildTx(user, "subscribe_with_metadata", [
     addressVal(user),
     addressVal(merchant),
     nativeToScVal(amount, { type: "i128" }),
     nativeToScVal(intervalSec, { type: "u64" }),
     addressVal(tokenAddr),
+    nativeToScVal(trialVal, { type: "option" }),
     nativeToScVal(referrerVal, { type: "option" }),
-    nativeToScVal(label, { type: "symbol" }),
+    nativeToScVal(label, { type: "string" }),
   ]);
 }
 
 export async function buildCancelTx(user: string): Promise<string> {
   return buildTx(user, "cancel", [addressVal(user)]);
+}
+
+/**
+ * Builds a merchant-funded prorated refund. The transaction is sourced from the
+ * merchant wallet; the contract also requires the subscriber's authorization.
+ */
+export async function buildCancelAndRefundTx(merchant: string, user: string): Promise<string> {
+  return buildTx(merchant, "cancel_and_refund_prorated", [addressVal(user), addressVal(merchant)]);
 }
 
 export async function buildPayPerUseTx(user: string, amount: bigint): Promise<string> {
@@ -970,6 +985,7 @@ export async function getMerchantSubscribers(merchant: string): Promise<Merchant
 
       subscribers.push({
         subscriber: userAddress,
+        merchant: subscribe.merchant,
         amount: subscribe.amount,
         interval: subscribe.interval,
         lastCharged,
@@ -1213,6 +1229,28 @@ export function getAllowance(owner: string, tokenId = TOKEN_CONTRACT_ID): Promis
  * Fetch contract events by event name, optionally filtered by address.
  * eventName matches the first topic (e.g. "subscribed", "charged", "cancelled", "pay_per_use").
  */
+export function getPauseUntil(user: string): Promise<number | null> {
+  return dedupedCall(`getPauseUntil:${user}`, async () => {
+    const { events } = await fetchEvents("pause_until", user);
+    const now = Math.floor(Date.now() / 1000);
+    let latestTime = -1;
+    let expiry: number | null = null;
+
+    for (const event of events) {
+      const raw = parseEventValueField(event.data, "expiry_timestamp");
+      const candidate = Number(raw);
+      if (!Number.isFinite(candidate) || candidate <= now) continue;
+      const eventTime = Date.parse(event.timestamp);
+      if (eventTime > latestTime) {
+        latestTime = eventTime;
+        expiry = candidate;
+      }
+    }
+
+    return expiry;
+  });
+}
+
 export async function fetchEvents(
   eventName: string,
   address?: string,
@@ -1441,6 +1479,49 @@ export interface ContractHealthCheckReport {
 }
 
 const decodeU32 = (v: xdr.ScVal): number => Number(v.u32());
+
+export interface ProtocolFee {
+  collector: string;
+  bps: number;
+}
+
+export function getProtocolFee(caller: string): Promise<ProtocolFee | null> {
+  return dedupedCall(`getProtocolFee:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_fee", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      const parts = retval.vec();
+      if (!parts || parts.length < 2) return null;
+      return {
+        collector: ScValDecoder.decodeAddress(parts[0]),
+        bps: decodeU32(parts[1]),
+      };
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function calculateProtocolFee(gross: bigint, bps: number): bigint {
+  if (bps <= 0 || gross <= 0n) return 0n;
+  return (gross * BigInt(bps)) / 10_000n;
+}
+
+/**
+ * Mirrors `cancel_and_refund_prorated`: elapsed time saturates at the interval
+ * and the unused fraction is truncated to whole stroops.
+ */
+export function calculateProratedRefund(
+  amount: bigint,
+  intervalSec: number,
+  lastCharged: number,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): bigint {
+  if (amount <= 0n || intervalSec <= 0) return 0n;
+  const elapsed = Math.max(0, Math.floor(nowSec) - Math.floor(lastCharged));
+  const remaining = Math.max(0, intervalSec - elapsed);
+  return (amount * BigInt(remaining)) / BigInt(intervalSec);
+}
 
 /** Reads aggregate protocol stats (active count, fee, grace, pause, schema version). */
 export function getProtocolStats(caller: string): Promise<ProtocolStats | null> {
