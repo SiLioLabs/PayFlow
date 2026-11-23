@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Create .github/workflows/scripts-ci.yml and .github/workflows/security-audit.yml workflow files, plus audit.toml allowlist at the workspace root. These are the two new CI workflows: scripts-ci runs typecheck/lint/duplicate-lint/vitest on scripts/ with Node 22 and NODE_OPTIONS=--experimental-sqlite; security-audit runs cargo audit on contract/ and vesting/ and npm audit on root/frontend/scripts/ with high-severity failures.",
+  "status": "completed",
+  "steps": [
+    "Create the directory c:\\Users\\USER\\PayFlow\\.github\\workflows\\.",
+    "Create c:\\Users\\USER\\PayFlow\\.github\\workflows\\scripts-ci.yml with the following exact structure: name 'Scripts CI'; triggers on pull_request (all branches) and push to main; single job 'scripts' on ubuntu-latest; steps: (1) actions/checkout@v4, (2) actions/setup-node@v4 with node-version: '22' and cache: 'npm' and cache-dependency-path: 'scripts/package-lock.json', (3) run 'npm ci' in working-directory: scripts, (4) run 'npm run typecheck' in working-directory: scripts, (5) run 'npm run lint' in working-directory: scripts, (6) run 'npm run lint:duplicates' in working-directory: scripts, (7) run 'node lint-duplicates.mjs' in working-directory: scripts, (8) run 'npm test' with env NODE_OPTIONS: '--experimental-sqlite' in working-directory: scripts.",
+    "Create c:\\Users\\USER\\PayFlow\\.github\\workflows\\security-audit.yml with the following exact structure: name 'Security Audit'; triggers on pull_request (all branches), push to main, and schedule cron '0 6 * * 1' (weekly Monday 06:00 UTC); two jobs: 'cargo-audit' and 'npm-audit' both on ubuntu-latest. cargo-audit job steps: (1) actions/checkout@v4, (2) actions-rust-lang/setup-rust-toolchain@v1 (no extra flags — uses stable), (3) cache ~/.cargo/registry and ~/.cargo/git using actions/cache@v4 with key ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}, (4) run 'cargo install cargo-audit --locked' (--locked pins to known-good deps), (5) run 'cargo audit --file contract/Cargo.lock' from the workspace root with env CARGO_AUDIT_DENY: 'warnings' — actually use flag approach: 'cargo audit --file contract/Cargo.lock' and 'cargo audit --file vesting/Cargo.lock', both with '--deny warnings' flag so advisories fail the step. npm-audit job steps: (1) actions/checkout@v4, (2) actions/setup-node@v4 with node-version: '22', (3) three separate run steps — 'npm audit --audit-level=high --omit=dev' in working-directory: . (root), 'npm audit --audit-level=high --omit=dev' in working-directory: frontend, 'npm audit --audit-level=high --omit=dev' in working-directory: scripts. Both jobs use 'continue-on-error: false' (default) so failures block the workflow.",
+    "Create c:\\Users\\USER\\PayFlow\\audit.toml at the workspace root. This file is the cargo-audit allowlist (TOML format used by cargo-audit's --config flag). Structure: a [advisories] header section with a comment explaining the format, then an empty 'ignore' array. Add a comment block explaining: each entry must include 'id' (RUSTSEC advisory ID), 'reason' (why it is acceptable), 'expires' (ISO date, max 90 days forward), and optionally 'versions'. Because both contract/ and vesting/ use soroban-sdk 21.0.0 and no known advisories exist for it at time of writing, the ignore list stays empty. Update the cargo audit run steps in security-audit.yml to pass '--config ../../audit.toml' (relative to the Cargo.lock file directories) — but since the jobs run cargo audit from the workspace root using --file flags, pass '--config audit.toml' as a flag on both cargo audit invocations."
+  ],
+  "acceptance_criteria": [
+    "c:\\Users\\USER\\PayFlow\\.github\\workflows\\scripts-ci.yml exists and is valid YAML",
+    "c:\\Users\\USER\\PayFlow\\.github\\workflows\\security-audit.yml exists and is valid YAML",
+    "c:\\Users\\USER\\PayFlow\\audit.toml exists and is valid TOML with [advisories] section and empty ignore = []",
+    "scripts-ci.yml triggers on: [pull_request, push to main]",
+    "security-audit.yml triggers on: [pull_request, push to main, schedule weekly]",
+    "scripts-ci.yml includes npm run typecheck, npm run lint, npm run lint:duplicates, node lint-duplicates.mjs, npm test",
+    "scripts-ci.yml sets NODE_OPTIONS: '--experimental-sqlite' on the npm test step",
+    "scripts-ci.yml pins node-version to '22'",
+    "security-audit.yml runs cargo audit with --deny warnings against both contract/Cargo.lock and vesting/Cargo.lock",
+    "security-audit.yml runs npm audit --audit-level=high --omit=dev for root, frontend/, and scripts/",
+    "cargo audit steps pass --config audit.toml to reference the allowlist",
+    "audit.toml has inline comments documenting the required fields (id, reason, expires) for future exceptions"
+  ],
+  "verification": [
+    "Confirm YAML syntax: cd c:\\Users\\USER\\PayFlow && node -e \"const fs=require('fs'); require('js-yaml').load(fs.readFileSync('.github/workflows/scripts-ci.yml','utf8')); console.log('OK')\" (or use a YAML linter if available)",
+    "Visually inspect .github/workflows/scripts-ci.yml and .github/workflows/security-audit.yml to confirm all required steps are present in the correct order",
+    "Visually inspect audit.toml to confirm valid TOML structure with [advisories] section"
+  ],
+  "blocked_reason": null,
+  "findings": "Files created as specified: .github/workflows/scripts-ci.yml, .github/workflows/security-audit.yml, audit.toml (workspace root). The .github/workflows/ directory was greenfield (did not exist). npm run typecheck:scripts was attempted; it fails with 266 pre-existing TypeScript errors in scripts/*.ts source files (alert-expiring-allowances.ts, allowance-utils.ts, deploy-pipeline.ts, etc.) — none caused by this FEAT-001 change. The failures pre-date CI and are not introduced by the YAML/TOML files. FEAT-002 (documentation updates) should be aware: docs/development/CI-WORKFLOWS.md and docs/TESTING.md still reference no CI workflows and must be updated to describe scripts-ci.yml and security-audit.yml. A new docs/development/SECURITY-AUDITS.md must be created and linked from docs/README.md per context.json conventions."
+}

@@ -1,0 +1,24 @@
+# cargo-audit allowlist
+#
+# Used by: cargo audit --file <path>/Cargo.lock --deny warnings --config audit.toml
+# Run locally: cargo audit --file contract/Cargo.lock --config audit.toml
+#
+# Adding an exception
+# -------------------
+# Each entry in the ignore array requires three fields:
+#
+#   id      = "RUSTSEC-YYYY-NNNN"   # The advisory ID from https://rustsec.org/advisories/
+#   reason  = "..."                 # Why this advisory is acceptable in this project
+#   expires = "YYYY-MM-DD"          # Expiry date — maximum 90 days from the date it was added
+#
+# Example:
+#
+#   [[advisories.ignore]]
+#   id      = "RUSTSEC-2024-0001"
+#   reason  = "Only affects the foo feature flag which we do not enable."
+#   expires = "2025-03-01"
+#
+# Entries past their expiry date will cause cargo-audit to fail, prompting review.
+
+[advisories]
+ignore = []
