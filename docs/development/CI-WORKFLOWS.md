@@ -1,6 +1,12 @@
 # CI Workflows — Local Checks
 
-This repository does **not** ship any GitHub Actions workflow files (there is no `.github/workflows/` directory), so nothing is enforced automatically on pull requests. Every check below must be run locally before opening a PR.
+Pull requests run the checks below automatically where a workflow exists; run the same commands locally before opening a PR.
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| [`docker-smoke.yml`](../../.github/workflows/docker-smoke.yml) | PRs touching `scripts/**` or the workflow itself | Builds the `scripts/Dockerfile` image, starts a mock Soroban RPC, runs a keeper `--dry-run --once` cycle, and verifies SIGTERM shutdown for the keeper, indexer and metrics containers. |
+
+Everything else (contract, frontend, scripts typecheck/tests) is still enforced manually — there is no workflow for those yet.
 
 ---
 

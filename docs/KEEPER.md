@@ -408,6 +408,38 @@ cd scripts
 CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... docker compose up -d
 ```
 
+Build the image directly (the build context is `scripts/`):
+
+```bash
+cd scripts
+docker build -t payflow-keeper .
+```
+
+Run a single dry-run cycle inside the container — this is the same check the
+`docker-smoke` CI workflow performs:
+
+```bash
+docker run --rm \
+  -e RPC_URL=https://soroban-testnet.stellar.org \
+  -e CONTRACT_ID=C... \
+  -e KEEPER_PUBLIC_KEY=G... \
+  payflow-keeper --dry-run --once
+```
+
+The container image ships the full runtime file set (`keeper.ts`, `indexer.ts`,
+`metrics-server.ts`, `lib/`, `db/`, `utils/`, `fixtures/`), so any entrypoint
+composable with `docker-compose.yml` works:
+
+```bash
+docker run --rm payflow-keeper metrics-server   # Prometheus on :9090
+docker run --rm -e START_LEDGER=99999 payflow-keeper indexer
+```
+
+On `SIGTERM`/`SIGINT` the keeper drains in-flight batches and flushes the DLQ
+and metrics before exiting (see [Graceful shutdown](#graceful-shutdown)).
+`docker stop` therefore exits cleanly within the compose `stop_grace_period`
+(60s for the keeper; `SHUTDOWN_TIMEOUT_MS` defaults to 50s).
+
 ### pm2
 
 ```bash

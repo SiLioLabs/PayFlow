@@ -100,7 +100,7 @@ See [`scripts/README.md`](scripts/README.md) and [`docs/ONBOARDING.md`](docs/ONB
 
 ## CI workflows
 
-This repository does not ship any GitHub Actions workflow files, so nothing is enforced automatically on PRs. Run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
+This repository ships one GitHub Actions workflow — [`docker-smoke.yml`](.github/workflows/docker-smoke.yml), which builds the keeper Docker image and runs a dry-run cycle plus SIGTERM checks against a mock RPC on PRs touching `scripts/**`. Everything else (contract, frontend, scripts typecheck/tests) is enforced manually: run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
 
 ---
 

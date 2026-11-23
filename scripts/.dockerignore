@@ -1,0 +1,43 @@
+# Docker build context exclusions for the PayFlow runtime image.
+# The image copies the whole directory (COPY . ./) — this file decides what
+# does NOT belong in it. Keep it in sync with the runtime import graph:
+# everything reachable from keeper.ts / indexer.ts / metrics-server.ts must
+# stay INCLUDED (db/, lib/, utils/, fixtures/, tsconfig.json, …).
+
+# Dependencies are installed inside the image (npm ci --omit=dev).
+node_modules
+**/node_modules
+
+# Secrets and local env files (keep the example template).
+.env*
+!.env.example
+
+# Tests and test-only entrypoints — never needed at runtime.
+__tests__
+**/__tests__
+*.test.ts
+**/*.test.ts
+test-*.ts
+**/test-*.ts
+vitest.config.ts
+coverage
+**/coverage
+
+# Local runtime state and logs (recreated at runtime as needed).
+data
+dlq
+*.log
+*.tsbuildinfo
+
+# Build/CI plumbing (never needed inside the container).
+.git
+.github
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Editor/OS cruft.
+.vscode
+.idea
+.DS_Store
+Thumbs.db
