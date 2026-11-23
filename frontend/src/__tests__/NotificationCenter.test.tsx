@@ -180,6 +180,22 @@ describe("NotificationCenter", () => {
     fireEvent.click(screen.getByTestId("notification-bell"));
     expect(onMarkAllRead).not.toHaveBeenCalled();
   });
+
+  it("renders category preferences and reports changes", () => {
+    const onPreferenceChange = vi.fn();
+    render(
+      <NotificationCenter
+        notifications={[]}
+        unreadCount={0}
+        onMarkAllRead={vi.fn()}
+        onClearAll={vi.fn()}
+        onNotificationPreferenceChange={onPreferenceChange}
+      />
+    );
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Successful transactions" }));
+    expect(onPreferenceChange).toHaveBeenCalledWith("success", false);
+  });
 });
 
 // ── useToast integration ──────────────────────────────────────────────────────

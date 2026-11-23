@@ -68,7 +68,6 @@ export default function TabBar({ tabs, activeTab, onTabChange }: Props) {
             onClick={() => onTabChange(t)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={`tab-button${isActive ? " tab-button--active" : ""}`}
-            aria-current={isActive ? "page" : undefined}
             aria-selected={isActive}
             aria-controls={`panel-${t}`}
             id={`tab-${t}`}
