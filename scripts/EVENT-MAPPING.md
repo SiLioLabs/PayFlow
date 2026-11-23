@@ -10,6 +10,7 @@ The indexer stores events in SQLite:
 CREATE TABLE events (
   id         TEXT    PRIMARY KEY,      -- Stable dedup key: <tx_hash>:<op_index>:<event_index>
   event_name TEXT    NOT NULL,         -- Topic[0] from contract event
+  schema_version INTEGER NOT NULL DEFAULT 1, -- Topic marker; legacy events are v1
   address    TEXT    NOT NULL,         -- Topic[1] (subscriber/actor address)
   amount     TEXT,                     -- Extracted from event value (gross, amount, net, fee)
   ledger     INTEGER NOT NULL,         -- Ledger sequence
@@ -23,7 +24,40 @@ CREATE TABLE events (
 );
 ```
 
+### Indexes
+
+The indexer maintains the following indexes on `events`:
+
+| Index | Columns | Purpose |
+|-------|---------|---------|
+| `idx_events_address` | `(address)` | Lookups by subscriber/actor address |
+| `idx_events_event_name` | `(event_name)` | Filtering by event type |
+| `idx_events_ledger` | `(ledger)` | Ledger-range scans / resumption |
+| `idx_events_timestamp` | `(timestamp)` | Time-range scans |
+| `idx_events_event_name_timestamp` | `(event_name, timestamp)` | Composite index for reporting queries that filter by event type and order/range by time (e.g. `alert-failed-charges.ts`, `fee-revenue-report.ts`, `subscriber-churn-report.ts`, `audit-trail.ts`) |
+| `idx_events_merchant_timestamp` | `(merchant, timestamp)` | Composite index for merchant-scoped queries (`merchant-queries.ts`, `merchant-analytics.ts`) |
+
+> **Note:** `audit-trail.ts` groups by `date(timestamp,'unixepoch')`. The `GROUP BY` on a
+> computed expression is **not indexable** — the composite `(event_name, timestamp)` index
+> still helps the `WHERE event_name IN (...)` filter, but the date bucketing requires a
+> scan/sort of the matching rows. This is a known limitation, not something an index can fix.
+
 ## Contract Events → Indexer Rows
+
+### Event schema versions
+
+Current contract events append the Soroban `Symbol("v2")` marker as the last
+topic. Existing topic positions and event payloads are unchanged. Historical
+events without that marker are schema v1; the indexer strips the trailing v2
+marker before parsing and persists `schema_version` as 1 or 2. This lets readers
+branch on the wire version while retaining old event rows and actor-address
+lookups.
+
+For future changes, additive payload fields can use a new schema version when
+consumers need to distinguish them. Changes to event names, existing topic
+positions, or payload meaning require a new version and matching indexer
+support before deployment. Keep prior-version parsing in place for archived
+ledger ranges and databases.
 
 ### Subscription Lifecycle
 
@@ -42,7 +76,7 @@ CREATE TABLE events (
 **Note:** As of the latest contract version, `batch_cancel` distinguishes between
 routine cancels (`Cancelled`), paused subscription cancels (`PausedCancelled`),
 and merchant-frozen cancels (`MerchantFrozen`). All three emit the same `cancelled`
-event; the distinction is in the return value discriminant. See `docs/cancel-results.md`.
+event; the distinction is in the return value discriminant. See `docs/CANCEL-RESULTS.md`.
 
 ### Charging & Pay-Per-Use
 
@@ -157,48 +191,3 @@ interface AlertPayload {
 
 ### Monitoring Dashboards
 - `scripts/subscriber-health-dashboard.ts` — Can query events to show subscription state changes
-- `scripts/watch-events.ts` — Real-time event stream for debugging
-
-## Return Value Enums
-
-### ChargeResult
-
-The `batch_charge()` function returns a `Vec<ChargeResult>` with one outcome per user address:
-
-| Discriminant | Variant | Meaning |
-|--------------|---------|---------|
-| 0 | Charged | Funds transferred successfully |
-| 1 | Skipped | Interval not elapsed yet |
-| 2 | NoSubscription | No subscription found |
-| 3 | Inactive | Subscription cancelled |
-| 4 | Paused | Subscription paused |
-| 5 | GracePeriodElapsed | Grace period expired |
-| 6 | AllowanceInsufficient | Allowance < gross amount |
-
-See `docs/charge-results.md` for wire encoding details.
-
-### CancelResult
-
-The `batch_cancel()` function returns a `Vec<CancelResult>` with one outcome per user address:
-
-| Discriminant | Variant | Meaning |
-|--------------|---------|---------|
-| 0 | Cancelled | Subscription cancelled successfully (normal case) |
-| 1 | NoSubscription | No subscription entry found |
-| 2 | AlreadyCancelled | Subscription was already inactive |
-| 3 | PausedCancelled | A paused (but active) subscription was cancelled |
-| 4 | MerchantFrozen | Subscription belongs to a frozen merchant and was cancelled |
-
-**Append-only invariant:** New variants must be appended at the end to preserve backward compatibility with off-chain parsers. See `docs/cancel-results.md` for complete wire encoding specification.
-
-**Usage:** Admins operating batch cancellations can use `PausedCancelled` and `MerchantFrozen` to identify unusual states that warrant review.
-## Permanent abbreviated topics
-
-These four `event_name` / topic[0] strings are **permanent public names**. Do not expand them to match helper names or sibling topics. A rename would break indexer rows, query scripts, replay, alerts, and watchers unless every consumer is migrated together.
-
-| Topic | Meaning | Permanent? | Rationale |
-| --- | --- | --- | --- |
-| `max_wl_batch_size_set` | Max whitelist batch size updated | Yes | Short form beside `max_batch_size_set`; keep the emitted spelling. |
-| `merch_hist_cleared` | Merchant revenue history wiped | Yes | Original abbreviated topic; not interchangeable with a long name. |
-| `upg_proposed` | Two-step WASM upgrade proposed | Yes | Already consumed as `upg_proposed` in this mapping and ops docs. |
-| `upg_cancelled` | Pending WASM upgrade cancelled | Yes | Same `upg_` prefix as propose; that is the wire name. |

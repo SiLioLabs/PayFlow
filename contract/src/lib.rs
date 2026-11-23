@@ -13,9 +13,9 @@ extern crate std;
 
 mod admin;
 mod batch;
-mod caps;
 #[cfg(feature = "bench")]
 mod bench;
+mod caps;
 mod charge_exec;
 mod errors;
 mod events;
@@ -30,12 +30,17 @@ mod referral;
 mod scenario;
 mod spending_limit;
 mod storage;
+mod subscriber_scan;
 mod subscription_count;
 mod subscription_history;
 mod subscription_metadata;
 mod test;
 #[cfg(test)]
+mod test_keeper;
+#[cfg(test)]
 mod test_migration;
+#[cfg(test)]
+mod test_pause_matrix;
 mod trial;
 mod upgrade;
 mod validation;
@@ -46,8 +51,8 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
 };
 
-pub use batch::ChargeResult;
 pub use batch::CancelResult;
+pub use batch::ChargeResult;
 pub use charge_exec::ChargeSimResult;
 pub use charge_exec::PayPerUseSimResult;
 
@@ -143,6 +148,13 @@ pub enum DataKey {
     MaxWhitelistBatchSize,
     // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
     PendingMerchantRevCount,
+    // Feature: keeper tip, in bps of the protocol fee paid to a `charge_with_tip` caller
+    KeeperTipBps,
+    // Feature: paged schema migration. Per-account marker set once `migrate` has
+    // processed that account, so re-sending a batch never migrates it twice.
+    MigratedAccount(Address),
+    // Feature: number of accounts processed by `migrate` in the current upgrade
+    MigratedAccountCount,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -150,6 +162,19 @@ pub enum DataKey {
 // ─────────────────────────────────────────────────────────────
 
 pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
+
+/// TTL for merchant state keys (revenue, per-day buckets, revenue history,
+/// subscriber counts, whitelist entries, freeze markers, merchant index):
+/// ~90 days at 5 s/ledgers.
+///
+/// Deliberately shorter than [`SUBSCRIPTION_TTL_LEDGERS`] (~1 year): the
+/// subscription that produced the revenue outlives the merchant's analytics
+/// keys. The 90-day vs 1-year mismatch is intended — merchant state is a
+/// derived, recomputable cache tied to the merchant's lifetime, while the
+/// subscription is the source of truth and must persist for the full billing
+/// cycle. If this value is ever retuned, every writer below must change with
+/// it; it is not a separate runtime knob. See docs/architecture/STORAGE-AND-TTL.md.
+pub const MERCHANT_STATE_TTL_LEDGERS: u32 = 1_555_200; // ~90 days (assuming 5s blocks)
 
 pub use caps::{
     MAX_BATCH_PAUSE_SUBSCRIPTIONS, MAX_BATCH_SIZE_CEILING, MAX_MERCHANT_SUB_COUNT_BATCH,
@@ -565,42 +590,46 @@ impl FlowPay {
     /// and charge history, refreshes subscription TTL, updates `last_charged`,
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
-        bump_instance_ttl(&env);
-        ensure_contract_not_paused(&env);
-        let key = DataKey::Subscription(user.clone());
+        charge_inner(env, user, None);
+    }
 
-        let mut sub: Subscription = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+    /// Same as `charge`, but pays `keeper` a tip out of the protocol fee.
+    ///
+    /// The tip is `keeper_tip_bps` (see `get_keeper_tip_bps`) of the protocol fee
+    /// for this charge, paid from the subscriber's allowance alongside the fee. It
+    /// is a no-op when the tip is 0 or no protocol fee applies. The merchant's net
+    /// amount and the gross charge are unchanged.
+    ///
+    /// # Auth
+    ///
+    /// Requires `keeper.require_auth()`, so a keeper can only be credited by its own
+    /// signed transaction. The subscriber's authorization is not needed, as with `charge`.
+    ///
+    /// # Side Effects
+    ///
+    /// Everything `charge` does, plus a `keeper_tip` event when a tip is paid.
+    pub fn charge_with_tip(env: Env, user: Address, keeper: Address) {
+        keeper.require_auth();
+        charge_inner(env, user, Some(keeper));
+    }
 
-        let now = env.ledger().timestamp();
+    /// Admin-only: sets the keeper tip as basis points of the protocol fee.
+    ///
+    /// Must be at most `MAX_KEEPER_TIP_BPS` (5_000, i.e. at most half of the
+    /// protocol fee). 0 disables tips; that is the default.
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `NotInitialized` (7) when no admin is set.
+    pub fn set_keeper_tip_bps(env: Env, bps: u32) {
+        admin::require_admin(&env);
+        fee::set_keeper_tip_bps(&env, bps);
+    }
 
-        if sub.paused {
-            if charge_exec::try_auto_resume(&env, &user, &mut sub, now) {
-                // Auto-resumed; fall through to charge immediately
-            } else {
-                env.panic_with_error(ContractError::SubscriptionPaused);
-            }
-        } else if !sub.active {
-            // sub.active required here: paused subscriptions must not be charged/acted upon
-            env.panic_with_error(ContractError::SubscriptionInactive);
-        }
-
-        let next = charge_exec::compute_next_charge_at(&sub)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::SubscriptionPaused));
-
-        if now < next {
-            env.panic_with_error(ContractError::IntervalNotElapsed);
-        }
-
-        let grace_period = grace::get_grace_period(&env);
-        if grace_period > 0 && now > next.saturating_add(grace_period) {
-            env.panic_with_error(ContractError::GracePeriodElapsed);
-        }
-
-        charge_exec::execute_charge(&env, &user, &key, &mut sub, now);
+    /// Returns the keeper tip in bps of the protocol fee. Defaults to 0 (disabled).
+    pub fn get_keeper_tip_bps(env: Env) -> u32 {
+        fee::get_keeper_tip_bps(&env)
     }
 
     pub fn extend_subscription_ttl(env: Env, user: Address) {
@@ -1046,7 +1075,7 @@ impl FlowPay {
         admin::require_admin(&env);
 
         // Deliberately not configurable and not the same knob as
-        // `get_max_batch_size`. See docs/limits.md.
+        // `get_max_batch_size`. See docs/LIMITS.md.
         let max_batch: u32 = caps::MAX_BATCH_PAUSE_SUBSCRIPTIONS;
         if users.len() > max_batch {
             env.panic_with_error(ContractError::BatchTooLarge);
@@ -1087,8 +1116,8 @@ impl FlowPay {
     /// # Auth
     ///
     /// Requires authorization from the current admin.
-    pub fn transfer_admin(env: Env, new_admin: Address) {
-        admin::transfer_admin(&env, &new_admin);
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        admin::transfer_admin(&env, &new_admin)
     }
 
     /// Accepts a pending admin transfer (step 2 of two-step transfer).
@@ -1172,7 +1201,10 @@ impl FlowPay {
     }
 
     pub fn get_subscription_age(env: Env, user: Address) -> Option<u64> {
-        let sub: Subscription = env.storage().persistent().get(&DataKey::Subscription(user))?;
+        let sub: Subscription = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Subscription(user))?;
 
         if sub.created_at == 0 {
             return None; // sentinel for migrated/unknown subscriptions
@@ -1378,7 +1410,13 @@ impl FlowPay {
 
     /// Adds multiple merchants to the whitelist in a single call.
     /// Admin-only. Duplicates are idempotent.
-    /// Returns the number of entries processed.
+    /// Returns the number of merchants **actually added**.
+    ///
+    /// Re-adding an already-whitelisted merchant is a no-op: no storage is
+    /// rewritten, no `merchant_added` event is emitted, and the entry does
+    /// not count toward the returned value (same event-suppression rule as
+    /// `freeze` / `unfreeze`, Issue #820). A batch of all-duplicates
+    /// therefore returns `0`.
     ///
     /// Capped at the configurable whitelist batch limit
     /// (`get_max_whitelist_batch_size`, default 50); panics with
@@ -1388,16 +1426,25 @@ impl FlowPay {
 
         whitelist::require_batch_within_limit(&env, merchants.len());
 
+        let mut added: u32 = 0;
         for merchant in merchants.iter() {
-            whitelist::add_merchant(&env, &merchant);
+            if whitelist::add_merchant(&env, &merchant) {
+                added += 1;
+            }
         }
 
-        merchants.len()
+        added
     }
 
     /// Removes multiple merchants from the whitelist in a single call.
     /// Admin-only. Removing a non-whitelisted merchant is a no-op.
-    /// Returns the number of entries processed.
+    /// Returns the number of merchants **actually removed**.
+    ///
+    /// Removing a merchant that is not currently whitelisted changes no
+    /// storage, emits no `merchant_removed` event, and does not count toward
+    /// the returned value (same event-suppression rule as `freeze` /
+    /// `unfreeze`, Issue #820). A batch of all non-whitelisted entries
+    /// therefore returns `0`.
     ///
     /// Capped at the configurable whitelist batch limit
     /// (`get_max_whitelist_batch_size`, default 50); panics with
@@ -1407,11 +1454,14 @@ impl FlowPay {
 
         whitelist::require_batch_within_limit(&env, merchants.len());
 
+        let mut removed: u32 = 0;
         for merchant in merchants.iter() {
-            whitelist::remove_merchant(&env, &merchant);
+            if whitelist::remove_merchant(&env, &merchant) {
+                removed += 1;
+            }
         }
 
-        merchants.len()
+        removed
     }
 
     /// Enables or disables the merchant whitelist.
@@ -1511,6 +1561,7 @@ impl FlowPay {
     }
 
     /// Prunes missing or expired daily revenue buckets safely. Admin only.
+    /// Panics with `BatchTooLarge` when `days` exceeds `MAX_PRUNE_REVENUE_DAYS`.
     pub fn prune_merchant_revenue_days(env: Env, merchant: Address, days: Vec<u64>) {
         let removed = days.len();
         merchant_stats::prune_merchant_revenue_days(&env, &merchant, days);
@@ -1626,23 +1677,10 @@ impl FlowPay {
     /// Pruned (cancelled) slots are skipped. Returns an empty Vec when
     /// `offset >= count` or `limit == 0`.
     pub fn get_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
-        let count = subscription_count::get_subscriber_index_size(&env);
         let cap: u32 = caps::effective_page_size(Some(limit), SUBSCRIBER_PAGE_SIZE);
-        let mut result = Vec::new(&env);
-        if offset >= count || cap == 0 {
-            return result;
-        }
-        let mut i = offset;
-        let end = offset + cap as u64;
-        while i < end && i < count {
-            if !subscription_count::is_subscriber_index_removed(&env, i) {
-                if let Some(addr) = env.storage().persistent().get(&DataKey::SubscriberIndex(i)) {
-                    result.push_back(addr);
-                }
-            }
-            i += 1;
-        }
-        result
+        // Delegate bounds, index reads, and tombstone skipping to the shared helper.
+        // No per-address filter: this reader returns all non-tombstoned addresses.
+        subscriber_scan::scan_subscriber_slots(&env, offset, cap as u64)
     }
 
     /// Returns a list of subscriber addresses that are currently due for charging.
@@ -1658,37 +1696,82 @@ impl FlowPay {
         if limit > SUBSCRIBER_PAGE_SIZE {
             env.panic_with_error(ContractError::BatchTooLarge);
         }
-        let size = subscription_count::get_subscriber_index_size(&env);
-        let mut result = Vec::new(&env);
-        if offset >= size || limit == 0 {
-            return result;
+        if limit == 0 {
+            return Vec::new(&env);
         }
         let exclude = exclude_lapsed.unwrap_or(true);
-        let mut i = offset;
-        let end = (offset + limit as u64).min(size);
-        while i < end {
-            if !subscription_count::is_subscriber_index_removed(&env, i) {
-                if let Some(addr) = env.storage().persistent().get::<DataKey, Address>(&DataKey::SubscriberIndex(i)) {
-                    if let Some(sub) = storage::get_subscription(&env, &addr) {
-                        // sub.active required here: paused subscriptions must not be charged/acted upon —
-                        // this builds a batch of addresses ready for charge(); cancelled and paused
-                        // subscriptions must be excluded so keepers never attempt to charge them.
-                        if sub.active {
-                            if let Some(next) = charge_exec::compute_next_charge_at(&sub) {
-                                let now = env.ledger().timestamp();
-                                if now >= next {
-                                    let grace = grace::get_grace_period(&env);
-                                    let lapsed = grace > 0 && now > next.saturating_add(grace);
-                                    if !exclude || !lapsed {
-                                        result.push_back(addr);
-                                    }
-                                }
+        // Delegate bounds, index reads, and tombstone skipping to the shared helper,
+        // then apply the charge-due filter at this call site.
+        let candidates = subscriber_scan::scan_subscriber_slots(&env, offset, limit as u64);
+        let mut result = Vec::new(&env);
+        for addr in candidates.iter() {
+            if let Some(sub) = storage::get_subscription(&env, &addr) {
+                // sub.active required here: paused subscriptions must not be charged/acted upon —
+                // this builds a batch of addresses ready for charge(); cancelled and paused
+                // subscriptions must be excluded so keepers never attempt to charge them.
+                if sub.active {
+                    if let Some(next) = charge_exec::compute_next_charge_at(&sub) {
+                        let now = env.ledger().timestamp();
+                        if now >= next {
+                            let grace = grace::get_grace_period(&env);
+                            let lapsed = grace > 0 && now > next.saturating_add(grace);
+                            if !exclude || !lapsed {
+                                result.push_back(addr);
                             }
                         }
                     }
                 }
             }
-            i += 1;
+        }
+        result
+    }
+
+    /// Returns the subscribers whose next charge falls inside the window
+    /// `[from, to]` (inclusive), paired with that due timestamp.
+    ///
+    /// Keepers use this to plan work ahead of time: instead of only asking what
+    /// is due *now* (`get_next_charge_batch`), a keeper can ask what is due in
+    /// the next N seconds and sleep until the earliest returned timestamp.
+    ///
+    /// # Bounded scan
+    ///
+    /// Like `get_next_charge_batch`, each call reads at most `limit` index slots
+    /// and `limit` must be ≤ 50 (`BatchTooLarge` otherwise). The window is applied
+    /// after the slot read, so a page may return fewer rows than `limit`, or none,
+    /// while later slots still match. Walk the whole index by advancing `offset`
+    /// by `limit` until `offset >= get_subscriber_count()`.
+    ///
+    /// # Filtering
+    ///
+    /// Only subscriptions that `compute_next_charge_at` considers chargeable are
+    /// returned (active and not paused). Tombstoned (cancelled) slots are skipped.
+    /// Grace-lapsed subscriptions are *not* filtered out here; a window that starts
+    /// in the past still reports them and the caller decides what to do.
+    ///
+    /// Returns an empty Vec when `limit == 0` or `from > to`.
+    pub fn get_charges_due_between(
+        env: Env,
+        from: u64,
+        to: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Vec<(Address, u64)> {
+        if limit > SUBSCRIBER_PAGE_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+        let mut result = Vec::new(&env);
+        if limit == 0 || from > to {
+            return result;
+        }
+        let candidates = subscriber_scan::scan_subscriber_slots(&env, offset, limit as u64);
+        for addr in candidates.iter() {
+            if let Some(sub) = storage::get_subscription(&env, &addr) {
+                if let Some(next) = charge_exec::compute_next_charge_at(&sub) {
+                    if next >= from && next <= to {
+                        result.push_back((addr, next));
+                    }
+                }
+            }
         }
         result
     }
@@ -1737,6 +1820,90 @@ impl FlowPay {
         }
 
         events::publish_subscriber_index_ttl_extended(&env, count);
+    }
+
+    /// Extends the TTL of whitelist, freeze, and merchant-index/revenue state
+    /// so a long-idle deployment does not silently lose those keys to archival.
+    ///
+    /// Bumps the whitelist index, the merchant index, and the per-merchant
+    /// state discovered through them (whitelist flag, freeze marker/reason,
+    /// revenue total, subscriber count, known marker, and revenue day buckets
+    /// plus history) to [`MERCHANT_STATE_TTL_LEDGERS`] (~90 days at 5s
+    /// ledgers). This is the whitelist/freeze/merchant-index counterpart of
+    /// `extend_subscriber_index_ttl`; it does not change the TTL value itself.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the contract admin.
+    ///
+    /// # Side Effects
+    ///
+    /// Extends TTL for each key group and emits a `merchant_state_ttl_extended`
+    /// event with the number of merchants whose state was extended, consistent
+    /// with `subscriber_index_ttl_extended`.
+    pub fn extend_merchant_state_ttl(env: Env) {
+        admin::require_admin(&env);
+
+        let mut merchants_extended: u64 = 0;
+
+        // Whitelist group: index container, slots, flags, reverse slots.
+        bump_merchant_state_ttl(&env, &DataKey::WhitelistIndexSize);
+        let wl_size = whitelist::get_whitelist_size(&env);
+        let mut i: u32 = 0;
+        while i < wl_size {
+            let key = DataKey::WhitelistIndex(i);
+            if let Some(merchant) = env.storage().persistent().get::<_, Address>(&key) {
+                bump_merchant_state_ttl(&env, &key);
+                bump_merchant_state_ttl(&env, &DataKey::MerchantWhitelist(merchant.clone()));
+                let slot = DataKey::WhitelistIndexSlot(merchant.clone());
+                if env.storage().persistent().has(&slot) {
+                    bump_merchant_state_ttl(&env, &slot);
+                }
+                merchants_extended += 1;
+            }
+            i += 1;
+        }
+
+        // Merchant index + freeze/revenue group.
+        bump_merchant_state_ttl(&env, &DataKey::MerchantIndexSize);
+        let mi_size = merchant_stats::get_merchant_index_size(&env);
+        let mut j: u32 = 0;
+        while j < mi_size {
+            let key = DataKey::MerchantIndex(j);
+            if let Some(merchant) = env.storage().persistent().get::<_, Address>(&key) {
+                bump_merchant_state_ttl(&env, &key);
+                bump_merchant_state_ttl(&env, &DataKey::MerchantKnown(merchant.clone()));
+                bump_merchant_state_ttl(&env, &DataKey::MerchantRevenue(merchant.clone()));
+                bump_merchant_state_ttl(&env, &DataKey::MerchantSubCount(merchant.clone()));
+                if env
+                    .storage()
+                    .persistent()
+                    .has(&DataKey::MerchantFrozen(merchant.clone()))
+                {
+                    bump_merchant_state_ttl(&env, &DataKey::MerchantFrozen(merchant.clone()));
+                    bump_merchant_state_ttl(&env, &DataKey::MerchantFreezeReason(merchant.clone()));
+                }
+                let day_index_key = DataKey::MerchantRevenueDayIndex(merchant.clone());
+                if let Some(days) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, Vec<u64>>(&day_index_key)
+                {
+                    bump_merchant_state_ttl(&env, &day_index_key);
+                    for day in days.iter() {
+                        bump_merchant_state_ttl(
+                            &env,
+                            &DataKey::MerchantRevenueDay(merchant.clone(), day),
+                        );
+                    }
+                }
+                bump_merchant_state_ttl(&env, &DataKey::MerchantRevenueHistory(merchant.clone()));
+                merchants_extended += 1;
+            }
+            j += 1;
+        }
+
+        events::publish_merchant_state_ttl_extended(&env, merchants_extended);
     }
 
     /// Admin-only repair: tombstones a single stale subscriber index slot.
@@ -1798,13 +1965,16 @@ impl FlowPay {
         events::publish_merchant_withdrawal(&env, &merchant, amount);
     }
 
-    /// Returns per-charge revenue entries for the merchant (up to `days` most recent).
-    /// Oldest -> newest. Returns an empty Vec when no history has been recorded or after clearing.
+    /// Returns per-charge revenue entries for the merchant (up to `days` most recent,
+    /// from a history capped at `MAX_REVENUE_HISTORY` entries). Oldest -> newest.
+    /// Returns an empty Vec when no history has been recorded or after clearing.
     pub fn get_merchant_revenue_history(env: Env, merchant: Address, days: u32) -> Vec<i128> {
         merchant_stats::get_merchant_revenue_history(&env, &merchant, days)
     }
 
     /// Returns aggregate revenue statistics for a merchant: (total, count, min_charge, max_charge).
+    /// `total` is all-time; `count`/`min_charge`/`max_charge` cover the retained history
+    /// window (at most `MAX_REVENUE_HISTORY` most recent charges).
     pub fn get_merchant_revenue_summary(env: Env, merchant: Address) -> (i128, i128, i128, i128) {
         merchant_stats::get_merchant_revenue_summary(&env, &merchant)
     }
@@ -1920,15 +2090,16 @@ impl FlowPay {
     /// Stored in temporary storage; resets automatically after ~1 day.
     pub fn set_daily_limit(env: Env, user: Address, limit: i128) {
         user.require_auth();
-        if limit <= 0 {
-            env.panic_with_error(ContractError::AmountMustBePositive);
-        }
         spending_limit::set_daily_limit(&env, &user, limit);
         events::publish_daily_limit_set(&env, &user, limit);
     }
 
-    /// Returns the daily spending limit for a user, or `None` if not set.
     /// Removes the caller's daily spending cap for `pay_per_use()`.
+    ///
+    /// Clears `DailyLimit`, `DailySpent`, and `DayStart` together, so
+    /// re-setting a limit afterwards starts a fresh window with the spend
+    /// counter reset to zero. This is the supported way to reset daily
+    /// tracking early.
     pub fn remove_daily_limit(env: Env, user: Address) {
         user.require_auth();
         spending_limit::remove_daily_limit(&env, &user);
@@ -1971,10 +2142,33 @@ impl FlowPay {
     // State migration
     // ─────────────────────────────────────────────────────────────
 
-    /// Migrates contract storage to the latest schema version.
-    /// Safe to call multiple times — subsequent calls are no-ops.
+    /// Migrates the listed accounts toward the latest schema version. Admin only.
+    ///
+    /// Batch-safe and idempotent per account: an account already processed by an
+    /// earlier call is skipped. This does **not** advance `SchemaVersion`. Call
+    /// `finalize_migration` once every account is done. See `migration::migrate`.
     pub fn migrate(env: Env, users: Vec<Address>) {
         migration::migrate(&env, users);
+    }
+
+    /// Completes the schema migration. Admin only.
+    ///
+    /// Advances `SchemaVersion` to the current version, which unblocks new
+    /// subscriptions, but only once at least `expected_total` accounts have been
+    /// processed by `migrate`. Idempotent after completion.
+    ///
+    /// # Errors
+    ///
+    /// `MigrationIncomplete` (48) when `migrated_accounts < expected_total`.
+    pub fn finalize_migration(env: Env, expected_total: u64) {
+        migration::finalize(&env, expected_total);
+    }
+
+    /// Returns the migration progress: stored schema version, target version,
+    /// accounts processed so far, and whether the migration is complete.
+    /// Read-only, no auth required.
+    pub fn get_migration_progress(env: Env) -> migration::MigrationProgress {
+        migration::get_migration_progress(&env)
     }
 
     /// Returns the current storage schema version.
@@ -2330,7 +2524,10 @@ impl FlowPay {
     ///
     /// No auth required (view-only).
     pub fn get_subscription_token(env: Env, user: Address) -> Option<Address> {
-        let sub: Subscription = env.storage().persistent().get(&DataKey::Subscription(user))?;
+        let sub: Subscription = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Subscription(user))?;
         Some(sub.token)
     }
 
@@ -2370,41 +2567,23 @@ impl FlowPay {
     /// the index. The scan is bounded: at most `cap` slots are examined per
     /// call, preventing unbounded iteration even on sparse indexes.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
-        let count = subscription_count::get_subscriber_index_size(&env);
         let cap: u32 = caps::effective_page_size(Some(limit), SUBSCRIBER_PAGE_SIZE);
+        // Delegate bounds, index reads, and tombstone skipping to the shared helper,
+        // then apply the active-only filter at this call site.
+        let candidates = subscriber_scan::scan_subscriber_slots(&env, offset, cap as u64);
         let mut result = Vec::new(&env);
-        if offset >= count || cap == 0 {
-            return result;
-        }
-        let end = (offset + cap as u64).min(count);
-        let mut i = offset;
-        while i < end {
-            if subscription_count::is_subscriber_index_removed(&env, i) {
-                i += 1;
-                continue;
-            }
-            if let Some(addr) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, Address>(&DataKey::SubscriberIndex(i))
-            {
-                if let Some(sub) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, Subscription>(&DataKey::Subscription(addr.clone()))
-                {
-                    // sub.active used intentionally: legacy `paused && !active` rows
-                    // must remain excluded from this page per the design in storage.rs
-                    // (`get_active_subscriber_page` lists current active subscriptions,
-                    // not all non-cancelled rows). See `storage::is_cancelled` for the
-                    // full semantics and `scenario_legacy_paused_inactive_row_reader_semantics`
-                    // for the regression that locks this invariant.
-                    if sub.active {
-                        result.push_back(addr);
-                    }
+        for addr in candidates.iter() {
+            if let Some(sub) = storage::get_subscription(&env, &addr) {
+                // sub.active used intentionally: legacy `paused && !active` rows
+                // must remain excluded from this page per the design in storage.rs
+                // (`get_active_subscriber_page` lists current active subscriptions,
+                // not all non-cancelled rows). See `storage::is_cancelled` for the
+                // full semantics and `scenario_legacy_paused_inactive_row_reader_semantics`
+                // for the regression that locks this invariant.
+                if sub.active {
+                    result.push_back(addr);
                 }
             }
-            i += 1;
         }
         result
     }
@@ -2427,6 +2606,18 @@ fn extend_subscription_ttl(env: &Env, user: &Address) {
     env.storage()
         .instance()
         .extend_ttl(SUBSCRIPTION_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS);
+}
+
+/// Extends a single persistent key to the merchant-state TTL window, if it
+/// exists. No-op for absent keys so the sweep is safe over sparse indexes.
+fn bump_merchant_state_ttl(env: &Env, key: &DataKey) {
+    if env.storage().persistent().has(key) {
+        env.storage().persistent().extend_ttl(
+            key,
+            MERCHANT_STATE_TTL_LEDGERS,
+            MERCHANT_STATE_TTL_LEDGERS,
+        );
+    }
 }
 
 /// Shared implementation for `pay_per_use` and `pay_per_use_to`. `recipient`
@@ -2516,8 +2707,7 @@ fn subscribe_inner(
     validation::require_valid_amount(env, amount);
     validation::validate_interval(env, interval);
 
-    use soroban_sdk::xdr::ToXdr;
-    if token.clone().to_xdr(env).get(7) == Some(0) {
+    if !validation::is_contract_address(&token) {
         env.panic_with_error(ContractError::InvalidTokenAddress);
     }
 
@@ -2647,9 +2837,50 @@ fn is_contract_paused(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Shared body of `charge` and `charge_with_tip`. `keeper` is `None` for a plain
+/// charge; `Some(addr)` routes the keeper tip to `addr` (see `charge_with_tip`).
+/// Callers are responsible for any auth on `keeper`.
+fn charge_inner(env: Env, user: Address, keeper: Option<Address>) {
+    bump_instance_ttl(&env);
+    ensure_contract_not_paused(&env);
+    let key = DataKey::Subscription(user.clone());
+
+    let mut sub: Subscription = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+    let now = env.ledger().timestamp();
+
+    if sub.paused {
+        if charge_exec::try_auto_resume(&env, &user, &mut sub, now) {
+            // Auto-resumed; fall through to charge immediately
+        } else {
+            env.panic_with_error(ContractError::SubscriptionPaused);
+        }
+    } else if !sub.active {
+        // sub.active required here: paused subscriptions must not be charged/acted upon
+        env.panic_with_error(ContractError::SubscriptionInactive);
+    }
+
+    let next = charge_exec::compute_next_charge_at(&sub)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::SubscriptionPaused));
+
+    if now < next {
+        env.panic_with_error(ContractError::IntervalNotElapsed);
+    }
+
+    let grace_period = grace::get_grace_period(&env);
+    if grace_period > 0 && now > next.saturating_add(grace_period) {
+        env.panic_with_error(ContractError::GracePeriodElapsed);
+    }
+
+    charge_exec::execute_charge(&env, &user, &key, &mut sub, now, keeper.as_ref());
+}
+
 fn ensure_contract_not_paused(env: &Env) {
     if is_contract_paused(env) {
         env.panic_with_error(ContractError::ContractPaused);
     }
 }
-

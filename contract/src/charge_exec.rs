@@ -10,13 +10,13 @@ use crate::storage;
 use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
-use crate::{extend_subscription_ttl, DataKey, MAX_AMOUNT, Subscription};
+use crate::{extend_subscription_ttl, DataKey, Subscription, MAX_AMOUNT};
 
 /// ─────────────────────────────────────────────────────────────
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
 ///
 /// Full comparison of estimate vs live differences:
-/// docs/architecture/batch-estimate-vs-live.md
+/// docs/architecture/BATCH-ESTIMATE-VS-LIVE.md
 /// ─────────────────────────────────────────────────────────────
 ///
 /// Both `simulate_charge` and `get_batch_charge_estimate` are
@@ -81,9 +81,7 @@ impl DryRunSkipOutcome {
     pub(crate) fn into_batch_result(self) -> ChargeResult {
         match self {
             DryRunSkipOutcome::NoSubscription => ChargeResult::NoSubscription,
-            DryRunSkipOutcome::ContractPaused => {
-                ChargeResult::Inactive
-            }
+            DryRunSkipOutcome::ContractPaused => ChargeResult::Inactive,
             DryRunSkipOutcome::SubscriptionPaused => ChargeResult::Paused,
             DryRunSkipOutcome::Inactive => ChargeResult::Inactive,
             DryRunSkipOutcome::NotDue => ChargeResult::Skipped,
@@ -218,8 +216,7 @@ pub fn simulate_charge(env: &Env, user: Address) -> ChargeSimResult {
     let key = DataKey::Subscription(user.clone());
     let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
-    let (outcome, sub_after_precheck) =
-        dry_run_skip_precheck(env, &user, sub_opt, true);
+    let (outcome, sub_after_precheck) = dry_run_skip_precheck(env, &user, sub_opt, true);
 
     match outcome {
         DryRunSkipOutcome::ProceedToAllowance => {
@@ -365,16 +362,22 @@ pub fn precheck_charge(
     Ok(())
 }
 
-/// Fee-aware transfer, bookkeeping, and persistence shared by `charge()` and `batch_charge()`.
-/// Returns the protocol fee deducted from the subscription amount.
+/// Fee-aware transfer, bookkeeping, and persistence shared by `charge()`,
+/// `charge_with_tip()` and `batch_charge()`.
+///
+/// `keeper` is `Some` only for `charge_with_tip`; it names the address that receives
+/// the keeper tip out of the protocol fee (see `fee::transfer_subscription_charge`).
+/// Returns the protocol fee deducted from the subscription amount, tip included.
 pub fn execute_charge(
     env: &Env,
     user: &Address,
     key: &DataKey,
     sub: &mut Subscription,
     now: u64,
+    keeper: Option<&Address>,
 ) -> i128 {
-    let (fee_amount, net, paid_to) = fee::transfer_subscription_charge(env, user, sub);
+    let (fee_amount, net, paid_to, tip) =
+        fee::transfer_subscription_charge(env, user, sub, keeper);
 
     crate::check_and_update_global_volume(env, sub.amount);
     merchant_stats::increment_revenue_with_daily(env, &sub.merchant, net);
@@ -384,6 +387,12 @@ pub fn execute_charge(
     extend_subscription_ttl(env, user);
     subscription_history::record_charge(env, user, now);
     events::publish_charged(env, user, sub, fee_amount, net, now, paid_to);
+
+    if tip > 0 {
+        if let Some(keeper_addr) = keeper {
+            events::publish_keeper_tip(env, keeper_addr, user, tip);
+        }
+    }
 
     fee_amount
 }

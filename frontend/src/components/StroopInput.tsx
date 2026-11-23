@@ -13,11 +13,13 @@ interface Props {
   initialValue?: bigint;
   id?: string;
   testId?: string;
+  isInvalid?: boolean;
+  ariaDescribedBy?: string;
 }
 
 /**
  * validateStroopInput — thin wrapper around the canonical validateStroopAmount
- * that supplies a default maxStroops.  Kept for backward-compatibility with
+ * that supplies a default maxStroops. Kept for backward-compatibility with
  * existing callers (e.g. amounts.test.ts) that rely on this export name and
  * signature.
  */
@@ -40,6 +42,8 @@ export default function StroopInput({
   initialValue,
   id = "amount-input",
   testId = "amount-input",
+  isInvalid,
+  ariaDescribedBy,
 }: Props) {
   const { unit } = useAmountDisplay();
   const [value, setValue] = useState("");
@@ -96,8 +100,11 @@ export default function StroopInput({
     onChange(stroops);
   }
 
-  const stateClass = !value ? "" : error ? "input--error" : "input--valid";
+  const hasAnyError = Boolean(error || isInvalid);
+  const stateClass = !value ? "" : hasAnyError ? "input--error" : "input--valid";
   const errorId = `${id}-error`;
+
+  const describedBy = ariaDescribedBy || (error ? errorId : undefined);
 
   const formatAlternate = (stroops: bigint): string => {
     if (unit === "XLM") {
@@ -108,7 +115,7 @@ export default function StroopInput({
   };
 
   return (
-    <label className="form-group">
+    <label className="form-group" htmlFor={id}>
       <span className="form-label">
         {label} ({unit})
       </span>
@@ -125,10 +132,14 @@ export default function StroopInput({
         onBlur={handleBlur}
         disabled={disabled}
         required
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
+        aria-invalid={hasAnyError ? true : undefined}
+        aria-describedby={describedBy}
       />
-      {error && <span id={errorId} className="text-error">{error}</span>}
+      {error && (
+        <span id={errorId} className="text-error" role="alert">
+          {error}
+        </span>
+      )}
       {convertedStroops !== null && !error && (
         <span className="text-muted">= {formatAlternate(convertedStroops)}</span>
       )}

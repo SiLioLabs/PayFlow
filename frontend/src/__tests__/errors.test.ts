@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { friendlyError, CONTRACT_ERRORS } from "../utils/errors";
+import { friendlyError, extractContractErrorCode, CONTRACT_ERRORS } from "../utils/errors";
 
 describe("friendlyError — MerchantNotWhitelisted (code 10)", () => {
   const expected =
@@ -26,6 +26,21 @@ describe("friendlyError — MerchantNotWhitelisted (code 10)", () => {
 describe("friendlyError — passthrough", () => {
   it("returns the raw message when no mapping matches", () => {
     expect(friendlyError("something completely unknown")).toBe("something completely unknown");
+  });
+});
+
+describe("extractContractErrorCode", () => {
+  it("extracts canonical error(contract, #N) codes regardless of casing", () => {
+    expect(extractContractErrorCode("Error(Contract, #25)")).toBe("#25");
+    expect(extractContractErrorCode("error(contract, #8)")).toBe("#8");
+  });
+
+  it("extracts bare #N codes", () => {
+    expect(extractContractErrorCode("ContractError #18")).toBe("#18");
+  });
+
+  it("returns null when no code is present", () => {
+    expect(extractContractErrorCode("RPC timeout")).toBeNull();
   });
 });
 

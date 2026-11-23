@@ -2,6 +2,10 @@
   "name": "payflow",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.5.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
@@ -9,10 +13,15 @@
     "typecheck:scripts": "cd scripts && npx tsc --noEmit",
     "test:scripts": "cd scripts && npm install --prefer-offline && npm test",
     "audit:contrast": "node scripts/contrast-check.mjs",
+    "backend:typecheck": "cargo check -p flowpay",
+    "backend:test": "cargo test -p flowpay",
+    "backend:vesting:typecheck": "cargo check -p academy-vesting",
+    "backend:vesting:test": "cargo test -p academy-vesting",
     "backend:typecheck": "cd contract && cargo check",
     "backend:test": "cd contract && cargo test",
     "backend:vesting:typecheck": "cd vesting && cargo check",
     "backend:vesting:test": "cd vesting && cargo test",
+    "check:contract-api": "node scripts/check-contract-api.mjs",
     "generate:types": "bash scripts/generate-types.sh",
     "test": "tsx --test tests/*.test.ts"
   },

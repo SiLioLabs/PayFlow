@@ -118,7 +118,11 @@ pub fn transfer_subscriber_index(env: &Env, user: &Address, new_user: &Address) 
     remove_subscriber_index(env, user);
 
     let new_slot_key = DataKey::SubscriberIndexSlot(new_user.clone());
-    if let Some(slot) = env.storage().persistent().get::<DataKey, u64>(&new_slot_key) {
+    if let Some(slot) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u64>(&new_slot_key)
+    {
         if !is_subscriber_index_removed(env, slot) {
             return;
         }

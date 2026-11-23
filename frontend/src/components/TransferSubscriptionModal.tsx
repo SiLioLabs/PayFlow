@@ -73,7 +73,7 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
   };
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay" onClick={handleClose} role="presentation">
       <div
         ref={modalRef}
         className="modal-card card"
@@ -88,9 +88,12 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
           authorize the transfer in your wallets.
         </p>
 
-        <label className="form-group">
-          <span className="form-label">Target address</span>
+        <div className="form-group">
+          <label htmlFor="transfer-address-input" className="form-label">
+            Target address
+          </label>
           <input
+            id="transfer-address-input"
             type="text"
             placeholder="G… (Stellar address)"
             value={targetAddress}
@@ -98,8 +101,9 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
             disabled={submitting}
             data-testid="transfer-address-input"
             aria-invalid={addressError ? true : undefined}
+            aria-describedby={addressError ? "transfer-address-error" : undefined}
           />
-        </label>
+        </div>
         <button
           type="button"
           className="btn-secondary btn-sm"
@@ -110,7 +114,7 @@ export default function TransferSubscriptionModal({ userKey, onSign, onClose, on
           Choose from Address Book
         </button>
         {addressError && (
-          <p className="text-error" role="alert">
+          <p id="transfer-address-error" className="text-error" role="alert">
             {addressError}
           </p>
         )}

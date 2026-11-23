@@ -59,13 +59,23 @@ export function validateStroopAmount(
   value: string,
   maxStroops: bigint
 ): ValidationResult {
+  const num = parseFloat(value);
+  if (!value || isNaN(num) || num <= 0) {
+    return { valid: false, error: "Amount must be greater than 0." };
+  }
+
   const result: StroopValidationResult = validateStroopAmountCore(value, "XLM", maxStroops);
   if (result.error !== null) {
+    if (result.error.toLowerCase().includes("at most")) {
+      return { valid: false, error: `Amount exceeds maximum of ${maxStroops} stroops.` };
+    }
     return { valid: false, error: result.error };
   }
   if (result.stroops === null) {
-    // Empty input: treat as invalid for form context
     return { valid: false, error: "Amount must be greater than 0." };
+  }
+  if (result.stroops > maxStroops) {
+    return { valid: false, error: `Amount exceeds maximum of ${maxStroops} stroops.` };
   }
   return { valid: true };
 }

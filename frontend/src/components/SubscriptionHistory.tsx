@@ -6,7 +6,7 @@ import { explorerTxUrl } from "../stellar";
 import Spinner from "./Spinner";
 import CopyButton from "./CopyButton";
 import { ChargeHistorySkeleton } from "./Skeleton";
-import { formatDate } from "../utils/format";
+import ChargeReceipt from "./ChargeReceipt";
 
 interface Props {
   userKey: string;
@@ -131,6 +131,9 @@ export default function SubscriptionHistory({ userKey }: Props) {
 
   // Client-side pagination state.
   const [page, setPage] = useState(1);
+
+  // Receipt modal state: holds the event whose receipt is currently open.
+  const [receiptEvent, setReceiptEvent] = useState<ChargeEvent | null>(null);
 
   // Filter state — persists while component is mounted.
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
@@ -517,6 +520,15 @@ export default function SubscriptionHistory({ userKey }: Props) {
                     {truncateHash(event.txHash)}
                   </a>
                   <CopyButton text={event.txHash} />
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+                    onClick={() => setReceiptEvent(event)}
+                    aria-label={`View receipt for charge on ${formatDate(event.date)}`}
+                    data-testid={`view-receipt-${pageStart + index}`}
+                  >
+                    Receipt
+                  </button>
                 </div>
               </div>
             </div>
@@ -565,6 +577,15 @@ export default function SubscriptionHistory({ userKey }: Props) {
             Next
           </button>
         </div>
+      )}
+
+      {/* Receipt modal — shown when the user clicks "Receipt" on a charge row */}
+      {receiptEvent && (
+        <ChargeReceipt
+          event={receiptEvent}
+          onClose={() => setReceiptEvent(null)}
+          modal={true}
+        />
       )}
     </div>
   );

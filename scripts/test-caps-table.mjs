@@ -1,4 +1,4 @@
-// Proves the drift check actually fails when caps.rs and docs/limits.md
+// Proves the drift check actually fails when caps.rs and docs/LIMITS.md
 // disagree, in both directions:
 //   1. doc says a different number
 //   2. caps.rs gains a constant the doc does not cover
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CAPS = join(ROOT, "contract", "src", "caps.rs");
-const DOC = join(ROOT, "docs", "limits.md");
+const DOC = join(ROOT, "docs", "LIMITS.md");
 
 const capsOrig = fs.readFileSync(CAPS, "utf8");
 const docOrig = fs.readFileSync(DOC, "utf8");

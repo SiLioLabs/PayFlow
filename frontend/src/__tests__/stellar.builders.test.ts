@@ -485,3 +485,59 @@ describe("buildPayPerUseToTx", () => {
     );
   });
 });
+
+// ── buildCancelAndRefundTx ────────────────────────────────────────────────────
+
+describe("buildCancelAndRefundTx", () => {
+  it("calls cancel_and_refund_prorated with user and merchant, sourced from the merchant", async () => {
+    simulateTransactionMock().mockResolvedValue({ result: {} });
+
+    const result = await stellar.buildCancelAndRefundTx(MERCHANT_A, USER_A);
+
+    expect(result).toBe("signed-xdr-stub");
+    expect(getAccountMock()).toHaveBeenCalledWith(MERCHANT_A);
+    expect(callSpy).toHaveBeenCalledTimes(1);
+
+    const [method, arg0, arg1] = callSpy.mock.calls[0];
+    expect(method).toBe("cancel_and_refund_prorated");
+    expect((arg0 as any).toXDR("base64")).toBe(addressVal(USER_A).toXDR("base64"));
+    expect((arg1 as any).toXDR("base64")).toBe(addressVal(MERCHANT_A).toXDR("base64"));
+  });
+
+  it("surfaces simulation errors such as underfunded merchant", async () => {
+    simulateTransactionMock().mockResolvedValue({
+      error: "cancel_and_refund_prorated: error(Contract, #40)",
+    });
+
+    await expect(stellar.buildCancelAndRefundTx(MERCHANT_A, USER_A)).rejects.toThrow(
+      "cancel_and_refund_prorated: error(Contract, #40)"
+    );
+  });
+});
+
+// ── calculateProratedRefund ──────────────────────────────────────────────────
+
+describe("calculateProratedRefund", () => {
+  const interval = 2_592_000;
+  const lastCharged = 5_000_000;
+
+  it("truncates the unused fraction exactly like the contract", () => {
+    expect(stellar.calculateProratedRefund(300_0000000n, interval, lastCharged, 5_864_000)).toBe(
+      200_0000000n
+    );
+    expect(stellar.calculateProratedRefund(100_0000000n, 3, 0, 1)).toBe(666_666666n);
+  });
+
+  it("returns zero once the interval is fully consumed", () => {
+    expect(
+      stellar.calculateProratedRefund(300_0000000n, interval, lastCharged, lastCharged + interval)
+    ).toBe(0n);
+    expect(stellar.calculateProratedRefund(300_0000000n, 0, lastCharged, lastCharged)).toBe(0n);
+  });
+
+  it("does not extend the refund when now predates the last charge", () => {
+    expect(stellar.calculateProratedRefund(1_0000000n, interval, lastCharged, 4_999_999)).toBe(
+      1_0000000n
+    );
+  });
+});

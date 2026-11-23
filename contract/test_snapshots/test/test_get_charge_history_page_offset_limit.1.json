@@ -2026,6 +2026,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2286,6 +2289,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2346,6 +2352,12 @@
                       "lo": 10000000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }
@@ -2568,6 +2580,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2628,6 +2643,12 @@
                       "lo": 10000000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }
@@ -2850,6 +2871,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2910,6 +2934,12 @@
                       "lo": 10000000
                     }
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": "void"
                 }
               ]
             }

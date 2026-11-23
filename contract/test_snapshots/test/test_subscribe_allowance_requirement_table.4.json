@@ -1132,6 +1132,9 @@
             "topics": [
               {
                 "symbol": "fee_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -1204,6 +1207,9 @@
             "topics": [
               {
                 "symbol": "fee_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

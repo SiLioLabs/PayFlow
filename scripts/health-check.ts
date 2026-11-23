@@ -388,7 +388,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new MultiEndpointServer(RPC_URL);
+  const server = new MultiEndpointServer();
   const probes: ProbeResult[] = [];
   let healthReport: HealthReport | undefined;
   let batchEstimate: string | undefined;

@@ -63,8 +63,12 @@ vi.mock("../pages/AdminDashboard", () => ({
   default: () => <div data-testid="admin-dashboard" />,
 }));
 vi.mock("../components/Dashboard", () => ({
-  default: (props: { isPaused?: boolean }) => (
-    <div data-testid="dashboard" data-is-paused={String(props.isPaused)} />
+  default: (props: { isPaused?: boolean; userKey?: string }) => (
+    <div
+      data-testid="dashboard"
+      data-is-paused={String(props.isPaused)}
+      data-user-key={props.userKey}
+    />
   ),
 }));
 vi.mock("../components/MerchantDashboard", () => ({
@@ -121,7 +125,11 @@ function mockWallet(publicKey: string | null) {
 
 function mockPaused(isPaused: boolean) {
   const status = isPaused ? "paused" : "active";
-  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({ isPaused, status, loading: false });
+  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({
+    isPaused,
+    status,
+    loading: false,
+  });
 }
 
 describe("App — notification priority orchestration", () => {
@@ -184,5 +192,15 @@ describe("App — notification priority orchestration", () => {
     mockWallet(null);
     render(<App />);
     expect(screen.queryByTestId("notification-bell")).not.toBeInTheDocument();
+  });
+
+  it("passes a switched wallet account to the dashboard without a page refresh", () => {
+    mockWallet("GACCOUNT_ONE");
+    const { rerender } = render(<App />);
+    expect(screen.getByTestId("dashboard")).toHaveAttribute("data-user-key", "GACCOUNT_ONE");
+
+    mockWallet("GACCOUNT_TWO");
+    rerender(<App />);
+    expect(screen.getByTestId("dashboard")).toHaveAttribute("data-user-key", "GACCOUNT_TWO");
   });
 });

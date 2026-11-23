@@ -129,7 +129,40 @@ if (docCodes.size === 0) {
   process.exit(1);
 }
 
-// ── 3. Compute the expected set of documented codes ─────────────────────────
+// ── 3. Check that API.md does not re-introduce an error-codes table ─────────
+
+const apiMdPath = join(ROOT, 'docs', 'API.md');
+let apiMdSrc;
+try {
+  apiMdSrc = readFileSync(apiMdPath, 'utf8');
+} catch (e) {
+  console.error(`[check-error-codes] Cannot read ${apiMdPath}: ${e.message}`);
+  process.exit(1);
+}
+
+// Check for error-code table pattern in API.md (table with error codes in first column)
+// We look for markdown table rows that start with a numeric code in the first column
+// and contain typical error-related keywords in adjacent columns
+const errorTablePattern = /^\|\s*(\d+)\s*\|\s*`?\w+`?\s*\|/gm;
+const potentialErrorTableRows = [];
+let match;
+while ((match = errorTablePattern.exec(apiMdSrc)) !== null) {
+  potentialErrorTableRows.push(match[0]);
+}
+
+// If we find multiple rows (suggesting a table), check if they're in an error codes section
+if (potentialErrorTableRows.length > 3) {
+  // Look for "## Error Codes" heading followed by table content
+  const errorCodesSectionPattern = /##\s+Error\s+Codes[\s\S]{0,500}^\|\s*\d+\s*\|/mi;
+  if (errorCodesSectionPattern.test(apiMdSrc)) {
+    console.error('\n[check-error-codes] FAIL — API.md contains an "## Error Codes" section with a table.');
+    console.error('  The error codes table must only exist in ERROR-CODES.md (single source of truth).');
+    console.error('  Replace the table in API.md with a link to ERROR-CODES.md instead.\n');
+    process.exit(1);
+  }
+}
+
+// ── 4. Compute the expected set of documented codes ─────────────────────────
 //
 // The full set to document = all codes in errors.rs PLUS any intentional gap
 // codes that appear in the quick-reference table (e.g. 31, 37).
@@ -145,7 +178,7 @@ for (const [code, name] of rustCodes.entries()) {
   }
 }
 
-// ── 4. Check detailed recovery section coverage ─────────────────────────────
+// ── 5. Check detailed recovery section coverage ─────────────────────────────
 //
 // Every code in errors.rs should also have a "### <code> —" heading in the
 // recovery section. Gap codes (31, 37, …) only need the quick-reference row.
@@ -168,7 +201,7 @@ for (const [code, name] of rustCodes.entries()) {
   }
 }
 
-// ── 5. Report ────────────────────────────────────────────────────────────────
+// ── 6. Report ────────────────────────────────────────────────────────────────
 
 let failures = 0;
 

@@ -2214,6 +2214,9 @@
             "topics": [
               {
                 "symbol": "fee_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2286,6 +2289,9 @@
             "topics": [
               {
                 "symbol": "fee_committed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2370,6 +2376,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2520,6 +2529,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2875,6 +2887,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -2934,6 +2949,14 @@
                       "hi": 0,
                       "lo": 950
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                   }
                 }
               ]
@@ -3356,6 +3379,9 @@
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {
@@ -3415,6 +3441,14 @@
                       "hi": 0,
                       "lo": 950
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "paid_to"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                   }
                 }
               ]

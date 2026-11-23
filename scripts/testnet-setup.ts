@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair, Networks } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger";
 import { projectPath, readJsonFile } from "./soroban-admin.js";
 import { ManifestSchema } from "./config.js";
@@ -93,7 +93,7 @@ function generateAccount(role: "admin" | "merchant" | "subscriber", name: string
   };
 }
 
-async function isAccountFunded(server: Server, publicKey: string): Promise<boolean> {
+async function isAccountFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
   try {
     await server.getAccount(publicKey);
     return true;
@@ -203,7 +203,7 @@ async function main(): Promise<void> {
     manifest.network = activeNetworkPassphrase;
   }
 
-  const server = new Server(activeRpcUrl);
+  const server = new MultiEndpointServer(activeRpcUrl);
 
   // 1. Fund Accounts via Friendbot
   logger.info(`Step 1: Funding test accounts via Friendbot...`);

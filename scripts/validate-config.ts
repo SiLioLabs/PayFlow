@@ -8,11 +8,23 @@
  *
  * ## CLI Usage
  *
- *   npx tsx scripts/validate-config.ts [--strict]
+ *   npx tsx scripts/validate-config.ts [--strict] [--env-file <path>]
  *
  * The `--strict` flag enables strict validation: ALL schema fields are
  * validated (including optional ones with malformed values), and the script
  * exits with code 1 on any Zod error — not just missing required fields.
+ *
+ * The `--env-file` flag validates an explicit env file instead of the
+ * auto-discovered one.
+ *
+ * ## Env file lookup
+ *
+ *   1. scripts/.env.local
+ *   2. scripts/.env
+ *   3. <repo root>/.env.local
+ *   4. <repo root>/.env
+ *   5. scripts/.env.example  (fallback, so the shipped example is checkable
+ *                             in CI without a secret-bearing file)
  *
  * ## Programmatic Usage
  *
@@ -50,7 +62,7 @@ import {
   logDeprecationWarnings,
   type KeeperConfig,
 } from "./config.js";
-import { logger } from "./logger";
+import { logger, SECRET_MASK } from "./logger";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -91,32 +103,84 @@ export function parseEnvFile(filePath: string): Map<string, string> {
 }
 
 /**
- * Locate and parse the environment file.
- * Prefers .env.local over .env (matching Vite conventions).
+ * The env files this script looks at, in priority order.
+ *
+ * The scripts under `scripts/` own their configuration, so `scripts/.env`
+ * wins over the repository-root `.env`. Both are checked for a `.env.local`
+ * override first, matching Vite's convention.
  */
-export function loadEnvFile(projectRoot: string): Map<string, string> {
-  const envLocal = resolve(projectRoot, ".env.local");
-  const envDefault = resolve(projectRoot, ".env");
+export function envFileCandidates(projectRoot: string): string[] {
+  const scriptsDir = resolve(__dirname);
+  const rootDir = resolve(projectRoot);
+  return [
+    resolve(scriptsDir, ".env.local"),
+    resolve(scriptsDir, ".env"),
+    resolve(rootDir, ".env.local"),
+    resolve(rootDir, ".env"),
+  ];
+}
 
-  if (existsSync(envLocal)) {
-    return parseEnvFile(envLocal);
+/**
+ * Pick the env file to validate.
+ *
+ * When no `.env` / `.env.local` exists anywhere, the shipped
+ * `scripts/.env.example` is used instead, so the example file can be checked
+ * in CI without a secret-bearing file. `isExample` tells the caller which of
+ * the two happened.
+ */
+export function resolveEnvFile(
+  projectRoot: string,
+  explicitPath?: string,
+): { path: string; isExample: boolean } {
+  if (explicitPath) {
+    const absolute = resolve(explicitPath);
+    if (!existsSync(absolute)) {
+      throw new Error(`--env-file not found: ${absolute}`);
+    }
+    return { path: absolute, isExample: false };
   }
 
-  if (existsSync(envDefault)) {
-    return parseEnvFile(envDefault);
+  for (const candidate of envFileCandidates(projectRoot)) {
+    if (existsSync(candidate)) {
+      return { path: candidate, isExample: false };
+    }
   }
 
-  logger.error("ERROR: No .env or .env.local file found in project root.");
-  logger.error("  Create one from .env.example or set required variables:");
-  logger.error(
-    "    CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS",
-  );
-  process.exit(1);
-  throw new Error(
-    "No .env or .env.local file found in project root. " +
-      "Create one from .env.example or set required variables: " +
-      "CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS",
-  );
+  return { path: resolve(__dirname, ".env.example"), isExample: true };
+}
+
+/**
+ * Locate and parse the environment file.
+ *
+ * See {@link resolveEnvFile} for the lookup order.
+ */
+export function loadEnvFile(
+  projectRoot: string,
+  explicitPath?: string,
+): Map<string, string> {
+  const { path, isExample } = resolveEnvFile(projectRoot, explicitPath);
+
+  if (!existsSync(path)) {
+    logger.error("ERROR: No .env or .env.local file found.");
+    logger.error("  Create one from scripts/.env.example or set required variables:");
+    logger.error(
+      "    CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS",
+    );
+    process.exit(1);
+    throw new Error(
+      "No .env or .env.local file found. " +
+        "Create one from scripts/.env.example or set required variables: " +
+        "CONTRACT_ID, RPC_URL, SECRET_KEY, BATCH_SIZE, INTERVAL_SECONDS",
+    );
+  }
+
+  if (isExample) {
+    logger.warn(
+      `No .env or .env.local found — validating the example file ${path} instead.`,
+    );
+  }
+
+  return parseEnvFile(path);
 }
 
 // ── Shared Config Loader ─────────────────────────────────────────────────────
@@ -132,22 +196,29 @@ interface ValidationResult {
 /**
  * Load and validate the keeper environment configuration.
  *
- * Reads the `.env` / `.env.local` file from the project root, parses it, and
- * validates the result against the Zod schema in `config.ts`.
+ * Reads the `.env` / `.env.local` file, parses it, and validates the result
+ * against the Zod schema in `config.ts`.
  *
- * @param strict  When `true`, the entire schema is validated (optional fields
- *                with malformed values also trigger errors). When `false`
- *                (default), only required fields are enforced.
- * @returns       The validated `KeeperConfig` object.
- * @throws        A descriptive `Error` listing every failing field when
- *                validation fails.
+ * The file is looked up in this order (see {@link envFileCandidates}):
+ * `scripts/.env.local`, `scripts/.env`, `<repo root>/.env.local`,
+ * `<repo root>/.env`. When none exists, `scripts/.env.example` is validated
+ * instead so the shipped example can be checked without a secret-bearing
+ * file.
+ *
+ * @param strict     When `true`, the entire schema is validated (optional fields
+ *                   with malformed values also trigger errors). When `false`
+ *                   (default), only required fields are enforced.
+ * @param envFile    Optional explicit path to the env file to validate.
+ * @returns          The validated `KeeperConfig` object.
+ * @throws           A descriptive `Error` listing every failing field when
+ *                   validation fails.
  */
-export function loadConfig(strict = false): KeeperConfig {
+export function loadConfig(strict = false, envFile?: string): KeeperConfig {
   const projectRoot = resolve(__dirname, "..");
 
   let envVars: Map<string, string>;
   try {
-    envVars = loadEnvFile(projectRoot);
+    envVars = loadEnvFile(projectRoot, envFile);
   } catch (err) {
     logger.error(String(err));
     process.exit(1);
@@ -183,15 +254,20 @@ export function loadConfig(strict = false): KeeperConfig {
 
 // ── CLI Helpers ──────────────────────────────────────────────────────────────
 
-function parseArgs(): { strict: boolean } {
+function parseArgs(): { strict: boolean; envFile?: string } {
   const strict = process.argv.includes("--strict");
-  return { strict };
+  let envFile: string | undefined;
+  const idx = process.argv.indexOf("--env-file");
+  if (idx !== -1 && process.argv[idx + 1]) {
+    envFile = process.argv[idx + 1];
+  }
+  return { strict, envFile };
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 function main(): void {
-  const { strict } = parseArgs();
+  const { strict, envFile } = parseArgs();
 
   logger.info("");
 
@@ -201,7 +277,7 @@ function main(): void {
 
   let config: KeeperConfig;
   try {
-    config = loadConfig(strict);
+    config = loadConfig(strict, envFile);
   } catch (err) {
     logger.error(String(err));
     logger.info("");
@@ -211,7 +287,7 @@ function main(): void {
 
   logger.info("✓ CONTRACT_ID ..............", config.CONTRACT_ID);
   logger.info("✓ RPC_URL ..................", config.RPC_URL);
-  logger.info("✓ SECRET_KEY ...............", "******** (valid)");
+  logger.info("✓ SECRET_KEY ...............", `${SECRET_MASK} (valid)`);
   logger.info("✓ BATCH_SIZE ...............", config.BATCH_SIZE);
   logger.info("✓ INTERVAL_SECONDS .........", config.INTERVAL_SECONDS);
   if (config.WEBHOOK_URL) {
