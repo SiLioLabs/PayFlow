@@ -33,6 +33,8 @@ the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 - [Dead-letter queue](#dead-letter-queue)
 - [Metrics and monitoring](#metrics-and-monitoring)
 - [Running as a service](#running-as-a-service)
+- [Scheduling and the due window](#scheduling-and-the-due-window)
+- [Keeper tip (`charge_with_tip`)](#keeper-tip-charge_with_tip)
 - [Recommended cadence](#recommended-cadence)
 - [Troubleshooting](#troubleshooting)
 - [Checklist](#checklist)
@@ -104,7 +106,8 @@ Everything is read from `process.env` at module load.
 | `NETWORK_PASSPHRASE`         | No                  | `Networks.TESTNET`                       | Must match the network the contract is deployed on. |
 | `ALLOW_MAINNET`              | No                  | `false`                                  | Must be `"true"` to start with the mainnet passphrase (`Public Global Stellar Network ; September 2015`); otherwise startup fails. |
 | `BATCH_SIZE`                 | No                  | on-chain max, else 50                    | **Legacy paging path only** - see [Batch size resolution](#batch-size-resolution). Clamped to 1-200. |
-| `INTERVAL_SECONDS`           | No                  | `3600`                                   | Seconds between cycles in loop mode. Floor of 1. |
+| `INTERVAL_SECONDS`           | No                  | `3600`                                   | Longest sleep between cycles in loop mode. Floor of 1. The loop wakes sooner when a subscription comes due (see [Scheduling and the due window](#scheduling-and-the-due-window)). |
+| `SCHEDULE_SCAN_MAX_PAGES`    | No                  | `20`                                     | Index pages (50 slots each) scanned per scheduling decision. Bounds the due-window reads. |
 | `REPORT_DIR`                 | No                  | `<script_dir>/data/benchmarks`           | Dry-run reports and the live-cycle pointer file. |
 | `KEEPER_USE_LEGACY_PAGING`   | No                  | `false`                                  | `true` switches to sequential offset paging instead of grace-urgency-ordered batches. |
 | `DLQ_FILE`                   | No                  | `<cwd>/dlq/failed-batches.jsonl`         | JSONL file of aborted batches. |
@@ -446,6 +449,45 @@ and metrics before exiting (see [Graceful shutdown](#graceful-shutdown)).
 pm2 start "npx tsx keeper.ts" --name payflow-keeper
 pm2 save
 ```
+
+## Scheduling and the due window
+
+In loop mode the keeper sleeps between cycles. The sleep is at most
+`INTERVAL_SECONDS`, and it is shorter when a subscription comes due sooner.
+
+After each cycle the keeper calls the read-only `get_charges_due_between(from, to,
+offset, limit)` contract function. It asks for subscribers whose next charge falls
+in `[now, now + INTERVAL_SECONDS]`, and it reads at most `SCHEDULE_SCAN_MAX_PAGES`
+index pages (50 slots each). If something is due inside the window, the keeper
+sleeps until the earliest due time. Otherwise it sleeps for the full interval.
+
+- The interval is always the ceiling, so the keeper still runs at least that often.
+- If the due-window read fails, the keeper logs a warning and uses the full
+  interval. Scheduling never stops the loop.
+- `--once` and dry runs are not affected. They run a single cycle and exit.
+
+`get_charges_due_between` is bounded like `get_next_charge_batch`: `limit` is
+capped at 50 and larger values fail with `BatchTooLarge`. Grace-lapsed
+subscriptions are included. The cycle's own grace checks decide what is charged.
+
+## Keeper tip (`charge_with_tip`)
+
+The protocol can pay third-party keepers a share of the protocol fee. This is
+optional and off by default.
+
+- The admin sets the tip with `set_keeper_tip_bps(bps)`. It is basis points of the
+  protocol fee, from `0` (off, the default) to `5000` (half the fee). Larger values
+  are rejected with `InvalidKeeperTipBps` (49). Read it with `get_keeper_tip_bps()`.
+- A keeper calls `charge_with_tip(user, keeper)`. The keeper signs as `keeper`, and
+  on success receives `fee * bps / 10000` from the subscriber's allowance. The fee
+  collector receives the rest of the protocol fee. The merchant's net is unchanged.
+- Each tip emits a `keeper_tip` event with the keeper, the subscriber, and the amount.
+- A plain `charge` never pays a tip, even when one is configured. Tips apply only
+  when a protocol fee applies. With no fee, the tip is zero.
+
+The bundled keeper (`scripts/keeper.ts`) batches charges through `batch_charge`,
+which does not pay tips in this version. A keeper that wants the tip must call
+`charge_with_tip` for each subscriber it charges.
 
 ## Recommended cadence
 

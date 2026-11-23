@@ -110,7 +110,7 @@ Source: `contract/src/subscription_history.rs`, `DataKey::ChargeHistory(user)`.
 
 ### Contract Schema Version
 
-An integer representing the current on-chain storage schema version (`DataKey::SchemaVersion`). Updated by admin `migrate()`; exposed via `get_schema_version()`. **Default when unset: `0` (unmigrated).** **Current target: `3`** (`CURRENT_VERSION` in `contract/src/migration.rs`: v1→v2 adds `paused`; v2→v3 backfills `referrer` on subscriptions).
+An integer representing the current on-chain storage schema version (`DataKey::SchemaVersion`). Advanced only by admin `finalize_migration()`, after `migrate()` has processed every account; exposed via `get_schema_version()`. **Default when unset: `0` (unmigrated).** **Current target: `3`** (`CURRENT_VERSION` in `contract/src/migration.rs`: v1→v2 adds `paused`; v2→v3 backfills `referrer` on subscriptions).
 
 Do not confuse with marketing “schema v3” shorthand in issues — the on-chain field is a plain `u32` incremented by migration steps.
 

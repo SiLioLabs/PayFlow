@@ -21,9 +21,9 @@ import {
   setMeta,
 } from "./schema.js";
 
-const V2_COLUMNS = [
+const LATEST_COLUMNS = [
   "id", "event_name", "address", "amount", "ledger", "timestamp", "tx_hash", "raw_data",
-  "merchant", "fee_amount", "token", "result_code",
+  "merchant", "fee_amount", "token", "result_code", "schema_version",
 ];
 const INDEXES = [
   "idx_events_address", "idx_events_event_name", "idx_events_ledger", "idx_events_timestamp",
@@ -62,9 +62,9 @@ describe("fresh database", () => {
   it("is built entirely by the migrations", () => {
     const db = open();
     expect(getSchemaVersion(db)).toBe(0);
-    expect(runMigrations(db)).toEqual([1, 2, 3]);
+    expect(runMigrations(db)).toEqual([1, 2, 3, 4]);
     expect(getSchemaVersion(db)).toBe(SCHEMA_VERSION);
-    expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
+    expect(getTableColumns(db, "events")).toEqual(LATEST_COLUMNS);
     expect(listIndexes(db, "events")).toEqual(INDEXES);
     expect(getMeta(db, "schema_version")).toBe(String(SCHEMA_VERSION));
   });
@@ -92,27 +92,31 @@ describe("legacy databases", () => {
   it("upgrades a v1 database without losing data", () => {
     const db = open();
     createLegacyV1(db);
-    expect(runMigrations(db)).toEqual([2, 3]);
+    expect(runMigrations(db)).toEqual([2, 3, 4]);
 
     expect(getSchemaVersion(db)).toBe(SCHEMA_VERSION);
-    expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
+    expect(getTableColumns(db, "events")).toEqual(LATEST_COLUMNS);
     expect(getMeta(db, "last_ledger")).toBe("4242");
     const rows = db.prepare("SELECT * FROM events ORDER BY id").all() as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ id: "a:0:0", address: "GUSER", amount: "100", merchant: null });
-    expect(rows[1]).toMatchObject({ id: "b:0:0", amount: null, token: null });
+    expect(rows[0]).toMatchObject({ id: "a:0:0", address: "GUSER", amount: "100", merchant: null, schema_version: 1 });
+    expect(rows[1]).toMatchObject({ id: "b:0:0", amount: null, token: null, schema_version: 1 });
   });
 
   it("upgrades an unversioned legacy database that already has every column", () => {
     const db = open();
     createLegacyV1(db);
-    for (const c of ["merchant", "fee_amount", "token", "result_code"]) {
+    for (const c of ["merchant", "fee_amount", "token", "result_code", "schema_version"]) {
+      if (c === "schema_version") {
+        db.exec("ALTER TABLE events ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
+        continue;
+      }
       db.exec(`ALTER TABLE events ADD COLUMN ${c} TEXT`);
     }
     db.exec("DELETE FROM meta WHERE key = 'schema_version'");
 
-    expect(runMigrations(db)).toEqual([1, 2, 3]);
-    expect(getTableColumns(db, "events")).toEqual(V2_COLUMNS);
+    expect(runMigrations(db)).toEqual([1, 2, 3, 4]);
+    expect(getTableColumns(db, "events")).toEqual(LATEST_COLUMNS);
     expect((db.prepare("SELECT COUNT(*) AS c FROM events").get() as { c: number }).c).toBe(2);
   });
 

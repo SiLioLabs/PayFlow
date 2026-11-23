@@ -17,11 +17,11 @@
 
 use super::*;
 use crate::errors::ContractError;
-use crate::migration::CURRENT_VERSION;
+use crate::migration::{SubscriptionV1, CURRENT_VERSION};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, Vec,
+    Address, Env, Symbol, Vec,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,25 +213,30 @@ fn test_migration_paged_migrate_reaches_current_version() {
 }
 
 /// After a paged migration that only advances halfway (simulated by writing version=2
-/// directly), a second migrate call completes the migration and emits the event.
+/// directly), a final `finalize_migration` call completes the upgrade. The empty
+/// batch alone no longer advances the version (see `migrate` docs in migration.rs).
 #[test]
 fn test_migration_paged_second_page_completes_migration() {
     let (env, contract_id, _token_addr, _admin, _user, _merchant) = migration_setup();
     // Simulate: v1→v2 was done in a previous page call.
     set_version_directly(&env, &contract_id, 2);
 
-    // Second page call (v2→v3 step).
+    // Second page call (v2→v3 step) processes no accounts.
     env.as_contract(&contract_id, || {
         let page: Vec<Address> = Vec::new(&env);
         migration::migrate(&env, page);
     });
+    let version = env.as_contract(&contract_id, || migration::get_schema_version(&env));
+    assert_eq!(version, 2, "an empty batch must not advance the schema");
 
+    // Zero accounts were expected, so finalize succeeds and completes the upgrade.
+    env.as_contract(&contract_id, || migration::finalize(&env, 0));
     let version = env.as_contract(&contract_id, || migration::get_schema_version(&env));
     assert_eq!(version, CURRENT_VERSION);
 }
 
-/// A page of users that have no subscription blobs is silently skipped —
-/// the function does not panic, and updated_count in the event is 0.
+/// A page of users that have no subscription blobs is accepted — the function
+/// does not panic — and each such account still counts as processed.
 #[test]
 fn test_migration_paged_skips_users_without_subscriptions() {
     let (env, contract_id, _token_addr, _admin, _user, _merchant) = migration_setup();
@@ -245,6 +250,7 @@ fn test_migration_paged_skips_users_without_subscriptions() {
         page.push_back(ghost1.clone());
         page.push_back(ghost2.clone());
         migration::migrate(&env, page); // Must not panic.
+        migration::finalize(&env, 2);
     });
 
     let version = env.as_contract(&contract_id, || migration::get_schema_version(&env));
@@ -332,8 +338,8 @@ fn test_migration_get_schema_version_default_is_zero() {
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
 }
 
-/// get_schema_version advances to CURRENT_VERSION after migration completes
-/// when starting from a downgraded version (simulating a post-upgrade state).
+/// get_schema_version advances to CURRENT_VERSION only once `finalize` completes
+/// the upgrade, when starting from a downgraded version (post-upgrade state).
 #[test]
 fn test_migration_get_schema_version_after_full_migrate() {
     let (env, contract_id, _token_addr, _admin, _user, _merchant) = migration_setup();
@@ -346,7 +352,165 @@ fn test_migration_get_schema_version_after_full_migrate() {
     env.as_contract(&contract_id, || {
         let users: Vec<Address> = Vec::new(&env);
         migration::migrate(&env, users);
+        migration::finalize(&env, 0);
     });
 
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #1422: resumable migration with progress tracking
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Writes a v1-shaped subscription blob (no `paused`) directly into storage.
+fn write_v1_blob(env: &Env, contract_id: &Address, user: &Address, merchant: &Address, token: &Address) {
+    let v1 = SubscriptionV1 {
+        merchant: merchant.clone(),
+        amount: 1_000_000i128,
+        interval: 3600u64,
+        last_charged: env.ledger().timestamp(),
+        active: true,
+        token: token.clone(),
+        referrer: None,
+        label: Symbol::new(env, "v1_label"),
+        trial_duration: 0,
+    };
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Subscription(user.clone()), &v1);
+    });
+}
+
+/// `migrate` must not bump the version on its own. Only `finalize` does.
+#[test]
+fn test_migration_batch_does_not_advance_version() {
+    let (env, contract_id, _token_addr, _admin, user, _merchant) = migration_setup();
+    set_version_directly(&env, &contract_id, 2);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(user.clone());
+    env.as_contract(&contract_id, || migration::migrate(&env, users));
+
+    assert_eq!(client.get_schema_version(), 2);
+    let progress = client.get_migration_progress();
+    assert_eq!(progress.schema_version, 2);
+    assert_eq!(progress.migrated_accounts, 1);
+    assert!(!progress.complete);
+}
+
+/// `finalize` refuses to advance while fewer accounts are processed than expected,
+/// and `SchemaMigrationRequired` keeps blocking subscribe in the meantime.
+#[test]
+fn test_migration_finalize_rejects_incomplete_run() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
+    set_version_directly(&env, &contract_id, 2);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(user.clone());
+    env.as_contract(&contract_id, || migration::migrate(&env, users));
+
+    // Operator expected two accounts but only one was processed.
+    let result = client.try_finalize_migration(&2u64);
+    assert!(result.is_err(), "finalize must reject an incomplete run");
+    assert_eq!(client.get_schema_version(), 2);
+
+    let blocked = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
+    assert!(blocked.is_err(), "subscribe must stay blocked until finalize succeeds");
+}
+
+/// Once every expected account is processed, `finalize` clears
+/// `SchemaMigrationRequired` and subscribe works again.
+#[test]
+fn test_migration_finalize_clears_requirement_when_complete() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
+    set_version_directly(&env, &contract_id, 2);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(user.clone());
+    env.as_contract(&contract_id, || migration::migrate(&env, users));
+
+    client.finalize_migration(&1u64);
+    assert_eq!(client.get_schema_version(), CURRENT_VERSION);
+    assert!(client.get_migration_progress().complete);
+
+    client.subscribe(
+        &user,
+        &merchant,
+        &1_000_000i128,
+        &3600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
+    assert!(client.get_subscription(&user).is_some());
+}
+
+/// Re-sending an account in a later batch must not count it twice, otherwise a
+/// duplicate could satisfy `finalize`'s total before every account is done.
+#[test]
+fn test_migration_duplicate_account_counted_once() {
+    let (env, contract_id, _token_addr, _admin, user, _merchant) = migration_setup();
+    set_version_directly(&env, &contract_id, 2);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(user.clone());
+    env.as_contract(&contract_id, || {
+        migration::migrate(&env, users.clone());
+        migration::migrate(&env, users.clone());
+    });
+
+    assert_eq!(client.get_migration_progress().migrated_accounts, 1);
+    assert!(client.try_finalize_migration(&2u64).is_err());
+}
+
+/// A v1 blob is rewritten to v2 exactly once. Repeating the batch must not try to
+/// decode the already-rewritten blob as v1, which would panic.
+#[test]
+fn test_migration_v1_blob_converted_once_and_rerun_is_safe() {
+    let (env, contract_id, token_addr, _admin, user, merchant) = migration_setup();
+    set_version_directly(&env, &contract_id, 0);
+    write_v1_blob(&env, &contract_id, &user, &merchant, &token_addr);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    let mut users: Vec<Address> = Vec::new(&env);
+    users.push_back(user.clone());
+
+    client.migrate(&users);
+    let converted = client.get_subscription(&user).expect("blob must survive migration");
+    assert!(!converted.paused, "v1 blob must be rewritten with paused = false");
+    assert_eq!(converted.merchant, merchant);
+
+    // Second run of the same batch is a no-op for this account.
+    client.migrate(&users);
+    assert_eq!(client.get_subscription(&user).unwrap(), converted);
+    assert_eq!(client.get_migration_progress().migrated_accounts, 1);
+
+    client.finalize_migration(&1u64);
+    assert_eq!(client.get_schema_version(), CURRENT_VERSION);
+}
+
+/// The progress getter reports the target version and a zeroed count on a fresh
+/// contract that never needed migration.
+#[test]
+fn test_migration_progress_fresh_contract_is_complete() {
+    let (env, contract_id, _token_addr, _admin, _user, _merchant) = migration_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let progress = client.get_migration_progress();
+    assert_eq!(progress.schema_version, CURRENT_VERSION);
+    assert_eq!(progress.target_version, CURRENT_VERSION);
+    assert_eq!(progress.migrated_accounts, 0);
+    assert!(progress.complete);
 }

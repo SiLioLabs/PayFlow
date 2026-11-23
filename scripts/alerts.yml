@@ -1,0 +1,143 @@
+# PayFlow Keeper — Prometheus alert rules
+#
+# Validate with:
+#   promtool check rules scripts/alerts.yml
+#
+# Runbook references are in docs/RUNBOOK.md.
+# Each alert name links to a section: docs/RUNBOOK.md#<alert-name-lowercase>
+#
+# Thresholds and their rationale:
+#   KeeperHeartbeatMissing : No keeper heartbeat for 3× the default poll interval
+#                            (3 min). A missed heartbeat means charges are not
+#                            being processed.
+#   KeeperHighFailureRatio : > 10% of charge calls failed in the last 5 min.
+#                            Indicates contract panics, RPC issues, or bad batches.
+#   KeeperDLQGrowing       : DLQ has grown to ≥ 5 entries. Failed batches are
+#                            accumulating and need manual review.
+#   KeeperRPCErrors        : > 5 RPC errors / minute. Likely network or RPC node
+#                            degradation.
+#   KeeperFeeCeilingBreached: Adaptive fee has hit the ceiling more than once in
+#                             5 min — network congestion is blocking batches.
+#   KeeperBatchSlow        : p95 batch latency > 30 s. Transactions are queued or
+#                            taking too long to confirm.
+
+groups:
+  - name: payflow_keeper
+    interval: 30s
+    rules:
+      # ── Heartbeat ───────────────────────────────────────────────────────────
+      - alert: KeeperHeartbeatMissing
+        expr: >
+          (time() - payflow_keeper_last_run_timestamp_seconds) > 180
+        for: 1m
+        labels:
+          severity: critical
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper has not run for > 3 minutes"
+          description: >
+            The keeper last ran {{ $value | humanizeDuration }} ago.
+            Charges are not being processed.
+            Check that the keeper process is alive and connected to the RPC.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperheartbeatmissing"
+
+      # ── Charge failure ratio ────────────────────────────────────────────────
+      - alert: KeeperHighFailureRatio
+        expr: >
+          (
+            rate(payflow_keeper_charges_total{result="Failed"}[5m])
+            /
+            (rate(payflow_keeper_charges_total[5m]) > 0)
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper charge failure ratio > 10%"
+          description: >
+            {{ $value | humanizePercentage }} of charges are failing over the
+            last 5 minutes. This may indicate contract panics, insufficient
+            allowances, or RPC issues.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperhighfailureratio"
+
+      # ── Dead-letter queue ───────────────────────────────────────────────────
+      - alert: KeeperDLQGrowing
+        expr: payflow_keeper_dlq_size >= 5
+        for: 2m
+        labels:
+          severity: warning
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper DLQ has ≥ 5 failed batches"
+          description: >
+            The dead-letter queue currently holds {{ $value }} failed batches.
+            These batches contain subscribers that were not charged due to
+            transient errors. Investigate and replay or discard.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperdlqgrowing"
+
+      - alert: KeeperDLQCritical
+        expr: payflow_keeper_dlq_size >= 20
+        for: 1m
+        labels:
+          severity: critical
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper DLQ has ≥ 20 failed batches (critical)"
+          description: >
+            The dead-letter queue has {{ $value }} entries — a large number of
+            subscribers are not being charged. Immediate investigation required.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperdlqgrowing"
+
+      # ── RPC errors ──────────────────────────────────────────────────────────
+      - alert: KeeperRPCErrors
+        expr: >
+          rate(payflow_keeper_rpc_errors_total[5m]) * 60 > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper RPC error rate > 5/min"
+          description: >
+            The keeper is experiencing {{ $value | humanize }} RPC errors/min
+            (operation={{ $labels.operation }}). This may indicate RPC node
+            degradation, network issues, or rate limiting.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperrpcerrors"
+
+      # ── Fee ceiling ─────────────────────────────────────────────────────────
+      - alert: KeeperFeeCeilingBreached
+        expr: >
+          increase(payflow_keeper_charges_total{result="Failed"}[5m]) > 1
+          and
+          payflow_keeper_adaptive_fee_stroops_count > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper may be hitting the fee ceiling"
+          description: >
+            Multiple charge failures in the last 5 minutes while adaptive fees
+            are being calculated — the fee ceiling may be too low for current
+            network conditions. Consider increasing FEE_CEILING_STROOPS or
+            enabling fee-bump.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperfeeceilingbreached"
+
+      # ── Batch latency ────────────────────────────────────────────────────────
+      - alert: KeeperBatchSlow
+        expr: >
+          histogram_quantile(
+            0.95,
+            rate(payflow_keeper_batch_duration_seconds_bucket[5m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: payflow-ops
+        annotations:
+          summary: "PayFlow keeper p95 batch latency > 30 s"
+          description: >
+            The 95th-percentile batch processing time is {{ $value | humanizeDuration }}.
+            Transactions may be queued on the network or the RPC node is slow.
+          runbook: "https://github.com/SiLioLabs/PayFlow/blob/main/docs/RUNBOOK.md#keeperbatchslow"

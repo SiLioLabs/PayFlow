@@ -1024,6 +1024,9 @@
             "topics": [
               {
                 "symbol": "grace_period_proposed"
+              },
+              {
+                "symbol": "v2"
               }
             ],
             "data": {

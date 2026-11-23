@@ -395,6 +395,8 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 
 Both the user's and the merchant's signing keys must be present in the transaction for this call to succeed on-chain, since both addresses call `require_auth()`.
 
+**Frontend entry point.** `MerchantSubscriberTable` (`frontend/src/components/MerchantSubscriberTable.tsx`) adds a row action that previews the prorated amount with `calculateProratedRefund`, requires the connected wallet to match the subscription's merchant, and calls `buildCancelAndRefundTx(merchant, user)`. It blocks zero refunds before signing and surfaces errors 38 (wrong merchant), 39 (nothing to refund), and 40 (underfunded merchant) with friendly messages. A successful refund marks the row `Refunded` and notifies the parent via `onRefunded`.
+
 ---
 
 ## Walkthrough: A Subscriber's Full Life

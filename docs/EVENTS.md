@@ -934,14 +934,53 @@ Events related to contract migration and infrastructure operations.
 
 ### migration_completed
 
-- **Trigger**: `migrate()` (schema migration)
+- **Trigger**: `finalize_migration()`, once the schema version advances to the current version. `migrate()` emits nothing.
 - **Topic keys**: `["migration_completed"]`
-- **Payload schema**: `(version: u32, user_count: u32)`
+- **Payload schema**: `(version: u32, user_count: u32)`, where `user_count` is the number of accounts processed.
 - **JSON example**:
   ```json
   {
     "topic": ["migration_completed"],
     "data": [3, 150]
+  }
+  ```
+
+### migration_progress
+
+- **Trigger**: `migrate()`, when a batch processes at least one new account
+- **Topic keys**: `["migration_progress"]`
+- **Payload schema**: `migrated_accounts: u64`, the running total for this upgrade
+- **JSON example**:
+  ```json
+  {
+    "topic": ["migration_progress"],
+    "data": 150
+  }
+  ```
+
+### keeper_tip_bps_set
+
+- **Trigger**: `set_keeper_tip_bps()` (admin)
+- **Topic keys**: `["keeper_tip_bps_set"]`
+- **Payload schema**: `(old: u32, new: u32)`, in basis points of the protocol fee
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip_bps_set"],
+    "data": [0, 2000]
+  }
+  ```
+
+### keeper_tip
+
+- **Trigger**: `charge_with_tip()`, when a tip is paid to the keeper
+- **Topic keys**: `["keeper_tip", <keeper: Address>]`
+- **Payload schema**: `(user: Address, tip: i128)`, in token base units. Emitted only when `tip > 0`.
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip", "G...KEEPER"],
+    "data": ["G...SUBSCRIBER", 100000]
   }
   ```
 

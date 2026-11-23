@@ -112,6 +112,26 @@ function TxEntryRow({ entry }: TxEntryRowProps) {
         )}
       </div>
 
+      {entry.preview?.feeXlm && (
+        <p
+          className="tx-queue-entry__preview-fee text-xs text-muted"
+          data-testid={`tx-preview-fee-${entry.id}`}
+        >
+          Estimated fee: {entry.preview.feeXlm} XLM
+        </p>
+      )}
+
+      {entry.preview?.errorMessage && (
+        <p
+          className="tx-queue-entry__preview-error text-xs text-error"
+          role="status"
+          data-testid={`tx-preview-error-${entry.id}`}
+        >
+          Simulation: {entry.preview.errorMessage}
+          {entry.preview.errorCode && ` (${entry.preview.errorCode})`}
+        </p>
+      )}
+
       {isInterrupted && (
         <div
           className="tx-queue-entry__error"

@@ -309,8 +309,8 @@ stateDiagram-v2
 ## Frontend guidance
 
 - **Indefinite pause:** show a "Resume" button. The subscription is billed again after the user resumes and the next interval elapses.
-- **Bounded pause (`pause_until`):** show the resume date derived from the `paused` event payload. No user action is required; auto-resume fires on the next keeper cycle after the expiry.
-- **No `get_pause_expiry` API:** the expiry is not readable from the contract. Index it from the `paused` event payload in the off-chain indexer.
+- **Bounded pause (`pause_until`):** the pause modal offers an optional local date/time picker. `SubscriptionCard` validates that the expiry is strictly in the future (contract error 27, `InvalidPauseExpiry`) before signing and displays "Auto-resumes <date>" on the card. No user action is required; auto-resume fires on the next keeper cycle after the expiry.
+- **No `get_pause_expiry` API:** the expiry is not readable from the contract. The frontend reads the `pause_until` event payload (`expiry_timestamp`) to restore the auto-resume date after a reload; indexers should do the same.
 - **`ResumeGraceLapsed` (43):** inform the user that the subscription has lapsed and they must re-subscribe rather than resume.
 
 ---
