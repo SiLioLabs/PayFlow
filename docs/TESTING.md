@@ -383,3 +383,62 @@ Nothing in CI touches a real network — there is no testnet RPC access from Git
         run: npm run test
   ```
 - **A new integration/E2E/keeper check**: these require live testnet access and a funded account, which GitHub Actions doesn't have configured today. Automating any of them means provisioning a CI secret for a funded testnet keypair and accepting real network flakiness in CI — treat this as a deliberate infrastructure decision, not a drop-in workflow step, and discuss it in an issue before implementing it.
+
+---
+
+## Fuzzing (`batch_charge`)
+
+### Issue #1416
+
+A `cargo-fuzz` harness exists at `contract/fuzz/fuzz_targets/fuzz_batch_charge.rs`.
+It exercises `batch_charge` with mixed subscription states (active/due, active/not-due,
+inactive, paused, auto-resume, grace-elapsed) and duplicate addresses, asserting:
+
+1. `results.len() == inputs.len()` — no entries silently dropped.
+2. `NoSubscription` and `Inactive` slots never yield `Charged`.
+3. Duplicate entries are charged at most once per call.
+
+### Prerequisites
+
+```bash
+# Rust nightly toolchain (automatically activated via
+# contract/fuzz/rust-toolchain.toml when inside that directory)
+rustup toolchain install nightly
+
+# cargo-fuzz
+cargo install cargo-fuzz
+```
+
+### Running the fuzzer
+
+```bash
+cd contract
+
+# Run for 10 minutes (recommended minimum)
+cargo fuzz run fuzz_batch_charge -- -max_total_time=600
+
+# Run indefinitely (Ctrl-C to stop)
+cargo fuzz run fuzz_batch_charge
+
+# List all fuzz targets
+cargo fuzz list
+```
+
+### Reproducing a crash
+
+Crashes are saved as byte files under `contract/fuzz/artifacts/fuzz_batch_charge/`.
+
+```bash
+cargo fuzz run fuzz_batch_charge fuzz/artifacts/fuzz_batch_charge/<artifact_file>
+```
+
+### CI note
+
+`cargo fuzz` requires nightly and cannot run in the same step as `cargo test`. Add a
+dedicated scheduled or manual-trigger CI job if you want continuous fuzzing:
+
+```yaml
+- name: Fuzz batch_charge (10 min)
+  run: cargo fuzz run fuzz_batch_charge -- -max_total_time=600
+  working-directory: contract
+```

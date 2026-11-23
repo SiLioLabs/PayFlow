@@ -14,7 +14,10 @@ mod migration;
 mod min_interval;
 mod referral;
 mod spending_limit;
+#[cfg(not(feature = "testutils"))]
 mod storage;
+#[cfg(feature = "testutils")]
+pub mod storage;
 mod subscription_count;
 mod subscription_history;
 mod subscription_metadata;

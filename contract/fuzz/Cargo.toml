@@ -1,0 +1,30 @@
+[package]
+name = "flowpay-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# cargo-fuzz requires nightly and sets panic = "abort" automatically.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# libfuzzer-sys provides the fuzzing entry-point and must be the
+# only runtime dependency alongside the crate under test.
+libfuzzer-sys = "0.4"
+
+# Pull in the contract crate with its testutils feature so we have
+# access to Env::default(), mock_all_auths(), StellarAssetClient, etc.
+flowpay = { path = "..", features = ["testutils"] }
+
+# soroban-sdk re-exported through the contract crate so the harness
+# can construct Soroban-native types (Address, Vec, …).
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+
+# Individual fuzz targets are listed as [[bin]] entries.
+# cargo-fuzz discovers them by convention under fuzz_targets/.
+[[bin]]
+name = "fuzz_batch_charge"
+path = "fuzz_targets/fuzz_batch_charge.rs"
+test = false
+doc = false
