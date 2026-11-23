@@ -2,7 +2,10 @@
 #![allow(clippy::too_many_arguments)]
 
 mod admin;
+#[cfg(not(feature = "testutils"))]
 mod batch;
+#[cfg(feature = "testutils")]
+pub mod batch;
 mod bench;
 mod charge_exec;
 mod errors;
