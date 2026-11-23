@@ -56,7 +56,14 @@ const PAGE_SIZE = Math.min(
   Math.max(1, Number.parseInt(process.env.PAGE_SIZE ?? "50", 10) || 50),
 );
 
-const SIM_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+/**
+ * Source account for simulation envelopes only — never signed or submitted.
+ * Must be a well-formed strkey: the previous literal was 55 characters
+ * (invalid checksum) so every simulate() threw "accountId is invalid" and
+ * the dry-run cycle could never complete. This is the placeholder account
+ * already used by health-check.ts / soroban-admin.ts.
+ */
+const SIM_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 /**
  * Default number of subscribers per `batch_charge` call.

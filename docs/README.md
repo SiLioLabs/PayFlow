@@ -117,6 +117,7 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Keeper bot operations handbook](operations/KEEPER-RUNBOOK.md)
 - [Troubleshooting runbook](operations/TROUBLESHOOTING.md)
 - [Two-step admin operator playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md)
+- [Incident response runbook](operations/INCIDENT-RESPONSE-RUNBOOK.md) — severity, containment, upgrade, accounting, and communications
 - [Scripts environment variable reference](SCRIPTS-ENVIRONMENT.md)
 - [Scripts reference](../scripts/README.md) and [operational fixes](../scripts/README-OPERATIONAL-FIXES.md)
 - [Deployment guide](DEPLOYMENT.md)
@@ -162,6 +163,7 @@ These checks keep the docs in sync with the code. Run them from the repository r
 | `npm run check:contract-api` | [API.md](API.md) references every public `pub fn` in `contract/src/lib.rs`. |
 | `cd scripts && npx tsx lint-duplicates.ts` (or `npm run lint:duplicates`) | Every script under `scripts/` parses and has no duplicate declarations or object keys (baseline in `scripts/.duplicate-lint-baseline.json`). |
 | `cd scripts && node lint-duplicates.mjs` | No `.ts` file under `scripts/` has two non-type imports from the same module. |
+| `npm run check:env-docs` | Generated environment-table sections and `scripts/.env.example` match the Zod `ConfigSchema`. |
 
 Copy-paste all of the root-level checks at once:
 
@@ -171,5 +173,9 @@ node scripts/emit-caps-table.mjs --check
 node scripts/gen-undocumented-scripts.mjs --check
 node scripts/check-quicklinks.mjs
 node scripts/check-error-codes.mjs
+<<<<<<< HEAD
+npm run check:env-docs
+=======
 npm run check:contract-api
+>>>>>>> origin/master
 ```

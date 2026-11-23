@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { MAX_STROOPS } from "../constants";
-import { stroopsToXlm } from "../utils/format";
+import { stroopsToXlm, formatInteger } from "../utils/format";
 import { useDebounce } from "../hooks/useDebounce";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
 import { validateStroopAmount } from "../utils/validation";
@@ -108,7 +108,7 @@ export default function StroopInput({
 
   const formatAlternate = (stroops: bigint): string => {
     if (unit === "XLM") {
-      return `${stroops.toLocaleString("en-US")} STROOP`;
+      return `${formatInteger(stroops)} STROOP`;
     } else {
       return `${stroopsToXlm(stroops)} XLM`;
     }

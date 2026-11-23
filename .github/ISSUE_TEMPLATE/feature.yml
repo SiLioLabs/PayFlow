@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose an implementation for PayFlow
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the user or operator problem this feature solves.
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requirements
+      description: Expected behavior, affected components, security constraints, and non-goals.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Specific, testable outcomes.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Contributor checks
+      options:
+        - label: I have checked existing issues and documentation.
+        - label: I have considered backward compatibility and security impact.

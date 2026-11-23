@@ -111,6 +111,7 @@ Two GitHub Actions workflows run automatically on every PR and push to `master`:
 - **`security-audit.yml`** — runs `cargo audit` against `contract/Cargo.lock` and `vesting/Cargo.lock`, and `npm audit --omit=dev` for the root, `frontend/`, and `scripts/` packages; also runs on a weekly schedule (every Monday). High-severity dependency vulnerabilities block the PR.
 
 See [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) for the full command reference and local equivalents.
+This repository ships one GitHub Actions workflow — [`docker-smoke.yml`](.github/workflows/docker-smoke.yml), which builds the keeper Docker image and runs a dry-run cycle plus SIGTERM checks against a mock RPC on PRs touching `scripts/**`. Everything else (contract, frontend, scripts typecheck/tests) is enforced manually: run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
 
 ---
 
