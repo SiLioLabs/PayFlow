@@ -96,6 +96,7 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 ## Understanding the contract
 
 - [Contract API reference](API.md)
+- [Academy vesting crate](../vesting/README.md)
 - [Architecture](ARCHITECTURE.md)
 - [Events reference](EVENTS.md)
 - [Error codes and recovery playbook](ERROR-CODES.md)
@@ -155,6 +156,7 @@ These checks keep the docs in sync with the code. Run them from the repository r
 | `node scripts/gen-undocumented-scripts.mjs --check` | The generated script-reference block in [scripts/README.md](../scripts/README.md) matches the flags and env vars the scripts read. Drop `--check` to print the block. |
 | `node scripts/check-quicklinks.mjs` | The quick-link table in [scripts/README.md](../scripts/README.md) points at the correct heading anchors. |
 | `node scripts/check-error-codes.mjs` | [ERROR-CODES.md](ERROR-CODES.md) lists every code in `contract/src/errors.rs`, with no duplicates. |
+| `npm run check:contract-api` | [API.md](API.md) references every public `pub fn` in `contract/src/lib.rs`. |
 | `cd scripts && npx tsx lint-duplicates.ts` (or `npm run lint:duplicates`) | Every script under `scripts/` parses and has no duplicate declarations or object keys (baseline in `scripts/.duplicate-lint-baseline.json`). |
 | `cd scripts && node lint-duplicates.mjs` | No `.ts` file under `scripts/` has two non-type imports from the same module. |
 
@@ -166,4 +168,5 @@ node scripts/emit-caps-table.mjs --check
 node scripts/gen-undocumented-scripts.mjs --check
 node scripts/check-quicklinks.mjs
 node scripts/check-error-codes.mjs
+npm run check:contract-api
 ```

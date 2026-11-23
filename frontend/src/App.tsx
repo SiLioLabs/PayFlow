@@ -27,8 +27,16 @@ import { ShortcutRegistryContext } from "./context/ShortcutRegistry";
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
 function AppInner() {
-  const { publicKey, connect, disconnect, signAndSubmit, error, connecting, connectionStatus, activeAdapter } =
-    useWallet();
+  const {
+    publicKey,
+    connect,
+    disconnect,
+    signAndSubmit,
+    error,
+    connecting,
+    connectionStatus,
+    activeAdapter,
+  } = useWallet();
   const { announcement, announce } = useAccessibility();
   const { healthy, circuitOpen } = useRpcHealthContext();
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -45,14 +53,24 @@ function AppInner() {
     isMainnet,
     requiresMainnetConfirm,
     confirmMainnet,
-  } = useNetworkStatus();
+  } = useNetworkStatus(activeAdapter);
   const { valid: isContractIdValid, error: contractIdError } = useContractId();
   const { isAdmin } = useAdmin(publicKey);
   const { isPaused, status: contractStatus } = useContractPaused();
-  const { notifications, unreadCount, markAllRead, clearNotifications } = useToast();
+  const {
+    notifications,
+    markAllRead,
+    clearNotifications,
+    notificationPreferences,
+    setNotificationPreference,
+  } = useToast();
   const [showWalletModal, setShowWalletModal] = useState(false);
   const wasOnline = useRef(isOnline);
   const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
+  const visibleNotifications = notifications.filter(
+    (note) => notificationPreferences[note.variant]
+  );
+  const visibleUnreadCount = visibleNotifications.filter((note) => !note.read).length;
 
   // Announce connectivity changes via the ARIA live region (issue: disable
   // mutating CTAs while offline + announce status).
@@ -205,10 +223,12 @@ function AppInner() {
             publicKey={publicKey}
             activeAdapter={activeAdapter}
             onDisconnect={disconnect}
-            notifications={notifications}
-            unreadCount={unreadCount}
+            notifications={visibleNotifications}
+            unreadCount={visibleUnreadCount}
             onMarkAllRead={markAllRead}
             onClearNotifications={clearNotifications}
+            notificationPreferences={notificationPreferences}
+            onNotificationPreferenceChange={setNotificationPreference}
           />
 
           {/* Tab navigation — admin tab only visible to contract admin */}
@@ -237,6 +257,7 @@ function AppInner() {
             >
               {tab === "subscribe" && (
                 <SubscribeForm
+                  key={publicKey}
                   userKey={publicKey}
                   onSign={signAndSubmit}
                   onSuccess={() => {
@@ -257,6 +278,7 @@ function AppInner() {
             >
               {tab === "dashboard" && (
                 <Dashboard
+                  key={publicKey}
                   userKey={publicKey}
                   onSign={signAndSubmit}
                   refreshTrigger={refresh}
@@ -274,6 +296,7 @@ function AppInner() {
             >
               {tab === "merchant" && (
                 <MerchantDashboard
+                  key={publicKey}
                   merchantKey={publicKey}
                   onSign={signAndSubmit}
                   refreshTrigger={refresh}
@@ -290,6 +313,7 @@ function AppInner() {
               >
                 {tab === "admin" && (
                   <AdminDashboard
+                    key={publicKey}
                     publicKey={publicKey}
                     onSign={signAndSubmit}
                     gatePassed={gatePassed}

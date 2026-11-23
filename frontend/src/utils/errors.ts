@@ -154,3 +154,19 @@ export function friendlyError(raw: string): string {
 
   return raw;
 }
+
+/**
+ * Extract a canonical contract error code from a raw RPC/simulation message.
+ *
+ * Returns the code in `#N` form so it can be matched against both
+ * `CONTRACT_ERRORS["error(contract, #N)"]` and the bare-code aliases.
+ */
+export function extractContractErrorCode(raw: string): string | null {
+  const contractMatch = raw.match(/error\(\s*contract\s*,\s*#(\d+)\s*\)/i);
+  if (contractMatch) return `#${contractMatch[1]}`;
+
+  const bareMatch = raw.match(/#(\d+)\b/);
+  if (bareMatch) return `#${bareMatch[1]}`;
+
+  return null;
+}

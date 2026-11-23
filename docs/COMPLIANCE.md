@@ -260,3 +260,9 @@ Broad admin powers (pause, freeze merchants, clear history, upgrade) exist. Trea
 | [architecture/STORAGE-AND-TTL.md](./architecture/STORAGE-AND-TTL.md) | Storage tiers and TTL                                     |
 | [API.md](./API.md)                                                   | Charge and charge-history APIs                            |
 | [GLOSSARY.md](./GLOSSARY.md)                                         | Protocol terminology                                      |
+
+## Subscriber receipts
+
+Subscribers can generate a printable receipt for any individual charge directly from the **Charge History** panel in the UI. Click **Receipt** next to a charge row to open the `ChargeReceipt` component, which shows the merchant, amount, protocol fee (if configured), date, transaction hash, and an explorer link for the configured network. The receipt can be printed or saved as a PDF using the browser's print dialog.
+
+See [`FRONTEND-COMPONENTS.md § ChargeReceipt`](./FRONTEND-COMPONENTS.md#chargereceipt) for the component API.
