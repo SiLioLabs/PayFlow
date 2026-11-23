@@ -7,6 +7,9 @@ import { FreighterAdapter } from "../services/wallets/FreighterAdapter";
 import { XBullAdapter } from "../services/wallets/XBullAdapter";
 import { LobstrAdapter } from "../services/wallets/LobstrAdapter";
 import { HanaAdapter } from "../services/wallets/HanaAdapter";
+import { AlbedoAdapter } from "../services/wallets/AlbedoAdapter";
+import { RabetAdapter } from "../services/wallets/RabetAdapter";
+import { WalletConnectAdapter } from "../services/wallets/WalletConnectAdapter";
 import { useWalletStatus } from "./useWalletStatus";
 
 const STORAGE_KEY_PK = "pf_wallet_pk";
@@ -17,6 +20,9 @@ export const AVAILABLE_WALLETS = [
   new XBullAdapter(),
   new LobstrAdapter(),
   new HanaAdapter(),
+  new AlbedoAdapter(),
+  new RabetAdapter(),
+  new WalletConnectAdapter(),
 ];
 
 export function useWallet() {

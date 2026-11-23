@@ -51,6 +51,29 @@ describe("WalletSelectModal", () => {
     });
   });
 
+  it("shows install guidance for an unavailable wallet that provides an install URL", async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    const walletConnect = createMockAdapter("walletconnect", "WalletConnect", false);
+    walletConnect.installUrl = "https://walletconnect.com";
+    walletConnect.installHint = "Use a WalletConnect-enabled mobile wallet.";
+
+    render(
+      <WalletSelectModal adapters={[walletConnect]} onSelect={onSelect} onClose={onClose} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Not Installed")).toBeInTheDocument();
+    });
+
+    const guidance = screen.getByTestId("wallet-install-guidance-walletconnect");
+    expect(guidance).toHaveTextContent("Use a WalletConnect-enabled mobile wallet.");
+    const installLink = screen.getByRole("link", { name: /get walletconnect/i });
+    expect(installLink).toHaveAttribute("href", "https://walletconnect.com");
+    expect(installLink).toHaveAttribute("target", "_blank");
+    expect(installLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   it("does not show error UI when connectionStatus is notStarted", async () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();

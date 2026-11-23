@@ -14,6 +14,8 @@ export class LobstrAdapter implements WalletAdapter {
   id = "lobstr";
   name = "Lobstr";
   icon = "🦞";
+  installUrl = "https://lobstr.co";
+  installHint = "Install the Lobstr browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.lobstr;

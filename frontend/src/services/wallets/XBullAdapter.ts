@@ -14,6 +14,8 @@ export class XBullAdapter implements WalletAdapter {
   id = "xbull";
   name = "xBull";
   icon = "🐂";
+  installUrl = "https://xbull.app";
+  installHint = "Install the xBull browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.xBullSDK;

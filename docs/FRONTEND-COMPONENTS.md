@@ -755,7 +755,7 @@ Top account chrome displaying connected wallet adapter, address, balance, networ
 
 **File:** `frontend/src/components/WalletSelectModal.tsx`
 
-Modal dialog presenting installed and supported wallet providers (Freighter, xBull, Albedo).
+Modal dialog presenting installed and supported wallet providers (Freighter, xBull, Lobstr, Hana, Albedo, Rabet, WalletConnect), with install guidance for unavailable wallets.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
