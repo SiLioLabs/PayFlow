@@ -1,0 +1,79 @@
+name: Keeper CI
+
+on:
+  push:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/keeper-ci.yml"
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/keeper-ci.yml"
+
+jobs:
+  # ── TypeScript typecheck ───────────────────────────────────────────────────
+  typecheck:
+    name: TypeScript typecheck (scripts)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  # ── Unit tests ─────────────────────────────────────────────────────────────
+  test:
+    name: Keeper unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+  # ── Prometheus alert rule validation ──────────────────────────────────────
+  validate-alerts:
+    name: Validate Prometheus alert rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install promtool
+        run: |
+          PROM_VERSION="2.52.0"
+          curl -sSfL \
+            "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          sudo mv /tmp/prometheus-${PROM_VERSION}.linux-amd64/promtool /usr/local/bin/promtool
+
+      - name: Validate alerts.yml
+        run: promtool check rules scripts/alerts.yml
+
+      - name: Validate prometheus.yml
+        run: promtool check config scripts/prometheus.yml
