@@ -5812,13 +5812,10 @@ fn test_daily_limit_day_start_boundary() {
 // ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::inconsistent_digit_grouping)]
 mod invariant_active_count {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger},
-        token::{Client as TokenClient, StellarAssetClient},
-        Env,
-    };
+    use soroban_sdk::testutils::Ledger;
 
     // ── helpers ────────────────────────────────────────────────
 
@@ -6177,11 +6174,7 @@ mod invariant_active_count {
 #[cfg(test)]
 mod property_arithmetic {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger},
-        token::{Client as TokenClient, StellarAssetClient},
-        Env,
-    };
+    use soroban_sdk::testutils::Ledger;
 
     // ── PRNG (same LCG parameters as invariant tests) ─────────
 
@@ -6333,8 +6326,8 @@ mod property_arithmetic {
         for _ in 0..20_000u32 {
             let last_charged = rng.next_bounded(u64::MAX / 4);
             let interval = rng.next_bounded(u64::MAX / 4).max(1);
-            let active = rng.next() % 2 == 0;
-            let paused = rng.next() % 2 == 0;
+            let active = (rng.next() & 1) == 0;
+            let paused = (rng.next() & 1) == 0;
             // Grace period: keep it small to avoid overflow in next + grace
             let grace_period = rng.next_bounded(u64::MAX / 4 - interval);
             // now: chosen relative to last_charged + interval
@@ -6608,13 +6601,10 @@ mod property_arithmetic {
 // ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::inconsistent_digit_grouping)]
 mod duplicate_batch_inputs {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger},
-        token::{Client as TokenClient, StellarAssetClient},
-        Env,
-    };
+    use soroban_sdk::testutils::Ledger;
 
     // ── batch_charge ──────────────────────────────────────────
 
