@@ -6,16 +6,26 @@ This document explains how to run the FlowPay test suite, how the benchmark file
 - Cross-system and live-network testing: [Integration Testing](#integration-testing), [End-to-End Testing](#end-to-end-testing), [Keeper Testing](#keeper-testing), [Test Data Management](#test-data-management)
 - [CI](#ci) — what's automated vs. manual
 
-For deep dives on specific contract test patterns (ledger time manipulation, mocking, panic testing), see [`docs/development/testing_runbook.md`](development/testing_runbook.md). For contract testing conventions specifically, see [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md#testing-conventions). For benchmark interpretation and regression detection in depth, see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md).
+For deep dives on specific contract test patterns (ledger time manipulation, mocking, panic testing), see [`docs/development/TESTING-RUNBOOK.md`](development/TESTING-RUNBOOK.md). For contract testing conventions specifically, see [`docs/CONTRIBUTING-CONTRACT.md`](CONTRIBUTING-CONTRACT.md#testing-conventions). For benchmark interpretation and regression detection in depth, see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md).
 
 ---
 
 ## Running the Tests
 
 ```bash
-cd contract
-cargo test
+cargo test --workspace
 ```
+
+To test one crate, use `cargo test -p flowpay` or `cargo test -p academy-vesting`.
+Frontend tests and coverage thresholds:
+
+```bash
+cd frontend
+npm ci
+npm run test -- --coverage
+```
+
+Vitest uses the V8 provider and writes HTML, LCOV, and terminal reports to `frontend/coverage`. Global thresholds apply to all frontend source, with additional minimums for `src/hooks/` and `src/utils/`. Pull-request and push CI uploads this report as the `frontend-coverage` artifact.
 
 To see printed output while tests run:
 
@@ -59,8 +69,7 @@ These are not functional tests. They measure CPU and memory cost so regressions 
 Run the benchmark tests with nocapture so the printed results stay visible:
 
 ```bash
-cd contract
-cargo test bench -- --nocapture
+cargo test -p flowpay bench -- --nocapture
 ```
 
 That runs the benchmark functions and prints the measured CPU instructions and memory bytes for each one.
@@ -438,11 +447,11 @@ npx tsx watch-events.ts
 
 ### What runs in CI today
 
-Nothing. This repository does not ship any GitHub Actions workflow files, so run the local equivalents before opening a PR (full checklist in [`docs/development/ci-workflows.md`](development/ci-workflows.md)):
+Nothing. This repository does not ship any GitHub Actions workflow files, so run the local equivalents before opening a PR (full checklist in [`docs/development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md)):
 
 | Area     | Command                                                              | Covers                                                                                                                                                                                                                            |
 | -------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contract | `cd contract && cargo clippy -- -D warnings && cargo test`           | All contract unit tests **and** the benchmark tests in `bench.rs` (they're plain `#[test]` functions, so `cargo test` runs them too — see [`docs/development/performance-benchmarking.md`](development/performance-benchmarking.md#ci-integration)) |
+| Rust workspace | `cargo clippy --workspace && cargo test --workspace` | Both contract packages and the main contract's benchmark tests (see [`docs/development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md#ci-integration)) |
 | Frontend | `npm run typecheck`, then `cd frontend && npm run lint && npm run test` | Type-checking, linting, and the Vitest suite                                                                                                                                                                                     |
 
 ### What requires manual testing

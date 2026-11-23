@@ -21,13 +21,17 @@ pub fn initialize_admin(env: &Env, admin: &Address) {
 
 /// Step 1: current admin proposes a new admin.
 /// The proposed address must call accept_admin() to complete the transfer.
-pub fn transfer_admin(env: &Env, new_admin: &Address) {
+pub fn transfer_admin(env: &Env, new_admin: &Address) -> Result<(), ContractError> {
     let current_admin = get_admin(env);
     current_admin.require_auth();
+    if new_admin == &current_admin || new_admin == &env.current_contract_address() {
+        return Err(ContractError::InvalidAdminAddress);
+    }
     env.storage()
         .instance()
         .set(&DataKey::PendingAdmin, new_admin);
     events::publish_admin_transfer_proposed(env, new_admin);
+    Ok(())
 }
 
 /// Returns the currently proposed admin awaiting `accept_admin()`, if any.

@@ -21,7 +21,9 @@
 
 import { createHmac } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { appendJsonLine } from "./soroban-admin.js";
 import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
+import { logger } from "./logger.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ interface DlqEntry {
   attempts: number;
 }
 
-function writeToDlq(entry: DlqEntry): void {
+function writeDlqEntry(entry: DlqEntry): void {
   try {
     appendFileSync(DLQ_PATH, JSON.stringify(entry) + "\n", "utf-8");
     console.error(`[webhook] Payload written to DLQ: ${DLQ_PATH}`);
@@ -125,7 +127,7 @@ export async function deliverWebhook(url: string, payload: unknown): Promise<voi
     }
   }
 
-  writeToDlq({
+  writeDlqEntry({
     url,
     payload,
     lastError,
@@ -136,30 +138,6 @@ export async function deliverWebhook(url: string, payload: unknown): Promise<voi
 }
 
 // ── CLI Entry-point ───────────────────────────────────────────────────────────
-
-if (process.argv[1]?.endsWith("webhook.ts") || process.argv[1]?.endsWith("webhook.js")) {
-  if (!WEBHOOK_URL) {
-    console.error("Error: WEBHOOK_URL environment variable is required");
-    process.exit(1);
-  }
-  if (!WEBHOOK_SECRET) {
-    console.error("Error: WEBHOOK_SECRET environment variable is required");
-    process.exit(1);
-  }
-
-  const samplePayload = {
-    event: "test",
-    generated_at: new Date().toISOString(),
-    message: "Webhook test from PayFlow scripts",
-  };
-
-  deliverWebhook(WEBHOOK_URL, samplePayload).catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  });
-import { createHmac } from "node:crypto";
-import { appendJsonLine } from "./soroban-admin.js";
-import { logger } from "./logger.js";
 
 // Exported to allow injecting a mock fetch during tests
 export let _webhookFetch = global.fetch;
@@ -269,4 +247,26 @@ async function writeToDlq(payload: unknown, config: WebhookConfig, error: string
   } catch (dlqErr) {
     logger.error(`Failed to write to DLQ (${config.dlqFile}): ${dlqErr}`);
   }
+}
+
+if (process.argv[1]?.endsWith("webhook.ts") || process.argv[1]?.endsWith("webhook.js")) {
+  if (!WEBHOOK_URL) {
+    console.error("Error: WEBHOOK_URL environment variable is required");
+    process.exit(1);
+  }
+  if (!WEBHOOK_SECRET) {
+    console.error("Error: WEBHOOK_SECRET environment variable is required");
+    process.exit(1);
+  }
+
+  const samplePayload = {
+    event: "test",
+    generated_at: new Date().toISOString(),
+    message: "Webhook test from PayFlow scripts",
+  };
+
+  deliverWebhook(WEBHOOK_URL, samplePayload).catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
 }

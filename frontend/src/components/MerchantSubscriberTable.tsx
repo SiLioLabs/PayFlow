@@ -11,11 +11,17 @@
  * Issue #660
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { MerchantSubscriber } from "../stellar";
+import {
+  buildCancelAndRefundTx,
+  calculateProratedRefund,
+  type MerchantSubscriber,
+} from "../stellar";
 import { formatAddress, formatXlm } from "../utils/format";
 import { debounce } from "../utils/debounce";
+import { friendlyError } from "../utils/errors";
 import { SECONDS_PER_DAY, SECONDS_PER_WEEK, SECONDS_PER_MONTH } from "../constants";
 import CopyButton from "./CopyButton";
+import ConfirmModal from "./ConfirmModal";
 import { useVirtualList } from "../hooks/useVirtualList";
 
 const ROW_HEIGHT = 56;
@@ -35,6 +41,11 @@ export interface SortState {
 export interface MerchantSubscriberTableProps {
   subscribers: MerchantSubscriber[];
   debounceMs?: number;
+  /** Connected merchant wallet. Refund actions are disabled when it does not match the row. */
+  merchantKey?: string | null;
+  onSign?: (xdr: string) => Promise<string>;
+  onRefunded?: (sub: MerchantSubscriber, hash: string) => void;
+  isPaused?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,6 +74,26 @@ export function deriveStatus(nextChargeAt: number): "active" | "overdue" {
   return nextChargeAt >= now ? "active" : "overdue";
 }
 
+function parseStroops(amount: string): bigint {
+  try {
+    return BigInt(amount || "0");
+  } catch {
+    return 0n;
+  }
+}
+
+export function calculateRefundPreview(
+  sub: MerchantSubscriber,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): bigint {
+  return calculateProratedRefund(
+    parseStroops(sub.amount),
+    sub.interval,
+    sub.lastCharged,
+    nowSec
+  );
+}
+
 // ── Sort icon ─────────────────────────────────────────────────────────────────
 
 function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
@@ -85,10 +116,18 @@ function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
 export default function MerchantSubscriberTable({
   subscribers,
   debounceMs = 150,
+  merchantKey,
+  onSign,
+  onRefunded,
+  isPaused = false,
 }: MerchantSubscriberTableProps) {
   const [sort, setSort] = useState<SortState>({ field: "nextCharge", dir: "asc" });
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [appliedFilter, setAppliedFilter] = useState<StatusFilter>("all");
+  const [refundTarget, setRefundTarget] = useState<MerchantSubscriber | null>(null);
+  const [refunded, setRefunded] = useState<Set<string>>(() => new Set());
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [refunding, setRefunding] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Debounced filter setter so a burst of filter changes produces a single settled render
@@ -122,6 +161,15 @@ export default function MerchantSubscriberTable({
       scrollContainerRef.current.scrollTop = 0;
     }
   }, [subscribers, sort, appliedFilter]);
+
+  // Drop local refund markers for subscribers removed by a parent refresh.
+  useEffect(() => {
+    const current = new Set(subscribers.map((s) => s.subscriber));
+    setRefunded((prev) => {
+      const next = new Set([...prev].filter((address) => current.has(address)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [subscribers]);
 
   // ── Filter ────────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -171,6 +219,49 @@ export default function MerchantSubscriberTable({
     );
   }
 
+  function walletMatches(sub: MerchantSubscriber): boolean {
+    return Boolean(merchantKey) && (!sub.merchant || sub.merchant === merchantKey);
+  }
+
+  function openRefund(sub: MerchantSubscriber) {
+    if (!merchantKey || !onSign || refunded.has(sub.subscriber)) return;
+    if (!walletMatches(sub)) {
+      setRefundError("Connected wallet is not this subscription's merchant (error 38).");
+      return;
+    }
+    setRefundError(null);
+    setRefundTarget(sub);
+  }
+
+  async function handleConfirmRefund() {
+    const target = refundTarget;
+    if (!target || !merchantKey || !onSign || refunding) return;
+
+    if (!walletMatches(target)) {
+      setRefundError("Connected wallet is not this subscription's merchant (error 38).");
+      return;
+    }
+    const preview = calculateRefundPreview(target);
+    if (preview <= 0n) {
+      setRefundError("Nothing left to refund in the current period (error 39).");
+      return;
+    }
+
+    setRefunding(true);
+    setRefundError(null);
+    try {
+      const xdr = await buildCancelAndRefundTx(merchantKey, target.subscriber);
+      const hash = await onSign(xdr);
+      setRefunded((prev) => new Set(prev).add(target.subscriber));
+      setRefundTarget(null);
+      onRefunded?.(target, hash);
+    } catch (err) {
+      setRefundError(`Refund failed: ${friendlyError(err instanceof Error ? err.message : String(err))}`);
+    } finally {
+      setRefunding(false);
+    }
+  }
+
   // ── Filter counts ─────────────────────────────────────────────────────────
   const activeCount = useMemo(
     () => subscribers.filter((s) => deriveStatus(s.nextChargeAt) === "active").length,
@@ -193,8 +284,9 @@ export default function MerchantSubscriberTable({
   }
 
   return (
-    <div className="mst-wrapper">
-      {/* Filter tabs */}
+    <>
+      <div className="mst-wrapper">
+        {/* Filter tabs */}
       <div className="mst-filters" role="group" aria-label="Filter subscribers by status">
         {(["all", "active", "overdue"] as StatusFilter[]).map((f) => {
           const label =
@@ -216,6 +308,12 @@ export default function MerchantSubscriberTable({
           );
         })}
       </div>
+
+      {refundError && !refundTarget && (
+        <p className="mst-refund-error text-error" role="alert" data-testid="mst-refund-error">
+          {refundError}
+        </p>
+      )}
 
       {/* No results after filtering */}
       {sorted.length === 0 && (
@@ -287,16 +385,31 @@ export default function MerchantSubscriberTable({
                 <th scope="col" className="mst-th">
                   Status
                 </th>
+                <th scope="col" className="mst-th">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {offsetY > 0 && (
                 <tr aria-hidden="true" style={{ height: offsetY }}>
-                  <td colSpan={6} style={{ padding: 0, border: "none" }} />
+                  <td colSpan={7} style={{ padding: 0, border: "none" }} />
                 </tr>
               )}
               {visibleItems.map(({ item: sub, index }) => {
                 const status = deriveStatus(sub.nextChargeAt);
+                const preview = calculateRefundPreview(sub);
+                const isRefunded = refunded.has(sub.subscriber);
+                const walletMatchesRow = walletMatches(sub);
+                const refundHint = isRefunded
+                  ? "Refund issued"
+                  : !walletMatchesRow
+                    ? "Merchant wallet mismatch (error 38)"
+                    : preview <= 0n
+                      ? "Nothing left to refund (error 39)"
+                      : isPaused
+                        ? "Unavailable during maintenance"
+                        : `Estimated refund ${formatXlm(preview)}`;
                 return (
                   <tr
                     key={sub.subscriber}
@@ -328,24 +441,105 @@ export default function MerchantSubscriberTable({
                     {/* Status badge */}
                     <td className="mst-cell">
                       <span
-                        className={`mst-status-badge mst-status-badge--${status}`}
-                        aria-label={`Status: ${status}`}
+                        className={`mst-status-badge mst-status-badge--${isRefunded ? "refunded" : status}`}
+                        aria-label={isRefunded ? "Status: refunded" : `Status: ${status}`}
                       >
-                        {status === "active" ? "Active" : "Overdue"}
+                        {isRefunded ? "Refunded" : status === "active" ? "Active" : "Overdue"}
                       </span>
+                    </td>
+
+                    {/* Refund action */}
+                    <td className="mst-cell">
+                      {merchantKey && onSign && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-secondary mst-refund-btn"
+                            data-testid={`mst-refund-${sub.subscriber}`}
+                            aria-label={`Refund and cancel subscriber ${sub.subscriber}`}
+                            title={refundHint}
+                            disabled={
+                              isPaused ||
+                              !walletMatchesRow ||
+                              preview <= 0n ||
+                              isRefunded ||
+                              refunding
+                            }
+                            onClick={() => openRefund(sub)}
+                          >
+                            {isRefunded
+                              ? "Refunded"
+                              : preview > 0n
+                                ? `Refund ${formatXlm(preview)}`
+                                : "No refund"}
+                          </button>
+                          {(!walletMatchesRow || preview <= 0n) && !isRefunded && (
+                            <span className="mst-refund-hint text-error">{refundHint}</span>
+                          )}
+                        </>
+                      )}
                     </td>
                   </tr>
                 );
               })}
               {bottomSpacerHeight > 0 && (
                 <tr aria-hidden="true" style={{ height: bottomSpacerHeight }}>
-                  <td colSpan={6} style={{ padding: 0, border: "none" }} />
+                  <td colSpan={7} style={{ padding: 0, border: "none" }} />
                 </tr>
               )}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {refundTarget && (
+        <ConfirmModal
+          message={`Cancel this subscription and refund the unused period?`}
+          onConfirm={handleConfirmRefund}
+          onCancel={() => {
+            if (!refunding) {
+              setRefundTarget(null);
+              setRefundError(null);
+            }
+          }}
+          confirmDisabled={
+            refunding ||
+            isPaused ||
+            !walletMatches(refundTarget) ||
+            calculateRefundPreview(refundTarget) <= 0n
+          }
+          confirmTestId="mst-refund-confirm"
+          cancelTestId="mst-refund-cancel"
+          confirmLabel={refunding ? "Refunding…" : "Cancel & refund"}
+        >
+          <div className="mst-refund-summary" data-testid="mst-refund-preview">
+            <div className="flex-between">
+              <span className="text-sm text-muted">Subscriber</span>
+              <span className="text-mono">{formatAddress(refundTarget.subscriber, 8, 6)}</span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Current charge</span>
+              <span className="text-mono">{formatXlm(parseStroops(refundTarget.amount))}</span>
+            </div>
+            <div className="flex-between">
+              <span className="text-sm text-muted">Estimated refund</span>
+              <strong className="text-mono" data-testid="mst-refund-amount">
+                {formatXlm(calculateRefundPreview(refundTarget))}
+              </strong>
+            </div>
+            <p className="text-sm text-muted">
+              The contract requires both merchant and subscriber authorization. Refunds are
+              merchant-funded and the subscription is cancelled in the same transaction.
+            </p>
+          </div>
+          {refundError && (
+            <p className="text-error" role="alert" data-testid="mst-refund-modal-error">
+              {refundError}
+            </p>
+          )}
+        </ConfirmModal>
       )}
-    </div>
+    </>
   );
 }

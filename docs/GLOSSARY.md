@@ -22,7 +22,7 @@ See also: [Two-Step Authorization](#two-step-authorization).
 
 Hard caps on one-time payment and subscription amounts, expressed in token base units. `MAX_AMOUNT` limits a single `pay_per_use()` call; `MAX_SUBSCRIPTION_AMOUNT` limits a subscription charge.
 
-Source: [`limits.md`](./limits.md), `contract/src/validation.rs`.
+Source: [`LIMITS.md`](./LIMITS.md), `contract/src/validation.rs`.
 
 See also: [`API.md`](./API.md), [Daily Limit](#daily-limit).
 
@@ -36,7 +36,7 @@ Source: `contract/src/subscription_count.rs`, `DataKey::SubscriberIndex(i)` and 
 
 A bounded pause set with `pause_until()` is cleared lazily by the next `charge()` or `batch_charge()` after its expiry. Soroban does not run a timer, so an expired pause remains stored until a charge attempt or explicit `resume()`.
 
-Source: [`pause-lifecycle.md`](./architecture/pause-lifecycle.md#auto-resume-on-charge--batch_charge).
+Source: [`PAUSE-LIFECYCLE.md`](./architecture/PAUSE-LIFECYCLE.md#auto-resume-on-charge--batch_charge).
 
 See also: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md), [`EVENTS.md`](./EVENTS.md).
 
@@ -54,7 +54,7 @@ Source: `contract/src/batch.rs`, `batch_charge()`.
 
 Per-address outcome returned by `batch_cancel()`. Its append-only variants are encoded as `u32` discriminants; the result describes cancellation without requiring a separate event for each address.
 
-Source: [`API.md`](./API.md), [`cancel-results.md`](./cancel-results.md).
+Source: [`API.md`](./API.md), [`CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
 
 See also: [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md).
 
@@ -62,9 +62,9 @@ See also: [`EVENT-MAPPING.md`](../scripts/EVENT-MAPPING.md).
 
 Per-address outcome returned by `batch_charge()` and `get_batch_charge_estimate()`. A non-`Charged` result for one user **never aborts** the rest of the batch. Variants are append-only in the contract (discriminants 0-6); do not reorder when extending.
 
-On the wire each variant is an `scvU32` carrying its discriminant, **not** an `scvSymbol` or a string. See [`charge-results.md`](./charge-results.md) for the byte-level encoding, worked hex examples, and decoders.
+On the wire each variant is an `scvU32` carrying its discriminant, **not** an `scvSymbol` or a string. See [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md) for the byte-level encoding, worked hex examples, and decoders.
 
-Source: `contract/src/batch.rs`, [`charge-results.md`](./charge-results.md).
+Source: `contract/src/batch.rs`, [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md).
 
 | Variant | Meaning |
 | --- | --- |
@@ -80,7 +80,7 @@ Canonical table: [`KEEPER.md`](./KEEPER.md#how-a-cycle-works). Type definition: 
 
 `ChargeResult::AllowanceInsufficient` is discriminant 6: the batch checks allowance before token transfer and returns this per-user outcome without aborting the batch. It is distinct from `InsufficientAllowance` (contract error code 8), which is a transaction error on other paths.
 
-See also: [`charge-results.md`](./charge-results.md), [`KEEPER.md`](./KEEPER.md), [`ERROR-CODES.md`](./ERROR-CODES.md).
+See also: [`CHARGE-RESULTS.md`](./CHARGE-RESULTS.md), [`KEEPER.md`](./KEEPER.md), [`ERROR-CODES.md`](./ERROR-CODES.md).
 
 ### ChargeSimResult
 
@@ -110,7 +110,7 @@ Source: `contract/src/subscription_history.rs`, `DataKey::ChargeHistory(user)`.
 
 ### Contract Schema Version
 
-An integer representing the current on-chain storage schema version (`DataKey::SchemaVersion`). Updated by admin `migrate()`; exposed via `get_schema_version()`. **Default when unset: `0` (unmigrated).** **Current target: `3`** (`CURRENT_VERSION` in `contract/src/migration.rs`: v1→v2 adds `paused`; v2→v3 backfills `referrer` on subscriptions).
+An integer representing the current on-chain storage schema version (`DataKey::SchemaVersion`). Advanced only by admin `finalize_migration()`, after `migrate()` has processed every account; exposed via `get_schema_version()`. **Default when unset: `0` (unmigrated).** **Current target: `3`** (`CURRENT_VERSION` in `contract/src/migration.rs`: v1→v2 adds `paused`; v2→v3 backfills `referrer` on subscriptions).
 
 Do not confuse with marketing “schema v3” shorthand in issues — the on-chain field is a plain `u32` incremented by migration steps.
 
@@ -156,7 +156,7 @@ See also: [Daily Limit](#daily-limit), [Daily Limit Window](#daily-limit-window)
 
 Off-chain queue (Redis list, SQS, or JSONL file) where keepers place `batch_charge` pages or addresses that exhausted retries. Operators drain transient failures via replay scripts; permanent failures (e.g. `GracePeriodElapsed`) are archived. Not an on-chain contract type.
 
-Source: [`operations/keeper_runbook.md`](./operations/keeper_runbook.md#dead-letter-queue-recovery), [`KEEPER.md`](./KEEPER.md).
+Source: [`operations/KEEPER-RUNBOOK.md`](./operations/KEEPER-RUNBOOK.md#dead-letter-queue-recovery), [`KEEPER.md`](./KEEPER.md).
 
 ## E
 
@@ -212,7 +212,7 @@ Source: `contract/src/grace.rs`, `DataKey::PendingGracePeriod`.
 
 A protocol-wide hourly transfer-volume limit. `GLOBAL_MAX_VOLUME_PER_HOUR` is the default; `set_global_volume_cap()` stores an instance `GlobalVolumeCapOverride`. `get_global_volume_cap()` and `get_global_volume_window()` expose the effective cap and current window. Exceeding the cap raises error 28, a non-positive override raises error 33, and updates emit `global_volume_cap_set`.
 
-Source: [`limits.md`](./limits.md#global-hourly-volume-cap), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap), `contract/src/events.rs`.
+Source: [`LIMITS.md`](./LIMITS.md#global-hourly-volume-cap), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap), `contract/src/events.rs`.
 
 See also: [`API.md`](./API.md#contractconfig), [`ERROR-CODES.md`](./ERROR-CODES.md).
 
@@ -322,7 +322,7 @@ Subscriber-initiated bounded pause: `pause_until(user, expiry)` sets `paused = t
 
 Source: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#bounded-pause--pause_untiluser-expiry), `contract/src/lib.rs`.
 
-See also: [Auto-Resume](#auto-resume), [`pause-lifecycle.md`](./architecture/pause-lifecycle.md).
+See also: [Auto-Resume](#auto-resume), [`PAUSE-LIFECYCLE.md`](./architecture/PAUSE-LIFECYCLE.md).
 
 ### Prorated Refund
 
@@ -330,7 +330,7 @@ Refund issued by `cancel_and_refund_prorated()` for the unused portion of a subs
 
 Source: [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md#cancellation-and-prorated-refund), [`ERROR-CODES.md`](./ERROR-CODES.md).
 
-See also: [`API.md`](./API.md), [`cancel-results.md`](./cancel-results.md).
+See also: [`API.md`](./API.md), [`CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
 
 ### Protocol Fee
 
@@ -416,7 +416,7 @@ Source: `docs/API.md` (parameter naming), `contract/src/lib.rs` (`Subscription(A
 
 Sensitive admin changes are staged and then applied in a second call. Fee, grace-period, and upgrade flows use Propose → Commit; admin transfer uses Propose → Accept, requiring the proposed admin to authorize acceptance.
 
-Source: [`two-step-auth.md`](./architecture/two-step-auth.md), [`API.md`](./API.md).
+Source: [`TWO-STEP-AUTH.md`](./architecture/TWO-STEP-AUTH.md), [`API.md`](./API.md).
 
 See also: [Admin](#admin), [Grace Period Proposal / Commit](#grace-period-proposal--commit).
 

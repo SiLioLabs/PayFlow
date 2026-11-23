@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { buildBatchPauseSubscriptionsTx } from "../../stellar";
 import { parseAddressList, chunkAddresses } from "../../utils/addressValidation";
 import { friendlyError } from "../../utils/errors";
 import { useTransaction } from "../../hooks/useTransaction";
+import { useTransactionPreview } from "../../hooks/useTransactionPreview";
 import { useToast } from "../../hooks/useToast";
 import AddressListInput from "./AddressListInput";
 import ConfirmModal from "../ConfirmModal";
@@ -105,17 +106,35 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
   const chunks = chunkAddresses(valid, MAX_PAUSE_BATCH);
   const txCount = chunks.length;
 
+  // Simulate the first chunk when the confirmation modal opens so the user sees
+  // the resource fee and any predicted contract failure before signing.
+  const buildPreviewXdr = useCallback(async () => {
+    const previewChunks = chunkAddresses(parseAddressList(rawInput).valid, MAX_PAUSE_BATCH);
+    if (!previewChunks.length) return "";
+    return buildBatchPauseSubscriptionsTx(adminKey, previewChunks[0]);
+  }, [adminKey, rawInput]);
+  const previewState = useTransactionPreview(showConfirm ? buildPreviewXdr : null, showConfirm);
+
   async function executePause() {
     setShowConfirm(false);
 
     try {
       for (let i = 0; i < chunks.length; i++) {
-        await tx.submit(async () => {
-          const xdr = await buildBatchPauseSubscriptionsTx(adminKey, chunks[i]);
-          return onSign(xdr);
-        });
+        await tx.submit(
+          async () => {
+            const xdr = await buildBatchPauseSubscriptionsTx(adminKey, chunks[i]);
+            return onSign(xdr);
+          },
+          `Batch Pause ${i + 1}/${chunks.length}`,
+          {
+            preview: i === 0 ? previewState.preview : null,
+            allowSimulationOverride: previewState.override,
+          }
+        );
       }
+
       addToast(
+
         `Paused ${valid.length} subscription${valid.length !== 1 ? "s" : ""} successfully.`,
         "success"
       );
@@ -286,6 +305,7 @@ export default function BatchPausePanel({ adminKey, onSign, isAdmin, onInit }: P
           message={confirmMessage}
           onConfirm={executePause}
           onCancel={() => setShowConfirm(false)}
+          previewState={previewState}
         />
       )}
     </section>
