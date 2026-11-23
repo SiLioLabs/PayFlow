@@ -30,6 +30,9 @@
  *   16 SubscriptionNotActive          —
  *   46 IntervalExceedsMaximum
  *   47 FreezeReasonTooLong
+ *   48 TrialExtensionExceedsMaximum
+ *   49 SkipCooldownActive
+ *   50 NoLastChargeToRefund
  *   48 MigrationIncomplete
  *   49 InvalidKeeperTipBps
  *   48 InvalidAdminAddress
@@ -103,6 +106,9 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #45)": "There is no pending admin transfer to accept.",
   "error(contract, #46)": "Billing interval must not exceed 400 years.",
   "error(contract, #47)": "Merchant freeze reason must be 128 bytes or fewer.",
+  "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
+  "error(contract, #49)": "You can only skip one billing cycle per interval.",
+  "error(contract, #50)": "There is no charge available to refund.",
   // 48 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
   "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
   // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.

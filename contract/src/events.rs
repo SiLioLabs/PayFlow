@@ -98,6 +98,72 @@ pub fn publish_cancelled_with_refund(env: &Env, user: &Address, refund: i128) {
     );
 }
 
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundedEventData {
+    pub merchant: Address,
+    pub amount: i128,
+    pub fee: i128,
+    pub net: i128,
+    pub charged_at: u64,
+    pub ledger_sequence: u32,
+}
+
+/// Publishes `refunded(user)` after a merchant refunds the last scheduled
+/// charge without cancelling the subscription. `amount` is the gross amount
+/// returned to the subscriber; `fee` and `net` are the reversed bookkeeping
+/// legs booked at charge time (`fee + net == amount`).
+pub fn publish_refunded(
+    env: &Env,
+    user: &Address,
+    merchant: &Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "refunded"), user.clone()),
+        RefundedEventData {
+            merchant: merchant.clone(),
+            amount,
+            fee,
+            net,
+            charged_at,
+            ledger_sequence: env.ledger().sequence(),
+        },
+    );
+}
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChargeSkippedEventData {
+    pub interval: u64,
+    pub new_last_charged: u64,
+    pub next_charge_at: u64,
+    pub ledger_sequence: u32,
+}
+
+/// Publishes `charge_skipped(user)` after `skip_next_charge` advances the
+/// subscription schedule by exactly one interval.
+pub fn publish_charge_skipped(
+    env: &Env,
+    user: &Address,
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "charge_skipped"), user.clone()),
+        ChargeSkippedEventData {
+            interval,
+            new_last_charged,
+            next_charge_at,
+            ledger_sequence: env.ledger().sequence(),
+        },
+    );
+}
+
 /// Publishes `pay_per_use(user)` for an instant micro-transfer to `merchant`.
 /// The recipient is carried in the payload as `merchant` so indexers keying on
 /// `(event, user)` still see every payment the subscriber made.

@@ -1,7 +1,18 @@
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::errors::ContractError;
-use crate::{DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS};
+use crate::{
+    BillingState, DataKey, LastChargeRecord, StorageEntryFootprint, StorageFootprint, Subscription,
+    SUBSCRIPTION_TTL_LEDGERS,
+};
+
+/// Number of per-subscriber keys reported by [`get_storage_footprint`].
+///
+/// `contract/src/test.rs::test_storage_footprint_covers_every_per_user_key`
+/// asserts the footprint length against this constant, so adding a new
+/// per-user `DataKey` without extending the footprint (and this count) fails
+/// the suite. Update `docs/architecture/STORAGE-AND-TTL.md` in the same change.
+pub const PER_USER_STORAGE_KEY_COUNT: u32 = 11;
 
 pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
     env.storage()
@@ -135,4 +146,164 @@ pub fn clear_pause_expiry(env: &Env, user: &Address) {
 ///   rows stay resumable.
 pub fn is_cancelled(sub: &Subscription) -> bool {
     !sub.active && !sub.paused
+}
+
+fn get_billing_state(env: &Env, user: &Address) -> Option<BillingState> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::BillingState(user.clone()))
+}
+
+fn set_billing_state(env: &Env, user: &Address, state: &BillingState) {
+    let key = DataKey::BillingState(user.clone());
+    env.storage().persistent().set(&key, state);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+}
+
+fn empty_billing_state() -> BillingState {
+    BillingState {
+        last_charge_merchant: None,
+        last_charge_token: None,
+        last_charge_amount: 0,
+        last_charge_fee: 0,
+        last_charge_net: 0,
+        last_charge_at: 0,
+        last_skip_at: None,
+    }
+}
+
+/// Stores the snapshot of the most recent scheduled charge for `user`.
+pub fn set_last_charge(env: &Env, user: &Address, record: &LastChargeRecord) {
+    let mut state = get_billing_state(env, user).unwrap_or_else(empty_billing_state);
+    state.last_charge_merchant = Some(record.merchant.clone());
+    state.last_charge_token = Some(record.token.clone());
+    state.last_charge_amount = record.amount;
+    state.last_charge_fee = record.fee;
+    state.last_charge_net = record.net;
+    state.last_charge_at = record.charged_at;
+    set_billing_state(env, user, &state);
+}
+
+pub fn get_last_charge(env: &Env, user: &Address) -> Option<LastChargeRecord> {
+    let state = get_billing_state(env, user)?;
+    Some(LastChargeRecord {
+        merchant: state.last_charge_merchant?,
+        token: state.last_charge_token?,
+        amount: state.last_charge_amount,
+        fee: state.last_charge_fee,
+        net: state.last_charge_net,
+        charged_at: state.last_charge_at,
+    })
+}
+
+/// Removes the last-charge snapshot, making a second refund fail closed with
+/// `NoLastChargeToRefund` (double-refund guard).
+pub fn clear_last_charge(env: &Env, user: &Address) {
+    if let Some(mut state) = get_billing_state(env, user) {
+        state.last_charge_merchant = None;
+        state.last_charge_token = None;
+        state.last_charge_amount = 0;
+        state.last_charge_fee = 0;
+        state.last_charge_net = 0;
+        state.last_charge_at = 0;
+        set_billing_state(env, user, &state);
+    }
+}
+
+pub fn set_last_skip_at(env: &Env, user: &Address, timestamp: u64) {
+    let mut state = get_billing_state(env, user).unwrap_or_else(empty_billing_state);
+    state.last_skip_at = Some(timestamp);
+    set_billing_state(env, user, &state);
+}
+
+pub fn get_last_skip_at(env: &Env, user: &Address) -> Option<u64> {
+    get_billing_state(env, user)?.last_skip_at
+}
+
+#[cfg(any(test, feature = "testutils"))]
+fn persistent_ttl(env: &Env, key: &DataKey) -> u32 {
+    use soroban_sdk::testutils::storage::Persistent;
+    if env.storage().persistent().has(key) {
+        env.storage().persistent().get_ttl(key)
+    } else {
+        0
+    }
+}
+
+#[cfg(not(any(test, feature = "testutils")))]
+fn persistent_ttl(_env: &Env, _key: &DataKey) -> u32 {
+    0
+}
+
+#[cfg(any(test, feature = "testutils"))]
+fn temporary_ttl(env: &Env, key: &DataKey) -> u32 {
+    use soroban_sdk::testutils::storage::Temporary;
+    if env.storage().temporary().has(key) {
+        env.storage().temporary().get_ttl(key)
+    } else {
+        0
+    }
+}
+
+#[cfg(not(any(test, feature = "testutils")))]
+fn temporary_ttl(_env: &Env, _key: &DataKey) -> u32 {
+    0
+}
+
+/// Enumerates every per-subscriber storage key with its presence flag and
+/// (test builds only) remaining TTL, so clients can estimate rent without
+/// guessing which keys exist.
+pub fn get_storage_footprint(env: &Env, user: &Address) -> StorageFootprint {
+    let mut entries = Vec::new(env);
+
+    let mut push_persistent = |name: &str, key: DataKey| {
+        entries.push_back(StorageEntryFootprint {
+            key: Symbol::new(env, name),
+            present: env.storage().persistent().has(&key),
+            ttl_ledgers: persistent_ttl(env, &key),
+        });
+    };
+    push_persistent("subscription", DataKey::Subscription(user.clone()));
+    push_persistent("referral", DataKey::Referral(user.clone()));
+    push_persistent("metadata", DataKey::SubscriptionMeta(user.clone()));
+    push_persistent("charge_history", DataKey::ChargeHistory(user.clone()));
+    push_persistent("index_slot", DataKey::SubscriberIndexSlot(user.clone()));
+    push_persistent("pause_expiry", DataKey::PauseExpiry(user.clone()));
+
+    // `last_charge` and `last_skip` share one underlying `BillingState` key, so
+    // their presence flags read the inner options while reporting that key's
+    // TTL.
+    let billing_key = DataKey::BillingState(user.clone());
+    let billing = get_billing_state(env, user);
+    entries.push_back(StorageEntryFootprint {
+        key: Symbol::new(env, "last_charge"),
+        present: billing
+            .as_ref()
+            .is_some_and(|state| state.last_charge_merchant.is_some()),
+        ttl_ledgers: persistent_ttl(env, &billing_key),
+    });
+    entries.push_back(StorageEntryFootprint {
+        key: Symbol::new(env, "last_skip"),
+        present: billing
+            .as_ref()
+            .is_some_and(|state| state.last_skip_at.is_some()),
+        ttl_ledgers: persistent_ttl(env, &billing_key),
+    });
+
+    let mut push_temporary = |name: &str, key: DataKey| {
+        entries.push_back(StorageEntryFootprint {
+            key: Symbol::new(env, name),
+            present: env.storage().temporary().has(&key),
+            ttl_ledgers: temporary_ttl(env, &key),
+        });
+    };
+    push_temporary("daily_limit", DataKey::DailyLimit(user.clone()));
+    push_temporary("daily_spent", DataKey::DailySpent(user.clone()));
+    push_temporary("day_start", DataKey::DayStart(user.clone()));
+
+    StorageFootprint { entries }
 }

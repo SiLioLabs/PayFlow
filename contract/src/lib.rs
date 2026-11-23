@@ -148,6 +148,8 @@ pub enum DataKey {
     MaxWhitelistBatchSize,
     // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
     PendingMerchantRevCount,
+    // Feature: per-user billing extras (last charge snapshot + last skip)
+    BillingState(Address),
     // Feature: keeper tip, in bps of the protocol fee paid to a `charge_with_tip` caller
     KeeperTipBps,
     // Feature: paged schema migration. Per-account marker set once `migrate` has
@@ -220,6 +222,68 @@ pub struct Subscription {
     pub label: Symbol,             // user-assigned label for this subscription
     pub trial_duration: u64,       // optional trial duration in seconds
     pub created_at: u64,           // timestamp of subscription creation
+}
+
+/// Snapshot of the most recent scheduled charge, used by
+/// `refund_last_charge` to reverse the merchant's revenue and the protocol's
+/// fee accounting by exactly the amounts booked at charge time.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LastChargeRecord {
+    /// Merchant that received the charge's net leg.
+    pub merchant: Address,
+    /// SAC token used for that charge (guards a resubscribe under a new token).
+    pub token: Address,
+    /// Gross amount moved from the subscriber.
+    pub amount: i128,
+    /// Protocol fee booked for that charge (0 when no fee was configured).
+    pub fee: i128,
+    /// Amount added to the merchant's revenue for that charge.
+    pub net: i128,
+    /// Ledger timestamp at which the charge executed.
+    pub charged_at: u64,
+}
+
+/// One per-subscriber storage key in the rent footprint returned by
+/// `get_storage_footprint`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StorageEntryFootprint {
+    /// Short name of the per-user key (e.g. `subscription`, `referral`).
+    pub key: Symbol,
+    /// Whether the entry currently exists in storage.
+    pub present: bool,
+    /// Remaining TTL in ledgers. Real value under `cfg(test)` / the
+    /// `testutils` feature; always `0` in production because Soroban does not
+    /// expose `get_ttl()` on-chain. `0` must not be read as "expired".
+    pub ttl_ledgers: u32,
+}
+
+/// Per-subscriber auxiliary billing state, stored under a single key so the
+/// `DataKey` enum stays within Soroban's 50-variant XDR limit.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BillingState {
+    /// Most recent scheduled charge, flattened. `last_charge_merchant` is
+    /// `Some` exactly when a charge snapshot exists; the other fields are then
+    /// meaningful. Flattening avoids `Option<LastChargeRecord>`, which the
+    /// contracttype macro cannot encode as a nested struct option.
+    pub last_charge_merchant: Option<Address>,
+    pub last_charge_token: Option<Address>,
+    pub last_charge_amount: i128,
+    pub last_charge_fee: i128,
+    pub last_charge_net: i128,
+    pub last_charge_at: u64,
+    /// Timestamp of the last `skip_next_charge` call (cooldown guard).
+    pub last_skip_at: Option<u64>,
+}
+
+/// Rent-estimation helper result: every per-subscriber key the contract can
+/// create, with presence flags and (in test builds) TTLs.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StorageFootprint {
+    pub entries: Vec<StorageEntryFootprint>,
 }
 
 #[contracttype]
@@ -837,6 +901,157 @@ impl FlowPay {
         token_client.transfer(&merchant, &user, &refund);
         cancel_inner(&env, &user);
         events::publish_cancelled_with_refund(&env, &user, refund);
+    }
+
+    /// Merchant-initiated refund of the subscriber's most recent scheduled
+    /// charge, **without** cancelling the subscription.
+    ///
+    /// This complements `cancel_and_refund_prorated`: that entrypoint refunds a
+    /// prorated unused period and ends the subscription, while this one reverses
+    /// one already-collected cycle and keeps the subscriber active.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `merchant`, and only the subscription's own
+    /// merchant may refund it (`RefundMerchantMismatch`).
+    ///
+    /// # Side Effects
+    ///
+    /// - Transfers the recorded gross charge from the merchant back to `user`.
+    /// - Reverses the booked merchant revenue (net) and protocol fees (fee) so
+    ///   `fee + net == amount` holds for the refund as it did for the charge.
+    /// - Clears the last-charge record, so a second refund fails with
+    ///   `NoLastChargeToRefund` (no double refunds).
+    /// - Emits `refunded`.
+    pub fn refund_last_charge(env: Env, user: Address, merchant: Address) {
+        bump_instance_ttl(&env);
+        merchant.require_auth();
+
+        let sub = storage::get_subscription(&env, &user)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+        if sub.merchant != merchant {
+            env.panic_with_error(ContractError::RefundMerchantMismatch);
+        }
+
+        let record = storage::get_last_charge(&env, &user)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoLastChargeToRefund));
+        // Guards a resubscribe to a different merchant: the stale record still
+        // belongs to the merchant that was actually paid.
+        if record.merchant != merchant {
+            env.panic_with_error(ContractError::RefundMerchantMismatch);
+        }
+        if record.amount <= 0 {
+            env.panic_with_error(ContractError::NoLastChargeToRefund);
+        }
+
+        // Merchant-funded refund: validate the source balance before moving
+        // funds so an underfunded merchant cannot reach an opaque SAC failure.
+        let token_client = token::Client::new(&env, &record.token);
+        if token_client.balance(&merchant) < record.amount {
+            env.panic_with_error(ContractError::InsufficientMerchantBalance);
+        }
+
+        token_client.transfer(&merchant, &user, &record.amount);
+
+        // Reverse the same legs booked by `charge_exec::execute_charge`.
+        merchant_stats::decrement_revenue(&env, &merchant, record.net);
+        fee::decrement_protocol_fees(&env, record.fee);
+        storage::clear_last_charge(&env, &user);
+        extend_subscription_ttl(&env, &user);
+
+        events::publish_refunded(
+            &env,
+            &user,
+            &merchant,
+            record.amount,
+            record.fee,
+            record.net,
+            record.charged_at,
+        );
+    }
+
+    /// Skips exactly one upcoming billing cycle for `user` without pausing or
+    /// cancelling the subscription.
+    ///
+    /// Advances `last_charged` by one `interval`, which moves
+    /// `next_charge_at` one interval later. The subscriber may call this at most
+    /// once per billing interval (`SkipCooldownActive`), so a subscriber cannot
+    /// chain skips into an indefinite free subscription.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `user`.
+    ///
+    /// # Errors
+    ///
+    /// Panics if no subscription exists (`NoSubscriptionFound`), it is paused
+    /// (`SubscriptionPaused`) or cancelled (`SubscriptionInactive`), the skip
+    /// cooldown has not elapsed (`SkipCooldownActive`), or the timestamp
+    /// arithmetic overflows (`ArithmeticOverflow`).
+    ///
+    /// # Side Effects
+    ///
+    /// Overwrites `last_charged`, records the skip timestamp, refreshes the
+    /// subscription TTL, and emits `charge_skipped`.
+    pub fn skip_next_charge(env: Env, user: Address) {
+        bump_instance_ttl(&env);
+        user.require_auth();
+
+        let key = DataKey::Subscription(user.clone());
+        let mut sub: Subscription = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+        if sub.paused {
+            env.panic_with_error(ContractError::SubscriptionPaused);
+        }
+        if !sub.active {
+            env.panic_with_error(ContractError::SubscriptionInactive);
+        }
+        if sub.interval == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
+
+        let now = env.ledger().timestamp();
+
+        // Abuse bound: at most one skip per billing interval.
+        if let Some(last_skip) = storage::get_last_skip_at(&env, &user) {
+            let cooldown_end = last_skip
+                .checked_add(sub.interval)
+                .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+            if now < cooldown_end {
+                env.panic_with_error(ContractError::SkipCooldownActive);
+            }
+        }
+
+        let new_last_charged = sub
+            .last_charged
+            .checked_add(sub.interval)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+        let next_charge_at = new_last_charged
+            .checked_add(sub.interval)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+
+        sub.last_charged = new_last_charged;
+        env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
+        storage::set_last_skip_at(&env, &user, now);
+
+        events::publish_charge_skipped(&env, &user, sub.interval, new_last_charged, next_charge_at);
+    }
+
+    /// Returns the per-subscriber storage footprint for rent estimation.
+    ///
+    /// Lists every key the contract can create for `user` (subscription,
+    /// referral, metadata, charge history, subscriber-index slot, pause expiry,
+    /// last charge, last skip, and the temporary daily-limit keys) with presence
+    /// flags. TTLs are reported only in test/testutils builds; production
+    /// returns `0` because Soroban does not expose `get_ttl()` on-chain.
+    pub fn get_storage_footprint(env: Env, user: Address) -> StorageFootprint {
+        storage::get_storage_footprint(&env, &user)
     }
 
     /// Pauses `user`'s subscription without cancelling it.
