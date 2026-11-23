@@ -15,6 +15,8 @@ export class FreighterAdapter implements WalletAdapter {
   id = "freighter";
   name = "Freighter";
   icon = "🚢";
+  installUrl = "https://freighter.app";
+  installHint = "Install the Freighter browser extension.";
 
   async isInstalled(): Promise<boolean> {
     return !!window.freighter;
@@ -29,6 +31,16 @@ export class FreighterAdapter implements WalletAdapter {
       throw new Error("Please unlock Freighter and allow access.");
     }
     return window.freighter.getPublicKey();
+  }
+
+  async getCurrentAccount(): Promise<string | null> {
+    if (!window.freighter || !(await window.freighter.isConnected())) return null;
+    return window.freighter.getPublicKey();
+  }
+
+  async getNetwork(): Promise<{ network: string; networkPassphrase: string }> {
+    if (!window.freighter) throw new Error("Freighter not available");
+    return window.freighter.getNetwork();
   }
 
   async disconnect(): Promise<void> {

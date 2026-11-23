@@ -61,6 +61,15 @@ import * as fs from "fs";
 import * as crypto from "crypto";
 import * as path from "path";
 import { Contract, Networks, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
+import * as fs from "fs";
+import * as crypto from "crypto";
+import * as path from "path";
+import {
+  Contract,
+  Networks,
+  TransactionBuilder,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
 import { fileURLToPath } from "url";
 import { MultiEndpointServer } from "./rpc-client.js";
 

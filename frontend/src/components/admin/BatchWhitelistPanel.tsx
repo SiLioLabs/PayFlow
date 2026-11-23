@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { buildWhitelistBatchAddTx, buildWhitelistBatchRemoveTx } from "../../stellar";
 import { parseAddressList, chunkAddresses } from "../../utils/addressValidation";
 import { friendlyError } from "../../utils/errors";
 import { useTransaction } from "../../hooks/useTransaction";
+import { useTransactionPreview } from "../../hooks/useTransactionPreview";
 import { useToast } from "../../hooks/useToast";
 import AddressListInput from "./AddressListInput";
 import ConfirmModal from "../ConfirmModal";
@@ -108,6 +109,14 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
   const chunks = chunkAddresses(valid, MAX_WHITELIST_BATCH);
   const txCount = chunks.length;
 
+  const buildPreviewXdr = useCallback(async () => {
+    const previewChunks = chunkAddresses(parseAddressList(rawInput).valid, MAX_WHITELIST_BATCH);
+    if (!previewChunks.length) return "";
+    const builder = action === "add" ? buildWhitelistBatchAddTx : buildWhitelistBatchRemoveTx;
+    return builder(adminKey, previewChunks[0]);
+  }, [action, adminKey, rawInput]);
+  const previewState = useTransactionPreview(showConfirm ? buildPreviewXdr : null, showConfirm);
+
   async function executeWhitelist() {
     setShowConfirm(false);
 
@@ -116,10 +125,17 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
 
     try {
       for (let i = 0; i < chunks.length; i++) {
-        await tx.submit(async () => {
-          const xdr = await builder(adminKey, chunks[i]);
-          return onSign(xdr);
-        });
+        await tx.submit(
+          async () => {
+            const xdr = await builder(adminKey, chunks[i]);
+            return onSign(xdr);
+          },
+          `${verb} ${i + 1}/${chunks.length}`,
+          {
+            preview: i === 0 ? previewState.preview : null,
+            allowSimulationOverride: previewState.override,
+          }
+        );
       }
       addToast(
         `${verb} ${valid.length} merchant${valid.length !== 1 ? "s" : ""} successfully.`,
@@ -304,6 +320,7 @@ export default function BatchWhitelistPanel({ adminKey, onSign, isAdmin, onInit 
           message={confirmMessage}
           onConfirm={executeWhitelist}
           onCancel={() => setShowConfirm(false)}
+          previewState={previewState}
         />
       )}
     </section>

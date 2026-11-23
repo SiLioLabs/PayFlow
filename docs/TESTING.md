@@ -17,6 +17,15 @@ cargo test --workspace
 ```
 
 To test one crate, use `cargo test -p flowpay` or `cargo test -p academy-vesting`.
+Frontend tests and coverage thresholds:
+
+```bash
+cd frontend
+npm ci
+npm run test -- --coverage
+```
+
+Vitest uses the V8 provider and writes HTML, LCOV, and terminal reports to `frontend/coverage`. Global thresholds apply to all frontend source, with additional minimums for `src/hooks/` and `src/utils/`. Pull-request and push CI uploads this report as the `frontend-coverage` artifact.
 
 To see printed output while tests run:
 

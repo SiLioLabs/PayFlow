@@ -3,6 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy
+      ========================
+      Restricts script execution, outbound connections, and framing for this
+      dApp. Adjust connect-src if you use a custom VITE_RPC_URL endpoint.
+
+      script-src notes:
+      - 'wasm-unsafe-eval' is required by @stellar/stellar-sdk, which compiles
+        a WASM binary at runtime.
+      - The sha256 hash covers the inline theme-detection script below. If you
+        edit that script you must recompute the hash:
+          python3 -c "
+          import hashlib,base64,re
+          s=open('frontend/index.html').read()
+          body=re.search(r'<script>(.*?)</script>',s,re.DOTALL).group(1)
+          print('sha256-'+base64.b64encode(hashlib.sha256(body.encode()).digest()).decode())
+          "
+
+      connect-src notes:
+      - Lists both testnet and mainnet Soroban RPC and Horizon endpoints.
+      - Add your VITE_RPC_URL value here if it differs from the defaults.
+      - Freighter communicates through window.freighter (injected by the
+        browser extension); it does not require a connect-src entry.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg=';
+        style-src 'self' 'unsafe-inline';
+        connect-src 'self'
+          https://soroban-testnet.stellar.org
+          https://soroban-mainnet.stellar.org
+          https://horizon-testnet.stellar.org
+          https://horizon.stellar.org;
+        img-src 'self' data:;
+        font-src 'self';
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';
+        frame-ancestors 'none';
+      "
+    />
     <script>
       try {
         const theme = localStorage.getItem("flowpay_theme");

@@ -107,6 +107,7 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [transfer\_subscription](#transfer_subscription)
   - [validate\_subscription](#validate_subscription)
   - [repair\_subscription](#repair_subscription)
+  - [Supplemental entrypoints](#supplemental-entrypoints)
 - [Units & Conversions](#units--conversions)
 - [Events Reference](#events-reference)
 - [Error Codes](#error-codes)
@@ -1906,6 +1907,22 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- remove_daily_limit --user <USER_ADDRESS>
 ```
 
+### `get_daily_limit`
+
+```
+get_daily_limit(env: Env, user: Address) -> Option<i128>
+```
+
+Auth: none.
+
+Returns: `Option<i128>` — the configured positive daily spending limit, or `None` if the user has not set one. The limit is stored in temporary storage and expires after approximately one day.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit --user <USER_ADDRESS>
+```
+
 ### `get_daily_spent`
 
 See the [full reference entry below](#get_daily_spent).
@@ -2428,6 +2445,57 @@ repair_subscription(env: Env, user: Address) -> u32
 | `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
 
 **Frontend authorization:** The repair button is enabled only when the connected Freighter wallet matches the on-chain admin returned by `get_admin`.
+
+---
+
+### Supplemental entrypoints
+
+The following contract methods are smaller configuration, lookup, maintenance, or compatibility entrypoints. They are listed here explicitly so every public entrypoint is represented in the reference.
+
+| Function | Authorization | Purpose |
+| --- | --- | --- |
+| `get_max_batch_size` | None | Reads the configured/default maximum batch size. |
+| `set_max_batch_size` | Admin | Sets the batch-size override, subject to the protocol ceiling. |
+| `get_max_whitelist_batch_size` | None | Reads the whitelist batch-size limit. |
+| `set_max_whitelist_batch_size` | Admin | Sets the whitelist batch-size override, subject to its ceiling. |
+| `get_contract_config` | None | Returns the contract's configuration snapshot. |
+| `bump_subscription` | None | Extends the storage TTL for one subscription. |
+| `batch_extend_subscription_ttl` | None | Extends storage TTLs for the supplied subscriptions. |
+| `pay_per_use_to` | User | Makes a pay-per-use payment to the specified recipient. |
+| `get_subscription_age` | None | Returns the subscription's age in seconds, or `None` if absent. |
+| `extend_trial` | User | Extends the caller's trial by the requested number of seconds. |
+| `cancel_and_refund_prorated` | User and merchant | Cancels a subscription and transfers the prorated refund. |
+| `batch_pause_subscriptions` | Admin | Pauses the supplied subscriptions, subject to the batch cap. |
+| `batch_cancel` | Admin | Cancels the supplied subscriptions and returns per-user results. |
+| `get_pending_admin` | None | Returns the proposed admin awaiting acceptance. |
+| `clear_fee` | Admin | Removes the configured protocol fee collector and rate. |
+| `get_fee_collector` | None | Returns the protocol fee collector, if configured. |
+| `get_total_protocol_fees` | None | Returns cumulative protocol fees collected. |
+| `whitelist_batch_add` | Admin | Adds merchants to the whitelist in a bounded batch. |
+| `whitelist_batch_remove` | Admin | Removes merchants from the whitelist in a bounded batch. |
+| `get_whitelist_page` | None | Returns a bounded page of whitelisted merchants. |
+| `get_whitelist_size` | None | Returns the number of indexed whitelist entries. |
+| `get_merchant_page` | None | Returns a bounded page of indexed merchants. |
+| `get_merchant_statuses` | None | Returns whitelist/frozen status for the supplied merchants. |
+| `set_merchant_fee_recipient` | Merchant | Sets the merchant's custom protocol-fee recipient. |
+| `get_merchant_fee_recipient` | None | Reads a merchant's custom protocol-fee recipient, if set. |
+| `get_merchant_freeze_reason` | None | Returns a merchant's recorded freeze reason, if any. |
+| `get_merchant_revenue_day_page` | None | Returns a bounded page of daily merchant revenue. |
+| `get_next_charge_batch` | None | Returns the next page of charge-eligible subscribers for a keeper. |
+| `extend_subscriber_index_ttl` | Admin | Extends storage TTLs for the subscriber index. |
+| `extend_merchant_state_ttl` | Admin | Extends storage TTLs for indexed merchant state. |
+| `withdraw_merchant_revenue` | Merchant | Transfers the merchant's available revenue to its account. |
+| `get_merchant_revenue_summary` | None | Returns the merchant's aggregate revenue summary. |
+| `get_subscription_health` | None | Returns health indicators for a subscriber's subscription. |
+| `get_merchant_sub_counts` | None | Returns subscriber counts for multiple merchants. |
+| `get_referral` | None | Compatibility alias for `get_referrer`. |
+| `get_charge_history_count` | None | Returns the number of retained charge timestamps. |
+| `prune_charge_history` | Admin | Clears a subscriber's charge history. |
+| `get_global_volume_cap` | None | Returns the effective global hourly volume cap. |
+| `get_global_volume_window` | None | Returns accumulated volume and the current window start. |
+| `set_global_volume_cap` | Admin | Sets or removes the global hourly volume-cap override. |
+| `get_subscription_token` | None | Returns the token used by a subscriber's subscription. |
+| `get_subscriber_merchant` | None | Returns only the merchant address for a subscriber. |
 
 ---
 

@@ -199,6 +199,8 @@ Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entr
 
 FlowPay is **currently deployed on Testnet only** and has not been formally audited — it should not be used to manage real funds on Mainnet until an independent Soroban security audit is completed and published. The frontend targets the network specified by three environment variables in `frontend/.env`: `VITE_CONTRACT_ID` (your deployed contract address), `VITE_RPC_URL` (defaults to `https://soroban-testnet.stellar.org`), and `VITE_NETWORK_PASSPHRASE` (defaults to `Networks.TESTNET`). Switching to Mainnet requires updating all three variables to point to your Mainnet contract and RPC endpoint. The planned audit roadmap is documented in [Security](docs/SECURITY.md#audit-roadmap). For the full Mainnet go-live checklist (security gates, key management, deploy, verification, announcement), see [Mainnet Deployment Checklist](docs/MAINNET-DEPLOYMENT.md).
 
+Review [administrator powers and trust assumptions](docs/SECURITY.md#administrator-powers-and-trust-assumptions) before granting or operating an admin key.
+
 ### Why is `charge()` permissionless — isn't that a security risk?
 
 `charge()` has no `require_auth()` check by design, so any account (including a keeper bot) can trigger a charge without holding user keys. The contract enforces correctness independently: the subscription must exist, `active` must be `true`, and the billing interval must have elapsed — if any condition fails, the transaction panics and no funds move. Because the token transfer uses `transfer_from` against a pre-approved allowance, FlowPay can never move more than the user explicitly approved. This is covered in detail under [Security — Auth Model](docs/SECURITY.md#auth-model).

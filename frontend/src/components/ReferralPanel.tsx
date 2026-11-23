@@ -201,6 +201,7 @@ export default function ReferralPanel({ publicKey }: Props) {
         <span
           className="referral-panel__stat-value"
           data-testid="referred-count"
+          role="status"
           aria-label={
             loadingCount
               ? "Loading referred count"
