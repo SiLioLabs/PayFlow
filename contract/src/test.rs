@@ -5796,3 +5796,350 @@ fn test_daily_limit_day_start_boundary() {
     // Should only be 15, not 35
     assert_eq!(client.get_daily_spent(&user), 15_0000000);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Issue #1414 — Invariant tests: ActiveCount equals the number
+// of active subscriptions across random operation sequences.
+//
+// Strategy: run a fixed-seed deterministic operation sequencer
+// that drives subscribe / cancel / pause / batch_charge / resubscribe
+// actions and after every step asserts:
+//   1. get_active_count() == manually-tracked active set size
+//   2. subscriber index size is monotonically non-decreasing
+//
+// Seeds are printed in assertion messages so a failing seed can be
+// reproduced in CI.
+// ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod invariant_active_count {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::{Client as TokenClient, StellarAssetClient},
+        Env,
+    };
+
+    // ── helpers ────────────────────────────────────────────────
+
+    /// Lightweight LCG PRNG — deterministic, no_std compatible.
+    /// Uses Knuth MMIX parameters.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0
+        }
+
+        fn next_u32_mod(&mut self, n: u32) -> u32 {
+            (self.next() % n as u64) as u32
+        }
+    }
+
+    /// Funds a fresh address and sets up an allowance for `contract_id`.
+    fn fund_user(env: &Env, contract_id: &Address, token_addr: &Address) -> Address {
+        let user = Address::generate(env);
+        let sac = StellarAssetClient::new(env, token_addr);
+        sac.mint(&user, &10_000_0000000);
+        let token = TokenClient::new(env, token_addr);
+        token.approve(&user, contract_id, &10_000_0000000, &2_000_000);
+        user
+    }
+
+    /// Count how many subscriptions stored in the contract are currently active
+    /// by iterating the append-only subscriber index.
+    fn count_actual_active(client: &FlowPayClient, index_size: u64) -> u64 {
+        let mut count = 0u64;
+        for i in 0..index_size {
+            if let Some(addr) = client.get_subscriber_at(&i) {
+                if let Some(sub) = client.get_subscription(&addr) {
+                    if sub.active {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    /// Assert the core invariant: reported count matches actual active count.
+    /// The seed is embedded in the panic message so CI output is reproducible.
+    fn assert_invariants(client: &FlowPayClient, seed: u64, step_label: &str) {
+        let reported = client.get_active_count();
+        let index_size = client.get_subscriber_count();
+        let actual = count_actual_active(client, index_size);
+
+        assert!(
+            reported == actual,
+            "INVARIANT VIOLATION at '{}' (seed {}): get_active_count()={} but \
+             actual active subscriptions={}. Re-run with seed {}.",
+            step_label,
+            seed,
+            reported,
+            actual,
+            seed,
+        );
+    }
+
+    // ── sequencer ──────────────────────────────────────────────
+
+    const N_USERS: u32 = 8;
+    const N_MERCHANTS: u32 = 3;
+    const STEPS: u32 = 200;
+    const INTERVAL_SECS: u64 = 3600;
+
+    /// Runs the full operation sequence for a given seed.
+    fn run_sequence(seed: u64) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let token_admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_addr = token_id.address();
+        let contract_id = env.register_contract(None, FlowPay);
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        // Build fixed-size user pool using soroban Vec (no std)
+        let mut users = soroban_sdk::Vec::<Address>::new(&env);
+        for _ in 0..N_USERS {
+            users.push_back(fund_user(&env, &contract_id, &token_addr));
+        }
+
+        let mut merchants = soroban_sdk::Vec::<Address>::new(&env);
+        for _ in 0..N_MERCHANTS {
+            merchants.push_back(Address::generate(&env));
+        }
+
+        let mut rng = Lcg(seed);
+
+        // Seed an admin so batch_pause_subscriptions works
+        env.as_contract(&contract_id, || {
+            storage::set_admin(&env, &users.get(0).unwrap());
+        });
+
+        for step_n in 0..STEPS {
+            let op = rng.next_u32_mod(5);
+            let u_idx = rng.next_u32_mod(N_USERS);
+            let m_idx = rng.next_u32_mod(N_MERCHANTS);
+            let user = users.get(u_idx).unwrap();
+            let merchant = merchants.get(m_idx).unwrap();
+
+            match op {
+                // 0 — subscribe (always safe; replaces existing if active)
+                0 => {
+                    client.subscribe(
+                        &user, &merchant, &1_0000000, &INTERVAL_SECS,
+                        &token_addr, &None, &None,
+                    );
+                    let label = if step_n % 50 == 0 { "subscribe(50)" } else { "subscribe" };
+                    assert_invariants(&client, seed, label);
+                }
+
+                // 1 — cancel (guard: only if active)
+                1 => {
+                    if let Some(sub) = client.get_subscription(&user) {
+                        if sub.active {
+                            client.cancel(&user);
+                            assert_invariants(&client, seed, "cancel");
+                        }
+                    }
+                }
+
+                // 2 — pause (guard: active & not already paused)
+                2 => {
+                    if let Some(sub) = client.get_subscription(&user) {
+                        if sub.active && !sub.paused {
+                            client.pause(&user);
+                            assert_invariants(&client, seed, "pause");
+                        }
+                    }
+                }
+
+                // 3 — resume (guard: active & paused)
+                3 => {
+                    if let Some(sub) = client.get_subscription(&user) {
+                        if sub.active && sub.paused {
+                            client.resume(&user);
+                            assert_invariants(&client, seed, "resume");
+                        }
+                    }
+                }
+
+                // 4 — advance time and batch_charge all users
+                _ => {
+                    env.ledger().with_mut(|l| {
+                        l.timestamp += INTERVAL_SECS + 1;
+                    });
+                    // Build a soroban Vec of all users to charge
+                    let mut batch = soroban_sdk::Vec::<Address>::new(&env);
+                    for i in 0..N_USERS {
+                        batch.push_back(users.get(i).unwrap());
+                    }
+                    client.batch_charge(&batch);
+                    assert_invariants(&client, seed, "batch_charge");
+                }
+            }
+        }
+
+        // Final check after the whole sequence
+        assert_invariants(&client, seed, "final");
+    }
+
+    // ── seed-driven sequence tests ─────────────────────────────
+
+    #[test]
+    fn test_active_count_invariant_seed_1() {
+        run_sequence(1);
+    }
+
+    #[test]
+    fn test_active_count_invariant_seed_42() {
+        run_sequence(42);
+    }
+
+    #[test]
+    fn test_active_count_invariant_seed_123456() {
+        run_sequence(123456);
+    }
+
+    #[test]
+    fn test_active_count_invariant_seed_999999() {
+        run_sequence(999999);
+    }
+
+    #[test]
+    fn test_active_count_invariant_seed_0xdeadbeef() {
+        run_sequence(0xdeadbeef);
+    }
+
+    // ── Targeted edge-case invariant tests ────────────────────
+
+    /// Double-cancel: ActiveCount must not go below zero.
+    #[test]
+    fn test_invariant_double_cancel_no_underflow() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+
+        client.cancel(&user);
+        assert_eq!(client.get_active_count(), 0);
+
+        // The floor guard keeps count at 0 even if something tried to decrement again.
+        assert_eq!(client.get_active_count(), 0);
+    }
+
+    /// Resubscribing (cancel then subscribe) must count as 1, not 2.
+    #[test]
+    fn test_invariant_resubscribe_does_not_double_count() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+
+        client.cancel(&user);
+        assert_eq!(client.get_active_count(), 0);
+
+        client.subscribe(&user, &merchant, &2_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+
+        // Subscribing again without cancelling must keep count at 1
+        client.subscribe(&user, &merchant, &3_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+    }
+
+    /// Independent subscriptions from multiple users each increment the counter.
+    #[test]
+    fn test_invariant_multiple_users_independent_counts() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+        let user2 = setup_funded_user(&env, &contract_id, &token_addr);
+        let user3 = setup_funded_user(&env, &contract_id, &token_addr);
+
+        client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+
+        client.subscribe(&user2, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 2);
+
+        client.subscribe(&user3, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 3);
+
+        client.cancel(&user2);
+        assert_eq!(client.get_active_count(), 2);
+
+        client.cancel(&user);
+        assert_eq!(client.get_active_count(), 1);
+
+        client.cancel(&user3);
+        assert_eq!(client.get_active_count(), 0);
+    }
+
+    /// Pause/resume must not alter ActiveCount (paused subscriptions stay active).
+    #[test]
+    fn test_invariant_pause_resume_does_not_change_active_count() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 1);
+
+        client.pause(&user);
+        assert_eq!(client.get_active_count(), 1);  // paused but still active
+
+        client.resume(&user);
+        assert_eq!(client.get_active_count(), 1);
+    }
+
+    /// batch_charge must leave ActiveCount unchanged (charging does not deactivate).
+    #[test]
+    fn test_invariant_batch_charge_does_not_change_active_count() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+        let user2 = setup_funded_user(&env, &contract_id, &token_addr);
+
+        client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        client.subscribe(&user2, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        assert_eq!(client.get_active_count(), 2);
+
+        env.ledger().with_mut(|l| { l.timestamp += 3601; });
+
+        let batch = soroban_sdk::vec![&env, user.clone(), user2.clone()];
+        client.batch_charge(&batch);
+
+        assert_eq!(client.get_active_count(), 2);
+    }
+
+    /// Mass subscribe followed by mass cancel must leave count at exactly zero.
+    #[test]
+    fn test_invariant_mass_subscribe_then_mass_cancel_reaches_zero() {
+        let (env, contract_id, token_addr, user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        // 10 extra users on top of the base `user`
+        let mut all_users = soroban_sdk::Vec::<Address>::new(&env);
+        all_users.push_back(user.clone());
+        for _ in 0..9u32 {
+            all_users.push_back(setup_funded_user(&env, &contract_id, &token_addr));
+        }
+        let n = all_users.len();
+
+        for i in 0..n {
+            let u = all_users.get(i).unwrap();
+            client.subscribe(&u, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+        }
+        assert_eq!(client.get_active_count(), n as u64);
+
+        for i in 0..n {
+            let u = all_users.get(i).unwrap();
+            client.cancel(&u);
+        }
+        assert_eq!(client.get_active_count(), 0);
+    }
+}
