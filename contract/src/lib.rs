@@ -157,6 +157,9 @@ pub enum DataKey {
     MigratedAccount(Address),
     // Feature: number of accounts processed by `migrate` in the current upgrade
     MigratedAccountCount,
+    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
+    // trial grant time so cancel + re-subscribe cannot reset eligibility)
+    TrialUsed(Address, Address),
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -180,7 +183,8 @@ pub const MERCHANT_STATE_TTL_LEDGERS: u32 = 1_555_200; // ~90 days (assuming 5s 
 
 pub use caps::{
     MAX_BATCH_PAUSE_SUBSCRIPTIONS, MAX_BATCH_SIZE_CEILING, MAX_MERCHANT_SUB_COUNT_BATCH,
-    MAX_WHITELIST_BATCH_SIZE, REVENUE_DAY_PAGE_SIZE, SUBSCRIBER_PAGE_SIZE, TOP_MERCHANTS_PAGE_SIZE,
+    MAX_SUBSCRIPTIONS_BATCH, MAX_WHITELIST_BATCH_SIZE, REVENUE_DAY_PAGE_SIZE, SUBSCRIBER_PAGE_SIZE,
+    TOP_MERCHANTS_PAGE_SIZE,
 };
 
 /// The default cap for the admin batch charge/extend entrypoints, sourced from
@@ -684,7 +688,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `InvalidKeeperTipBps` (53) when `bps > MAX_KEEPER_TIP_BPS`.
     /// - `NotInitialized` (7) when no admin is set.
     pub fn set_keeper_tip_bps(env: Env, bps: u32) {
         admin::require_admin(&env);
@@ -1413,6 +1417,26 @@ impl FlowPay {
 
     pub fn get_subscription(env: Env, user: Address) -> Option<Subscription> {
         env.storage().persistent().get(&DataKey::Subscription(user))
+    }
+
+    /// Returns subscriptions for multiple users in a single call, preserving
+    /// input order (`result[i]` corresponds to `users[i]`; `None` where no
+    /// subscription exists, mirroring `get_subscription`).
+    ///
+    /// Capped at `MAX_SUBSCRIPTIONS_BATCH` (50); panics with `BatchTooLarge`
+    /// above that.
+    pub fn get_subscriptions(env: Env, users: Vec<Address>) -> Vec<Option<Subscription>> {
+        if users.len() > MAX_SUBSCRIPTIONS_BATCH {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        let mut result = Vec::new(&env);
+        for user in users.iter() {
+            let sub: Option<Subscription> =
+                env.storage().persistent().get(&DataKey::Subscription(user));
+            result.push_back(sub);
+        }
+        result
     }
 
     pub fn get_subscription_age(env: Env, user: Address) -> Option<u64> {
@@ -2374,7 +2398,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// `MigrationIncomplete` (48) when `migrated_accounts < expected_total`.
+    /// `MigrationIncomplete` (52) when `migrated_accounts < expected_total`.
     pub fn finalize_migration(env: Env, expected_total: u64) {
         migration::finalize(&env, expected_total);
     }
@@ -2930,6 +2954,13 @@ fn subscribe_inner(
 
     let now = env.ledger().timestamp();
     let trial_duration = trial_period.unwrap_or(0);
+    if trial_duration > 0 {
+        // Marked used here, at grant time — not on trial completion — so a
+        // cancel followed by re-subscribing with a new trial_period cannot
+        // reset eligibility and grant unlimited free trials.
+        trial::require_trial_unused(env, &user, &merchant);
+        trial::mark_trial_used(env, &user, &merchant);
+    }
     let last_charged = now + trial_duration;
 
     let existing = storage::get_subscription(env, &user);

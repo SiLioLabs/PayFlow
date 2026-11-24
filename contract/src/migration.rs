@@ -190,7 +190,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
 ///
 /// # Errors
 ///
-/// - `MigrationIncomplete` (48) when fewer than `expected_total` accounts have
+/// - `MigrationIncomplete` (52) when fewer than `expected_total` accounts have
 ///   been processed.
 pub fn finalize(env: &Env, expected_total: u64) {
     admin::require_admin(env);

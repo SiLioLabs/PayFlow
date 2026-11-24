@@ -128,11 +128,14 @@ pub enum ContractError {
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 51,
     /// Returned by `finalize_migration` while fewer accounts have been migrated
     /// than the operator-supplied total, so the schema version cannot be advanced.
-    MigrationIncomplete = 48,
+    MigrationIncomplete = 52,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
-    InvalidKeeperTipBps = 49,
+    InvalidKeeperTipBps = 53,
     /// Returned when an admin transfer targets the current admin or this contract.
-    InvalidAdminAddress = 48,
+    InvalidAdminAddress = 54,
 }

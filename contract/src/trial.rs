@@ -1,4 +1,5 @@
 use crate::storage;
+use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
 use soroban_sdk::{Address, Env};
 
 /// Maximum seconds that a single `extend_trial` call may add.
@@ -20,6 +21,30 @@ pub fn get_trial_end(env: Env, user: Address) -> Option<u64> {
     } else {
         None
     }
+}
+
+/// Panics with `TrialAlreadyUsed` if `(user, merchant)` has already consumed
+/// its one trial. Matches the contract's existing convention of rejecting an
+/// already-done action with a typed error (see `SubscriptionAlreadyActive`)
+/// rather than silently downgrading the requested behavior.
+pub fn require_trial_unused(env: &Env, user: &Address, merchant: &Address) {
+    let key = DataKey::TrialUsed(user.clone(), merchant.clone());
+    let used: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    if used {
+        env.panic_with_error(crate::errors::ContractError::TrialAlreadyUsed);
+    }
+}
+
+/// Records that `(user, merchant)` has consumed its one trial. Persistent
+/// and TTL-bumped like a subscription entry, so it outlives a cancel.
+pub fn mark_trial_used(env: &Env, user: &Address, merchant: &Address) {
+    let key = DataKey::TrialUsed(user.clone(), merchant.clone());
+    env.storage().persistent().set(&key, &true);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
 }
 
 pub fn extend_trial(env: &Env, user: &Address, additional_seconds: u64) {

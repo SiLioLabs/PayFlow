@@ -20,6 +20,7 @@ deployed contract.  The authoritative values live in:
 | `MAX_BATCH_SIZE_CEILING` | 200 | Hard ceiling on `set_max_batch_size` |
 | `MAX_BATCH_PAUSE` | 25 | Maximum subscriptions per batch pause call |
 | `MAX_WHITELIST_BATCH` | 50 | Maximum addresses per whitelist batch operation |
+| `MAX_SUBSCRIPTIONS_BATCH` | 50 | Maximum addresses per `get_subscriptions` batch read |
 
 ## Schema version
 
