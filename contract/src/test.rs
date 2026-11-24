@@ -17033,4 +17033,31 @@ fn test_subscribe_invalid_token_address_rejected() {
     assert_eq!(res.unwrap_err().unwrap(), ContractError::InvalidTokenAddress);
 }
 
+/// Tests that standard SAC token charge transfers exactly match nominal amounts and contract balance does not retain funds.
+#[test]
+fn test_charge_standard_token_balances_match_books() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 2_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    let contract_balance_before = token.balance(&contract_id);
+    assert_eq!(contract_balance_before, 0);
+
+    client.charge(&user);
+
+    let contract_balance_after = token.balance(&contract_id);
+    assert_eq!(contract_balance_after, 0);
+    assert_eq!(token.balance(&merchant), amount);
+}
+
+
 
