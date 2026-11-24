@@ -115,6 +115,30 @@ pub fn record_spend(env: &Env, user: &Address, amount: i128) {
         .extend_ttl(&spent_key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
 }
 
+/// Checks whether `(user, nonce)` has already been recorded for
+/// `pay_per_use_with_nonce`. Panics with `NonceAlreadyUsed` on replay.
+///
+/// Call before charging; pair with [`record_nonce`] after the charge
+/// succeeds so a reverted/failed attempt can still be retried with the same
+/// nonce.
+pub fn enforce_nonce_unused(env: &Env, user: &Address, nonce: u64) {
+    let key = DataKey::PayPerUseNonce(user.clone(), nonce);
+    if env.storage().temporary().has(&key) {
+        env.panic_with_error(crate::errors::ContractError::NonceAlreadyUsed);
+    }
+}
+
+/// Records `(user, nonce)` as used in temporary storage with the same
+/// ~1-day TTL as the daily spend window, so a nonce cannot be replayed within
+/// a billing day but is not kept forever.
+pub fn record_nonce(env: &Env, user: &Address, nonce: u64) {
+    let key = DataKey::PayPerUseNonce(user.clone(), nonce);
+    env.storage().temporary().set(&key, &true);
+    env.storage()
+        .temporary()
+        .extend_ttl(&key, LEDGERS_PER_DAY, LEDGERS_PER_DAY);
+}
+
 /// Checks whether `amount` would exceed the user's daily limit.
 /// Panics with ContractError::DailyLimitExceeded if the limit would be exceeded.
 pub fn enforce_limit(env: &Env, user: &Address, amount: i128) {
