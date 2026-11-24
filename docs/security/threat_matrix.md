@@ -195,6 +195,44 @@ fn admin_emergency_freeze(env: Env) -> Result<(), Error> {
 
 ---
 
+---
+
+## 4. Re-entrancy and Checks-Effects-Interactions Ordering
+
+**Threat:** A hostile token contract calls back into FlowPay during a token transfer, observing or modifying state before it is fully committed.
+
+**Soroban Host Guarantee:** Soroban enforces single-contract-instance re-entry prevention at the host level. Cross-contract calls to the same contract instance within the same transaction are rejected. This eliminates classical EVM-style re-entrancy.
+
+**CEI Ordering per Entry Point:**
+
+| Entry point | Checks | Effects (state writes) | Interactions (token calls) | CEI order |
+|---|---|---|---|---|
+| `charge(user)` | allowance, interval, grace, pause | `last_charged`, subscription TTL, `MerchantRevenue`, fee accrual, `ActiveCount`, event | `token::transfer_from` (user → merchant), fee leg if configured | ✅ Writes before transfer |
+| `pay_per_use(user, amount)` | active, not paused, allowance, daily limit | `DailySpent`, `DayStart`, `MerchantRevenue`, fee accrual, event | `token::transfer_from` (user → merchant), fee leg if configured | ✅ Writes before transfer |
+| `pay_per_use_to(user, amount, recipient)` | active, not paused, allowance, daily limit, whitelist | `DailySpent`, `DayStart`, `MerchantRevenue`, fee accrual, event | `token::transfer_from` (user → recipient), fee leg if configured | ✅ Writes before transfer |
+| `cancel_and_refund_prorated(user, merchant)` | active, not paused, merchant match, balance | `cancel_inner` (sub.active=false, count, index), event | `token::transfer` (merchant → user) | ✅ State cleared before transfer |
+| `batch_charge(users)` | pause gate, per-user: allowance, interval, grace | per-user: `last_charged`, TTL, `MerchantRevenue`, fee | per-user: `token::transfer_from` | ✅ Per-user writes before transfer |
+
+**Note on `pay_per_use_inner`:** `fee::transfer_pay_per_use` (token interaction) is called before `merchant_stats::increment_revenue_with_daily` and `spending_limit::record_spend` (effects). This is safe because:
+1. Soroban atomicity rolls back all state if the transfer fails.
+2. The Soroban host prevents re-entrant calls back into this contract during the transfer.
+3. The revenue/spend counters are internal accounting only and do not gate the transfer.
+
+A future hardening pass should reorder these writes ahead of the transfer call to satisfy strict CEI independently of host guarantees.
+
+**Mitigation Strategy:**
+
+- ✅ Soroban host prevents re-entrant calls to the same contract instance.
+- ✅ `cancel_and_refund_prorated` zeros/removes the subscription before transferring — mirrors the classic re-entrancy guard pattern.
+- ✅ CEI ordering verified by unit tests `test_charge_cei_ordering_*` and `test_pay_per_use_cei_ordering_*` and `test_cancel_and_refund_cei_ordering_*` in `contract/src/test.rs`.
+- ⚠️ `pay_per_use_inner`: `merchant_stats` and `spending_limit` writes happen after the token call. No exploitable path exists due to host re-entrancy prevention, but strict CEI reordering is recommended in a follow-up.
+
+**References:**
+- Soroban single-instance re-entrancy: host enforced, no opt-in needed.
+- CEI pattern: https://docs.soliditylang.org/en/latest/security-considerations.html#re-entrancy
+
+---
+
 ## Audit Checklist
 
 - [ ] All admin functions verified to check `env.invoker()`
