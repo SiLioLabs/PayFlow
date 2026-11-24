@@ -16950,3 +16950,64 @@ fn test_storage_footprint_covers_every_per_user_key() {
     assert!(!footprint.entries.get(2).unwrap().present); // metadata
     assert!(!footprint.entries.get(9).unwrap().present); // daily_limit
 }
+
+/// Tests that a charge after multiple missed intervals collects exactly one billing cycle
+/// and updates `next_charge_at` based on the execution timestamp (no double-charging).
+#[test]
+fn test_charge_after_multiple_missed_intervals_without_grace() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400; // 1 day
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let user_balance_before = token.balance(&user);
+    let merchant_balance_before = token.balance(&merchant);
+
+    // Simulate 10 missed intervals (keeper downtime, no grace period configured)
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval * 10;
+    });
+
+    let current_time = env.ledger().timestamp();
+    client.charge(&user);
+
+    // Verify exactly 1 cycle was charged (no catch-up double charging)
+    assert_eq!(user_balance_before - token.balance(&user), amount);
+    assert_eq!(token.balance(&merchant) - merchant_balance_before, amount);
+
+    // Verify next charge timestamp anchors from charge execution time
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.last_charged, current_time);
+    assert_eq!(client.get_next_charge_at(&user).unwrap(), current_time + interval);
+}
+
+/// Tests missed intervals behaviour when a grace window is active (e.g. 2, 3, 10 missed intervals).
+#[test]
+fn test_charge_after_multiple_missed_intervals_with_grace() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400; // 1 day
+    let grace_period: u64 = 3600; // 1 hour
+
+    install_admin(&env, &contract_id);
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    // Missed 2 intervals -> current timestamp > interval + grace_period
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval * 2;
+    });
+
+    // Should fail with GracePeriodElapsed because deadline was last_charged + interval + grace
+    let res = client.try_charge(&user);
+    assert_eq!(res.unwrap_err().unwrap(), ContractError::GracePeriodElapsed);
+}
+
