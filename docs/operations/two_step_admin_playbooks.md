@@ -202,6 +202,141 @@ See [`KEEPER.md`](../KEEPER.md) and [`MAINNET-DEPLOYMENT.md`](../MAINNET-DEPLOYM
 
 ---
 
+
+---
+
+## Playbook C — Admin address rotation (transfer_admin / accept_admin)
+
+Rotates the protocol admin via a two-step hand-off. Unlike the upgrade and fee flows, this uses `PendingAdmin` instance storage with no independent TTL — the entry persists until `accept_admin()` is called or it is overwritten by a fresh `transfer_admin()`.
+
+### When to use
+
+Replacing the protocol admin key (key compromise, key rotation policy, ownership transfer).
+
+### Pre-flight
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_admin
+# Record current admin.
+
+soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_pending_admin
+# Should return null before proposing.
+```
+
+### Step 1 — Propose (current admin)
+
+```bash
+soroban contract invoke \
+  --id "$CONTRACT_ID" \
+  --source "$ADMIN_KEY" \
+  --network "$NETWORK" \
+  -- transfer_admin --new_admin <NEW_ADMIN_ADDRESS>
+```
+
+Verify: `get_pending_admin` now returns `<NEW_ADMIN_ADDRESS>`.
+
+The dashboard's **Admin Transfer** panel also allows the current admin to propose when connected with the admin wallet.
+
+### Step 2 — Accept (new admin)
+
+```bash
+soroban contract invoke \
+  --id "$CONTRACT_ID" \
+  --source "$NEW_ADMIN_KEY" \
+  --network "$NETWORK" \
+  -- accept_admin
+```
+
+After this call:
+- `get_admin` returns `<NEW_ADMIN_ADDRESS>`.
+- `get_pending_admin` returns `null`.
+- An `admin_transferred` event is emitted.
+
+The dashboard's **Admin Transfer** panel shows an **Accept admin transfer** button when the connected wallet matches the pending admin.
+
+### Error: NoPendingAdmin (code 45)
+
+If `accept_admin` is called without a staged transfer, the contract returns error code 45 (`NoPendingAdmin`). The frontend maps this to:
+
+> "No pending admin transfer exists. The current admin must propose one first."
+
+### Abort / cancel paths
+
+| Situation | Action |
+| --- | --- |
+| Wrong address proposed | Call `transfer_admin` again with the correct address (overwrites `PendingAdmin`) |
+| Decided not to rotate | Call `transfer_admin` with the current admin's own address, then have it call `accept_admin`, or deploy a new upgrade that clears `PendingAdmin` |
+| New admin key lost | Current admin can overwrite `PendingAdmin` with a different address at any time |
+
+There is no dedicated `cancel_pending_admin()` entrypoint. Overwriting via a new `transfer_admin()` call is the standard abort path.
+
+---
+
+## Playbook C — Admin address rotation (transfer_admin / accept_admin)
+
+Rotates the protocol admin via a two-step hand-off. Unlike the upgrade and fee flows, `PendingAdmin` has no independent TTL — the entry persists until `accept_admin()` is called or it is overwritten by another `transfer_admin()` call.
+
+### When to use
+
+Replacing the protocol admin key (key compromise, key rotation policy, ownership transfer).
+
+### Pre-flight
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_admin
+# Record current admin.
+
+soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_pending_admin
+# Should return null before proposing.
+```
+
+### Step 1 — Propose (current admin)
+
+```bash
+soroban contract invoke \
+  --id "$CONTRACT_ID" \
+  --source "$ADMIN_KEY" \
+  --network "$NETWORK" \
+  -- transfer_admin --new_admin <NEW_ADMIN_ADDRESS>
+```
+
+Verify: `get_pending_admin` now returns `<NEW_ADMIN_ADDRESS>`.
+
+The dashboard's **Admin Transfer** panel also allows the current admin to propose when connected with the admin wallet.
+
+### Step 2 — Accept (new admin)
+
+```bash
+soroban contract invoke \
+  --id "$CONTRACT_ID" \
+  --source "$NEW_ADMIN_KEY" \
+  --network "$NETWORK" \
+  -- accept_admin
+```
+
+After this call:
+- `get_admin` returns `<NEW_ADMIN_ADDRESS>`.
+- `get_pending_admin` returns `null`.
+- An `admin_transferred` event is emitted.
+
+The dashboard's **Admin Transfer** panel shows an **Accept admin transfer** button when the connected wallet matches the pending admin.
+
+### Error: NoPendingAdmin (code 45)
+
+If `accept_admin` is called without a staged transfer, the contract returns error code 45 (`NoPendingAdmin`). The frontend maps this to:
+
+> "No pending admin transfer exists. The current admin must propose one first."
+
+### Abort / cancel paths
+
+| Situation | Action |
+|---|---|
+| Wrong address proposed | Call `transfer_admin` again with the correct address (overwrites `PendingAdmin`) |
+| Decided not to rotate | Call `transfer_admin` targeting the current admin's own address, then call `accept_admin`, or just leave it — there is no `cancel_pending_admin` entrypoint |
+| New admin key lost before accept | Current admin overwrites `PendingAdmin` with a different address via a fresh `transfer_admin` |
+
+---
+
 ## Related
 
 - [`architecture/two-step-auth.md`](../architecture/two-step-auth.md) — pattern reference

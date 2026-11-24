@@ -36,7 +36,9 @@ describe("AdminDashboard", () => {
     vi.clearAllMocks();
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: true,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -71,6 +73,13 @@ describe("AdminDashboard", () => {
     });
   });
 
+  it("renders the admin transfer section", async () => {
+    render(<AdminDashboard publicKey="GADMIN123" onSign={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("Admin Transfer")).toBeTruthy();
+    });
+  });
+
   it("shows authorized admin status message", async () => {
     render(<AdminDashboard publicKey="GADMIN123" onSign={vi.fn()} />);
     await waitFor(() => {
@@ -78,10 +87,30 @@ describe("AdminDashboard", () => {
     });
   });
 
+  it("shows pending admin status message when wallet is pending admin", async () => {
+    vi.mocked(useAdmin).mockReturnValue({
+      adminAddress: "GADMIN123",
+      pendingAdminAddress: "GPENDING456",
+      isAdmin: false,
+      isPendingAdmin: true,
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<AdminDashboard publicKey="GPENDING456" onSign={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Pending admin — accept the transfer/)).toBeTruthy();
+    });
+  });
+
   it("shows read-only guidance for non-admin wallets", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -97,7 +126,9 @@ describe("AdminDashboard", () => {
   it("shows admin access required alerts for non-admin wallets on batch sections", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -107,7 +138,6 @@ describe("AdminDashboard", () => {
 
     await waitFor(() => {
       const alerts = screen.getAllByRole("alert");
-      // Expect at least the batch pause and whitelist warnings
       expect(alerts.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -115,7 +145,9 @@ describe("AdminDashboard", () => {
   it("shows loading spinner while admin status is loading", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: null,
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: true,
       error: null,
       refresh: vi.fn(),
@@ -128,7 +160,9 @@ describe("AdminDashboard", () => {
   it("batch pause panel submit is disabled for non-admin", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -144,7 +178,9 @@ describe("AdminDashboard", () => {
   it("whitelist submit is disabled for non-admin", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
