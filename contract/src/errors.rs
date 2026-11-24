@@ -89,6 +89,13 @@ pub enum ContractError {
     /// Returned when a checked arithmetic operation overflows (trial extension,
     /// fee calculation, protocol-fee accrual, or global volume accumulation)
     ArithmeticOverflow = 36,
+    /// Reserved: code 37 was skipped when the catalog was extended and has
+    /// never been emitted by any released WASM. Declaring it keeps the slot
+    /// claimed so a future variant cannot reuse 37 and silently change what
+    /// existing clients decode. Never emit it; add new errors at the next
+    /// free code. `scripts/check-error-codes.mjs` fails on any undeclared gap.
+    #[deprecated(note = "code 37 is reserved and must not be emitted")]
+    Reserved37 = 37,
     /// Returned when a refund is requested by a merchant different from the subscription merchant
     RefundMerchantMismatch = 38,
     /// Returned when prorated cancellation would produce no refund

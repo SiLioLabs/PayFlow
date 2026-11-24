@@ -413,6 +413,7 @@ pub struct ContractConfig {
   pub whitelist_enabled: bool,
   pub paused: bool,
   pub schema_version: u32,
+  pub version: String,
 }
 ```
 
@@ -427,6 +428,7 @@ pub struct ContractConfig {
 | `whitelist_enabled`  | `bool`            | Whether merchant whitelist enforcement is active                  |
 | `paused`             | `bool`            | Contract-wide pause flag (admin circuit breaker)                  |
 | `schema_version`     | `u32`             | Migration schema version                                          |
+| `version`            | `String`          | Release semver of the running WASM (same as `get_version`)        |
 
 Useful for frontend config caching and keeper initialization.
 
@@ -2201,6 +2203,18 @@ does this.
 ### `get_schema_version`
 
 See the [full reference entry below](#get_schema_version).
+
+### `get_version`
+
+```
+get_version(env: Env) -> String
+```
+
+Auth: none (read-only).
+
+Returns the release semver of the running WASM, embedded at build time from `contract/Cargo.toml` (`env!("CARGO_PKG_VERSION")`). The same value is returned as `version` in [`get_contract_config`](#get_contract_config). `get_schema_version` tracks the storage layout; `get_version` ties a deployed contract to a release. `scripts/deploy-pipeline.ts` reads it and records it in `deployments/manifest.json` as `contractVersion`.
+
+**Errors:** none defined.
 
 ### `set_metadata`
 

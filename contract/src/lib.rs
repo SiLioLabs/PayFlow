@@ -364,7 +364,13 @@ pub struct ContractConfig {
     pub whitelist_enabled: bool,
     pub paused: bool,
     pub schema_version: u32,
+    /// Release version of this WASM (`contract/Cargo.toml` `version`), same as `get_version`.
+    pub version: String,
 }
+
+/// Semver of the build, embedded at compile time from `contract/Cargo.toml`
+/// so a deployed WASM can be tied to a release.
+pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // ─────────────────────────────────────────────────────────────
 // Contract
@@ -495,6 +501,7 @@ impl FlowPay {
                 .instance()
                 .get(&DataKey::SchemaVersion)
                 .unwrap_or(1),
+            version: String::from_str(&env, CONTRACT_VERSION),
         }
     }
 
@@ -2430,6 +2437,14 @@ impl FlowPay {
     /// Returns the current storage schema version.
     pub fn get_schema_version(env: Env) -> u32 {
         migration::get_schema_version(&env)
+    }
+
+    /// Returns the release version of the running WASM (the `version` in
+    /// `contract/Cargo.toml`, embedded at build time). Unlike
+    /// `get_schema_version`, which tracks the storage layout, this ties a
+    /// deployed contract to a release. Read-only, no auth required.
+    pub fn get_version(env: Env) -> String {
+        String::from_str(&env, CONTRACT_VERSION)
     }
 
     // ─────────────────────────────────────────────────────────────

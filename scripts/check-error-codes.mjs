@@ -17,14 +17,16 @@
  *   - run: node scripts/check-error-codes.mjs
  *     working-directory: .
  *
- * Intentional gaps (codes that exist in errors.rs as deprecated/reserved but
- * are NOT assigned to an active variant) are handled by scanning for comments
- * in errors.rs that mark a code as "reserved" or "unassigned".  The script
- * treats them as documented-gaps and only requires they appear in the
- * quick-reference table (even as "*(reserved)*" or "*(unassigned)*").
+ * It also fails when:
+ *   - the numeric sequence in errors.rs has an undeclared gap (every code from
+ *     1 to the highest one must be declared; reserved slots use a deprecated
+ *     `ReservedN` variant), and
+ *   - a #[deprecated] variant is referenced as `ContractError::Name` in
+ *     contract sources outside errors.rs and test-only files, i.e. could be
+ *     emitted (see the deprecation schedule in docs/ERROR-CODES.md).
  */
 
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -201,9 +203,69 @@ for (const [code, name] of rustCodes.entries()) {
   }
 }
 
+// ── 5b. No undeclared numeric gaps (#1410) ──────────────────────────────────
+//
+// Every code from 1 to the highest code must be declared in errors.rs. A
+// reserved slot is declared with a deprecated `ReservedN` variant, so an
+// unexplained hole (which a future variant could silently reuse) fails here.
+
+const maxCode = Math.max(...rustCodes.keys());
+const undeclaredGaps = [];
+for (let code = 1; code <= maxCode; code++) {
+  if (!rustCodes.has(code)) undeclaredGaps.push(code);
+}
+
+// ── 5c. Deprecated variants must never be emitted (#1411) ───────────────────
+//
+// Variants marked #[deprecated] in errors.rs are kept only for wire
+// compatibility. Referencing one as `ContractError::Name` anywhere else in
+// the contract sources (outside errors.rs and test-only files) means the
+// contract could emit it, which the deprecation schedule forbids.
+
+function parseDeprecatedVariants(src) {
+  const names = [];
+  const re = /#\[deprecated[^\]]*\]\s*(?:\/\/[^\n]*\s*|#\[[^\]]*\]\s*)*(\w+)\s*=\s*\d+/g;
+  let d;
+  while ((d = re.exec(src)) !== null) names.push(d[1]);
+  return names;
+}
+
+const deprecatedVariants = parseDeprecatedVariants(errorsRs);
+const contractSrcDir = join(ROOT, 'contract', 'src');
+const TEST_ONLY_FILE = /^(test[\w-]*|bench)\.rs$/;
+const deprecatedEmissions = [];
+for (const file of readdirSync(contractSrcDir)) {
+  if (!file.endsWith('.rs') || file === 'errors.rs' || TEST_ONLY_FILE.test(file)) continue;
+  const lines = readFileSync(join(contractSrcDir, file), 'utf8').split(/\r?\n/);
+  lines.forEach((line, i) => {
+    const code = line.replace(/\/\/.*$/, '');
+    for (const name of deprecatedVariants) {
+      if (new RegExp(`ContractError::${name}\\b`).test(code)) {
+        deprecatedEmissions.push({ file, line: i + 1, name });
+      }
+    }
+  });
+}
+
 // ── 6. Report ────────────────────────────────────────────────────────────────
 
 let failures = 0;
+
+if (undeclaredGaps.length > 0) {
+  failures++;
+  console.error('\n[check-error-codes] FAIL — undeclared gaps in the errors.rs numeric sequence:');
+  for (const code of undeclaredGaps) console.error(`  code ${code}`);
+  console.error('\n  Use the next free code for new errors, or reserve the slot with a deprecated `ReservedN` variant and document it.\n');
+}
+
+if (deprecatedEmissions.length > 0) {
+  failures++;
+  console.error('\n[check-error-codes] FAIL — deprecated error variants referenced in contract code (they must never be emitted):');
+  for (const { file, line, name } of deprecatedEmissions) {
+    console.error(`  contract/src/${file}:${line}: ContractError::${name}`);
+  }
+  console.error('\n  Emit the canonical replacement instead (e.g. ContractPaused, code 18). See docs/ERROR-CODES.md#deprecation-schedule.\n');
+}
 
 if (missingFromDoc.length > 0) {
   failures++;
