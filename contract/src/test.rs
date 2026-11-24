@@ -17011,3 +17011,26 @@ fn test_charge_after_multiple_missed_intervals_with_grace() {
     assert_eq!(res.unwrap_err().unwrap(), ContractError::GracePeriodElapsed);
 }
 
+/// Tests that subscribe with an invalid (non-contract / G-address) token address is rejected with InvalidTokenAddress.
+#[test]
+fn test_subscribe_invalid_token_address_rejected() {
+    let (env, contract_id, _token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    use soroban_sdk::xdr::{AccountId, PublicKey, ScAddress, Uint256};
+    let account_id = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256([0; 32])));
+    let account_token = Address::try_from_val(&env, &ScAddress::Account(account_id)).unwrap();
+
+    let res = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &account_token,
+        &None,
+        &None,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), ContractError::InvalidTokenAddress);
+}
+
+
