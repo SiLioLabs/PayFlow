@@ -17059,5 +17059,25 @@ fn test_charge_standard_token_balances_match_books() {
     assert_eq!(token.balance(&merchant), amount);
 }
 
+/// Tests that get_required_allowance matches charge allowance requirements exactly across multiple cycles.
+#[test]
+fn test_get_required_allowance_matches_charge() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_5000000;
+    let interval: u64 = 86400;
+
+    // Non-existent subscription requires 0 allowance
+    assert_eq!(client.get_required_allowance(&user, &3), 0);
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    assert_eq!(client.get_required_allowance(&user, &0), 0);
+    assert_eq!(client.get_required_allowance(&user, &1), amount);
+    assert_eq!(client.get_required_allowance(&user, &6), amount * 6);
+}
+
+
 
 

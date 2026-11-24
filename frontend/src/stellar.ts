@@ -1570,6 +1570,9 @@ export function getContractHealthCheck(caller: string): Promise<ContractHealthCh
   });
 }
 
+export { getRequiredAllowance } from "./services/reads";
+
+
 const VALIDATION_TIMEOUT_MS = 30_000;
 
 function parseScString(val: xdr.ScVal): string {

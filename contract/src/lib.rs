@@ -1422,6 +1422,18 @@ impl FlowPay {
         env.storage().persistent().get(&DataKey::Subscription(user))
     }
 
+    /// Returns the gross SAC allowance required for `cycles` billing cycles of `user`'s subscription.
+    ///
+    /// Matches the exact validation logic in `charge` and `validation::has_sufficient_allowance`:
+    /// allowance must cover the gross subscription amount per cycle.
+    pub fn get_required_allowance(env: Env, user: Address, cycles: u32) -> i128 {
+        let sub: Option<Subscription> = env.storage().persistent().get(&DataKey::Subscription(user));
+        match sub {
+            Some(s) => s.amount.saturating_mul(cycles as i128),
+            None => 0,
+        }
+    }
+
     pub fn get_subscription_age(env: Env, user: Address) -> Option<u64> {
         let sub: Subscription = env
             .storage()
