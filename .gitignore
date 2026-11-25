@@ -202,3 +202,8 @@ data/webhook-dlq.jsonl
 # Debug brace dumps (recurring local artefacts, see #1252)
 frontend/*_braces.txt
 *_braces.txt
+
+# Soroban writes one test snapshot per `Env`; the seeded estimate-vs-live
+# property test creates one per generated case, so these change on every
+# generator update and are not meaningful review diffs.
+contract/test_snapshots/scenario/scenario_property_estimate_matches_live_batch_outcomes.*.json

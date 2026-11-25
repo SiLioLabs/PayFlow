@@ -1624,14 +1624,18 @@ get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Success behavior:** for each user, missing sub → `NoSubscription`. If paused, `try_auto_resume` may persist an auto-resume. Then `precheck_charge` runs. If that returns `Ok`, the estimate reads SAC `allowance(user, contract)` against gross `sub.amount` and returns `Charged` or `AllowanceInsufficient`.
 
-**Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics. Note this is the shared ceiling, so it is higher than the default live charge cap: see [LIMITS.md](./LIMITS.md#batch-operations).
+**Errors:** `ContractError::BatchTooLarge` (20) when `users.len()` exceeds either the configured live cap (`get_max_batch_size()`, default 50) or the shared 200-address ceiling. Ordinary per-user outcomes are enum values, not panics. See [LIMITS.md](./LIMITS.md#batch-operations).
 
 **Operational caveats (from `lib.rs`):**
 
 1. Calls real `try_auto_resume`, which **writes** the subscription, clears pause expiry, and emits `subscription_auto_resumed` — **not a pure view**.
 2. Does **not** check protocol pause (`is_contract_paused`). `simulate_charge` returns `ContractPaused` instead.
 3. Allowance **is** checked (same gross-amount test as live `batch_charge`). A keeper file-header comment that says otherwise is stale.
-4. Cap 200 vs live batch max (default 50 via `MaxBatchSize`).
+4. Enforces the same batch cap as live (`get_max_batch_size()`, plus the 200-address ceiling).
+5. A repeated address is reported as `Charged` at every position, while live charges the first occurrence and returns `Skipped` for later ones. De-duplicate batches.
+6. Transfer-time failures (subscriber balance, hourly global volume cap, SAC errors) abort live `batch_charge` but are not modelled; preflight them before acting on an estimate.
+
+Fees do not change outcomes: allowance is checked against gross and `fee + net == gross`, so only balances differ. The complete list of tolerated differences, and the randomized property test that enforces it, is in [`architecture/BATCH-ESTIMATE-VS-LIVE.md`](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 Use `simulate_charge` when you need a no-write, pause-aware single-user dry-run. Keepers that charge should still call `batch_charge` ([`KEEPER.md`](./KEEPER.md)). Auto-resume event: [`EVENTS.md`](./EVENTS.md).
 
@@ -1641,7 +1645,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_batch_charge_estimate --users '["<USER_A>","<USER_B>"]'
 ```
 
-For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, batch size cap differences, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
+For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, repeated addresses, execution-time failures, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 ### `get_active_count`
 

@@ -17,6 +17,10 @@ use crate::{extend_subscription_ttl, DataKey, Subscription, MAX_AMOUNT};
 ///
 /// Full comparison of estimate vs live differences:
 /// docs/architecture/BATCH-ESTIMATE-VS-LIVE.md
+///
+/// Randomized parity property (every chargeable/skip state, boundary
+/// allowances, fees, repeated addresses):
+/// `scenario::scenario_property_estimate_matches_live_batch_outcomes`.
 /// ─────────────────────────────────────────────────────────────
 ///
 /// Both `simulate_charge` and `get_batch_charge_estimate` are

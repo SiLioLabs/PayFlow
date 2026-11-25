@@ -624,6 +624,372 @@ fn scenario_estimate_matches_live_batch_outcomes() {
     assert_eq!(estimate.get(4).unwrap(), ChargeResult::NoSubscription);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Randomized estimate / live property (issue #1435)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Number of deterministic seeds the property below runs.
+const PARITY_SEEDS: u64 = 64;
+
+/// Seeded xorshift64* stream. Determinism matters: a failing property case
+/// must be reproducible from the seed printed in the assertion message.
+struct ParityRng {
+    state: u64,
+}
+
+impl ParityRng {
+    fn new(seed: u64) -> Self {
+        Self {
+            state: seed
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(0xD1B5_4A32_D192_ED03)
+                | 1,
+        }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.state = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    /// Uniform-ish value in `[0, upper)`. `upper` must be non-zero.
+    fn below(&mut self, upper: u64) -> u64 {
+        debug_assert!(upper > 0);
+        self.next_u64() % upper
+    }
+
+    fn pick<T: Copy>(&mut self, values: &[T]) -> T {
+        values[self.below(values.len() as u64) as usize]
+    }
+}
+
+/// Valid subscription amounts, all well under `MAX_SUBSCRIPTION_AMOUNT` and
+/// small enough that a generated batch stays below the hourly volume cap.
+const PARITY_AMOUNTS: [i128; 6] = [
+    1,
+    1_000_000,
+    50_000_000,
+    12_345_678,
+    100_000_000,
+    999_999_999,
+];
+
+const PARITY_INTERVALS: [u64; 4] = [3_600, 86_400, 604_800, 2_592_000];
+
+/// The subscription state written for one generated address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParityStateKind {
+    NoSubscription,
+    Inactive,
+    PausedIndefinitely,
+    PausedUnexpired,
+    PausedExpired,
+    ActiveNotDue,
+    ActiveDue,
+    ActiveDueGraceElapsed,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ParitySubscription {
+    kind: ParityStateKind,
+    has_subscription: bool,
+    amount: i128,
+    interval: u64,
+    last_charged: u64,
+    active: bool,
+    paused: bool,
+    pause_expiry: Option<u64>,
+    allowance: i128,
+}
+
+/// Generates one snapshot relative to `now`. `grace` is the contract-wide
+/// grace period for the batch, so states can sit on both sides of the boundary.
+fn generate_parity_subscription(rng: &mut ParityRng, now: u64, grace: u64) -> ParitySubscription {
+    let amount = rng.pick(&PARITY_AMOUNTS);
+    let interval = rng.pick(&PARITY_INTERVALS);
+
+    let roll = rng.below(100);
+    let kind = if roll < 10 {
+        ParityStateKind::NoSubscription
+    } else if roll < 17 {
+        ParityStateKind::Inactive
+    } else if roll < 23 {
+        ParityStateKind::PausedIndefinitely
+    } else if roll < 32 {
+        ParityStateKind::PausedUnexpired
+    } else if roll < 41 {
+        ParityStateKind::PausedExpired
+    } else if roll < 56 {
+        ParityStateKind::ActiveNotDue
+    } else if roll < 85 {
+        ParityStateKind::ActiveDue
+    } else if grace > 0 {
+        ParityStateKind::ActiveDueGraceElapsed
+    } else {
+        ParityStateKind::ActiveDue
+    };
+
+    // Paused states are due once resumed, so anchor them at the due boundary.
+    let due_anchor = now.saturating_sub(interval);
+    let extra = rng.below(3_600);
+
+    let (last_charged, active, paused, pause_expiry) = match kind {
+        ParityStateKind::NoSubscription => (due_anchor, false, false, None),
+        ParityStateKind::Inactive => (due_anchor, false, false, None),
+        ParityStateKind::PausedIndefinitely => (due_anchor, true, true, Some(u64::MAX)),
+        ParityStateKind::PausedUnexpired => {
+            let expiry = now.saturating_add(1).saturating_add(extra);
+            (due_anchor, false, true, Some(expiry))
+        }
+        ParityStateKind::PausedExpired => {
+            let expiry = now.saturating_sub(1).saturating_sub(extra);
+            (due_anchor, false, true, Some(expiry))
+        }
+        ParityStateKind::ActiveNotDue => {
+            let delta = 1 + rng.below(interval);
+            (due_anchor.saturating_add(delta), true, false, None)
+        }
+        ParityStateKind::ActiveDue => {
+            let within_grace = if grace > 0 { rng.below(grace) } else { 0 };
+            (due_anchor.saturating_sub(within_grace), true, false, None)
+        }
+        ParityStateKind::ActiveDueGraceElapsed => {
+            let lapse = interval
+                .saturating_add(grace)
+                .saturating_add(1)
+                .saturating_add(extra);
+            (now.saturating_sub(lapse), true, false, None)
+        }
+    };
+
+    // Zero, half, one short, exactly enough, and comfortably enough: the
+    // boundary cases the two paths must agree on.
+    let allowance = match rng.below(5) {
+        0 => 0,
+        1 => amount / 2,
+        2 => (amount - 1).max(0),
+        3 => amount,
+        _ => amount.saturating_mul(2),
+    };
+
+    ParitySubscription {
+        kind,
+        has_subscription: kind != ParityStateKind::NoSubscription,
+        amount,
+        interval,
+        last_charged,
+        active,
+        paused,
+        pause_expiry,
+        allowance,
+    }
+}
+
+/// Facts about one batch position that the divergence whitelist needs.
+struct ParityBatchContext {
+    repeated_address: bool,
+    charged_earlier: bool,
+}
+
+/// Returns `Some(reason)` only for divergences documented in
+/// `docs/architecture/BATCH-ESTIMATE-VS-LIVE.md`. Everything else is an
+/// undocumented divergence and must fail the property.
+fn documented_parity_divergence(
+    estimate: ChargeResult,
+    live: ChargeResult,
+    context: &ParityBatchContext,
+) -> Option<&'static str> {
+    if estimate == live {
+        return None;
+    }
+
+    match (estimate, live) {
+        // Live persists `last_charged` after the first successful charge, so a
+        // repeated address later in the same batch is no longer due. The
+        // estimate is stateless within a batch and reports every position from
+        // the pre-batch snapshot.
+        (ChargeResult::Charged, ChargeResult::Skipped)
+            if context.repeated_address && context.charged_earlier =>
+        {
+            Some(
+                "repeated address: live returns Skipped after charging the address earlier in the batch",
+            )
+        }
+        _ => None,
+    }
+}
+
+fn write_parity_subscription(
+    env: &Env,
+    contract_id: &Address,
+    token_addr: &Address,
+    merchant: &Address,
+    user: &Address,
+    generated: &ParitySubscription,
+    now: u64,
+) {
+    env.as_contract(contract_id, || {
+        storage::set_subscription(
+            env,
+            user,
+            &Subscription {
+                merchant: merchant.clone(),
+                amount: generated.amount,
+                interval: generated.interval,
+                last_charged: generated.last_charged,
+                active: generated.active,
+                paused: generated.paused,
+                token: token_addr.clone(),
+                referrer: None,
+                label: Symbol::new(env, "parity"),
+                trial_duration: 0,
+                created_at: now,
+            },
+        );
+        match generated.pause_expiry {
+            Some(expiry) => storage::set_pause_expiry(env, user, expiry),
+            None => storage::clear_pause_expiry(env, user),
+        }
+    });
+}
+
+/// Property: over seeded random states, `get_batch_charge_estimate` and live
+/// `batch_charge` return the same `ChargeResult` at every position, except for
+/// the whitelisted, documented divergences.
+///
+/// The generator covers every skip reason, boundary allowances, grace
+/// boundaries, expired/future/indefinite pauses, configured fee rates and
+/// repeated addresses. A failure prints the seed, batch layout, state, grace
+/// period and fee rate needed to reproduce it.
+#[test]
+fn scenario_property_estimate_matches_live_batch_outcomes() {
+    let mut outcome_counts = [0u32; 7];
+    let mut whitelisted = 0u32;
+
+    for seed in 0..PARITY_SEEDS {
+        let (env, contract_id, token_addr, _unused_user, merchant) = setup();
+        let client = FlowPayClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        env.as_contract(&contract_id, || storage::set_admin(&env, &admin));
+
+        let mut rng = ParityRng::new(seed);
+        let now: u64 = 1_700_000_000 + rng.below(31_536_000);
+        env.ledger().set_timestamp(now);
+
+        let grace_period = rng.pick(&[0u64, 3_600, 86_400]);
+        if grace_period > 0 {
+            client.propose_grace_period(&grace_period);
+            client.commit_grace_period();
+        }
+
+        let fee_bps = rng.pick(&[0u32, 250, 1_000]);
+        if fee_bps > 0 {
+            let collector = Address::generate(&env);
+            client.propose_fee(&collector, &fee_bps);
+            client.commit_fee();
+        }
+
+        // One snapshot per unique address; the batch then draws from that pool
+        // with replacement, so repeated-address positions are exercised too.
+        let pool_len = 1 + rng.below(3) as usize;
+        let mut users: std::vec::Vec<Address> = std::vec::Vec::new();
+        let mut generated: std::vec::Vec<ParitySubscription> = std::vec::Vec::new();
+        for _ in 0..pool_len {
+            let user = Address::generate(&env);
+            let state = generate_parity_subscription(&mut rng, now, grace_period);
+            if state.has_subscription {
+                StellarAssetClient::new(&env, &token_addr)
+                    .mint(&user, &state.amount.saturating_mul(3));
+                TokenClient::new(&env, &token_addr)
+                    .approve(&user, &contract_id, &state.allowance, &200_000);
+                write_parity_subscription(
+                    &env,
+                    &contract_id,
+                    &token_addr,
+                    &merchant,
+                    &user,
+                    &state,
+                    now,
+                );
+            }
+            users.push(user);
+            generated.push(state);
+        }
+
+        let batch_len = 1 + rng.below(6) as usize;
+        let mut batch_indices: std::vec::Vec<usize> = std::vec::Vec::new();
+        let mut batch: Vec<Address> = Vec::new(&env);
+        for _ in 0..batch_len {
+            let index = rng.below(pool_len as u64) as usize;
+            batch_indices.push(index);
+            batch.push_back(users[index].clone());
+        }
+
+        let estimate = client.get_batch_charge_estimate(&batch);
+        let live = client.batch_charge(&batch);
+
+        let mut seen: std::vec::Vec<bool> = std::vec::Vec::new();
+        seen.resize(pool_len, false);
+        let mut charged_earlier: std::vec::Vec<bool> = std::vec::Vec::new();
+        charged_earlier.resize(pool_len, false);
+
+        for (position, index) in batch_indices.iter().enumerate() {
+            let estimate_result = estimate.get(position as u32).unwrap();
+            let live_result = live.get(position as u32).unwrap();
+            let context = ParityBatchContext {
+                repeated_address: seen[*index],
+                charged_earlier: charged_earlier[*index],
+            };
+
+            match documented_parity_divergence(
+                estimate_result.clone(),
+                live_result.clone(),
+                &context,
+            ) {
+                Some(reason) => {
+                    whitelisted += 1;
+                    assert!(
+                        context.repeated_address && context.charged_earlier,
+                        "whitelist matched {reason} without a repeated charged address (seed {seed})"
+                    );
+                }
+                None => assert_eq!(
+                    estimate_result, live_result,
+                    "undocumented estimate/live divergence at seed {seed}, position {position}: estimate={estimate:?}, live={live:?}, batch={batch_indices:?}, state={:?}, grace={grace_period}, fee_bps={fee_bps}. Documented divergences: docs/architecture/BATCH-ESTIMATE-VS-LIVE.md",
+                    generated[*index]
+                ),
+            }
+
+            match live_result.clone() {
+                ChargeResult::Charged => outcome_counts[0] += 1,
+                ChargeResult::Skipped => outcome_counts[1] += 1,
+                ChargeResult::NoSubscription => outcome_counts[2] += 1,
+                ChargeResult::Inactive => outcome_counts[3] += 1,
+                ChargeResult::Paused => outcome_counts[4] += 1,
+                ChargeResult::GracePeriodElapsed => outcome_counts[5] += 1,
+                ChargeResult::AllowanceInsufficient => outcome_counts[6] += 1,
+            }
+
+            seen[*index] = true;
+            charged_earlier[*index] |= live_result == ChargeResult::Charged;
+        }
+    }
+
+    assert!(
+        whitelisted > 0,
+        "generator never produced a whitelisted divergence; the duplicate-address path is untested"
+    );
+    assert!(
+        outcome_counts.iter().all(|count| *count > 0),
+        "generator must exercise every ChargeResult variant, saw {outcome_counts:?}"
+    );
+}
+
 /// Guards that the estimate is side-effect free: an estimate that writes
 /// storage corrupts the very state it is predicting from, so the *next*
 /// estimate disagrees with the first.
