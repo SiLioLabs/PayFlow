@@ -25,6 +25,7 @@ the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 - [Environment variables](#environment-variables)
 - [Configuration is environment-only](#configuration-is-environment-only)
 - [Running the keeper](#running-the-keeper)
+- [Graceful shutdown](#graceful-shutdown)
 - [Exit codes](#exit-codes)
 - [How a cycle works](#how-a-cycle-works)
 - [Batch size resolution](#batch-size-resolution)
@@ -32,6 +33,9 @@ the source, and `scripts/test-keeper-doc.mjs` fails if this page drifts from it.
 - [Dead-letter queue](#dead-letter-queue)
 - [Metrics and monitoring](#metrics-and-monitoring)
 - [Running as a service](#running-as-a-service)
+- [High Availability (HA) deployment](#high-availability-ha-deployment)
+- [Scheduling and the due window](#scheduling-and-the-due-window)
+- [Keeper tip (`charge_with_tip`)](#keeper-tip-charge_with_tip)
 - [Recommended cadence](#recommended-cadence)
 - [Troubleshooting](#troubleshooting)
 - [Checklist](#checklist)
@@ -103,11 +107,13 @@ Everything is read from `process.env` at module load.
 | `NETWORK_PASSPHRASE`         | No                  | `Networks.TESTNET`                       | Must match the network the contract is deployed on. |
 | `ALLOW_MAINNET`              | No                  | `false`                                  | Must be `"true"` to start with the mainnet passphrase (`Public Global Stellar Network ; September 2015`); otherwise startup fails. |
 | `BATCH_SIZE`                 | No                  | on-chain max, else 50                    | **Legacy paging path only** - see [Batch size resolution](#batch-size-resolution). Clamped to 1-200. |
-| `INTERVAL_SECONDS`           | No                  | `3600`                                   | Seconds between cycles in loop mode. Floor of 1. |
+| `INTERVAL_SECONDS`           | No                  | `3600`                                   | Longest sleep between cycles in loop mode. Floor of 1. The loop wakes sooner when a subscription comes due (see [Scheduling and the due window](#scheduling-and-the-due-window)). |
+| `SCHEDULE_SCAN_MAX_PAGES`    | No                  | `20`                                     | Index pages (50 slots each) scanned per scheduling decision. Bounds the due-window reads. |
 | `REPORT_DIR`                 | No                  | `<script_dir>/data/benchmarks`           | Dry-run reports and the live-cycle pointer file. |
 | `KEEPER_USE_LEGACY_PAGING`   | No                  | `false`                                  | `true` switches to sequential offset paging instead of grace-urgency-ordered batches. |
 | `DLQ_FILE`                   | No                  | `<cwd>/dlq/failed-batches.jsonl`         | JSONL file of aborted batches. |
 | `METRICS_PORT`               | No                  | `9090`                                   | Port for the `/metrics` endpoint. |
+| `SHUTDOWN_TIMEOUT_MS`        | No                  | `50000`                                  | Graceful-shutdown deadline — see [Graceful shutdown](#graceful-shutdown). Invalid or non-positive values fall back to the default. |
 | `LOG_LEVEL`                  | No                  | `info`                                   | `debug` \| `info` \| `warn` \| `error`. |
 
 Validation is all-or-nothing and happens once, at startup. Missing variables
@@ -181,13 +187,49 @@ CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... npx tsx keeper.ts
 `KEEPER_SECRET` is never logged. The child logger binds `CONTRACT_ID` and
 `RPC_URL` as context, and the secret is deliberately excluded.
 
+## Graceful shutdown
+
+The keeper handles **SIGTERM and SIGINT identically** (Docker `stop`,
+`systemctl stop`, Ctrl-C). The first signal starts a bounded drain; repeated
+signals are logged and ignored — cleanup never runs twice and only one
+deadline timer exists, so a SIGTERM followed by a SIGINT is safe.
+
+What happens on the first signal:
+
+1. **Scheduling stops.** Both paging loops consult a gate before every
+   batch/page, so no new batch is submitted after the signal. The cycle
+   already in flight keeps running — submission and result recording stay
+   paired, so a batch is never half-recorded.
+2. **The in-flight work drains.** The coordinator waits for the tracked
+   cycle (and any batch within it) to settle.
+3. **Cleanup flushes.** The DLQ file is fsynced (`dlq-flush`) and the
+   metrics server is stopped (`metrics-flush`), in that order, exactly once.
+4. **The process exits** — `0` when everything drained and flushed, `1`
+   otherwise (see [Exit codes](#exit-codes)).
+
+The whole sequence is bounded by `SHUTDOWN_TIMEOUT_MS` (default **50 000 ms**).
+The default is deliberately below the 60 s `stop_grace_period` in
+`scripts/docker-compose.yml`, so the keeper reports its own timeout and exits
+non-zero instead of being SIGKILLed mid-write. If the deadline elapses first,
+the keeper logs the labels of the work still pending, best-effort flushes the
+DLQ, and exits `1` — unfinished work is never reported as completed.
+
+A batch that **rejects during the drain** is surfaced as
+`In-flight work failed during drain` and forces exit `1`; it is not swallowed
+by the shutdown path.
+
+Relevant code: `scripts/lib/shutdown.ts` (the `ShutdownCoordinator`), the
+module-level `shutdown` coordinator and `canScheduleNextBatch()` gate in
+`scripts/keeper.ts`, and `scripts/__tests__/keeper-shutdown.test.ts`.
+
 ## Exit codes
 
 | Code | Meaning |
 | ---- | ------- |
-| 0    | Cycle completed. In `--once` mode, either there were no errors or at least one subscriber was charged. |
+| 0    | Cycle completed. In `--once` mode, either there were no errors or at least one subscriber was charged. Also: a signal-triggered shutdown that drained and flushed cleanly. |
 | 1    | Every page in the cycle errored **and** nothing was charged (`report.errors.length > 0 && report.totalCharged === 0`). |
 | 1    | Missing required environment variables, or a fatal error in `main()`. |
+| 1    | Shutdown did not complete: the drain timed out (`SHUTDOWN_TIMEOUT_MS`), an in-flight batch failed during the drain, a cleanup step failed, or the cycle itself failed. |
 
 The middle case is the one to understand: a cycle where some pages errored but
 others charged something still exits 0. `errors.length > 0` on its own is
@@ -370,12 +412,301 @@ cd scripts
 CONTRACT_ID=C... KEEPER_PUBLIC_KEY=G... KEEPER_SECRET=S... docker compose up -d
 ```
 
+Build the image directly (the build context is `scripts/`):
+
+```bash
+cd scripts
+docker build -t payflow-keeper .
+```
+
+Run a single dry-run cycle inside the container — this is the same check the
+`docker-smoke` CI workflow performs:
+
+```bash
+docker run --rm \
+  -e RPC_URL=https://soroban-testnet.stellar.org \
+  -e CONTRACT_ID=C... \
+  -e KEEPER_PUBLIC_KEY=G... \
+  payflow-keeper --dry-run --once
+```
+
+The container image ships the full runtime file set (`keeper.ts`, `indexer.ts`,
+`metrics-server.ts`, `lib/`, `db/`, `utils/`, `fixtures/`), so any entrypoint
+composable with `docker-compose.yml` works:
+
+```bash
+docker run --rm payflow-keeper metrics-server   # Prometheus on :9090
+docker run --rm -e START_LEDGER=99999 payflow-keeper indexer
+```
+
+On `SIGTERM`/`SIGINT` the keeper drains in-flight batches and flushes the DLQ
+and metrics before exiting (see [Graceful shutdown](#graceful-shutdown)).
+`docker stop` therefore exits cleanly within the compose `stop_grace_period`
+(60s for the keeper; `SHUTDOWN_TIMEOUT_MS` defaults to 50s).
+
 ### pm2
 
 ```bash
 pm2 start "npx tsx keeper.ts" --name payflow-keeper
 pm2 save
 ```
+
+## High Availability (HA) deployment
+
+Running multiple keeper instances prevents downtime and balances load. The keeper supports two HA modes:
+
+### 1. Deterministic Sharding (Recommended)
+
+Multiple keepers run simultaneously, each processing a consistent subset of addresses. No centralized coordination needed.
+
+**How it works:**
+- Each address is hashed to determine which keeper processes it
+- Same address always routes to the same keeper (consistent hashing)
+- Zero overlap between keepers - no wasted fees
+
+**Configuration:**
+
+```bash
+# Keeper instance 0 of 3
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=0
+export CONTRACT_ID=C...
+export KEEPER_PUBLIC_KEY=G...
+export KEEPER_SECRET=S...
+npx tsx keeper.ts
+
+# Keeper instance 1 of 3 (different machine/pod)
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=1
+# ... rest same
+
+# Keeper instance 2 of 3
+export KEEPER_TOTAL_INSTANCES=3
+export KEEPER_INSTANCE_ID=2
+# ... rest same
+```
+
+**Kubernetes example:**
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: payflow-keeper
+spec:
+  replicas: 3
+  serviceName: keeper
+  template:
+    spec:
+      containers:
+      - name: keeper
+        image: payflow-keeper:latest
+        env:
+        - name: KEEPER_TOTAL_INSTANCES
+          value: "3"
+        - name: KEEPER_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+        - name: CONTRACT_ID
+          valueFrom:
+            secretKeyRef:
+              name: keeper-config
+              key: contract-id
+        # ... other env vars
+```
+
+**systemd example (3 services):**
+
+```ini
+# /etc/systemd/system/payflow-keeper@.service
+[Unit]
+Description=FlowPay Keeper Instance %i
+After=network-online.target
+
+[Service]
+Type=simple
+User=flowpay
+WorkingDirectory=/opt/payflow/scripts
+Environment=KEEPER_TOTAL_INSTANCES=3
+Environment=KEEPER_INSTANCE_ID=%i
+EnvironmentFile=/etc/payflow/keeper.env
+ExecStart=/usr/bin/npx tsx keeper.ts
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Start 3 keeper instances
+sudo systemctl enable --now payflow-keeper@0
+sudo systemctl enable --now payflow-keeper@1
+sudo systemctl enable --now payflow-keeper@2
+```
+
+###2. Exclusive Locking (Failover Mode)
+
+Only one keeper runs at a time. Others are on standby and take over if the primary fails.
+
+**Configuration:**
+
+```bash
+export KEEPER_EXCLUSIVE_LOCK=true
+export KEEPER_LOCK_DIR=/shared/keeper-locks  # Must be shared storage (NFS/EFS)
+npx tsx keeper.ts
+```
+
+**When to use:**
+- Simple failover without sharding complexity
+- Shared filesystem available (NFS, EFS, GlusterFS)
+- Lower total throughput acceptable
+
+**Lock file location:**
+- Default: `/tmp/payflow-keeper-locks/keeper-master.lock`
+- Production: Use `KEEPER_LOCK_DIR` pointing to shared storage
+- Lock TTL: 5 minutes (expired locks are auto-released)
+
+### Coordination Metrics
+
+Track keeper coordination health:
+
+```bash
+curl -s localhost:9090/metrics | grep keeper_coordination
+```
+
+**Key metrics:**
+- `keeper_coordination_mode{mode="sharded"}` - Current coordination mode
+- `keeper_shard_id` - This keeper's shard ID
+- `keeper_total_shards` - Total number of shards
+- `keeper_overlap_skipped_total` - Addresses skipped (belonged to other keepers)
+- `keeper_lock_acquired` - Whether exclusive lock is held (0/1)
+
+**Health checks:**
+
+Each keeper writes a heartbeat file to `$KEEPER_LOCK_DIR/keeper-{id}-heartbeat.json`:
+
+```json
+{
+  "keeperId": 0,
+  "pid": 12345,
+  "hostname": "keeper-0",
+  "lastBatchIndex": 42,
+  "lastBatchSize": 50,
+  "timestamp": "2026-11-23T10:30:00.000Z",
+  "overlapSkipped": 127
+}
+```
+
+Monitor these files to detect:
+- Keeper crashes (stale timestamp)
+- Misconfiguration (all keepers skipping same addresses)
+- Unbalanced sharding (one keeper processing everything)
+
+### Troubleshooting HA Deployments
+
+**All keepers report "nothing to process":**
+- Check `KEEPER_INSTANCE_ID` is unique per keeper (0, 1, 2...)
+- Verify `KEEPER_TOTAL_INSTANCES` matches actual number of keepers
+- Confirm addresses exist in the contract
+
+**Duplicate charges (IntervalNotElapsed errors):**
+- Multiple keepers have same `KEEPER_INSTANCE_ID`
+- Sharding is not enabled (`KEEPER_TOTAL_INSTANCES=1` on all instances)
+- Check systemd template `%i` expansion or K8s pod index
+
+**One keeper processes everything:**
+- Other keepers have wrong `KEEPER_TOTAL_INSTANCES` value
+- Address hashing is deterministic - some skew is normal
+- Check heartbeat files to see which keepers are active
+
+**Exclusive lock contention:**
+- `KEEPER_LOCK_DIR` not on shared storage - each keeper sees own lock
+- Filesystem permissions prevent lock file creation
+- TTL too short - locks expire before cycle completes (raise `KEEPER_LOCK_TTL_MS`)
+
+**Metrics show high `overlap_skipped`:**
+- Expected in sharded mode - addresses route to their designated keeper
+- Not an error unless value stops incrementing (keeper is stuck)
+
+### Production Coordinator Implementations
+
+The file-based coordinator (`FileCoordinator`) is production-ready for:
+- Single-node multi-process deployments
+- Multi-node with shared NFS/EFS storage
+- Kubernetes StatefulSets with shared PVC
+
+For larger deployments, implement `ICoordinator` with:
+
+**Redis:**
+```typescript
+// Pseudo-code - implement in scripts/lib/redis-coordinator.ts
+class RedisCoordinator implements ICoordinator {
+  async acquireLock(): Promise<boolean> {
+    // SET key value NX EX 300
+    return await this.redis.set('keeper:lock', this.keeperId, 'NX', 'EX', 300);
+  }
+  // ... implement other methods
+}
+```
+
+**PostgreSQL:**
+```typescript
+class PostgresCoordinator implements ICoordinator {
+  async acquireLock(): Promise<boolean> {
+    // SELECT pg_try_advisory_lock(123456789)
+    const result = await this.pool.query(
+      'SELECT pg_try_advisory_lock($1)', [this.lockId]
+    );
+    return result.rows[0].pg_try_advisory_lock;
+  }
+}
+```
+
+**Consul/etcd:**
+Use native session/lease mechanisms for distributed locking.
+
+See `scripts/lib/keeper-coordinator.ts` for the `ICoordinator` interface.
+
+## Scheduling and the due window
+
+In loop mode the keeper sleeps between cycles. The sleep is at most
+`INTERVAL_SECONDS`, and it is shorter when a subscription comes due sooner.
+
+After each cycle the keeper calls the read-only `get_charges_due_between(from, to,
+offset, limit)` contract function. It asks for subscribers whose next charge falls
+in `[now, now + INTERVAL_SECONDS]`, and it reads at most `SCHEDULE_SCAN_MAX_PAGES`
+index pages (50 slots each). If something is due inside the window, the keeper
+sleeps until the earliest due time. Otherwise it sleeps for the full interval.
+
+- The interval is always the ceiling, so the keeper still runs at least that often.
+- If the due-window read fails, the keeper logs a warning and uses the full
+  interval. Scheduling never stops the loop.
+- `--once` and dry runs are not affected. They run a single cycle and exit.
+
+`get_charges_due_between` is bounded like `get_next_charge_batch`: `limit` is
+capped at 50 and larger values fail with `BatchTooLarge`. Grace-lapsed
+subscriptions are included. The cycle's own grace checks decide what is charged.
+
+## Keeper tip (`charge_with_tip`)
+
+The protocol can pay third-party keepers a share of the protocol fee. This is
+optional and off by default.
+
+- The admin sets the tip with `set_keeper_tip_bps(bps)`. It is basis points of the
+  protocol fee, from `0` (off, the default) to `5000` (half the fee). Larger values
+  are rejected with `InvalidKeeperTipBps` (49). Read it with `get_keeper_tip_bps()`.
+- A keeper calls `charge_with_tip(user, keeper)`. The keeper signs as `keeper`, and
+  on success receives `fee * bps / 10000` from the subscriber's allowance. The fee
+  collector receives the rest of the protocol fee. The merchant's net is unchanged.
+- Each tip emits a `keeper_tip` event with the keeper, the subscriber, and the amount.
+- A plain `charge` never pays a tip, even when one is configured. Tips apply only
+  when a protocol fee applies. With no fee, the tip is zero.
+
+The bundled keeper (`scripts/keeper.ts`) batches charges through `batch_charge`,
+which does not pay tips in this version. A keeper that wants the tip must call
+`charge_with_tip` for each subscriber it charges.
 
 ## Recommended cadence
 

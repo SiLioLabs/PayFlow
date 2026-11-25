@@ -31,6 +31,10 @@ interface Identity {
 const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || process.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 const DEFAULT_TOKEN = process.env.VITE_DEFAULT_TOKEN || "CB64D3BV7P25CBZ76AEGY2FJD2N2Z35TXTLA2HO7DS4SYYBZWAZZTACC"; // Native XLM SAC on Testnet
 
+// IMPORTANT: Account secrets are generated locally and stored in data/testnet-accounts.json
+// This file is .gitignored and must NEVER be committed to version control.
+// The file will be created automatically on first run with randomly generated keypairs.
+// See testnet-accounts.example.json for the expected structure.
 const MANIFEST_PATH = join(process.cwd(), "data", "testnet-accounts.json");
 const BACKUP_MANIFEST_PATH = join(process.cwd(), "data", "testnet-accounts.json.bak");
 

@@ -639,14 +639,108 @@ pub struct GlobalVolumeWindow {
 
 **Effect:**
 
-- When `true`, all protocol operations can be blocked (implementation-dependent)
-- Readable via `get_protocol_stats().contract_paused`
+- When `true`, the operations marked **Blocked** in the matrix below fail with
+  `ContractPaused` (18). The check runs before any other validation, so the error is
+  the same whatever the other arguments are.
+- Readable via `get_protocol_stats().contract_paused` and `is_contract_paused()`
 - Controlled by admin via `pause_contract()` and `unpause_contract()`
 
-**Current Implementation:**
+**Design rule:** the pause stops **money moving** and **new or edited subscriptions**.
+It never traps a user. Anything that lets a subscriber leave (cancel, resume their own
+pause, remove their own daily cap) stays available, so users can always exit a paused
+protocol.
 
-- No operations currently check `ContractPaused` flag
-- Reserved for future emergency stop functionality
+### Pause matrix
+
+Every state-changing public entrypoint of `FlowPay` (read-only getters are never
+guarded). The contract tests in `contract/src/test_pause_matrix.rs` enforce each
+blocked row and each exit path.
+
+**Decisions for the exit paths in issue #1423:**
+
+- `cancel` and `cancel_and_refund_prorated` stay available. Exiting is never blocked.
+- `resume` stays available. It only clears the subscriber's own pause and moves no funds.
+  A charge still cannot run while paused, because `charge` is blocked.
+- `remove_daily_limit` stays available. It is the user's own bookkeeping and moves no funds.
+- `withdraw_merchant_revenue` stays **blocked**. It moves funds out of the contract, so it
+  waits for unpause like other fund movements. A merchant sees the same `ContractPaused`
+  error whether or not any revenue is pending.
+- `migrate` and `finalize_migration` stay available during a pause, so a storage upgrade
+  can finish even while the protocol is paused.
+
+<!-- Generated from contract/src/lib.rs (#[contractimpl] block). Keep in sync when adding entrypoints. -->
+
+| Entrypoint | While paused | Notes |
+| --- | --- | --- |
+| `accept_admin` | Allowed | Not guarded by the pause. |
+| `add_merchant` | Allowed | Not guarded by the pause. |
+| `batch_cancel` | Allowed | Not guarded by the pause. |
+| `batch_charge` | **Blocked** (`ContractPaused`, 18) | No money moves while paused. The whole call fails; there are no per-user results. |
+| `batch_extend_subscription_ttl` | Allowed | Not guarded by the pause. |
+| `batch_pause_subscriptions` | Allowed | Not guarded by the pause. |
+| `bump_instance_ttl` | Allowed | Not guarded by the pause. |
+| `bump_merchant_revenue_day` | Allowed | Not guarded by the pause. |
+| `bump_subscription` | Allowed | Not guarded by the pause. |
+| `cancel_and_refund_prorated` | Allowed | **Exit path.** Always available, including the prorated refund. |
+| `cancel_pending_upgrade` | Allowed | Not guarded by the pause. |
+| `cancel` | Allowed | **Exit path.** Always available. |
+| `charge_with_tip` | **Blocked** (`ContractPaused`, 18) | No money moves while paused (same as `charge`). |
+| `charge` | **Blocked** (`ContractPaused`, 18) | No money moves while paused. |
+| `clear_charge_history` | Allowed | Not guarded by the pause. |
+| `clear_fee` | Allowed | Not guarded by the pause. |
+| `clear_merchant_revenue_history` | Allowed | Not guarded by the pause. |
+| `clear_metadata` | Allowed | User-owned label. Moves no funds. |
+| `clear_subscriber_index_entry` | Allowed | Not guarded by the pause. |
+| `commit_fee` | Allowed | Not guarded by the pause. |
+| `commit_grace_period` | Allowed | Not guarded by the pause. |
+| `commit_upgrade` | Allowed | Not guarded by the pause. |
+| `extend_merchant_state_ttl` | Allowed | Not guarded by the pause. |
+| `extend_subscriber_index_ttl` | Allowed | Not guarded by the pause. |
+| `extend_subscription_ttl` | Allowed | Not guarded by the pause. |
+| `extend_trial` | Allowed | User-owned schedule change. Moves no funds. |
+| `finalize_migration` | Allowed | Storage upgrade. Allowed so an upgrade can finish during a pause. |
+| `freeze_merchant` | Allowed | Not guarded by the pause. |
+| `initialize` | Allowed | Not guarded by the pause. |
+| `migrate` | Allowed | Storage upgrade. Allowed so an upgrade can finish during a pause. |
+| `pause_contract` | Allowed | Sets the pause. |
+| `pause_until` | Allowed | User-owned state. Moves no funds. |
+| `pause` | Allowed | User-owned state. Moves no funds. |
+| `pay_per_use_to` | **Blocked** (`ContractPaused`, 18) | No money moves while paused. |
+| `pay_per_use` | **Blocked** (`ContractPaused`, 18) | No money moves while paused. |
+| `propose_fee` | Allowed | Not guarded by the pause. |
+| `propose_grace_period` | Allowed | Not guarded by the pause. |
+| `propose_upgrade` | Allowed | Not guarded by the pause. |
+| `prune_charge_history` | Allowed | Not guarded by the pause. |
+| `prune_merchant_revenue_days` | Allowed | Not guarded by the pause. |
+| `remove_daily_limit` | Allowed | User-owned bookkeeping. Moves no funds. |
+| `remove_merchant` | Allowed | Not guarded by the pause. |
+| `reset_merchant_revenue` | Allowed | Not guarded by the pause. |
+| `resume` | Allowed | **Exit path** for a user's own pause. Moves no funds. |
+| `set_daily_limit` | Allowed | User-owned bookkeeping. Moves no funds. |
+| `set_fee_bounds` | Allowed | Not guarded by the pause. |
+| `set_global_volume_cap` | Allowed | Not guarded by the pause. |
+| `set_initial_admin` | Allowed | Not guarded by the pause. |
+| `set_keeper_tip_bps` | Allowed | Configuration only. Moves no funds. |
+| `set_max_batch_size` | Allowed | Not guarded by the pause. |
+| `set_max_whitelist_batch_size` | Allowed | Not guarded by the pause. |
+| `set_merchant_fee_recipient` | **Blocked** (`ContractPaused`, 18) | Changes where fees are routed. Waits for unpause. |
+| `set_metadata` | Allowed | User-owned label. Moves no funds. |
+| `set_min_interval` | Allowed | Not guarded by the pause. |
+| `set_subscription_amount` | **Blocked** (`ContractPaused`, 18) | Edits a live subscription. Waits for unpause. |
+| `set_subscription_interval` | **Blocked** (`ContractPaused`, 18) | Edits a live subscription. Waits for unpause. |
+| `set_whitelist_enabled` | Allowed | Not guarded by the pause. |
+| `subscribe_with_metadata` | **Blocked** (`ContractPaused`, 18) | Same as `subscribe`. |
+| `subscribe` | **Blocked** (`ContractPaused`, 18) | New subscriptions are blocked while the protocol is paused. |
+| `transfer_admin` | Allowed | Not guarded by the pause. |
+| `transfer_subscription` | **Blocked** (`ContractPaused`, 18) | Changes subscriber ownership. Waits for unpause. |
+| `unfreeze_merchant` | Allowed | Not guarded by the pause. |
+| `unpause_contract` | Allowed | Clears the pause. |
+| `whitelist_batch_add` | Allowed | Not guarded by the pause. |
+| `whitelist_batch_remove` | Allowed | Not guarded by the pause. |
+| `withdraw_merchant_revenue` | **Blocked** (`ContractPaused`, 18) | Moves funds out of the contract. Waits for unpause. |
+
+**Current implementation:** the guard is `ensure_contract_not_paused` in `contract/src/lib.rs`,
+reached directly or through `subscribe_inner`, `pay_per_use_inner` and `charge_inner`.
 
 ---
 

@@ -17,7 +17,7 @@ on:
 jobs:
   doc-guards:
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         include:
@@ -31,15 +31,27 @@ jobs:
             script: "scripts/test-limits-claims.mjs"
           - name: "Test Capability Tables"
             script: "scripts/test-caps-table.mjs"
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 20
-    
+
     - name: ${{ matrix.name }}
       run: node ${{ matrix.script }}
       continue-on-error: false
+
+  docs-and-config-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:env-docs
+      - run: node check-doc-links.mjs

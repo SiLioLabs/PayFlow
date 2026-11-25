@@ -3,7 +3,7 @@ import { StrKey } from "@stellar/stellar-sdk";
 import Spinner from "./Spinner";
 import { STROOPS_PER_XLM, CONTRACT_LIMITS } from "../constants";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
-import { type AmountUnit, stroopsToXlm } from "../utils/format";
+import { type AmountUnit, stroopsToXlm, formatInteger } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
 import { validateStroopAmount } from "../utils/validation";
 
@@ -93,7 +93,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
 
     const formatAlternate = (stroops: bigint): string => {
       if (unit === "XLM") {
-        return `${stroops.toLocaleString("en-US")} STROOP`;
+        return `${formatInteger(stroops)} STROOP`;
       } else {
         return `${stroopsToXlm(stroops)} XLM`;
       }

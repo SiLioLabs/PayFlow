@@ -105,7 +105,13 @@ See [`scripts/README.md`](scripts/README.md) and [`docs/ONBOARDING.md`](docs/ONB
 
 ## CI workflows
 
-This repository does not ship any GitHub Actions workflow files, so nothing is enforced automatically on PRs. Run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
+Two GitHub Actions workflows run automatically on every PR and push to `master`:
+
+- **`scripts-ci.yml`** — runs TypeScript typecheck, ESLint lint, duplicate lint (`npm run lint:duplicates` and `node lint-duplicates.mjs`), and Vitest tests for the `scripts/` package, with Node 22 and `NODE_OPTIONS=--experimental-sqlite`.
+- **`security-audit.yml`** — runs `cargo audit` against `contract/Cargo.lock` and `vesting/Cargo.lock`, and `npm audit --omit=dev` for the root, `frontend/`, and `scripts/` packages; also runs on a weekly schedule (every Monday). High-severity dependency vulnerabilities block the PR.
+
+See [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) for the full command reference and local equivalents.
+This repository ships one GitHub Actions workflow — [`docker-smoke.yml`](.github/workflows/docker-smoke.yml), which builds the keeper Docker image and runs a dry-run cycle plus SIGTERM checks against a mock RPC on PRs touching `scripts/**`. Everything else (contract, frontend, scripts typecheck/tests) is enforced manually: run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
 
 ---
 
@@ -272,6 +278,7 @@ Before opening a PR, confirm:
 - [ ] No secrets or `.env` files committed
 - [ ] PR description explains what changed and why
 - [ ] Linked to a relevant issue if one exists
+- [ ] CI passes (scripts-ci and security-audit workflows green)
 
 For documentation changes, see [Documentation Guards](docs/DOC-GUARDS.md) for details on running checks locally.
 

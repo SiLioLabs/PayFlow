@@ -173,13 +173,15 @@ describe("App — notification priority orchestration", () => {
     expect(screen.getByTestId("dashboard")).toHaveAttribute("data-is-paused", "false");
   });
 
-  it("threads isPaused down to MerchantDashboard", () => {
+  it("threads isPaused down to MerchantDashboard", async () => {
     mockPaused(true);
     mockWallet("GABCDEF1234567890");
     render(<App />);
     // Dashboard is the default tab; switch to Merchant to render MerchantDashboard.
     fireEvent.click(screen.getByRole("tab", { name: "Merchant" }));
-    expect(screen.getByTestId("merchant-dashboard")).toHaveAttribute("data-is-paused", "true");
+    await waitFor(() => {
+      expect(screen.getByTestId("merchant-dashboard")).toHaveAttribute("data-is-paused", "true");
+    });
   });
 
   it("mounts NotificationCenter (bell trigger) once a wallet is connected", () => {

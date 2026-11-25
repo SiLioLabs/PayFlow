@@ -5690,6 +5690,7 @@ fn test_migrate_sets_schema_version() {
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
+    client.finalize_migration(&0u64);
 
     assert_eq!(client.get_schema_version(), 3);
 }
@@ -5705,6 +5706,8 @@ fn test_migrate_is_idempotent() {
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
     client.migrate(&empty_users); // second call should be a no-op
+    client.finalize_migration(&0u64);
+    client.finalize_migration(&0u64); // already complete: no-op
 
     assert_eq!(client.get_schema_version(), 3);
 }
@@ -5752,6 +5755,8 @@ fn test_migrate_emits_completed_event_with_version_and_count() {
     let mut users = soroban_sdk::Vec::new(&env);
     users.push_back(user.clone());
     client.migrate(&users);
+    // The completion event is emitted by `finalize_migration`, not by `migrate`.
+    client.finalize_migration(&1u64);
 
     let events = env.events().all();
     let (_, topics, data) = events.get(events.len() - 1).unwrap();
@@ -9681,6 +9686,88 @@ fn test_merchant_revenue_settles_directly_non_custodial() {
     );
 }
 
+/// Token conservation across charge, pay-per-use and prorated refund. Merchant
+/// revenue remains a tracking counter because funds settle directly to wallets.
+#[test]
+fn test_accounting_invariant_across_charge_pay_per_use_and_refund() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let amount = 10_000_000i128;
+    let interval = 10_000u64;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let total = || token.balance(&user) + token.balance(&merchant) + token.balance(&contract_id);
+    let before = total();
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&user);
+    assert_eq!(total(), before, "charge: token balances must be conserved");
+    assert_eq!(client.get_merchant_revenue(&merchant), amount, "charge: revenue counter must equal merchant settlement");
+
+    client.pay_per_use(&user, &1_000_000);
+    assert_eq!(total(), before, "pay_per_use: token balances must be conserved");
+    assert_eq!(client.get_merchant_revenue(&merchant), amount + 1_000_000, "pay_per_use: revenue counter must include net settlement");
+
+    client.cancel_and_refund_prorated(&user, &merchant);
+    assert_eq!(total(), before, "refund: token balances must be conserved");
+}
+
+#[test]
+fn test_referral_reward_accrues_once_per_charge_and_can_be_withdrawn() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let admin_addr = Address::generate(&env);
+    let collector = Address::generate(&env);
+    let referrer = Address::generate(&env);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin_addr));
+    client.propose_fee(&collector, &1_000);
+    client.commit_fee();
+    let amount = 10_000_000i128;
+    let interval = 1_000u64;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &Some(referrer.clone()));
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&user);
+    let first_reward = client.get_referral_reward_balance(&token_addr, &referrer);
+    assert_eq!(first_reward, 100_000, "charge: reward should be 10% of the 10% protocol fee");
+    assert_eq!(token.balance(&contract_id), first_reward, "charge: contract balance should equal undistributed referral rewards");
+
+    let new_user = Address::generate(&env);
+    StellarAssetClient::new(&env, &token_addr).mint(&new_user, &amount);
+    token.approve(&new_user, &contract_id, &amount, &200_000);
+    client.transfer_subscription(&user, &new_user);
+    assert_eq!(client.get_referrer(&new_user), Some(referrer.clone()), "transfer: referral attribution must follow the subscription");
+
+    env.ledger().with_mut(|l| l.timestamp += interval + 1);
+    client.charge(&new_user);
+    assert_eq!(client.get_referral_reward_balance(&token_addr, &referrer), first_reward * 2, "second charge: reward must accrue exactly once");
+    client.withdraw_referral_rewards(&token_addr, &referrer);
+    assert_eq!(client.get_referral_reward_balance(&token_addr, &referrer), 0, "withdrawal: reward liability must clear");
+    assert_eq!(token.balance(&contract_id), 0, "withdrawal: contract must release the reward reserve");
+}
+
+#[test]
+fn test_merchant_fee_override_bounds_and_operator_assignment() {
+    let (env, contract_id, _token_addr, admin_addr, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || storage::set_admin(&env, &admin_addr));
+    client.set_fee_bounds(&100, &500);
+    client.set_merchant_fee_bps(&merchant, &Some(250));
+    assert_eq!(client.get_merchant_fee_bps(&merchant), Some(250));
+    assert_eq!(client.get_effective_fee_bps(&merchant), 250);
+    assert_eq!(client.get_effective_fee_bps(&Address::generate(&env)), 0, "unset merchants inherit the global rate");
+    assert!(matches!(client.try_set_merchant_fee_bps(&merchant, &Some(50)), Err(Ok(ContractError::InvalidMerchantFeeBps))));
+    client.set_merchant_fee_bps(&merchant, &None);
+    assert_eq!(client.get_merchant_fee_bps(&merchant), None);
+
+    let operator = Address::generate(&env);
+    client.set_operator(&Some(operator.clone()));
+    assert_eq!(client.get_operator(), Some(operator));
+    client.set_operator(&None);
+    assert_eq!(client.get_operator(), None);
+}
+
 #[test]
 fn test_next_charge_at_none_for_paused_subscription() {
     let (env, contract_id, token_addr, user, merchant) = setup();
@@ -10966,6 +11053,7 @@ fn test_get_schema_version_returns_zero_and_updates() {
 
     let empty_users = soroban_sdk::Vec::new(&env);
     client.migrate(&empty_users);
+    client.finalize_migration(&0u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -13286,11 +13374,15 @@ fn test_migration_v2_to_v3_populates_referrer() {
 
     client.migrate(&users);
 
-    assert_eq!(client.get_schema_version(), 3);
+    // The batch fills in the referrer but does not complete the upgrade on its own.
+    assert_eq!(client.get_schema_version(), 2);
     let sub = client.get_subscription(&user).unwrap();
     assert_eq!(sub.referrer, Some(referrer));
 
-    client.migrate(&users);
+    client.migrate(&users); // re-sent batch: skipped, nothing double-counted
+    assert_eq!(client.get_schema_version(), 2);
+
+    client.finalize_migration(&1u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -13412,30 +13504,6 @@ fn test_extend_trial_pushes_last_charged_forward() {
         client.get_subscription(&user).unwrap().last_charged,
         before + 86400
     );
-}
-
-/// A trial extension past `u64::MAX` must fail closed with the typed
-/// `ArithmeticOverflow` (#36) rather than an untyped `unwrap` panic.
-#[test]
-fn test_extend_trial_overflow_fails_with_typed_error() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
-
-    // Push last_charged to the u64 ceiling, then ask for one second more.
-    client.extend_trial(
-        &user,
-        &(u64::MAX - client.get_subscription(&user).unwrap().last_charged),
-    );
-    assert_eq!(
-        client.get_subscription(&user).unwrap().last_charged,
-        u64::MAX
-    );
-
-    let res = client.try_extend_trial(&user, &1);
-
-    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(36))));
 }
 
 /// Extending a paused subscription's trial must fail closed with the typed
@@ -14376,6 +14444,7 @@ fn test_migrate_admin_success() {
 
     let users = soroban_sdk::Vec::new(&env);
     client.migrate(&users);
+    client.finalize_migration(&0u64);
     assert_eq!(client.get_schema_version(), 3);
 }
 
@@ -15914,6 +15983,7 @@ fn test_batch_charge_survives_extreme_grace_period() {
     users.push_back(user.clone());
     let results = client.batch_charge(&users);
 
+    // Exactly one result, and it must be a successful charge (not an error).
     assert_eq!(results.len(), 1);
     assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Charged);
 }
@@ -15928,16 +15998,38 @@ fn test_batch_charge_survives_extreme_grace_period() {
 fn test_legacy_paused_subscription_remains_listed() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
+
+    // Subscribe so the user is in the subscriber index.
+    // Subscribe so the user is in the subscriber index.
+    let interval: u64 = 3600;
     let interval: u64 = 86_400;
     client.subscribe(
         &user,
         &merchant,
         &1_0000000,
+        &86400,
         &interval,
         &token_addr,
         &None,
         &None,
     );
+
+    // Sanity: user is in the active page before we mutate the row.
+    let page_before = client.get_active_subscriber_page(&0u64, &10u32);
+    assert!(page_before.contains(&user), "user must be listed before mutation");
+
+    // Simulate a legacy "paused && !active" row by directly writing storage.
+    // This reproduces the state that pre-#1009 `pause_until` could write.
+    // We do NOT call cancel() — the cancellation counter path is intentionally
+    // bypassed so we can isolate the flag semantics.
+    env.as_contract(&contract_id, || {
+        let key = crate::DataKey::Subscription(user.clone());
+        let mut sub: crate::Subscription = env.storage().persistent().get(&key).unwrap();
+        // Legacy state: paused=true, active=false (NOT a cancelled row).
+    // Simulate a legacy `paused && !active` row by writing the subscription
+    // directly into storage with active=false, paused=true. This reproduces the
+    // state that pre-#1009 `pause_until` could write. We do NOT call cancel(),
+    // so the cancellation counter path is bypassed and only the flags differ.
     env.as_contract(&contract_id, || {
         let key = DataKey::Subscription(user.clone());
         let mut sub: Subscription = env.storage().persistent().get(&key).unwrap();
@@ -15945,6 +16037,31 @@ fn test_legacy_paused_subscription_remains_listed() {
         sub.paused = true;
         env.storage().persistent().set(&key, &sub);
     });
+
+    // Confirm the raw stored state.
+    let raw = client.get_subscription(&user).unwrap();
+    assert!(!raw.active, "raw active must be false (legacy state)");
+    assert!(raw.paused,  "raw paused must be true (legacy state)");
+    assert!(raw.paused, "raw paused must be true (legacy state)");
+
+    // Design invariant: get_active_subscriber_page uses sub.active, so a
+    // legacy `paused && !active` row must NOT appear in the active page.
+    // This matches the documented behavior in storage.rs and locks the
+    // same invariant as scenario_legacy_paused_inactive_row_reader_semantics.
+    let page_after = client.get_active_subscriber_page(&0u64, &10u32);
+    assert!(
+        !page_after.contains(&user),
+        "legacy paused&&!active row must remain EXCLUDED from get_active_subscriber_page \
+         (sub.active is the intentional gate; see storage.rs design notes)"
+    );
+
+    // The raw append-only page still enumerates the slot (it does not filter
+    // by active state).
+    let raw_page = client.get_subscriber_page(&0u64, &10u32);
+    assert!(
+        raw_page.contains(&user),
+        "legacy row must still appear in the raw get_subscriber_page"
+    );
     assert!(!client
         .get_active_subscriber_page(&0u64, &10u32)
         .contains(&user));
@@ -15960,10 +16077,21 @@ fn test_cancelled_subscription_not_listed() {
         &user,
         &merchant,
         &1_0000000,
+        &3600u64,
         &interval,
         &token_addr,
         &None,
         &None,
+    );
+    assert!(client.get_active_subscriber_page(&0u64, &10u32).contains(&user));
+
+    // Cancel through the normal path: active=false, paused=false.
+    client.cancel(&user);
+
+    let page = client.get_active_subscriber_page(&0u64, &10u32);
+    assert!(
+        !page.contains(&user),
+        "cancelled subscription must not appear in get_active_subscriber_page"
     );
     client.cancel(&user);
     assert!(!client
@@ -16081,6 +16209,11 @@ fn test_subscription_health_within_grace_with_grace_period() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
     install_admin(&env, &contract_id);
+
+    let grace: u64 = 7200;
+    let interval: u64 = 3600;
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
     let grace: u64 = 7_200;
     let interval: u64 = 3_600;
     client.propose_grace_period(&grace);
@@ -16093,6 +16226,20 @@ fn test_subscription_health_within_grace_with_grace_period() {
         &token_addr,
         &None,
         &None,
+    );
+    client.propose_grace_period(&grace);
+    client.commit_grace_period();
+
+    // Move just past the interval: the charge is due, and still inside the grace window.
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    let health = client.get_subscription_health(&user);
+    assert!(health.charge_due, "charge must be due inside grace window");
+    assert!(
+        health.within_grace,
+        "within_grace must be true inside grace window"
     );
     env.ledger()
         .with_mut(|ledger| ledger.timestamp += interval + 1);
@@ -16119,6 +16266,15 @@ fn test_cancelled_subscription_remains_excluded_inside_grace_period() {
         &None,
         &None,
     );
+
+    // Advance past interval but still inside grace window.
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + grace / 2;
+    });
+
+    let health = client.get_subscription_health(&user);
+    assert!(health.charge_due, "charge must be due inside grace window");
+    assert!(health.within_grace, "within_grace must be true inside grace window");
     client.cancel(&user);
     assert!(!client
         .get_active_subscriber_page(&0u64, &10u32)
@@ -16153,14 +16309,8 @@ fn test_subscription_health_past_grace_window() {
     });
 
     let health = client.get_subscription_health(&user);
-    assert!(
-        !health.charge_due,
-        "charge must not be due after grace window"
-    );
-    assert!(
-        !health.within_grace,
-        "within_grace must be false after grace window"
-    );
+    assert!(!health.charge_due, "charge must not be due after grace window");
+    assert!(!health.within_grace, "within_grace must be false after grace window");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -16201,6 +16351,7 @@ fn test_clear_metadata_emits_exactly_one_publisher() {
             }
         }
     }
+    assert_eq!(count, 1, "exactly one metadata_cleared event must be emitted");
     assert_eq!(
         count, 1,
         "exactly one metadata_cleared event must be emitted"
@@ -16550,4 +16701,252 @@ fn test_is_contract_address_distinguishes_kinds() {
     assert!(validation::is_contract_address(&token_addr));
     assert!(validation::is_contract_address(&contract_id));
     assert!(!validation::is_contract_address(&account));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #1426: merchant-initiated refund of the last charge (no cancel)
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_refund_last_charge_reverses_revenue_and_fee_without_cancelling() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let admin = Address::generate(&env);
+    let collector = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+    client.propose_fee(&collector, &500);
+    client.commit_fee(); // 5%
+
+    sac.mint(&merchant, &10_000_0000000);
+    client.subscribe(
+        &user,
+        &merchant,
+        &10_0000000,
+        &3600,
+        &token_addr,
+        &None,
+        &None,
+    );
+
+    let user_before = token.balance(&user);
+    let merchant_before = token.balance(&merchant);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp = 3600;
+    });
+    client.charge(&user);
+
+    let fee: i128 = 5_000_000;
+    let net: i128 = 95_000_000;
+    assert_eq!(client.get_merchant_revenue(&merchant), net);
+    assert_eq!(client.get_total_protocol_fees(), fee);
+    assert_eq!(token.balance(&user), user_before - 100_000_000);
+
+    client.refund_last_charge(&user, &merchant);
+
+    assert_eq!(token.balance(&user), user_before);
+    // The merchant funded the full gross refund; its wallet is down only the
+    // protocol fee it never received.
+    assert_eq!(token.balance(&merchant), merchant_before - fee);
+    assert_eq!(client.get_merchant_revenue(&merchant), 0);
+    assert_eq!(client.get_total_protocol_fees(), 0);
+    assert!(client.get_subscription(&user).unwrap().active);
+}
+
+#[test]
+fn test_refund_last_charge_cannot_be_repeated() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+
+    sac.mint(&merchant, &10_000_0000000);
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    env.ledger().with_mut(|l| {
+        l.timestamp = 3600;
+    });
+    client.charge(&user);
+    client.refund_last_charge(&user, &merchant);
+
+    let res = client.try_refund_last_charge(&user, &merchant);
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(50))));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #50)")]
+fn test_refund_last_charge_without_charge_fails_typed() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    client.refund_last_charge(&user, &merchant);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #38)")]
+fn test_refund_last_charge_rejects_wrong_merchant() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    let other = Address::generate(&env);
+
+    sac.mint(&merchant, &10_000_0000000);
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    env.ledger().with_mut(|l| {
+        l.timestamp = 3600;
+    });
+    client.charge(&user);
+    client.refund_last_charge(&user, &other);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #1427: one-time skip next charge
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_skip_next_charge_moves_schedule_exactly_one_interval() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    assert_eq!(client.next_charge_at(&user), Some(3600));
+
+    client.skip_next_charge(&user);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.last_charged, 3600);
+    assert_eq!(client.next_charge_at(&user), Some(7200));
+    assert!(sub.active);
+    assert!(!sub.paused);
+}
+
+#[test]
+fn test_skip_next_charge_enforces_one_per_interval() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    client.skip_next_charge(&user);
+
+    let res = client.try_skip_next_charge(&user);
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(49))));
+
+    // Once a full interval has elapsed since the previous skip, a new skip is
+    // allowed and advances the schedule by exactly one more interval.
+    env.ledger().with_mut(|l| {
+        l.timestamp = 3600;
+    });
+    client.skip_next_charge(&user);
+    assert_eq!(client.next_charge_at(&user), Some(10800));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #17)")]
+fn test_skip_next_charge_rejects_paused_subscription() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    client.pause(&user);
+    client.skip_next_charge(&user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_skip_next_charge_rejects_cancelled_subscription() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &3600, &token_addr, &None, &None);
+    client.cancel(&user);
+    client.skip_next_charge(&user);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #1428: bounded trial extensions
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_extend_trial_accepts_exact_max_extension() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+    let before = client.get_subscription(&user).unwrap().last_charged;
+
+    client.extend_trial(&user, &trial::MAX_TRIAL_EXTENSION);
+
+    assert_eq!(
+        client.get_subscription(&user).unwrap().last_charged,
+        before + trial::MAX_TRIAL_EXTENSION
+    );
+}
+
+#[test]
+fn test_extend_trial_rejects_extension_over_max_with_typed_error() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    let res = client.try_extend_trial(&user, &(trial::MAX_TRIAL_EXTENSION + 1));
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(48))));
+}
+
+#[test]
+fn test_extend_trial_enforces_total_trial_cap() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    for _ in 0..(trial::MAX_TOTAL_TRIAL / trial::MAX_TRIAL_EXTENSION) {
+        client.extend_trial(&user, &trial::MAX_TRIAL_EXTENSION);
+    }
+
+    let res = client.try_extend_trial(&user, &trial::MAX_TRIAL_EXTENSION);
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(48))));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Issue #1429: per-subscriber storage footprint
+// ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_storage_footprint_covers_every_per_user_key() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1000, &86400, &token_addr, &None, &None);
+
+    let footprint = client.get_storage_footprint(&user);
+    assert_eq!(footprint.entries.len(), storage::PER_USER_STORAGE_KEY_COUNT);
+
+    let expected = [
+        "subscription",
+        "referral",
+        "metadata",
+        "charge_history",
+        "index_slot",
+        "pause_expiry",
+        "last_charge",
+        "last_skip",
+        "daily_limit",
+        "daily_spent",
+        "day_start",
+    ];
+    for (i, name) in expected.iter().enumerate() {
+        let entry = footprint.entries.get(i as u32).unwrap();
+        assert_eq!(entry.key, Symbol::new(&env, name));
+    }
+
+    let subscription = footprint.entries.get(0).unwrap();
+    assert!(subscription.present);
+    assert!(subscription.ttl_ledgers > 0);
+
+    let index_slot = footprint.entries.get(4).unwrap();
+    assert!(index_slot.present);
+    assert!(index_slot.ttl_ledgers > 0);
+
+    // Keys the user has not created yet are reported absent.
+    assert!(!footprint.entries.get(2).unwrap().present); // metadata
+    assert!(!footprint.entries.get(9).unwrap().present); // daily_limit
 }
