@@ -106,7 +106,7 @@ The table below lists all 45 components in the root `components/` directory:
 
 ## Admin Component Inventory (`frontend/src/components/admin/`)
 
-The table below lists all 5 components in `frontend/src/components/admin/`:
+The table below lists the components in `frontend/src/components/admin/`:
 
 | Component | Location | Purpose | Mounted By | Status |
 | --- | --- | --- | --- | --- |
@@ -114,6 +114,7 @@ The table below lists all 5 components in `frontend/src/components/admin/`:
 | **AdminRepairPanel** | `admin/AdminRepairPanel.tsx` | On-chain contract subscription repair tool | `pages/AdminDashboard.tsx` | Canonical |
 | **BatchPausePanel** | `admin/BatchPausePanel.tsx` | Admin batch subscription pause interface | `pages/AdminDashboard.tsx` | Canonical |
 | **BatchWhitelistPanel** | `admin/BatchWhitelistPanel.tsx` | Admin batch merchant whitelist management | `pages/AdminDashboard.tsx` | Canonical |
+| **FeeAdminPanel** | `admin/FeeAdminPanel.tsx` | Two-step protocol fee propose/commit, clear fee and fee bounds | `pages/AdminDashboard.tsx` | Canonical |
 | **ProtocolStatsPanel** | `admin/ProtocolStatsPanel.tsx` | Protocol volume, fee, and merchant statistics | `pages/AdminDashboard.tsx` | Canonical |
 
 ---

@@ -1552,7 +1552,7 @@ set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 
 **Returns:** `()`.
 
-**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35).
+**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35). The admin dashboard's Protocol Fee panel reads these bounds and blocks an out-of-range proposal or commit before signing with the contract's error wording.
 
 **Errors:** `ContractError::InvalidFeeBounds` (34) if `min_bps > max_bps` or `max_bps > 10_000`. Unauthorized callers fail admin auth.
 
