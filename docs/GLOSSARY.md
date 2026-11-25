@@ -124,7 +124,7 @@ Source: `contract/src/migration.rs`, [`ARCHITECTURE.md`](./ARCHITECTURE.md#stora
 
 ### Contract Health Check
 
-On-chain diagnostic via `contract_health_check()` returning [`HealthReport`](#healthreport). Aggregates protocol-level flags (`contract_paused`, token/admin configured, `schema_version`, volume utilization). **`is_healthy`** is `true` when the contract is unpaused, token and admin are set, and `instance_ttl_ledgers > 17_280`. This is **not** the keeper HTTP `/health` endpoint and **not** per-user [`SubscriptionHealth`](#subscriptionhealth).
+On-chain diagnostic via `contract_health_check()` returning [`HealthReport`](#healthreport). Aggregates protocol-level flags (`contract_paused`, token/admin configured, `schema_version`, volume utilization). **`is_healthy`** is `true` when the contract is unpaused and both token and admin are configured. This is **not** the keeper HTTP `/health` endpoint and **not** per-user [`SubscriptionHealth`](#subscriptionhealth).
 
 Source: [`API.md`](./API.md#contract_health_check), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#3-health).
 
@@ -226,7 +226,7 @@ See also: [`API.md`](./API.md#contractconfig), [`ERROR-CODES.md`](./ERROR-CODES.
 
 ### HealthReport
 
-Struct returned by `contract_health_check()`. Fields include `is_healthy`, `contract_paused`, `schema_version`, `fee_collector_set`, and `global_volume_utilization_pct`. **`instance_ttl_ledgers` is a hardcoded lower-bound estimate (100_000) on-chain** — not a precise remaining TTL. `fee_collector_set` and volume utilization are informational and do **not** affect `is_healthy`.
+Struct returned by `contract_health_check()`. The optional `instance_bump_age_ledgers` field reports ledgers since the most recent committed instance maintenance request. Age, fee collector configuration, and volume utilization are informational fields.
 
 Source: [`API.md`](./API.md#healthreport), `contract/src/lib.rs`.
 

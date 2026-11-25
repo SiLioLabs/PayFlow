@@ -125,9 +125,9 @@ There is **no** exported `health_check` or `get_health` method. The public ABI n
 - `contract_paused` is false
 - `token_configured` is true
 - `admin_configured` is true
-- `instance_ttl_ledgers > 17_280` (~1 day at ~5 s/ledger)
+- Deep monitoring requires a recorded `instance_bump_age_ledgers` of at most 17,280 (~1 day at 5 seconds per ledger).
 
-On-chain, `instance_ttl_ledgers` is a **hardcoded 100_000** estimate (`get_ttl()` is not available outside test builds). Do not treat it as a precise remaining-TTL reading.
+The age tracks committed maintenance requests. Stellar can satisfy an extension request without changing expiration. After upgrading an idle deployment, invoke `bump_instance_ttl` in a submitted transaction to initialize the metric. Use RPC ledger-entry data when monitoring the actual expiration.
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network mainnet -- contract_health_check
@@ -170,7 +170,7 @@ Run these **before** proposing a WASM swap on Mainnet. They are separate scripts
 
 ```bash
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts
-CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./target/wasm32-unknown-unknown/release/flowpay.wasm
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm ./target/wasm32v1-none/release/flowpay.wasm
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --skip-key-check --upgrade-config ./upgrade-config.json
 ```
 
@@ -214,21 +214,21 @@ Absence of a flag is **not** authorization to use real funds. Confirm passphrase
 - [ ] **Build release WASM**
 
 ```bash
-cargo build -p flowpay --release --target wasm32-unknown-unknown
+stellar contract build --package flowpay
 ```
 
 Expected artifact path used by [`deployments/config.json`](../deployments/config.json) and `scripts/deploy-pipeline.ts`:
 
 ```text
-target/wasm32-unknown-unknown/release/flowpay.wasm
+target/wasm32v1-none/release/flowpay.wasm
 ```
 
 - [ ] **Record WASM hash**
 
 ```bash
-sha256sum target/wasm32-unknown-unknown/release/flowpay.wasm
+sha256sum target/wasm32v1-none/release/flowpay.wasm
 # Windows PowerShell:
-Get-FileHash target\wasm32-unknown-unknown\release\flowpay.wasm -Algorithm SHA256
+Get-FileHash target\wasm32v1-none\release\flowpay.wasm -Algorithm SHA256
 ```
 
 - [ ] **Schema version check** — confirm `get_schema_version` expectations match [`DEPLOYMENT.md`](DEPLOYMENT.md#migration-history).
@@ -271,7 +271,7 @@ Save the printed **contract ID**.
 soroban contract upload \
   --source <DEPLOYER> \
   --network mainnet \
-  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
+  --wasm target/wasm32v1-none/release/flowpay.wasm
 # Expected: prints WASM hash (hex)
 
 # 2) Deploy instance

@@ -31,7 +31,7 @@ fn paused_fixture() -> (Env, Address, Address, Address, Address) {
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_addr = token_id.address();
 
-    let contract_id = env.register_contract(None, FlowPay);
+    let contract_id = env.register(FlowPay, ());
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -43,9 +43,22 @@ fn paused_fixture() -> (Env, Address, Address, Address, Address) {
     });
 
     StellarAssetClient::new(&env, &token_addr).mint(&user, &10_000_0000000i128);
-    TokenClient::new(&env, &token_addr).approve(&user, &contract_id, &10_000_0000000i128, &200_000u32);
+    TokenClient::new(&env, &token_addr).approve(
+        &user,
+        &contract_id,
+        &10_000_0000000i128,
+        &200_000u32,
+    );
 
-    client.subscribe(&user, &merchant, &AMOUNT, &INTERVAL, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &INTERVAL,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     (env, contract_id, token_addr, user, merchant)
 }
@@ -67,7 +80,15 @@ fn test_paused_blocks_subscribe() {
     client.pause_contract();
 
     let newcomer = Address::generate(&env);
-    let res = client.try_subscribe(&newcomer, &merchant, &AMOUNT, &INTERVAL, &token_addr, &None, &None);
+    let res = client.try_subscribe(
+        &newcomer,
+        &merchant,
+        &AMOUNT,
+        &INTERVAL,
+        &token_addr,
+        &None,
+        &None,
+    );
     assert_eq!(res, Err(Ok(paused_error())));
     assert!(client.get_subscription(&newcomer).is_none());
 }
@@ -139,7 +160,10 @@ fn test_paused_blocks_pay_per_use() {
     let client = FlowPayClient::new(&env, &contract_id);
     client.pause_contract();
 
-    assert_eq!(client.try_pay_per_use(&user, &1_0000i128), Err(Ok(paused_error())));
+    assert_eq!(
+        client.try_pay_per_use(&user, &1_0000i128),
+        Err(Ok(paused_error()))
+    );
 }
 
 #[test]
@@ -232,8 +256,13 @@ fn test_paused_allows_cancel() {
 
     client.cancel(&user);
 
-    let sub = client.get_subscription(&user).expect("row is kept after cancel");
-    assert!(!sub.active, "cancel must deactivate the subscription while paused");
+    let sub = client
+        .get_subscription(&user)
+        .expect("row is kept after cancel");
+    assert!(
+        !sub.active,
+        "cancel must deactivate the subscription while paused"
+    );
 }
 
 /// A user can resume a subscription they paused before the contract was paused.
@@ -247,7 +276,10 @@ fn test_paused_allows_resume_of_user_pause() {
     client.resume(&user);
 
     let sub = client.get_subscription(&user).unwrap();
-    assert!(!sub.paused, "resume must clear the user's pause while the contract is paused");
+    assert!(
+        !sub.paused,
+        "resume must clear the user's pause while the contract is paused"
+    );
     assert!(sub.active);
 }
 
@@ -286,8 +318,21 @@ fn test_unpause_restores_subscribe() {
 
     let newcomer = Address::generate(&env);
     StellarAssetClient::new(&env, &token_addr).mint(&newcomer, &10_000_0000000i128);
-    TokenClient::new(&env, &token_addr).approve(&newcomer, &contract_id, &10_000_0000000i128, &200_000u32);
-    client.subscribe(&newcomer, &merchant, &AMOUNT, &INTERVAL, &token_addr, &None, &None);
+    TokenClient::new(&env, &token_addr).approve(
+        &newcomer,
+        &contract_id,
+        &10_000_0000000i128,
+        &200_000u32,
+    );
+    client.subscribe(
+        &newcomer,
+        &merchant,
+        &AMOUNT,
+        &INTERVAL,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     assert!(client.get_subscription(&newcomer).is_some());
 }

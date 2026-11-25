@@ -2,20 +2,6 @@
   "name": "payflow-scripts",
   "version": "0.1.0",
   "private": true,
-  "type": "commonjs",
-  "scripts": {
-    "test": "vitest --run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit --project tsconfig.json",
-    "build": "tsc --project tsconfig.json",
-    "alerts:validate": "promtool check rules alerts.yml"
-  },
-  "dependencies": {
-    "@stellar/stellar-sdk": "^12.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^4.1.5"
   "type": "module",
   "description": "Operational and analytics scripts for FlowPay",
   "engines": {
@@ -46,7 +32,8 @@
     "pre-upgrade-check": "tsx pre-upgrade-check.ts",
     "subscriber-health": "tsx subscriber-health-dashboard.ts",
     "topup-allowance": "tsx topup-allowance.ts",
-    "validate-config": "tsx validate-config.ts"
+    "validate-config": "tsx validate-config.ts",
+    "alerts:validate": "promtool check rules alerts.yml"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

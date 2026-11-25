@@ -22,8 +22,8 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
-    token::{Client as TokenClient, StellarAssetClient},
+    testutils::{Address as _, Ledger},
+    token::Client as TokenClient,
     Address, Env, String, Symbol, TryIntoVal, Vec,
 };
 
@@ -68,7 +68,7 @@ fn counters(client: &FlowPayClient, merchants: &Vec<Address>) -> CounterSnapshot
 fn count_events(env: &Env, topic: &str, user: &Address) -> u32 {
     let expected = Symbol::new(env, topic);
     let mut count = 0;
-    for (_, topics, _) in env.events().all().iter() {
+    for (_, topics, _) in crate::test::contract_events(env).iter() {
         let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(env).unwrap();
         if topic_symbol != expected {
             continue;
@@ -143,6 +143,7 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
     assert_eq!(before, (3, 3, 3), "three subscribers over two merchants");
 
     client.cancel(&user_a);
+    assert_eq!(count_events(&env, "cancelled", &user_a), 1);
     let after_first = counters(&client, &merchants);
     assert_eq!(
         after_first,
@@ -151,12 +152,12 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
          subscriber, and must leave the append-only index size alone"
     );
     assert!(client.get_subscriber_at(&0).is_none());
-    assert_eq!(count_events(&env, "cancelled", &user_a), 1);
     assert_eq!(client.get_referrer(&user_b), Some(referrer.clone()));
 
     // The second cancel is the one under test. `cancel` is not re-entrant, so
     // this is an ordinary call in its own right, not a revert-and-retry.
     client.cancel(&user_a);
+    assert_eq!(count_events(&env, "cancelled", &user_a), 0);
     let after_second = counters(&client, &merchants);
 
     assert_eq!(
@@ -165,11 +166,6 @@ fn scenario_double_cancel_leaves_every_counter_identical() {
          index size, the per-merchant totals or the merchant index all changed"
     );
     assert!(client.get_subscriber_at(&0).is_none());
-    assert_eq!(
-        count_events(&env, "cancelled", &user_a),
-        1,
-        "a no-op cancel must not emit a duplicate cancelled event"
-    );
 
     // The subscription itself is unchanged, and the referrer of a *different*
     // user was not collateral damage.
@@ -197,7 +193,7 @@ fn scenario_legacy_paused_inactive_row_reader_semantics() {
     );
 
     env.as_contract(&contract_id, || {
-        let key = DataKey::Subscription(user.clone());
+        let key = crate::storage::subscription_key(&env, &user);
         let mut sub: Subscription = env.storage().persistent().get(&key).unwrap();
         sub.active = false;
         sub.paused = true;
@@ -269,6 +265,7 @@ fn scenario_batch_cancel_of_already_cancelled_user_moves_no_counter() {
     );
 
     client.cancel(&user_a);
+    assert_eq!(count_events(&env, "cancelled", &user_a), 1);
 
     let merchants = soroban_sdk::vec![&env, merchant.clone()];
     let before = counters(&client, &merchants);
@@ -280,6 +277,7 @@ fn scenario_batch_cancel_of_already_cancelled_user_moves_no_counter() {
 
     let users = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
     let results = client.batch_cancel(&users);
+    assert_eq!(count_events(&env, "cancelled", &user_a), 0);
 
     assert_eq!(results.get(0).unwrap(), CancelResult::AlreadyCancelled);
     assert_eq!(results.get(1).unwrap(), CancelResult::Cancelled);
@@ -291,7 +289,6 @@ fn scenario_batch_cancel_of_already_cancelled_user_moves_no_counter() {
         (0, 2, 0),
         "a re-cancel inside a batch must not double-decrement the already-cancelled user"
     );
-    assert_eq!(count_events(&env, "cancelled", &user_a), 1);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -717,7 +714,7 @@ fn scenario_zero_interval_guards_division_by_zero() {
 
     // Forge a zero interval underneath the guard to reach the division itself.
     env.as_contract(&contract_id, || {
-        let key = DataKey::Subscription(user.clone());
+        let key = crate::storage::subscription_key(&env, &user);
         let mut sub: Subscription = env.storage().persistent().get(&key).unwrap();
         sub.interval = 0;
         env.storage().persistent().set(&key, &sub);

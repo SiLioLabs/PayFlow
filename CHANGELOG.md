@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING** `contract_health_check` returns the optional `instance_bump_age_ledgers` field in place of `instance_ttl_ledgers`. Update consumers and submit a TTL maintenance call to initialize telemetry on idle upgraded deployments.
+- Schema v4 moves legacy subscriptions to ID zero through `migrate` and `finalize_migration`. Additional subscriptions have independent per-user IDs and token-specific settlement analytics.
+- Soroban SDK 30 requires Stellar CLI 30 or later to build deployable contract Wasm.
+- Emergency operators use `set_contract_paused_as`, `freeze_merchant_as`, and `unfreeze_merchant_as` with their address and signature. Admin entrypoints retain their argument lists.
+- **BREAKING** Disambiguate conflicting error codes. Migration incomplete is 53, skip cooldown is 54, and invalid merchant fee basis points is 55.
+
 ### Added
 
 - Add `get_charges_due_between(from, to, offset, limit)`, a bounded keeper read of subscribers due inside a time window, with their `next_charge_at`. The bundled keeper uses it to wake up when the next subscription comes due, and never sleeps longer than `INTERVAL_SECONDS`.

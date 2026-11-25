@@ -92,7 +92,10 @@ pub const MAX_REFERRAL_REWARD_BPS: u32 = 5_000;
 pub const DEFAULT_REFERRAL_REWARD_MAX_CHARGES: u32 = 12;
 
 pub fn get_reward_bps(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::ReferralRewardBps).unwrap_or(1_000)
+    env.storage()
+        .instance()
+        .get(&DataKey::ReferralRewardBps)
+        .unwrap_or(1_000)
 }
 
 pub fn get_reward_max_charges(env: &Env) -> u32 {
@@ -118,10 +121,15 @@ pub fn accrue_charge_reward(
         return 0;
     }
     env.storage().persistent().set(&count_key, &(count + 1));
-    env.storage().persistent().extend_ttl(&count_key, SUBSCRIPTION_TTL_LEDGERS / 2, SUBSCRIPTION_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &count_key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
     let reward = protocol_fee
         .checked_mul(get_reward_bps(env) as i128)
-        .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow)) / 10_000;
+        .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow))
+        / 10_000;
     if reward > 0 {
         let key = DataKey::ReferralReward(token_addr.clone(), referrer.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -142,7 +150,10 @@ pub fn accrue_charge_reward(
 pub fn get_reward_balance(env: &Env, token_addr: &Address, referrer: &Address) -> i128 {
     env.storage()
         .persistent()
-        .get(&DataKey::ReferralReward(token_addr.clone(), referrer.clone()))
+        .get(&DataKey::ReferralReward(
+            token_addr.clone(),
+            referrer.clone(),
+        ))
         .unwrap_or(0)
 }
 
@@ -154,7 +165,11 @@ pub fn withdraw_reward(env: &Env, token_addr: &Address, referrer: &Address) -> i
         env.panic_with_error(ContractError::ZeroBalanceAvailable);
     }
     env.storage().persistent().set(&key, &0i128);
-    token::Client::new(env, token_addr).transfer(&env.current_contract_address(), referrer, &amount);
+    token::Client::new(env, token_addr).transfer(
+        &env.current_contract_address(),
+        referrer,
+        &amount,
+    );
     events::publish_referral_reward_withdrawn(env, referrer, amount);
     amount
 }

@@ -72,11 +72,9 @@ pub enum ContractError {
     InvalidBatchSize = 29,
     /// Deprecated alias retained for clients that published code 30.
     /// New contract pause checks use `ContractPaused` (code 18).
-    #[deprecated(note = "use ContractPaused; code 30 is retained for wire compatibility")]
     ContractPausedError = 30,
     /// Reserved for the historical error-code gap. It is intentionally not
     /// emitted by the current contract; retaining it documents the stable wire map.
-    #[deprecated(note = "code 31 is reserved and must not be emitted")]
     Reserved31 = 31,
     /// Returned when a provided recipient address is invalid (e.g., contract address).
     InvalidRecipient = 32,
@@ -124,19 +122,23 @@ pub enum ContractError {
     TrialExtensionExceedsMaximum = 48,
     /// Returned when `skip_next_charge` is called again before the cooldown of
     /// one full billing interval has elapsed since the previous skip.
-    SkipCooldownActive = 49,
+    SkipCooldownActive = 54,
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
     /// Returned by `finalize_migration` while fewer accounts have been migrated
     /// than the operator-supplied total, so the schema version cannot be advanced.
-    MigrationIncomplete = 48,
+    MigrationIncomplete = 53,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
     InvalidKeeperTipBps = 49,
     /// Returned when an admin transfer targets the current admin or this contract.
     InvalidAdminAddress = 52,
     /// Merchant fee override exceeds current configured protocol bounds.
-    InvalidMerchantFeeBps = 50,
+    InvalidMerchantFeeBps = 55,
     /// Operator cannot be the contract itself.
     InvalidOperatorAddress = 51,
+    /// A live record already occupies the next allocated subscription ID.
+    SubscriptionIdAlreadyExists = 56,
+    /// The named emergency actor is neither the operator nor the admin.
+    Unauthorized = 57,
 }
