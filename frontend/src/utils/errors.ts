@@ -16,7 +16,7 @@
  *    2 AmountMustBePositive           18 ContractPaused             34 InvalidFeeBounds
  *    3 IntervalMustBePositive         19 IntervalTooShort           35 FeeOutOfBoundsAtCommit
  *    4 NoSubscriptionFound            20 BatchTooLarge              36 ArithmeticOverflow
- *    5 SubscriptionInactive            21 ZeroBalanceAvailable       37 — catalog gap, no variant
+ *    5 SubscriptionInactive            21 ZeroBalanceAvailable       37 Reserved37 (reserved)
  *    6 IntervalNotElapsed             22 MerchantFrozen             38 RefundMerchantMismatch
  *    7 NotInitialized                 23 NoPendingProposal          39 RefundAmountMustBePositive
  *    8 InsufficientAllowance          24 SubscriptionAlreadyActive  40 InsufficientMerchantBalance
@@ -41,7 +41,7 @@
  *   49 InvalidKeeperTipBps
  *   52 InvalidAdminAddress
  *
- * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
+ * Codes 30, 31 and 37 (deprecated / reserved) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
  */
 export const CONTRACT_ERRORS: Record<string, string> = {
@@ -95,9 +95,9 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #34)": "Invalid fee bounds.",
   "error(contract, #35)": "Fee out of bounds at commit.",
   "error(contract, #36)": "Arithmetic overflow.",
-  // Code 37 — historical gap in the catalog: no `ContractError` variant holds
-  // this code and none is planned. Kept mapped so a stray 37 cannot reach the
-  // user as raw panic text; remove only if a variant ever claims this code.
+  // Code 37 — `Reserved37`, a deprecated variant that only holds
+  // this slot so it is never reused; never emitted. Kept mapped so a stray 37 cannot reach the
+  // user as raw panic text.
   "error(contract, #37)": "This error code is not used by the current contract.",
   "error(contract, #38)": "Refund can only be issued by the subscription's merchant.",
   "error(contract, #39)": "Prorated refund amount is zero; nothing to refund.",

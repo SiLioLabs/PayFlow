@@ -91,6 +91,10 @@ export interface PipelineSummary {
   wasmHash: string | null;
   onChainHash: string | null;
   schemaVersion: number | null;
+  /** `get_version()` of the deployed contract, when readable. */
+  contractVersion: string | null;
+  /** Version this build embeds (contract/Cargo.toml). */
+  buildVersion: string | null;
   rpcHealthy: boolean;
   gates: GateResult[];
   passed: boolean;
@@ -239,6 +243,67 @@ export async function fetchSchemaVersion(
   }
 }
 
+// ── Contract version helpers (#1412) ──────────────────────────────────────────
+
+const PIPELINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const DEFAULT_CARGO_TOML = path.join(PIPELINE_ROOT, "contract", "Cargo.toml");
+export const DEFAULT_MANIFEST = path.join(PIPELINE_ROOT, "deployments", "manifest.json");
+
+/** The `[package] version` from a Cargo.toml: the value `get_version` embeds. */
+export function readCargoVersion(cargoTomlPath: string = DEFAULT_CARGO_TOML): string | null {
+  try {
+    const toml = fs.readFileSync(cargoTomlPath, "utf8");
+    const pkg = toml.split(/^\[(?!package\])/m)[0];
+    const match = pkg.match(/^\s*version\s*=\s*"([^"]+)"/m);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Simulates `get_version()` on the deployed contract; null when unavailable. */
+export async function fetchContractVersion(
+  contractId: string,
+  server: MultiEndpointServer,
+  networkPassphrase: string,
+  sourceAccount: string
+): Promise<string | null> {
+  try {
+    const contract = new Contract(contractId);
+    const account = await server.getAccount(sourceAccount);
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+      .addOperation(contract.call("get_version"))
+      .setTimeout(30)
+      .build();
+    const simResult = await server.simulateTransaction(tx);
+    if ("error" in simResult) return null;
+    const retval = (simResult as any).result?.retval;
+    if (!retval || retval.switch().name !== "scvString") return null;
+    return retval.str().toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records the contract version in deployments/manifest.json, keeping every
+ * other field. Called on real (non dry-run) pipeline runs.
+ */
+export function recordContractVersion(
+  version: { onChain: string | null; build: string | null },
+  manifestPath: string = DEFAULT_MANIFEST,
+  now: Date = new Date()
+): void {
+  let manifest: Record<string, unknown> = {};
+  if (fs.existsSync(manifestPath)) {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  }
+  manifest.contractVersion = version.onChain;
+  manifest.buildVersion = version.build;
+  manifest.lastUpdatedAt = now.toISOString();
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+}
+
 // ── Gate runners ──────────────────────────────────────────────────────────────
 
 /**
@@ -374,6 +439,53 @@ export async function runSchemaVersionGate(
   };
 }
 
+/**
+ * Gate 4: Contract version
+ * Reads `get_version()` from the deployed contract and compares it with the
+ * version this build embeds (contract/Cargo.toml). A difference is expected
+ * before an upgrade, so it warns rather than fails.
+ */
+export async function runContractVersionGate(
+  contractId: string,
+  server: MultiEndpointServer,
+  networkPassphrase: string,
+  sourceAccount: string,
+  buildVersion: string | null = readCargoVersion()
+): Promise<GateResult & { contractVersion: string | null; buildVersion: string | null }> {
+  if (!contractId || !sourceAccount) {
+    return {
+      gate: "contract-version",
+      status: "skip",
+      message: "Contract ID or source account not set; skipping version check",
+      contractVersion: null,
+      buildVersion,
+    };
+  }
+
+  const onChain = await fetchContractVersion(contractId, server, networkPassphrase, sourceAccount);
+  if (onChain === null) {
+    return {
+      gate: "contract-version",
+      status: "warn",
+      message: "Could not read get_version() (contract may predate it)",
+      contractVersion: null,
+      buildVersion,
+    };
+  }
+
+  const same = buildVersion !== null && onChain === buildVersion;
+  return {
+    gate: "contract-version",
+    status: same ? "pass" : "warn",
+    message: same
+      ? `Deployed contract version ${onChain} matches this build`
+      : `Deployed contract version ${onChain} differs from this build (${buildVersion ?? "unknown"})`,
+    detail: { onChain, buildVersion },
+    contractVersion: onChain,
+    buildVersion,
+  };
+}
+
 // ── Summary artifact ──────────────────────────────────────────────────────────
 
 export function writeSummary(
@@ -404,6 +516,8 @@ export async function runPipeline(
     wasmHash: null,
     onChainHash: null,
     schemaVersion: null,
+    contractVersion: null,
+    buildVersion: readCargoVersion(),
     rpcHealthy: false,
     gates: [],
     passed: false,
@@ -424,6 +538,7 @@ export async function runPipeline(
       { gate: "rpc-health", status: "skip", message: "Dry-run — skipped" },
       { gate: "wasm-hash", status: "skip", message: "Dry-run — skipped" },
       { gate: "schema-version", status: "skip", message: "Dry-run — skipped" },
+      { gate: "contract-version", status: "skip", message: "Dry-run — skipped" },
     ];
     summary.passed = true;
     writeSummary(summary, args.summaryOut);
@@ -472,6 +587,19 @@ export async function runPipeline(
   summary.gates.push(schemaGate);
   summary.schemaVersion = schemaGate.schemaVersion;
   printGate(schemaGate);
+
+  // ── Gate 4: Contract version (recorded in deployments/manifest.json) ──────
+  const versionGate = await runContractVersionGate(
+    contractId,
+    server,
+    networkPassphrase,
+    sourceAccount,
+    summary.buildVersion
+  );
+  summary.gates.push(versionGate);
+  summary.contractVersion = versionGate.contractVersion;
+  printGate(versionGate);
+  recordContractVersion({ onChain: versionGate.contractVersion, build: summary.buildVersion });
 
   // Schema warnings don't fail the pipeline — they remind the operator to migrate
   summary.passed = summary.gates.every(
