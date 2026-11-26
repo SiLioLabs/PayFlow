@@ -22,7 +22,7 @@ Source of truth: `contract/src/batch.rs` (`batch_charge`), `contract/src/lib.rs`
 | Returns `ContractPaused` per-user    | No (whole-batch panic)      | No (silently proceeds)             | **Yes**                      |
 | Checks allowance                     | Yes                         | Yes                                | Yes                          |
 | Result enum                          | `ChargeResult`              | `ChargeResult`                     | `ChargeSimResult`            |
-| Batch size cap                       | `get_max_batch_size()` (default 50) | **Hardcoded 200**          | N/A (single user)            |
+| Batch size cap                       | `get_max_batch_size()` (default 50) | Same cap (+ 200 hard ceiling) | N/A (single user)          |
 | Emits `batch_charge_skips` event     | **Yes** (when interesting failures) | No                        | No                           |
 | Increments revenue / charge history  | **Yes**                     | No                                 | No                           |
 | Bumps TTL on charge                  | **Yes** (`extend_subscription_ttl`) | No                        | No                           |
@@ -81,17 +81,17 @@ succeed.
 ### 4. Batch size cap
 
 `batch_charge` enforces `get_max_batch_size()` (default 50, configurable by
-admin via `set_max_batch_size`). If `users.len() > max`, it panics
-`BatchTooLarge` (20).
+admin via `set_max_batch_size`, hard ceiling 200). If `users.len() > max`, it
+panics `BatchTooLarge` (20).
 
-`get_batch_charge_estimate` uses a **hardcoded** cap of 200, regardless of the
-configured `MaxBatchSize`. A keeper that calls the estimate with 200 users and
-then calls live `batch_charge` with the same list will succeed at the estimate
-but fail the live call if `max_batch_size < 200`.
+`get_batch_charge_estimate` enforces the **same** configured cap, plus the
+200-address `MAX_BATCH_SIZE_CEILING` as an upper bound. An over-cap list
+panics with `BatchTooLarge` on both surfaces, so the cap is no longer an
+estimate/live divergence.
 
-**Recommendation:** call `get_contract_config()` to read the live batch cap
-and size both estimate and live calls to that value. Do not rely on the 200
-estimate cap to indicate live feasibility.
+**Recommendation:** still read `get_contract_config().max_batch_size` and size
+both calls to it, so a batch accepted by the estimate is also accepted live
+(and vice versa).
 
 ### 5. `batch_charge_skips` event
 
@@ -136,6 +136,65 @@ The mapping between the two:
 A `Charged` / `WouldSucceed` result means all preconditions passed; it does
 not mean any of the above state was updated.
 
+### 8. Repeated address in one batch
+
+`batch_charge` processes positions sequentially and persists `last_charged`
+after a successful charge. If the same address appears again later in the same
+batch, it is no longer due, so live returns `Skipped`. The estimate does not
+write, so it evaluates every position against the pre-batch snapshot and
+returns `Charged`.
+
+Tolerated pair: estimate `Charged` / live `Skipped` when the address was
+already `Charged` earlier in that same batch. De-duplicate keeper batches
+rather than relying on this.
+
+### 9. Execution-time failures abort live only
+
+After the shared precheck and allowance gate pass, `batch_charge` can still
+fail while executing the transfer: subscriber **balance** below `sub.amount`,
+the hourly **global volume cap** (`GlobalVolumeExceeded`), or a SAC-level
+error. Soroban has no per-user try/catch, so the whole invocation aborts and no
+address is charged — while the estimate has already returned `Charged`.
+
+Keepers must preflight balances and the volume cap. The property test keeps
+generated states inside this envelope (balance 3x amount, small batches) so it
+compares outcomes rather than host aborts.
+
+### 10. Fees change balances, not outcomes
+
+A configured protocol fee makes live execution debit the subscriber by the
+gross amount across two transfer legs (fee to the collector, net to the
+merchant). The allowance gate covers the gross amount and
+`fee + net == gross`, so the `ChargeResult` is unchanged; only balances and fee
+counters differ. The property test randomizes the fee rate and still requires
+equal outcomes.
+
+---
+
+## Randomized property test (issue #1435)
+
+`scenario::scenario_property_estimate_matches_live_batch_outcomes` runs 64
+deterministic seeds. Each seed configures a random grace period (0 / 1 h /
+1 day) and fee rate (0 / 250 / 1000 bps), generates 1–3 subscription snapshots
+covering every `ChargeResult` state plus boundary allowances (0, half, one
+short, exact, 2x), writes them into storage, then draws a 1–6 position batch
+with replacement so repeated addresses occur. Estimate and live results are
+compared position by position.
+
+Only equal outcomes and the whitelisted repeated-address pair are accepted;
+`scenario::documented_parity_divergence` is the single whitelist. A failure
+prints the seed, batch layout, state, grace period and fee rate needed to
+reproduce it. The test also asserts that every `ChargeResult` variant and at
+least one whitelisted divergence were exercised, so a degenerate generator
+cannot pass silently.
+
+Run it with:
+
+```bash
+cd contract
+cargo test scenario_property_estimate_matches_live_batch_outcomes -- --nocapture
+```
+
 ---
 
 ## Code comment in source
@@ -154,8 +213,9 @@ See `contract/src/charge_exec.rs` — the `DryRunSkipOutcome` enum and its
 1. **Use `get_batch_charge_estimate` only for pre-flight checks,** not as a
    substitute for understanding what `batch_charge` will do when the contract
    is paused.
-2. **Size estimate calls to the live batch cap** (`get_contract_config().max_batch_size`)
-   to avoid false-positive estimates for lists larger than 50.
+2. **Keep batches within `get_contract_config().max_batch_size`.** Estimate and
+   live enforce the same configured cap (the estimate also applies the
+   200-address hard ceiling), so an over-cap list panics on both surfaces.
 3. **Parse `batch_charge_skips` events** for operational alerting; do not rely
    on estimate return values for monitoring.
 4. **Be aware that estimate auto-resumes subscribers.** If your observability
@@ -178,3 +238,4 @@ See `contract/src/charge_exec.rs` — the `DryRunSkipOutcome` enum and its
 - [`contract/src/batch.rs`](../../contract/src/batch.rs) — `batch_charge` implementation
 - [`contract/src/charge_exec.rs`](../../contract/src/charge_exec.rs) — shared precheck, `simulate_charge`
 - [`contract/src/lib.rs`](../../contract/src/lib.rs) — `get_batch_charge_estimate` implementation
+- [`contract/src/scenario.rs`](../../contract/src/scenario.rs) — deterministic estimate/live property and divergence whitelist
