@@ -159,6 +159,7 @@ where current_time >= T + interval
 - Billing interval has elapsed
 - Eligible for immediate charge
 - Still within grace period (if configured)
+- Charges collect exactly one cycle (`sub.amount`); `last_charged` is set to `current_time` (drift / reset to charge timestamp). If a keeper or network delay causes multiple intervals to elapse (e.g. 2, 3, or 10 missed intervals), a single execution of `charge()` collects exactly one cycle rather than catching up or compounding, avoiding double-charging for elapsed periods. When grace period is enabled (`grace_period > 0`), if `current_time > T + interval + grace_period`, charging is blocked with `GracePeriodElapsed`. If grace period is disabled (`0`), late charges are permitted and collect one cycle upon execution.
 
 **Valid Transitions:**
 
