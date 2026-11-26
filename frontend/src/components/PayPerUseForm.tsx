@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo, forwardRef } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import Spinner from "./Spinner";
-import { STROOPS_PER_XLM, MIN_STROOPS, CONTRACT_LIMITS } from "../constants";
-import { useDebounce } from "../hooks/useDebounce";
+import { STROOPS_PER_XLM, CONTRACT_LIMITS } from "../constants";
 import { useAmountDisplay } from "../hooks/useAmountDisplay";
-import { type AmountUnit, stroopsToXlm } from "../utils/format";
+import { type AmountUnit, stroopsToXlm, formatInteger } from "../utils/format";
 import { dailyLimitProgress } from "../utils/format";
-import { validateStroopAmount } from "../hooks/useFormValidation";
+import { validateStroopAmount } from "../utils/validation";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint, recipient?: string) => Promise<void>;
@@ -22,48 +21,17 @@ interface PayPerUseFormProps {
   isLimitLoading?: boolean;
 }
 
+/**
+ * validatePayPerUseInput — thin wrapper around the canonical validateStroopAmount
+ * preserved for backward-compatibility with amounts.test.ts and other callers
+ * that rely on this export name and signature.
+ */
 export function validatePayPerUseInput(
   raw: string,
   unit: AmountUnit,
   maxStroops: bigint
 ): { stroops: bigint | null; error: string | null } {
-  if (!raw) return { stroops: null, error: null };
-  const num = parseFloat(raw);
-  if (isNaN(num) || num <= 0) return { stroops: null, error: "Must be a positive number" };
-
-  let stroops: bigint;
-  if (unit === "XLM") {
-    const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-    if (decimals > 7) return { stroops: null, error: "Max 7 decimal places" };
-    stroops = BigInt(Math.round(num * STROOPS_PER_XLM));
-  } else {
-    if (raw.includes(".")) return { stroops: null, error: "Stroops must be whole numbers" };
-    try {
-      stroops = BigInt(raw);
-    } catch {
-      return { stroops: null, error: "Invalid integer" };
-    }
-  }
-
-  if (stroops < MIN_STROOPS) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at least ${stroopsToXlm(MIN_STROOPS)} XLM`
-          : `Must be at least ${MIN_STROOPS} STROOP`,
-    };
-  }
-  if (stroops > maxStroops) {
-    return {
-      stroops: null,
-      error:
-        unit === "XLM"
-          ? `Must be at most ${stroopsToXlm(maxStroops)} XLM`
-          : `Must be at most ${maxStroops} STROOP`,
-    };
-  }
-  return { stroops, error: null };
+  return validateStroopAmount(raw, unit, maxStroops);
 }
 
 /**
@@ -98,15 +66,19 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     },
     ref
   ) => {
-    const { unit } = useAmountDisplay();
+    const { unit, displayCurrentAmount } = useAmountDisplay();
     const [amount, setAmount] = useState("");
-    const [error, setError] = useState<string | null>(null);
     const [recipient, setRecipient] = useState("");
     const [recipientError, setRecipientError] = useState<string | null>(null);
-    const [lastValue, setLastValue] = useState(amount);
-    const debouncedValue = useDebounce(amount, 300);
-    const [convertedStroops, setConvertedStroops] = useState<bigint | null>(null);
-    const { displayCurrentAmount } = useAmountDisplay();
+
+    // Note (Issue #1263): Synchronous validation via useMemo is the single authoritative source of truth.
+    // The previous debounced error state and effect were deliberately removed to eliminate lag and prevent duplicate error rendering.
+    const validationResult = useMemo(() => {
+      return validatePayPerUseInput(amount, unit, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
+    }, [amount, unit]);
+
+    const amountError = amount.trim() ? validationResult.error : null;
+    const convertedStroops = validationResult.stroops;
 
     // Keep input value in sync when the global unit preference changes
     useEffect(() => {
@@ -119,45 +91,15 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
       }
     }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
-      if (amount !== lastValue) {
-        setLastValue(amount);
-      }
-    }, [amount, lastValue]);
-
-    useEffect(() => {
-      const { stroops, error: err } = validatePayPerUseInput(
-        debouncedValue,
-        unit,
-        CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT
-      );
-      setConvertedStroops(stroops);
-      setError(err);
-    }, [debouncedValue, unit]);
-
-    function handleBlur() {
-      const { stroops, error: err } = validatePayPerUseInput(
-        amount,
-        unit,
-        CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT
-      );
-      setConvertedStroops(stroops);
-      setError(err);
-    }
-
     const formatAlternate = (stroops: bigint): string => {
       if (unit === "XLM") {
-        return `${stroops.toLocaleString("en-US")} STROOP`;
+        return `${formatInteger(stroops)} STROOP`;
       } else {
         return `${stroopsToXlm(stroops)} XLM`;
       }
     };
 
-    const isFormValid = convertedStroops !== null && !error && !recipientError;
-
-    const validationResult = useMemo(() => {
-      return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
-    }, [amount]);
+    const isFormValid = convertedStroops !== null && !amountError && !recipientError;
 
     // Daily limit remaining logic — block submit when amount would exceed remaining budget
     const remaining = dailyLimit !== null && dailySpent !== null ? dailyLimit - dailySpent : null;
@@ -189,7 +131,7 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
     }
 
     async function handleSubmit() {
-      if (!validationResult.valid || payDisabled || exceedsRemaining) return;
+      if (convertedStroops === null || payDisabled || exceedsRemaining) return;
       const trimmedRecipient = recipient.trim();
       if (trimmedRecipient) {
         const recipientErr = validateRecipient(trimmedRecipient);
@@ -198,12 +140,8 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
           return;
         }
       }
-      const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
-      // Extra guard: re-check before wallet prompt
+      const stroops = convertedStroops;
       if (remaining !== null && stroops > remaining) {
-        setError(
-          `Amount exceeds remaining daily budget. Remaining: ${displayCurrentAmount(remaining)}`
-        );
         return;
       }
       if (trimmedRecipient) {
@@ -212,8 +150,6 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
         await onPay(stroops);
       }
       setAmount("");
-      setError(null);
-      setConvertedStroops(null);
     }
 
     const payAriaLabel = disabled
@@ -299,20 +235,35 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
         )}
         <div className="ppu-card__row">
           <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+            <label htmlFor="ppu-amount-input" className="sr-only">
+              Amount ({unit})
+            </label>
             <input
+              id="ppu-amount-input"
               ref={ref}
               type="number"
               min={unit === "XLM" ? "0.0000001" : "1"}
               step={unit === "XLM" ? "0.0000001" : "1"}
               placeholder={`Amount in ${unit}`}
+              aria-label={`Amount in ${unit}`}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              onBlur={handleBlur}
               disabled={payDisabled}
               style={{ width: "100%" }}
+              aria-invalid={amountError ? true : undefined}
+              aria-describedby={amountError ? "ppu-amount-error" : undefined}
             />
-            {error && <span className="text-error">{error}</span>}
-            {convertedStroops !== null && !error && (
+            {amountError && (
+              <span
+                id="ppu-amount-error"
+                data-testid="ppu-amount-error"
+                className="text-error"
+                role="alert"
+              >
+                {amountError}
+              </span>
+            )}
+            {convertedStroops !== null && !amountError && (
               <span className="text-muted">= {formatAlternate(convertedStroops)}</span>
             )}
           </div>
@@ -326,7 +277,11 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
           </button>
         </div>
         <div className="ppu-card__recipient" style={{ marginTop: 8 }}>
+          <label htmlFor="ppu-recipient-input" className="sr-only">
+            Recipient address (optional)
+          </label>
           <input
+            id="ppu-recipient-input"
             type="text"
             placeholder="Recipient address (optional)"
             aria-label="Recipient address (optional)"
@@ -335,9 +290,16 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             onBlur={() => setRecipientError(validateRecipient(recipient))}
             disabled={payDisabled}
             style={{ width: "100%" }}
+            aria-invalid={recipientError ? true : undefined}
+            aria-describedby={recipientError ? "ppu-recipient-error" : undefined}
           />
           {recipientError && (
-            <span className="text-error" data-testid="ppu-recipient-error" role="alert">
+            <span
+              id="ppu-recipient-error"
+              className="text-error"
+              data-testid="ppu-recipient-error"
+              role="alert"
+            >
               {recipientError}
             </span>
           )}
@@ -357,7 +319,6 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
             {limitError}
           </p>
         )}
-        {validationResult.error && <span className="text-error">{validationResult.error}</span>}
       </div>
     );
   }

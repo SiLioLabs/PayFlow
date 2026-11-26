@@ -33,6 +33,7 @@ describe("usePauseResume", () => {
       status: "idle",
       hash: null,
       error: null,
+      isError: false,
       submit: vi.fn().mockImplementation(async (cb) => {
         return cb();
       }),
@@ -90,6 +91,7 @@ describe("usePauseResume", () => {
       status: "failed",
       hash: null,
       error: "On-chain failure",
+      isError: true,
       submit: vi.fn().mockRejectedValue(submitError),
     });
 

@@ -1,13 +1,17 @@
 import React, { useRef, useEffect, useState } from "react";
 import type { Notification, ToastVariant } from "../hooks/useToast";
+import { explorerTxUrl } from "../stellar";
+import type { NotificationPreferences } from "../context/ToastContext";
 
 interface Props {
   notifications: Notification[];
   unreadCount: number;
   onMarkAllRead: () => void;
   onClearAll: () => void;
-  /** Base URL for the Stellar explorer. Defaults to testnet. */
+  /** Base URL for the Stellar explorer. Defaults to the active network. */
   explorerBase?: string;
+  notificationPreferences?: NotificationPreferences;
+  onNotificationPreferenceChange?: (category: ToastVariant, enabled: boolean) => void;
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -35,13 +39,6 @@ function variantIcon(variant: ToastVariant): string {
   if (variant === "success") return "✅";
   if (variant === "error") return "❌";
   return "ℹ️";
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 // ── Long-message expand ───────────────────────────────────────────────────────
@@ -81,7 +78,9 @@ export default function NotificationCenter({
   unreadCount,
   onMarkAllRead,
   onClearAll,
-  explorerBase = "https://stellar.expert/explorer/testnet",
+  explorerBase,
+  notificationPreferences = { success: true, error: true, info: true },
+  onNotificationPreferenceChange = () => {},
 }: Props) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -220,6 +219,41 @@ export default function NotificationCenter({
             </div>
           </div>
 
+          <fieldset
+            style={{
+              border: 0,
+              margin: "0 0 var(--space-3)",
+              padding: "0 0 var(--space-3)",
+              borderBottom: "1px solid var(--color-border)",
+            }}
+          >
+            <legend style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: "var(--space-2)" }}>
+              Notification preferences
+            </legend>
+            {(
+              [
+                ["success", "Successful transactions"],
+                ["error", "Failures and errors"],
+                ["info", "General updates"],
+              ] as const
+            ).map(([category, label]) => (
+              <label
+                key={category}
+                style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "0.8rem" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences[category]}
+                  onChange={(event) =>
+                    onNotificationPreferenceChange(category, event.currentTarget.checked)
+                  }
+                  aria-label={label}
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+
           {/* Notification list */}
           {notifications.length === 0 ? (
             <p
@@ -269,7 +303,9 @@ export default function NotificationCenter({
                   </div>
                   {n.txHash && (
                     <a
-                      href={`${explorerBase}/tx/${n.txHash}`}
+                      href={
+                        explorerBase ? `${explorerBase}/tx/${n.txHash}` : explorerTxUrl(n.txHash)
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{

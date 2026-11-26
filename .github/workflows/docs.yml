@@ -1,0 +1,61 @@
+name: Documentation Guards
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+      - 'contract/src/**'
+      - 'scripts/check-error-codes.mjs'
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+      - 'contract/src/**'
+      - 'scripts/check-error-codes.mjs'
+
+jobs:
+  doc-guards:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - name: "Check Documentation Links"
+            script: "scripts/check-doc-links.mjs"
+          - name: "Check Error Codes"
+            script: "scripts/check-error-codes.mjs"
+          - name: "Check Quicklinks"
+            script: "scripts/check-quicklinks.mjs"
+          - name: "Test Limits & Claims"
+            script: "scripts/test-limits-claims.mjs"
+          - name: "Test Capability Tables"
+            script: "scripts/test-caps-table.mjs"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: ${{ matrix.name }}
+      run: node ${{ matrix.script }}
+      continue-on-error: false
+
+  docs-and-config-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:env-docs
+      - run: node check-doc-links.mjs

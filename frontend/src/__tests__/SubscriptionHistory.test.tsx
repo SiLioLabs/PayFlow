@@ -301,3 +301,48 @@ describe("SubscriptionHistory", () => {
     expect(screen.getByText(/no charges match the current filters/i)).toBeInTheDocument();
   });
 });
+
+// ── Explorer network (#1254) ───────────────────────────────────────────────
+
+describe("SubscriptionHistory explorer network (#1254)", () => {
+  const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+  const PUBLIC_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+
+  async function renderOnNetwork(passphrase: string) {
+    vi.resetModules();
+    vi.doMock("../hooks/useContractEvents", () => ({
+      useContractEvents: () => ({
+        events: MOCK_EVENTS as any,
+        loading: false,
+        error: null,
+        refresh: vi.fn(),
+        loadMore: vi.fn(),
+        hasMore: false,
+      }),
+    }));
+    vi.doMock("../stellar", async () => {
+      const actual = (await vi.importActual("../stellar")) as Record<string, unknown>;
+      return { ...(actual as object), NETWORK_PASSPHRASE: passphrase };
+    });
+    const { default: HistoryOnNetwork } = await import("../components/SubscriptionHistory");
+    const { unmount } = render(<HistoryOnNetwork userKey="GABC123" />);
+    // First explorer link in the list
+    const link = document.querySelector(
+      '.charge-history-item a[rel="noopener noreferrer"]'
+    ) as HTMLAnchorElement | null;
+    const href = link?.getAttribute("href") ?? "";
+    unmount();
+    vi.resetModules();
+    return href;
+  }
+
+  it("renders testnet explorer links on testnet", async () => {
+    const href = await renderOnNetwork(TESTNET_PASSPHRASE);
+    expect(href).toContain("/testnet/tx/");
+  });
+
+  it("renders public explorer links on mainnet", async () => {
+    const href = await renderOnNetwork(PUBLIC_PASSPHRASE);
+    expect(href).toContain("/public/tx/");
+  });
+});

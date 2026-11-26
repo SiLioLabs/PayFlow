@@ -28,9 +28,15 @@ export function useKeyboardShortcuts(options?: UseKeyboardShortcutsOptions): Key
     if (!enabled) return;
 
     function handleKeyDown(event: KeyboardEvent) {
-      // Ignore shortcuts when typing in input fields
-      const target = event.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      const target = event.target;
+      if (
+        context?.isModalActive() ||
+        (target instanceof Element &&
+          (target.closest(
+            'input, textarea, select, [role="textbox"], [role="combobox"], [contenteditable]'
+          ) !== null ||
+            (target as HTMLElement).isContentEditable))
+      ) {
         return;
       }
 
@@ -48,7 +54,7 @@ export function useKeyboardShortcuts(options?: UseKeyboardShortcutsOptions): Key
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled, shortcuts]);
+  }, [context, enabled, shortcuts]);
 
   return shortcuts;
 }

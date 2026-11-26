@@ -33,6 +33,10 @@
  *   CONTRACT_ID / VITE_CONTRACT_ID     — Deployed contract ID
  *   KEEPER_SECRET_KEY / SECRET_KEY     — Secret key for signing transactions in real mode
  *
+ *   The secret key is never logged: every message this script emits goes
+ *   through the shared redacting logger (`logger.ts`), which masks secret
+ *   material before it reaches stdout.
+ *
  * Output:
  *   data/benchmarks/keeper-bench-<timestamp>.json
  */
@@ -50,6 +54,8 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { logger, redactSecrets } from "./logger.js";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 const RPC_URL =
   process.env.RPC_URL ||
@@ -195,7 +201,7 @@ function getBenchmarkSubscribers(
 }
 
 async function getBenchmarkSourceAccount(
-  server: Server,
+  server: MultiEndpointServer,
   secretKey: string,
 ): Promise<Keypair> {
   if (secretKey) {
@@ -207,7 +213,7 @@ async function getBenchmarkSourceAccount(
 }
 
 async function runBenchmarkIteration(
-  server: Server,
+  server: MultiEndpointServer,
   signerKp: Keypair,
   subscribers: FixtureSubscriber[],
   simulate: boolean,
@@ -273,7 +279,9 @@ async function runBenchmarkIteration(
       failedTxCount: isSuccess ? 0 : 1,
       totalSubscribers: subscribers.length,
       successfulSubscribersCount: isSuccess ? validAddresses.length : 0,
-      error: hasError ? String((simResult as any).error) : undefined,
+      error: hasError
+        ? redactSecrets(String((simResult as any).error))
+        : undefined,
     };
   } else {
     if (!SECRET_KEY) {
@@ -347,25 +355,25 @@ async function main() {
   const resolvedFixturePath =
     fixturePath || join("scripts", "testdata", "subs.json");
 
-  console.log(`====================================================`);
-  console.log(`FlowPay Keeper Performance Benchmark`);
-  console.log(
+  logger.info(`====================================================`);
+  logger.info(`FlowPay Keeper Performance Benchmark`);
+  logger.info(
     `Mode: ${simulate ? "SIMULATION (--simulate / --dry-run)" : "TESTNET REAL SUBMISSION"}`,
   );
-  console.log(`RPC Endpoint: ${RPC_URL}`);
-  console.log(`Contract ID: ${CONTRACT_ID}`);
-  console.log(
+  logger.info(`RPC Endpoint: ${RPC_URL}`);
+  logger.info(`Contract ID: ${CONTRACT_ID}`);
+  logger.info(
     `Fixture: ${fixture.length > 0 ? `${resolvedFixturePath} (${fixture.length} subscribers)` : "Deterministic fallback"}`,
   );
-  console.log(`====================================================\n`);
+  logger.info(`====================================================\n`);
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer();
   const signerKp = await getBenchmarkSourceAccount(server, SECRET_KEY);
 
   const batchResults: BatchBenchmarkResult[] = [];
 
   for (const batchSize of BATCH_SIZES) {
-    console.log(`Running benchmark for batch size: ${batchSize}...`);
+    logger.info(`Running benchmark for batch size: ${batchSize}...`);
     const subscribers = getBenchmarkSubscribers(fixture, batchSize);
     const iterations: IterationResult[] = [];
 
@@ -379,13 +387,12 @@ async function main() {
           iter,
         );
         iterations.push(res);
-        console.log(
+        logger.info(
           `  Iteration ${iter}/${ITERATIONS_PER_BATCH}: latency=${res.submissionLatencyMs}ms cpu_insns=${res.cpuInstructions} per_sub=${res.cpuInstructionsPerSubscriber} valid_tx=${res.validTxCount} failed_tx=${res.failedTxCount}`,
         );
       } catch (err) {
-        console.error(
-          `  Iteration ${iter}/${ITERATIONS_PER_BATCH} failed:`,
-          err instanceof Error ? err.message : err,
+        logger.error(
+          `  Iteration ${iter}/${ITERATIONS_PER_BATCH} failed: ${redactSecrets(err instanceof Error ? err.message : String(err))}`,
         );
         iterations.push({
           iteration: iter,
@@ -399,7 +406,7 @@ async function main() {
           failedTxCount: 1,
           totalSubscribers: subscribers.length,
           successfulSubscribersCount: 0,
-          error: String(err),
+          error: redactSecrets(String(err)),
         });
       }
       await delay(INTER_ITERATION_DELAY_MS);
@@ -439,7 +446,7 @@ async function main() {
       iterations,
     });
 
-    console.log(
+    logger.info(
       `  -> Batch ${batchSize} summary: submission_p50=${submissionStats.p50}ms cpu_per_sub=${avgCpuInstructionsPerSubscriber} valid_tx_total=${totalValidTxCount} failed_tx_total=${totalFailedTxCount}\n`,
     );
   }
@@ -460,14 +467,16 @@ async function main() {
   const outputPath = join(outputDir, filename);
 
   writeFileSync(outputPath, JSON.stringify(report, null, 2), "utf-8");
-  console.log(`====================================================`);
-  console.log(`Benchmark completed successfully!`);
-  console.log(`Report written to: ${outputPath}`);
-  console.log(`====================================================`);
+  logger.info(`====================================================`);
+  logger.info(`Benchmark completed successfully!`);
+  logger.info(`Report written to: ${outputPath}`);
+  logger.info(`====================================================`);
 }
 
 main().catch((err) => {
-  console.error("Keeper benchmark failed:", err);
+  logger.error(
+    `Keeper benchmark failed: ${redactSecrets(err instanceof Error ? err.message : String(err))}`,
+  );
   process.exit(1);
 });
 

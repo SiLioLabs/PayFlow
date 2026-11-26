@@ -1,0 +1,37 @@
+fix: expand CancelResult enum to distinguish paused and frozen-merchant cancellations
+
+Adds PausedCancelled and MerchantFrozen variants to batch_cancel return values.
+
+## Problem
+batch_cancel returned only 3 outcomes (Cancelled, NoSubscription, AlreadyCancelled).
+An admin operating a batch cancel could not distinguish a routine cancel from one that
+hit a paused or frozen subscription - exactly the cases worth reviewing.
+
+## Solution
+- Added PausedCancelled (discriminant 3) and MerchantFrozen (discriminant 4) to CancelResult enum
+- Updated batch_cancel logic to detect unusual subscription states
+- MerchantFrozen takes precedence over PausedCancelled when both conditions are true
+- Added comprehensive doc comment stating the append-only rule (mirrors ChargeResult)
+
+## Changes
+- Modified: contract/src/batch.rs (enum expanded, batch_cancel logic updated)
+- Added: docs/cancel-results.md (comprehensive wire encoding documentation)
+- Modified: scripts/EVENT-MAPPING.md (documented new variants)
+- Added: contract_tests_addon.rs (3 new tests for the new variants)
+
+## Discriminants
+- 0: Cancelled (unchanged - backward compatible)
+- 1: NoSubscription (unchanged - backward compatible)
+- 2: AlreadyCancelled (unchanged - backward compatible)
+- 3: PausedCancelled (NEW)
+- 4: MerchantFrozen (NEW)
+
+## Backward Compatibility
+Maintained - existing discriminants 0-2 unchanged. Off-chain parsers that only
+know 0-2 continue to work. New parsers should handle 3-4.
+
+## Testing
+New tests in contract_tests_addon.rs (to be integrated into contract/src/test.rs):
+- test_batch_cancel_distinguishes_paused_cancellation
+- test_batch_cancel_distinguishes_frozen_merchant
+- test_batch_cancel_frozen_merchant_takes_precedence_over_paused

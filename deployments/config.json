@@ -7,5 +7,5 @@
   "feeBps": 0,
   "feeCollector": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
   "initialMerchants": [],
-  "wasmPath": "contract/target/wasm32-unknown-unknown/release/flow_pay.wasm"
+  "wasmPath": "target/wasm32-unknown-unknown/release/flowpay.wasm"
 }

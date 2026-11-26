@@ -3,6 +3,8 @@
   "deployedAt": null,
   "network": "testnet",
   "deployer": null,
+  "contractVersion": null,
+  "buildVersion": null,
   "steps": {
     "build": false,
     "deploy": false,

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { buildApproveTx, getAllowance, getRequiredAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -33,6 +33,11 @@ export default function IncreaseAllowanceModal({
 
   useFocusTrap(modalRef, true, onClose);
 
+  const handleAmountChange = useCallback((val: bigint | null) => {
+    setAmountStroops(val);
+    setError(null);
+  }, []);
+
   const tokenContractId = TOKEN_CONTRACT_ID;
   const recommendedAllowance = useMemo(
     () => getRecommendedAllowance(subscriptionAmount, currentAllowance),
@@ -44,7 +49,16 @@ export default function IncreaseAllowanceModal({
       try {
         const allowance = await getAllowance(userKey);
         setCurrentAllowance(allowance);
-        setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+        try {
+          const req = await getRequiredAllowance(userKey, 6);
+          if (req !== null && req > 0n) {
+            setAmountStroops(req > allowance ? req : allowance + subscriptionAmount);
+          } else {
+            setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+          }
+        } catch {
+          setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+        }
       } catch {
         setCurrentAllowance(0n);
         setAmountStroops(getRecommendedAllowance(subscriptionAmount, 0n));
@@ -91,7 +105,7 @@ export default function IncreaseAllowanceModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         ref={modalRef}
         className="modal-card card"
@@ -112,12 +126,19 @@ export default function IncreaseAllowanceModal({
           <strong>{Math.floor(Number(amountStroops || 0n) / Number(subscriptionAmount))}</strong>.
         </p>
         <StroopInput
+          id="increase-allowance-amount"
           label="Total allowance"
-          onChange={setAmountStroops}
+          onChange={handleAmountChange}
           disabled={submitting}
           initialValue={recommendedAllowance}
+          isInvalid={Boolean(error)}
+          ariaDescribedBy={error ? "increase-allowance-error" : undefined}
         />
-        {error && <p className="text-error">{error}</p>}
+        {error && (
+          <p id="increase-allowance-error" className="text-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose} disabled={submitting}>
             Cancel

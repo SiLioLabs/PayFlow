@@ -3,9 +3,14 @@ import { formatAddress } from "../utils/format";
 import CopyButton from "./CopyButton";
 import NetworkBadge from "./NetworkBadge";
 import BalanceDisplay from "./BalanceDisplay";
+import AmountUnitToggle from "./AmountUnitToggle";
 import NotificationCenter from "./NotificationCenter";
+import TxQueuePanel from "./TxQueuePanel";
 import { useTxQueue } from "../services/txQueue";
 import type { Notification } from "../hooks/useToast";
+import type { ToastVariant } from "../hooks/useToast";
+import type { NotificationPreferences } from "../context/ToastContext";
+import ThemeToggle from "./ThemeToggle";
 
 import { WalletAdapter } from "../services/wallets/WalletAdapter";
 
@@ -17,6 +22,8 @@ interface WalletBarProps {
   unreadCount?: number;
   onMarkAllRead?: () => void;
   onClearNotifications?: () => void;
+  notificationPreferences?: NotificationPreferences;
+  onNotificationPreferenceChange?: (category: ToastVariant, enabled: boolean) => void;
 }
 
 export default function WalletBar({
@@ -27,6 +34,8 @@ export default function WalletBar({
   unreadCount = 0,
   onMarkAllRead = () => {},
   onClearNotifications = () => {},
+  notificationPreferences = { success: true, error: true, info: true },
+  onNotificationPreferenceChange = () => {},
 }: WalletBarProps) {
   const { queueDepth } = useTxQueue();
 
@@ -38,6 +47,7 @@ export default function WalletBar({
             {queueDepth} transaction{queueDepth > 1 ? "s" : ""} pending
           </div>
         )}
+        <TxQueuePanel />
         <div className="wallet-bar__connection">
           <span className="wallet-bar__label">
             Connected via {activeAdapter ? `${activeAdapter.icon} ${activeAdapter.name}` : "Wallet"}
@@ -49,13 +59,17 @@ export default function WalletBar({
         </div>
         <BalanceDisplay address={publicKey} />
         <NetworkBadge />
+        <AmountUnitToggle />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <ThemeToggle />
         <NotificationCenter
           notifications={notifications}
           unreadCount={unreadCount}
           onMarkAllRead={onMarkAllRead}
           onClearAll={onClearNotifications}
+          notificationPreferences={notificationPreferences}
+          onNotificationPreferenceChange={onNotificationPreferenceChange}
         />
         <button onClick={onDisconnect} className="btn-secondary">
           Disconnect

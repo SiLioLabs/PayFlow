@@ -99,6 +99,32 @@ describe("useWallet", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe(newKey);
   });
 
+  it("synchronizes the active account when the wallet account changes", async () => {
+    const key = "GACCOUNT_ONE";
+    const getPublicKey = vi.fn().mockResolvedValue(key);
+    (window as any).freighter = {
+      ...buildFreighterMock({ isConnected: true, publicKey: key }),
+      getPublicKey,
+    };
+
+    const { result } = renderHook(() => useWallet());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await result.current.connect(AVAILABLE_WALLETS[0]);
+      });
+      getPublicKey.mockResolvedValue("GACCOUNT_TWO");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(result.current.publicKey).toBe("GACCOUNT_TWO");
+      expect(localStorage.getItem(STORAGE_KEY)).toBe("GACCOUNT_TWO");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clears cache and keeps publicKey null when Freighter is not connected", async () => {
     localStorage.setItem(STORAGE_KEY, "GSOME_KEY");
     (window as any).freighter = buildFreighterMock({

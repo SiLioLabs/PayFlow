@@ -1,0 +1,44 @@
+docs: document resume recovery matrix and clock state interactions
+
+Expands resume function documentation with comprehensive recovery guidance.
+
+## Problem
+The three overlapping clocks (interval, grace period, pause expiry) produce a matrix
+of outcomes that was only discoverable by reading three modules. The resume function's
+behavior past an elapsed pause expiry was not obvious from its doc comment.
+
+## Solution
+Expanded the resume function doc comment with:
+- Complete recovery matrix table covering all clock state combinations
+- Clear rules for when resume, cancel, or re-subscribe is appropriate
+- Explicit error codes and their meanings (including ResumeGraceLapsed code 43)
+- Cross-references to docs/SUBSCRIBER-LIFECYCLE.md and grace.rs:19-22
+
+## Recovery Matrix
+| State | Action | Outcome |
+|-------|--------|---------|
+| Paused, grace not lapsed, pause not expired | resume | Success |
+| Paused, grace lapsed | resume | Error: ResumeGraceLapsed (43) |
+| Paused, grace lapsed | cancel | Success (always allowed) |
+| Paused, grace lapsed | re-subscribe | Success (restores chargeability) |
+| Paused, pause expiry elapsed, grace not lapsed | Auto-resume | Subscription auto-resumes |
+| Paused, pause expiry elapsed, grace not lapsed | resume | Success (manual) |
+| Legacy paused (active=false, pre-#1009) | resume | Success (backward compatible) |
+
+## Key Rules
+- cancel is always allowed regardless of grace or pause state
+- re-subscribe restores chargeability even after grace has lapsed
+- resume is rejected if grace has lapsed to avoid false recovery signals
+- Auto-resume (via try_auto_resume on charge path) handles expired pause_until
+
+## Changes
+- Modified: contract/src/lib.rs (resume function doc comment expanded)
+
+## Testing
+New tests covering recovery scenarios documented in contract_tests_addon.rs:
+- test_resume_with_pause_expiry_elapsed_grace_not_lapsed
+- test_resume_with_pause_not_expired_grace_not_lapsed
+- test_resume_legacy_paused_active_false
+
+## Backward Compatibility
+No behavior changes - documentation only. All existing code paths unchanged.

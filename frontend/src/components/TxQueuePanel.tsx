@@ -16,6 +16,7 @@ import {
 } from "../services/txQueue";
 import { explorerTxUrl } from "../stellar";
 import CopyButton from "./CopyButton";
+import { formatTimeWithSeconds } from "../utils/format";
 
 // ── Status helpers ─────────────────────────────────────────────────────────────
 
@@ -35,11 +36,7 @@ const STATUS_CLASS: Record<TxEntry["status"], string> = {
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    return formatTimeWithSeconds(new Date(iso));
   } catch {
     return iso;
   }
@@ -111,6 +108,26 @@ function TxEntryRow({ entry }: TxEntryRowProps) {
           </span>
         )}
       </div>
+
+      {entry.preview?.feeXlm && (
+        <p
+          className="tx-queue-entry__preview-fee text-xs text-muted"
+          data-testid={`tx-preview-fee-${entry.id}`}
+        >
+          Estimated fee: {entry.preview.feeXlm} XLM
+        </p>
+      )}
+
+      {entry.preview?.errorMessage && (
+        <p
+          className="tx-queue-entry__preview-error text-xs text-error"
+          role="status"
+          data-testid={`tx-preview-error-${entry.id}`}
+        >
+          Simulation: {entry.preview.errorMessage}
+          {entry.preview.errorCode && ` (${entry.preview.errorCode})`}
+        </p>
+      )}
 
       {isInterrupted && (
         <div

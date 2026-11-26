@@ -34,6 +34,8 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
       commit: { type: "boolean" },
       bps: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      simulate: { type: "boolean", default: true },
+      "confirm-commit": { type: "boolean", default: false },
     },
   });
 
@@ -42,7 +44,10 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
 
   const isPropose = !!values.propose;
   const isCommit = !!values.commit;
-  const dryRun = !!values["dry-run"];
+  // Simulation is the default. Live submission requires --commit plus an
+  // explicit --confirm-commit acknowledgement.
+  const dryRun = values.simulate !== false || !values.commit;
+  const isConfirmed = !!values["confirm-commit"];
 
   if (isPropose && isCommit) {
     logger.error("Error: Cannot specify both --propose and --commit");
@@ -54,6 +59,16 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
     logger.error("Error: Must specify either --propose <address> or --commit");
     process.exitCode = 1;
     throw new Error("Must specify either --propose <address> or --commit");
+  }
+
+  // Gate any live submission behind an explicit acknowledgement, so a stray
+  // `--commit` can never submit a transaction on its own.
+  if (isCommit && !isConfirmed) {
+    logger.error(
+      "Refusing to submit: --commit also requires --confirm-commit. Simulations run by default.",
+    );
+    process.exitCode = 1;
+    throw new Error("--commit requires --confirm-commit");
   }
 
   if (isPropose) {
@@ -96,23 +111,6 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
     }
   }
 
-  // Acceptance Criteria: Calls set_fee preserving existing fee_bps
-  logger.info("\nInitiating rotation...");
-  await set_fee(newCollector, currentFee.fee_bps);
-  logger.info("Transaction successfully confirmed on-chain.");
-
-  // Acceptance Criteria: Verifies change by reading get_fee after update
-  logger.info("\n=== Verifying On-Chain Update ===");
-  const updatedFee = await get_fee();
-
-  if (updatedFee.collector === newCollector) {
-    console.log("✅ Success: Fee collector rotated correctly!");
-    console.log(
-    logger.info("✅ Success: Fee collector rotated correctly!");
-    logger.info(`New Verification -> Collector: ${updatedFee.collector}, BPS: ${updatedFee.fee_bps}`);
-  } else {
-    logger.error("❌ Error: Verification failed. Collector address does not match expected update.");
-    process.exit(1);
   if (isCommit) {
     logger.info("Committing pending fee proposal...");
 
@@ -148,8 +146,8 @@ export async function rotateFeeCollector(argv: string[], ctx: RotateContext = de
         }],
         limit: 10
       });
-      if (response && response.records && response.records.length > 0) {
-        const latestEvent = response.records[response.records.length - 1];
+      if (response && response.events && response.events.length > 0) {
+        const latestEvent = response.events[response.events.length - 1];
         logger.info(`Found fee_proposed event in ledger ${latestEvent.ledger}`);
       }
     } catch (e) {

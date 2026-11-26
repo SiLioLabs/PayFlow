@@ -236,7 +236,7 @@ function renderTable(rows: MerchantRow[], compareDays: number | null): string {
     .map((r) =>
       cols
         .map((c) =>
-          String((r as Record<string, unknown>)[c.key] ?? "").padEnd(c.width),
+          String((r as unknown as Record<string, unknown>)[c.key] ?? "").padEnd(c.width),
         )
         .join(" | "),
     )

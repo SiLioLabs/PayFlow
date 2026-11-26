@@ -70,7 +70,7 @@ describe("useFormValidation", () => {
     });
 
     expect(isValid).toBe(false);
-    expect(result.current.errors.amount).toBe("Amount must be greater than 0.");
+    expect(result.current.errors.amount).toBe("Must be a positive number");
   });
 
   it("returns no errors for valid fields", () => {

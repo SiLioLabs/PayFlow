@@ -109,7 +109,7 @@ export function openMerchantDb(dbPath: string): DatabaseSync | null {
   if (!existsSync(dbPath)) {
     return null;
   }
-  return new DatabaseSync(dbPath, { open: true, readonly: true });
+  return new DatabaseSync(dbPath, { open: true, readOnly: true });
 }
 
 /**

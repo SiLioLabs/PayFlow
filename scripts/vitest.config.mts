@@ -11,13 +11,19 @@ export default defineConfig({
     ],
     globals: true,
     environment: "node",
-    include: ["**/__tests__/**/*.test.ts", "**/db/**/*.test.ts"],
-    exclude: [
-      "**/__tests__/merchant-queries.test.ts",
-      "**/__tests__/merchant-analytics.test.ts",
-    ],
+    include: ["**/*.test.ts"],
     coverage: {
+      provider: "v8",
       reporter: ["text", "lcov"],
+      include: ["lib/**/*.ts", "batch-optimizer.ts", "event-dedup.ts"],
+      thresholds: {
+        global: {
+          lines: 60,
+          functions: 60,
+          branches: 60,
+          statements: 60,
+        },
+      },
     },
   },
 });

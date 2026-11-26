@@ -4,12 +4,15 @@
  * A drop-in replacement for `useState` that syncs to the browser's localStorage.
  * Falls back to `initialValue` if the stored value is missing or cannot be parsed.
  *
+ * The setter returns `true` on success and `false` on failure. On failure the
+ * in-memory state is NOT updated, so the UI never shows unpersisted data as
+ * saved. Quota errors (`QuotaExceededError`) and other storage failures are
+ * surfaced through the boolean return.
+ *
  * @template T
  * @param {string} key - localStorage key under which the value is stored
  * @param {T} initialValue - Default value used when no stored value exists
- * @returns {[T, Function]} State tuple mirroring `useState`
- * @returns {T} returns[0] - Current persisted value
- * @returns {Function} returns[1] - Setter that updates both state and localStorage
+ * @returns {[T, (value: T) => boolean]} State tuple mirroring `useState`
  *
  * @example
  * const [theme, setTheme] = useLocalStorage<"dark" | "light">("flowpay_theme", "dark");
@@ -32,13 +35,26 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
     }
   });
 
-  const setValue = (value: T) => {
+  const setValue = (value: T): boolean => {
+    // Serialize first — if this throws we haven't touched storage or state.
+    let serialized: string;
     try {
-      setStoredValue(value);
-      window.localStorage.setItem(key, JSON.stringify(value));
+      serialized = JSON.stringify(value);
     } catch {
-      // localStorage unavailable
+      return false;
     }
+
+    // Write to storage BEFORE updating React state. If storage rejects the
+    // write (quota exceeded, private mode, etc.) we bail out without lying
+    // to the UI about what was persisted.
+    try {
+      window.localStorage.setItem(key, serialized);
+    } catch {
+      return false;
+    }
+
+    setStoredValue(value);
+    return true;
   };
 
   return [storedValue, setValue] as const;

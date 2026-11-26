@@ -26,12 +26,22 @@
  *     generated_at: ISO timestamp,
  *     total_failed: number,
  *     failed_charges: [
- *       { user_address, reason: 'allowance_insufficient', amount_needed }
+ *       { user_address, reason: 'allowance_insufficient', subscription_amount, failed_count? }
  *     ]
  *   }
+ *
+ * subscription_amount
+ *   The user's current subscription amount in stroops (string, since amounts
+ *   are i128), taken from the latest `subscribed` / `sub_amount_updated` event
+ *   for that user in the indexer DB and cached for the run. It is `null` when
+ *   the amount is unknown — notably for `batch_summary` entries: the contract's
+ *   `batch_charge_skips` event only carries counters, not user addresses, so
+ *   those entries report `failed_count` instead of a per-user amount.
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { fetchWithTimeout } from "./utils/fetchWithTimeout.js";
 import { logger } from "./logger";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,15 +50,20 @@ interface FailedChargeData {
   user?: string;
   reason?: string;
   amount?: number | string;
+  /** `batch_charge_skips` map key; present when the row is a summary event. */
+  allowance_insufficient?: number;
 }
 
-interface FailedChargeEntry {
+export interface FailedChargeEntry {
   user_address: string;
   reason: string;
-  subscription_amount: number;
+  /** Current subscription amount in stroops, or null when unknown. */
+  subscription_amount: string | null;
+  /** Number of failed charges an aggregate `batch_summary` entry stands for. */
+  failed_count?: number;
 }
 
-interface AlertPayload {
+export interface AlertPayload {
   generated_at: string;
   total_failed: number;
   failed_charges: FailedChargeEntry[];
@@ -71,7 +86,7 @@ function safeParseData(raw: string): FailedChargeData {
 
 async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -91,6 +106,86 @@ async function sendWebhook(url: string, payload: AlertPayload): Promise<void> {
     // Log failure but do not crash — callers rely on non-zero exit only for fatal errors
     logger.error("Webhook delivery failed", { error: String(err) });
   }
+}
+
+/**
+ * Resolves a user's current subscription amount from indexed events, caching
+ * each lookup for the lifetime of the instance (one alert run).
+ */
+export class SubscriptionAmountLookup {
+  private readonly cache = new Map<string, string | null>();
+  private readonly stmt;
+
+  constructor(db: InstanceType<typeof DatabaseSync>) {
+    this.stmt = db.prepare(
+      `SELECT event_name, amount, raw_data FROM events
+       WHERE address = ? AND event_name IN ('subscribed', 'sub_amount_updated')
+       ORDER BY ledger DESC, id DESC
+       LIMIT 1`,
+    );
+  }
+
+  get(user: string): string | null {
+    if (this.cache.has(user)) return this.cache.get(user)!;
+    const row = this.stmt.get(user) as
+      | { event_name: string; amount: string | null; raw_data: string }
+      | undefined;
+    const amount = row ? amountFromRow(row) : null;
+    this.cache.set(user, amount);
+    return amount;
+  }
+}
+
+function amountFromRow(row: { event_name: string; amount: string | null; raw_data: string }): string | null {
+  if (row.event_name === "sub_amount_updated") {
+    // Event value is the tuple (old_amount, new_amount).
+    try {
+      const value = JSON.parse(row.raw_data) as unknown;
+      if (Array.isArray(value) && value.length === 2 && value[1] != null) return String(value[1]);
+    } catch {
+      // fall through to the amount column
+    }
+  }
+  return row.amount ?? null;
+}
+
+/** Read failed charges since `sinceTs` from the indexer DB. */
+export function collectFailedCharges(
+  db: InstanceType<typeof DatabaseSync>,
+  sinceTs: number,
+): FailedChargeEntry[] {
+  const rows = db
+    .prepare(
+      `SELECT raw_data FROM events
+       WHERE event_name = 'batch_charge_skips'
+         AND timestamp >= ?
+       ORDER BY timestamp DESC`,
+    )
+    .all(sinceTs) as Array<{ raw_data: string }>;
+
+  const amounts = new SubscriptionAmountLookup(db);
+  const failedCharges: FailedChargeEntry[] = [];
+  for (const row of rows) {
+    const d = safeParseData(row.raw_data);
+    const reason = d.reason ?? "allowance_insufficient";
+    if (d.user) {
+      // Per-user failure row: report that user's real subscription amount.
+      failedCharges.push({
+        user_address: d.user,
+        reason,
+        subscription_amount: amounts.get(d.user) ?? (d.amount != null ? String(d.amount) : null),
+      });
+    } else if (d.allowance_insufficient && d.allowance_insufficient > 0) {
+      // Aggregate summary: the event carries no addresses, so no per-user amount.
+      failedCharges.push({
+        user_address: "batch_summary",
+        reason,
+        subscription_amount: null,
+        failed_count: d.allowance_insufficient,
+      });
+    }
+  }
+  return failedCharges;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -118,29 +213,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const query = db.prepare(
-    `SELECT raw_data FROM events
-     WHERE event_name = 'batch_charge_skips'
-       AND timestamp >= ?
-     ORDER BY timestamp DESC`,
-  );
-
-  const rows = query.all(sinceTs) as Array<{ raw_data: string }>;
-
-  const failedCharges: FailedChargeEntry[] = [];
-  for (const row of rows) {
-    const d = safeParseData(row.raw_data);
-    // Only alert if there were allowance insufficiency cases
-    if (d.allowance_insufficient && d.allowance_insufficient > 0) {
-      // For now, we report aggregates; in a future version we could query
-      // get_batch_charge_estimate to map user addresses to the insufficient cases
-      failedCharges.push({
-        user_address: "batch_summary",
-        reason: "allowance_insufficient",
-        subscription_amount: 0, // TODO: refine with per-user data
-      });
-    }
-  }
+  const failedCharges = collectFailedCharges(db, sinceTs);
 
   const payload: AlertPayload = {
     generated_at: new Date().toISOString(),
@@ -160,7 +233,10 @@ async function main(): Promise<void> {
   await sendWebhook(webhookUrl, payload);
 }
 
-main().catch((err) => {
-  logger.error("Fatal error", { error: String(err) });
-  process.exit(1);
-});
+// Only run when executed directly, so tests can import collectFailedCharges.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    logger.error("Fatal error", { error: String(err) });
+    process.exit(1);
+  });
+}

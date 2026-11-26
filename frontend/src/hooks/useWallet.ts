@@ -7,6 +7,10 @@ import { FreighterAdapter } from "../services/wallets/FreighterAdapter";
 import { XBullAdapter } from "../services/wallets/XBullAdapter";
 import { LobstrAdapter } from "../services/wallets/LobstrAdapter";
 import { HanaAdapter } from "../services/wallets/HanaAdapter";
+import { AlbedoAdapter } from "../services/wallets/AlbedoAdapter";
+import { RabetAdapter } from "../services/wallets/RabetAdapter";
+import { WalletConnectAdapter } from "../services/wallets/WalletConnectAdapter";
+import { useWalletStatus } from "./useWalletStatus";
 
 const STORAGE_KEY_PK = "pf_wallet_pk";
 const STORAGE_KEY_ID = "pf_wallet_id";
@@ -16,14 +20,17 @@ export const AVAILABLE_WALLETS = [
   new XBullAdapter(),
   new LobstrAdapter(),
   new HanaAdapter(),
+  new AlbedoAdapter(),
+  new RabetAdapter(),
+  new WalletConnectAdapter(),
 ];
 
 export function useWallet() {
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
   const [ready, setReady] = useState(false);
   const [activeAdapterId, setActiveAdapterId] = useState<string | null>(null);
+  const walletStatus = useWalletStatus();
+  const { setConnected, reset, setConnecting, setError } = walletStatus;
 
   const activeAdapter = AVAILABLE_WALLETS.find((a) => a.id === activeAdapterId) || null;
 
@@ -61,6 +68,7 @@ export function useWallet() {
         if (mounted) {
           setPublicKey(liveKey);
           setActiveAdapterId(adapter.id);
+          setConnected();
           localStorage.setItem(STORAGE_KEY_PK, liveKey);
           localStorage.setItem(STORAGE_KEY_ID, adapter.id);
         }
@@ -77,28 +85,70 @@ export function useWallet() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [setConnected]);
 
-  const connect = useCallback(async (adapter: WalletAdapter) => {
-    setError(null);
-    setConnecting(true);
-    try {
-      const isInstalled = await adapter.isInstalled();
-      if (!isInstalled) {
-        throw new Error(`${adapter.name} wallet not found. Please install it.`);
+  useEffect(() => {
+    if (!activeAdapter?.getCurrentAccount) return;
+
+    let active = true;
+    let checking = false;
+    const syncAccount = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const account = await activeAdapter.getCurrentAccount!();
+        if (!active) return;
+
+        if (!account) {
+          localStorage.removeItem(STORAGE_KEY_PK);
+          localStorage.removeItem(STORAGE_KEY_ID);
+          setPublicKey(null);
+          setActiveAdapterId(null);
+          reset();
+          return;
+        }
+
+        if (publicKey !== account) {
+          localStorage.setItem(STORAGE_KEY_PK, account);
+          setPublicKey(account);
+          setConnected();
+        }
+      } catch {
+        // A transient extension/RPC failure should not disconnect the wallet.
+      } finally {
+        checking = false;
       }
+    };
 
-      const key = await adapter.connect();
-      localStorage.setItem(STORAGE_KEY_PK, key);
-      localStorage.setItem(STORAGE_KEY_ID, adapter.id);
-      setPublicKey(key);
-      setActiveAdapterId(adapter.id);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to connect wallet");
-    } finally {
-      setConnecting(false);
-    }
-  }, []);
+    const interval = window.setInterval(syncAccount, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeAdapter, publicKey, reset, setConnected]);
+
+  const connect = useCallback(
+    async (adapter: WalletAdapter) => {
+      setConnecting();
+      try {
+        const isInstalled = await adapter.isInstalled();
+        if (!isInstalled) {
+          throw new Error(`${adapter.name} wallet not found. Please install it.`);
+        }
+
+        const key = await adapter.connect();
+        localStorage.setItem(STORAGE_KEY_PK, key);
+        localStorage.setItem(STORAGE_KEY_ID, adapter.id);
+        setPublicKey(key);
+        setActiveAdapterId(adapter.id);
+        setConnected();
+      } catch (e: unknown) {
+        const errorMsg = e instanceof Error ? e.message : "Failed to connect wallet";
+        setError(errorMsg);
+      }
+    },
+    [setConnecting, setConnected, setError]
+  );
 
   const signAndSubmit = useCallback(
     async (xdr: string): Promise<string> => {
@@ -127,16 +177,17 @@ export function useWallet() {
     localStorage.removeItem(STORAGE_KEY_ID);
     setPublicKey(null);
     setActiveAdapterId(null);
-    setError(null);
-  }, [activeAdapter]);
+    reset();
+  }, [activeAdapter, reset]);
 
   return {
     publicKey,
     connect,
     signAndSubmit,
     disconnect,
-    error,
-    connecting,
+    error: walletStatus.error,
+    connecting: walletStatus.status === "connecting",
+    connectionStatus: walletStatus.status,
     ready,
     activeAdapter,
   };

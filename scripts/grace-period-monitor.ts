@@ -27,7 +27,7 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 const RPC_URL =
   process.env.RPC_URL ||
@@ -109,7 +109,7 @@ async function getKeeperHeartbeat(): Promise<HeartbeatInfo> {
   }
 }
 
-async function getDummyAccount(server: Server) {
+async function getDummyAccount(server: MultiEndpointServer) {
   const dummy = "GCZDMZCNQ5ZRR7IJK2G2H7C5OZS6M5J2G2H7C5OZS6M5J2G2H7C5OZS6";
   try {
     return await server.getAccount(dummy);
@@ -119,7 +119,7 @@ async function getDummyAccount(server: Server) {
   }
 }
 
-async function fetchContractGracePeriod(server: Server): Promise<number> {
+async function fetchContractGracePeriod(server: MultiEndpointServer): Promise<number> {
   if (!CONTRACT_ID) return 0;
   const contract = new Contract(CONTRACT_ID);
   const account = await getDummyAccount(server);
@@ -151,7 +151,7 @@ interface SubscriptionData {
 }
 
 async function fetchActiveSubscriptions(
-  server: Server,
+  server: MultiEndpointServer,
 ): Promise<SubscriptionData[]> {
   if (!CONTRACT_ID) return [];
   const response = await server.getEvents({
@@ -214,17 +214,6 @@ async function sendWebhookAlert(
     alerts,
   };
 
-  console.log(`\n====================================================`);
-  console.log(
-    `🚨 ALERT TRIGGERED: ${alerts.length} subscription(s) near grace window expiry!`,
-  );
-  console.log(JSON.stringify(payload, null, 2));
-  console.log(`====================================================\n`);
-
-  if (!WEBHOOK_URL) {
-    console.log(
-      `[INFO] No WEBHOOK_URL configured. Alert output logged to stdout.`,
-    );
   logSummary(`\n====================================================`);
   logSummary(`🚨 ALERT TRIGGERED: ${alerts.length} subscription(s) near grace window expiry!`);
   logSummary(JSON.stringify(payload, null, 2));
@@ -243,10 +232,7 @@ async function sendWebhookAlert(
     });
     logSummary(`Webhook POST response status: ${res.status}`);
   } catch (err) {
-    console.error(
-      `Failed to send webhook alert:`,
-      err instanceof Error ? err.message : err,
-    );
+    logSummary("Failed to send webhook alert: " + (err instanceof Error ? err.message : String(err)));
   }
 }
 
@@ -266,7 +252,7 @@ async function main() {
   logSummary(`Alert Threshold: < ${THRESHOLD_PCT}% remaining`);
   logSummary(`====================================================\n`);
 
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer();
   const heartbeatInfo = await getKeeperHeartbeat();
 
   if (heartbeatInfo.isStaleOrMissing) {
@@ -307,13 +293,7 @@ async function main() {
     // now > intervalEnd AND now < graceWindowExpiry
     if (nowSec > intervalEnd && nowSec < graceWindowExpiry) {
       const timeRemainingSeconds = graceWindowExpiry - nowSec;
-      const pctRemaining = Number(
-        ((timeRemainingSeconds / gracePeriodSeconds) * 100).toFixed(2),
-      );
 
-      console.log(
-        `  [IN GRACE WINDOW] Subscriber: ${sub.subscriber} | Time Left: ${timeRemainingSeconds}s (${pctRemaining}%)`,
-      );
       const pctRemaining = Number(((timeRemainingSeconds / gracePeriodSeconds) * 100).toFixed(2));
       const urgencyScore = 1.0 - (timeRemainingSeconds / gracePeriodSeconds);
       

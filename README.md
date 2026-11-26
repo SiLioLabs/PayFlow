@@ -1,8 +1,45 @@
+# PayFlow
+
+Decentralized subscriptions and recurring payments on Stellar, built with Soroban smart contracts.
+
+PayFlow (also referred to as **FlowPay**) is a trustless, non-custodial recurring-billing protocol. Users approve the contract to transfer funds to a merchant on a schedule, enabling recurring subscriptions and pay-per-use microtransactions without a custodian holding user keys.
+
+## What it is
+
+- **Protocol:** Soroban smart contract on Stellar (Testnet only; not yet audited for Mainnet)
+- **Core contract:** `FlowPay` — `subscribe`, `charge`, `pay_per_use`, `cancel`, `batch_charge`, and related entrypoints
+- **Frontend:** React + TypeScript dashboard (Vite) for subscribers and merchants
+- **Ops:** TypeScript keeper, indexer, and monitoring scripts under `scripts/`
+- **Docs:** `docs/` — API reference, architecture, deployment, security, testing, and operations guides
+
+## Architecture
+
+```text
+┌─────────────────┐         approve allowance         ┌──────────────────┐
+│   Subscriber    │ ─────────────────────────────────▶│   Token (SAC)    │
+│  (wallet user)  │                                   │   (e.g. XLM)     │
+└────────┬────────┘                                   └──────────┬───────┘
+         │ subscribe / pay_per_use                              │ transfer
+         │ (signed by user)                                     │ (via allowance)
+         ▼                                                      ▼
+┌─────────────────┐                              ┌───────────────────────┐
+│  FlowPay        │◄──────── batch_charge ───────│   Keeper (off-chain)  │
+│  smart contract │   (recurring billing trigger│   TypeScript script   │
+│  (Soroban/Rust) │                              │   or cron/Lambda      │
+└────────┬────────┘                              └───────────┬───────────┘
+         │ net to merchant / fee to collector                │ polls subscribers
+         ▼                                                   ▼ due for interval
+┌─────────────────┐                              ┌──────────────────┐
+│   Merchant      │◄─────────────────────────────│   Frontend       │
+│  (receives net) │                              │  React dashboard │
+└─────────────────┘                              └──────────────────┘
 # PayFlow — `get_daily_limit()` Read Function
 
 **Issue:** Add `get_daily_limit()` read function (symmetric to `set_daily_limit`)  
 **Branch:** `feat/get-daily-limit`  
 **Status:** ✅ Implemented & tested
+
+> 📚 **Documentation index:** [`docs/README.md`](docs/README.md) — every guide, grouped by task.
 
 ---
 
@@ -70,74 +107,49 @@ soroban contract invoke \
   --user <USER_ADDRESS>
 ```
 
----
+**Key responsibilities by layer:**
 
-## Tests
+| Layer | Responsibility |
+|-------|----------------|
+| `contract/src/lib.rs` | Entrypoints: `subscribe`, `charge`, `pay_per_use`, `cancel`, `batch_charge`, admin/config |
+| `contract/src/fee.rs` | Protocol fee split (basis points) to fee collector |
+| `contract/src/spending_limit.rs` | Per-user daily cap for `pay_per_use` / `pay_per_use_to` |
+| `contract/src/referral.rs` | On-chain referral attribution (`DataKey::Referral`) |
+| `frontend/` | React UI: dashboard, subscribe form, wallet (Freighter), modals |
+| `scripts/` | Keeper, indexer, health check, alerts, testnet setup |
 
-The following tests in `contract/src/test.rs` cover this function:
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, storage tiers, and TTL strategy.
 
-### `test_daily_limit_visibility_and_spend_tracking`
+## Quickstart
 
-Verifies the full lifecycle — `None` before setting, correct value after setting, and unchanged after a `pay_per_use` call:
+### Prerequisites
 
-```rust
-#[test]
-fn test_daily_limit_visibility_and_spend_tracking() {
-    let (env, contract_id, token_addr, user, merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
+| Tool | Version |
+|------|---------|
+| Rust | 1.78+ |
+| wasm32 target | `wasm32v1-none` |
+| Stellar CLI | 30.0.0+ for deployable Wasm |
+| Soroban CLI | 21.x |
+| Node.js | 18+ |
 
-    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-
-    // None before any limit is set
-    assert_eq!(client.get_daily_limit(&user), None);
-    assert_eq!(client.get_daily_spent(&user), 0);
-
-    client.set_daily_limit(&user, &4_0000000);
-
-    // Returns the set value
-    assert_eq!(client.get_daily_limit(&user), Some(4_0000000));
-
-    client.pay_per_use(&user, &1_0000000);
-
-    // Limit unchanged after spending
-    assert_eq!(client.get_daily_spent(&user), 1_0000000);
-    assert_eq!(client.get_daily_limit(&user), Some(4_0000000));
-}
-```
-
-### `test_daily_limit_removed_event_emitted`
-
-Verifies `get_daily_limit` returns `None` after `remove_daily_limit` is called:
-
-```rust
-#[test]
-fn test_daily_limit_removed_event_emitted() {
-    let (env, contract_id, _token_addr, user, _merchant) = setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-
-    client.set_daily_limit(&user, &4_0000000);
-    client.remove_daily_limit(&user);
-
-    assert_eq!(client.get_daily_limit(&user), None);
-    assert_last_user_event(&env, "daily_limit_removed", &user);
-}
-```
-
----
-
-## Running the Tests
+### Contract
 
 ```bash
-cd contract
-cargo test
+stellar contract build --package flowpay
+cargo test -p flowpay
+cargo test --workspace
 ```
 
-To run only the spending limit tests:
+### Frontend
 
 ```bash
-cargo test daily_limit
+cd frontend
+npm install
+cp .env.example .env.local   # set VITE_CONTRACT_ID, VITE_RPC_URL, VITE_NETWORK_PASSPHRASE
+npm run dev
 ```
 
+### Scripts (keeper, indexer, ops)
 Expected output:
 
 ```
@@ -156,11 +168,13 @@ test test::test_daily_limit_visibility_and_spend_tracking ... ok
 
 ### What is a keeper and how do I run one locally?
 
-A keeper is an off-chain scheduler (cron job, AWS Lambda, or any scripted process) that calls `batch_charge(users)` on the FlowPay contract whenever subscribers' billing intervals have elapsed. Because Soroban has no native scheduler, recurring charges depend entirely on this external trigger. To run one locally, maintain a list of subscriber addresses sourced from contract events and invoke `batch_charge` on a schedule — the contract handles all eligibility checks, so ineligible users are silently skipped without aborting the transaction. See [Architecture — Keeper Service](docs/ARCHITECTURE.md#keeper-service) for the recommended pattern.
+A keeper is an off-chain scheduler (cron job, AWS Lambda, or any scripted process) that calls `batch_charge(users)` on the FlowPay contract whenever subscribers' billing intervals have elapsed. Because Soroban has no native scheduler, recurring charges depend entirely on this external trigger. To run one locally, maintain a list of subscriber addresses sourced from contract events and invoke `batch_charge` on a schedule — the contract handles all eligibility checks, so ineligible users are silently skipped without aborting the transaction. See the [Keeper runbook](docs/KEEPER.md) for the recommended pattern.
 
 ### How do I spin up a local validation environment for testing?
 
-All contract tests run fully in-memory with no network connection required — `soroban-sdk`'s `Env::default()` provides an isolated Soroban runtime. Install Rust 1.70+ with the `wasm32-unknown-unknown` target, then run `cd contract && cargo test` to execute the full suite. To simulate time passing (e.g. advancing past a billing interval), use `env.ledger().with_mut(|l| { l.timestamp += seconds; })` inside your test. For frontend validation, run `cd frontend && npm run test` using Vitest. Full setup steps are in [Testing Guide](docs/TESTING.md).
+All contract tests run fully in-memory with no network connection required — `soroban-sdk`'s `Env::default()` provides an isolated Soroban runtime. Install Rust 1.91+ with the `wasm32v1-none` target, then run `cargo test --workspace` from the repository root to test both the main and vesting contracts. To test one package, run `cargo test -p flowpay` or `cargo test -p academy-vesting`. To simulate time passing (e.g. advancing past a billing interval), use `env.ledger().with_mut(|l| { l.timestamp += seconds; })` inside your test. For frontend validation, run `cd frontend && npm run test` using Vitest. Full setup steps are in [Testing Guide](docs/TESTING.md).
+
+Vesting schedule semantics, claim behavior, and revocation constraints are described in [the vesting contract guide](docs/VESTING.md).
 
 ### What tokens does FlowPay support?
 
@@ -176,27 +190,29 @@ An optional trial duration (in seconds) is passed as `trial_period: Option<u64>`
 
 ### How does the grace period work?
 
-The grace period is a **contract-wide** setting (set by admin via `set_grace_period(seconds)`) that defines how long after a billing interval elapses a charge can still be successfully submitted. Concretely, `charge()` will accept a call only within the window `[last_charged + interval, last_charged + interval + grace_period]`; calls after that window panic with `"grace period elapsed"`. In `batch_charge`, users whose grace window has closed are returned as `ChargeResult::GracePeriodElapsed` without aborting the batch. The default is 0 (no grace period). Details are in [`contract/src/grace.rs`](contract/src/grace.rs) and [`docs/API.md`](docs/API.md#set_grace_period).
+The grace period is a **contract-wide** setting (set by admin via the two-step `propose_grace_period(seconds)` / `commit_grace_period()`) that defines how long after a billing interval elapses a charge can still be successfully submitted. Concretely, `charge()` will accept a call only within the window `[last_charged + interval, last_charged + interval + grace_period]`; calls after that window panic with `"grace period elapsed"`. In `batch_charge`, users whose grace window has closed are returned as `ChargeResult::GracePeriodElapsed` without aborting the batch. The default is 0 (no grace period). Details are in [`contract/src/grace.rs`](contract/src/grace.rs) and [`docs/API.md`](docs/API.md#propose_grace_period).
 
 ### How are contract upgrades and storage migrations handled?
 
-Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entrypoint, which calls `env.deployer().update_current_contract_wasm()` and emits an `upgraded` event. If the new WASM introduces storage layout changes, call `migrate()` once after upgrading — it reads the current `SchemaVersion` from instance storage and applies any pending transformations sequentially (e.g., the v1→v2 migration adds the `paused` field to all provided `Subscription` records). Subsequent `migrate()` calls are safe no-ops. See [Deployment — State Migration](docs/DEPLOYMENT.md#state-migration) for the full migration history and CLI steps.
+Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entrypoint, which calls `env.deployer().update_current_contract_wasm()` and emits an `upgraded` event. If the new WASM introduces storage layout changes, run `migrate(users)` in batches after upgrading (for example, the v1→v2 step adds the `paused` field to each provided `Subscription` record). Each account is processed once, so re-sent batches are safe. Then call `finalize_migration(total)` to advance the schema version and unblock new subscriptions. Check progress with `get_migration_progress()`. See [Deployment — State Migration](docs/DEPLOYMENT.md#state-migration) for the full workflow and CLI steps.
 
 ### What is the difference between Testnet and Mainnet deployments?
 
 FlowPay is **currently deployed on Testnet only** and has not been formally audited — it should not be used to manage real funds on Mainnet until an independent Soroban security audit is completed and published. The frontend targets the network specified by three environment variables in `frontend/.env`: `VITE_CONTRACT_ID` (your deployed contract address), `VITE_RPC_URL` (defaults to `https://soroban-testnet.stellar.org`), and `VITE_NETWORK_PASSPHRASE` (defaults to `Networks.TESTNET`). Switching to Mainnet requires updating all three variables to point to your Mainnet contract and RPC endpoint. The planned audit roadmap is documented in [Security](docs/SECURITY.md#audit-roadmap). For the full Mainnet go-live checklist (security gates, key management, deploy, verification, announcement), see [Mainnet Deployment Checklist](docs/MAINNET-DEPLOYMENT.md).
 
+Review [administrator powers and trust assumptions](docs/SECURITY.md#administrator-powers-and-trust-assumptions) before granting or operating an admin key.
+
 ### Why is `charge()` permissionless — isn't that a security risk?
 
-`charge()` has no `require_auth()` check by design, so any account (including a keeper bot) can trigger a charge without holding user keys. The contract enforces correctness independently: the subscription must exist, `active` must be `true`, and the billing interval must have elapsed — if any condition fails, the transaction panics and no funds move. Because the token transfer uses `transfer_from` against a pre-approved allowance, FlowPay can never move more than the user explicitly approved. This is covered in detail under [Security Model](docs/SECURITY.md#why-charge-is-permissionless) and [Architecture — Why charge() has no auth](docs/ARCHITECTURE.md#why-charge-has-no-auth).
+`charge()` has no `require_auth()` check by design, so any account (including a keeper bot) can trigger a charge without holding user keys. The contract enforces correctness independently: the subscription must exist, `active` must be `true`, and the billing interval must have elapsed — if any condition fails, the transaction panics and no funds move. Because the token transfer uses `transfer_from` against a pre-approved allowance, FlowPay can never move more than the user explicitly approved. This is covered in detail under [Security — Auth Model](docs/SECURITY.md#auth-model).
 
 ### How does the daily spending limit work for `pay_per_use`?
 
-Users can cap their `pay_per_use` exposure by calling `set_daily_limit(user, limit)`, which stores the limit in **temporary storage** with a TTL of approximately 24 hours (~17,280 ledgers at 5 s/ledger). Every `pay_per_use` call checks that `DailySpent + amount <= DailyLimit` before transferring, and increments `DailySpent` on success. Both keys expire automatically after ~24 hours, resetting the counter without any manual cleanup. Use `get_daily_limit(user)` and `get_daily_spent(user)` to inspect the current state. See [`docs/API.md`](docs/API.md#set_daily_limit) and the [Storage Architecture](docs/architecture/storage_and_ttl.md) for TTL details.
+Users can cap their `pay_per_use` exposure by calling `set_daily_limit(user, limit)`, which stores the limit in **temporary storage** with a TTL of approximately 24 hours (~17,280 ledgers at 5 s/ledger). Every `pay_per_use` call checks that `DailySpent + amount <= DailyLimit` before transferring, and increments `DailySpent` on success. Both keys expire automatically after ~24 hours, resetting the counter without any manual cleanup. Use `get_daily_limit(user)` and `get_daily_spent(user)` to inspect the current state. See [`docs/API.md`](docs/API.md#set_daily_limit) and the [Storage Architecture](docs/architecture/STORAGE-AND-TTL.md) for TTL details.
 
 ### How does FlowPay prevent subscription data from being evicted by the network?
 
-Stellar's Soroban platform uses state archiving — persistent storage entries have a TTL and can be evicted if not refreshed. FlowPay automatically calls `extend_ttl` on a subscription's persistent storage entry during `subscribe()` and `charge()`, bumping its TTL to ~1 year (6,307,200 ledgers). For subscriptions that are paused or idle for extended periods, keepers or users should manually call `extend_subscription_ttl(user)` to prevent archival. Daily-limit data uses temporary storage (~24-hour TTL) and is permanently purged on expiry — this is intentional, not a risk. Full details are in [Storage and TTL Management](docs/architecture/storage_and_ttl.md).
+Stellar's Soroban platform uses state archiving — persistent storage entries have a TTL and can be evicted if not refreshed. FlowPay automatically calls `extend_ttl` on a subscription's persistent storage entry during `subscribe()` and `charge()`, bumping its TTL to ~1 year (6,307,200 ledgers). For subscriptions that are paused or idle for extended periods, keepers or users should manually call `extend_subscription_ttl(user)` to prevent archival. Daily-limit data uses temporary storage (~24-hour TTL) and is permanently purged on expiry — this is intentional, not a risk. Full details are in [Storage and TTL Management](docs/architecture/STORAGE-AND-TTL.md).
 
 ---
 
@@ -204,8 +220,8 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 
 | Tool          | Version | Install                                    |
 | ------------- | ------- | ------------------------------------------ |
-| Rust          | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`     |
-| wasm32 target | —       | `rustup target add wasm32-unknown-unknown` |
+| Rust          | 1.78+   | `curl https://sh.rustup.rs -sSf \| sh`     |
+| wasm32 target | —       | `rustup target add wasm32v1-none` |
 | Soroban CLI   | 21.x    | `cargo install --locked soroban-cli`       |
 
 ---
@@ -216,12 +232,25 @@ Stellar's Soroban platform uses state archiving — persistent storage entries h
 - `remove_daily_limit(user)` — clears the cap
 - `get_daily_spent(user)` — returns how much has been spent today
 - `pay_per_use(user, amount)` — the function this limit applies to
+- Documentation index: [`docs/README.md`](docs/README.md)
+- Project structure: [`docs/STRUCTURE.md`](docs/STRUCTURE.md)
 - Full API reference: [`docs/API.md`](docs/API.md)
 - Architecture overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Referral system (canonical): [`docs/REFERRALS.md`](docs/REFERRALS.md)
 - Developer Integration Guide: [`docs/INTEGRATION-GUIDE.md`](docs/INTEGRATION-GUIDE.md)
 - Mainnet deployment checklist: [`docs/MAINNET-DEPLOYMENT.md`](docs/MAINNET-DEPLOYMENT.md)
 - Merchant Integration Cookbook: [`docs/MERCHANT-INTEGRATION.md`](docs/MERCHANT-INTEGRATION.md)
+
+### Operations quick-links
+
+For when something needs doing to a live deployment:
+
+- [Keeper runbook](docs/KEEPER.md) - runtime, flags and configuration for `keeper.ts`
+- [Troubleshooting runbook](docs/operations/TROUBLESHOOTING.md) - diagnosing `ChargeResult` errors, wallet failures, RPC failures and other operational issues
+- [Scripts environment reference](docs/SCRIPTS-ENVIRONMENT.md) - every environment variable the scripts read, with defaults
+- [Charge outcome encoding](docs/CHARGE-RESULTS.md) - what a `ChargeResult` is on the wire, and what the DLQ and export tooling should do with it
+- [Batch and pagination caps](docs/LIMITS.md) - every size limit the contract enforces
+- [Operator scripts](scripts/README.md#undocumented-operator-scripts) - the maintenance tools: allowance alerts, churn analysis, migration, merchant onboarding, renewal forecasts, metrics
 
 ---
 
@@ -242,48 +271,39 @@ The **Subscriber Churn Analysis Dashboard** script offers detailed cohort-based 
 Run the script using `ts-node` or `tsx` from the `scripts` or root directory:
 
 ```bash
-# Display JSON report (Default)
-npx tsx scripts/churn-analysis.ts --db indexer.db
-
-# Output as CSV tables
-npx tsx scripts/churn-analysis.ts --format csv --db indexer.db
-
-# Save report directly to a file
-npx tsx scripts/churn-analysis.ts --format csv --db indexer.db --out churn_report.csv
-
-# Customize resubscription logic ("new" or "retention")
-npx tsx scripts/churn-analysis.ts --resubscription-logic retention --format csv
+cd scripts
+npm install
+npm run typecheck
 ```
 
-#### CLI Options
+See [`docs/ONBOARDING.md`](docs/ONBOARDING.md) for a contributor walkthrough and [`docs/development/network-matrix.md`](docs/development/network-matrix.md) for aligning frontend, scripts, and contract on the same network.
 
-| Option                                    | Description                            | Default      |
-| ----------------------------------------- | -------------------------------------- | ------------ |
-| `--format [json\|csv]`                    | Output format for the report           | `json`       |
-| `--db <path>`                             | Path override to the SQLite Indexer DB | `indexer.db` |
-| `--out <file>`                            | Path to save the report output file    | stdout       |
-| `--resubscription-logic [new\|retention]` | Resubscription handling strategy       | `new`        |
+## Documentation
 
----
+| Document | Purpose |
+|----------|---------|
+| [`docs/API.md`](docs/API.md) | Full contract function reference (auth, errors, events) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System design, storage strategy, module map |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Security model, threat model, auth matrix |
+| [`docs/TESTING.md`](docs/TESTING.md) | Running contract/frontend/scripts tests |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy pipeline and health gates |
+| [`docs/MAINNET-DEPLOYMENT.md`](docs/MAINNET-DEPLOYMENT.md) | Mainnet go-live checklist |
+| [`docs/REFERRALS.md`](docs/REFERRALS.md) | Referral system (canonical guide) |
+| [`docs/DAILY-LIMITS.md`](docs/DAILY-LIMITS.md) | Daily spending limits for pay-per-use |
+| [`docs/limits.md`](docs/limits.md) | Batch and pagination caps |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend architecture guide |
+| [`docs/FRONTEND-COMPONENTS.md`](docs/FRONTEND-COMPONENTS.md) | Component reference |
+| [`docs/KEEPER.md`](docs/KEEPER.md) | Keeper runtime and configuration |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend integration guide |
 
-## RPC Endpoint Failover Configuration
+All docs live under [`docs/`](docs/).
 
-To configure multi-endpoint failover and ensure high availability for all backend and analytical scripts, you can specify a comma-separated list of RPC URLs using the `RPC_URLS` environment variable.
+## Development notes
 
-### Configuration Variables
+- [Agent context](AGENTS.md) — workspace description used by AI coding assistants
+- [UI design](UIDesign.md) — Figma design file link
+- [TODO](TODO.md) — open developer tasks
 
-| Variable                                         | Description                                                                                | Example / Default                                                      |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `RPC_URLS`                                       | Comma-separated list of resilient RPC endpoints for script failover and retry mechanism.   | `https://soroban-testnet.stellar.org,https://another-rpc-endpoint.com` |
-| `RPC_URL` / `VITE_RPC_URL`                       | Fallback single RPC endpoint if `RPC_URLS` is not provided.                                | `https://soroban-testnet.stellar.org`                                  |
-| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | Expected network passphrase used during initialization/health check to validate endpoints. | `Test SDF Network ; September 2015`                                    |
+## License
 
-### Failover and Retry Behavior
-
-All operational backend scripts under the `/scripts` directory utilize a resilient `MultiEndpointServer` (implemented in `scripts/rpc-client.ts`) instead of the standard `Server` from `@stellar/stellar-sdk/rpc`.
-On first use, the client performs health and passphrase validation across all configured endpoints to ensure they belong to the expected Stellar network. Consistently failing endpoints are dynamically deprioritized. Upon failure, the script will log a warning and transparently retry the request using the next available endpoint.
-
-## Handsoff notes
-
-<!-- handsoff-issue-1038 -->
-- #1038: Report the effective volume cap override in get_contract_config
+[MIT](LICENSE)

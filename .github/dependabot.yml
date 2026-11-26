@@ -1,0 +1,88 @@
+version: 2
+updates:
+  # Contract dependencies (Rust/Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/contract"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    groups:
+      # High-priority Stellar SDK updates
+      stellar-sdk:
+        patterns:
+          - "soroban-sdk"
+        update-types:
+          - "minor"
+          - "patch"
+      # Regular dependency updates
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(contract): "
+      prefix-development: "chore(contract-dev): "
+    pull-request-branch-name:
+      separator: "/"
+    reviewers:
+      - "maintainers"
+    allow-direct-dependencies: true
+
+  # Frontend dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    groups:
+      # High-priority Stellar SDK updates
+      stellar-sdk:
+        patterns:
+          - "@stellar/stellar-sdk"
+        update-types:
+          - "minor"
+          - "patch"
+      # React and framework updates
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+        update-types:
+          - "minor"
+          - "patch"
+      # Testing and dev tools
+      dev-tools:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(frontend): "
+      prefix-development: "chore(frontend-dev): "
+    pull-request-branch-name:
+      separator: "/"
+    allow-direct-dependencies: true
+
+  # Root package.json dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+    groups:
+      # Development dependencies
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(root): "
+      prefix-development: "chore(root-dev): "
+    pull-request-branch-name:
+      separator: "/"
+    allow-direct-dependencies: true

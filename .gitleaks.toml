@@ -1,0 +1,61 @@
+# Gitleaks configuration for PayFlow
+# Detects Stellar secret keys and other sensitive data
+# Run with: gitleaks detect --config .gitleaks.toml
+
+title = "PayFlow Secret Scanning Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "stellar-secret-key"
+description = "Stellar Secret Key (Seed)"
+regex = '''S[A-Z0-9]{55}'''
+keywords = [
+    "secretKey",
+    "secret",
+    "seed",
+]
+
+[[rules]]
+id = "stellar-public-key-with-secret"
+description = "Stellar Public/Secret Key Pair"
+regex = '''["']?secretKey["']?\s*:\s*["']S[A-Z0-9]{55}["']'''
+keywords = [
+    "secretKey",
+]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key"
+regex = '''(?i)(api[_-]?key|apikey|access[_-]?key)\s*[:=]\s*['"][0-9a-zA-Z]{20,}['"]'''
+keywords = [
+    "apikey",
+    "api_key",
+    "access_key",
+]
+
+[allowlist]
+description = "Global Allowlist"
+paths = [
+    '''\.example\.json$''',
+    '''\.md$''',
+    '''\.sample$''',
+    '''\.template$''',
+]
+
+regexes = [
+    # Allow placeholder values
+    '''GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX''',
+    '''SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX''',
+    '''YOUR_.*_HERE''',
+    # Allow documentation examples with obvious placeholders
+    '''<.*>''',
+    '''\.\.\.''',
+]
+
+[[rules.allowlist]]
+description = "Example and template files"
+paths = [
+    '''testnet-accounts\.example\.json$''',
+]

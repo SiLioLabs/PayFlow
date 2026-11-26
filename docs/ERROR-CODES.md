@@ -2,6 +2,8 @@
 
 This document is the complete reference for all error codes returned by the FlowPay smart contract (`contract/src/errors.rs`). Each error includes when it occurs, the immediate cause, numbered recovery steps, and prevention advice.
 
+Plain-language Q&A for non-operators: [`FAQ.md`](FAQ.md) (every code below is reachable from an FAQ answer via its coverage table).
+
 Use the [quick-reference table](#quick-reference-table) for lookups, then jump to the detailed recovery section for that code. Audience-specific walkthroughs are at the end:
 
 - [Common error scenarios](#common-error-scenarios)
@@ -34,7 +36,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 18   | `ContractPaused`            | State        | Op while protocol paused           |
 | 19   | `IntervalTooShort`          | Validation   | Interval below min floor           |
 | 20   | `BatchTooLarge`             | Limit        | Batch size above max               |
-| 21   | `ZeroBalanceAvailable` (deprecated) | Compatibility | Legacy withdraw code; never emitted |
+| 21   | `ZeroBalanceAvailable`              | State        | Merchant withdraw attempted with no accrued revenue |
 | 22   | `MerchantFrozen`            | Auth         | Subscribe to frozen merchant       |
 | 23   | `NoPendingProposal`         | State        | Commit without proposal            |
 | 24   | `SubscriptionAlreadyActive` | State        | Transfer target already subscribed |
@@ -43,21 +45,48 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 27   | `InvalidPauseExpiry`        | Validation   | Pause expiry not in future         |
 | 28   | `GlobalVolumeExceeded`      | Limit        | Protocol volume cap hit            |
 | 29   | `InvalidBatchSize`          | Validation   | Configured batch limit invalid     |
-| 30   | `ContractPausedError` (deprecated) | Compatibility | Legacy paused code; never emitted |
-| 31   | *(reserved)*                | Reserved     | Historical gap; never emitted      |
+| 30   | `ContractPausedError` (deprecated) | Compatibility | Deprecated alias; never emitted by current WASM |
+| 31   | `Reserved31` (deprecated)   | Reserved     | Reserved compatibility variant; not emitted |
 | 32   | `InvalidRecipient`          | Validation   | Recipient address invalid           |
 | 33   | `InvalidVolumeCap`          | Validation   | Volume cap override not positive   |
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
+| 37   | `Reserved37` (deprecated)   | Reserved     | Reserved slot; never emitted       |
 | 38   | `RefundMerchantMismatch`    | Validation   | Refund caller is not merchant     |
 | 39   | `RefundAmountMustBePositive`| Validation   | Prorated refund is zero           |
 | 40   | `InsufficientMerchantBalance`| Limit       | Merchant cannot fund refund       |
 | 41   | `CannotClearActiveSubscriber` | State      | Admin index repair of an active subscriber |
 | 42   | `SchemaMigrationRequired`   | State        | Stale schema — subscription writes denied until migrate |
 | 43   | `ResumeGraceLapsed`         | State        | Resume after grace period elapsed |
+| 44   | `AdminAlreadySet`           | State        | `set_initial_admin` after admin already stored |
+| 45   | `NoPendingAdmin`            | State        | `accept_admin` with no staged transfer |
+| 46   | `IntervalExceedsMaximum`    | Validation   | Interval above `MAX_SUBSCRIPTION_INTERVAL` (400 yr) |
+| 47   | `FreezeReasonTooLong`       | Validation   | Merchant freeze reason > 128 bytes |
+| 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
+| 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
+| 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
+| 51   | `TrialAlreadyUsed`          | State        | `subscribe`/`subscribe_with_referral` trial requested for a (user, merchant) pair that already consumed its one trial |
+| 52   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 53   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 54   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
+| 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
+| 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
 
-> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 is intentionally reserved and has no enum variant in the published map. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Codes 31 and 37 have deprecated `Reserved31` / `Reserved37` Rust enum variants that claim the reserved wire-map slots; neither is emitted by contract logic. The numeric sequence has **no undeclared gaps**: `scripts/check-error-codes.mjs` fails if a code between 1 and the highest code is missing from `errors.rs`, and fails if any deprecated variant is referenced outside `errors.rs`. New errors must use the next free code and update this table, frontend handling, and mapping tests together. Removal timeline for 30 and 31: [Deprecation schedule](#deprecation-schedule). Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+
+## Deprecation Schedule
+
+| Code | Variant | Status | Removal criteria | Earliest removal |
+| ---- | ------- | ------ | ---------------- | ---------------- |
+| 30 | `ContractPausedError` | Deprecated alias of `ContractPaused` (18); never emitted | (1) No WASM that can emit 30 is deployed on any network listed in `deployments/` (every instance runs a build where all pause guards emit 18), **and** (2) the frontend and keeper treat 30 only as a legacy alias of 18, **and** (3) one full MINOR release has shipped with this schedule published | The first MAJOR release after both criteria hold, and no earlier than 2027-06-01 |
+| 31 | `Reserved31` | Reserved slot; never emitted | Same as code 30. Removing the variant must not free the number: the code stays listed here as `*(retired)*` so it is never reassigned | Same as code 30 |
+| 37 | `Reserved37` | Reserved slot; never emitted | Not scheduled for removal. It exists only to stop code 37 from being reused | n/a |
+
+Removing a deprecated variant is a **BREAKING** change (it alters the Rust enum and the published ABI). The removal PR must note it in `CHANGELOG.md` and keep the numeric code reserved in this table. Until then, CI blocks any new emission: `check-error-codes.mjs` fails if `ContractError::ContractPausedError`, `ContractError::Reserved31` or `ContractError::Reserved37` appears in contract code outside `errors.rs`. Tests are exempt when they compare against the deprecated code.
 
 ---
 
@@ -375,7 +404,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 2. Contact protocol admin / follow incident runbook — only admin can `unpause_contract()`.
 3. Keepers should stop cycling and alert (do not spam failed txs).
 
-**Prevention:** Announce maintenance windows; use [keeper incident response](operations/keeper_runbook.md).
+**Prevention:** Announce maintenance windows; use [keeper incident response](operations/KEEPER-RUNBOOK.md).
 
 ---
 
@@ -412,16 +441,16 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 21 — `ZeroBalanceAvailable` (legacy)
+### 21 — `ZeroBalanceAvailable`
 
 | Field               | Detail                                                  |
 | ------------------- | ------------------------------------------------------- |
-| **When it occurs**  | Legacy / unused error variant (formerly emitted by `withdraw_merchant_revenue` before migration to non-custodial direct payouts). Kept for discriminant compatibility. |
-| **Immediate cause** | N/A — merchant revenue is non-custodial and settles directly on charge. |
+| **When it occurs**  | A merchant calls `withdraw_merchant_revenue` with no accrued revenue. |
+| **Immediate cause** | The available withdrawal amount is zero or negative. |
 
 **Recovery steps**
 
-1. No action needed; charges settle directly into merchant wallets without withdrawal.
+1. Confirm the merchant has accrued revenue before retrying the withdrawal.
 
 ---
 
@@ -452,7 +481,7 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 1. Re-run the propose step (`transfer_admin` / `propose_fee` / `propose_grace_period`, etc.).
 2. Complete commit/accept before proposal TTL expires.
-3. See [two-step auth](architecture/two-step-auth.md).
+3. See [two-step auth](architecture/TWO-STEP-AUTH.md).
 
 **Prevention:** Automate propose→commit within the same ops window; monitor proposal TTL.
 
@@ -556,20 +585,20 @@ batch. See [`EVENTS.md`](EVENTS.md#batch_charge_skips).
 
 ---
 
-### 30 — `ContractPausedError`
+### 30 — `ContractPausedError` (deprecated)
 
-| Field               | Detail                                                                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| **When it occurs**  | New `subscribe()` (and similar entry paths) while the contract is paused                        |
-| **Immediate cause** | Pause flag blocks new subscriptions (`ContractPausedError` distinct from code 18 on some paths) |
+| Field               | Detail                                                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **When it occurs**  | **Never emitted by the current WASM.** Retained as a deprecated Rust enum variant (code 30) only for source/wire compatibility with clients that published this discriminant before `ContractPaused` (code 18) was standardised as the sole canonical contract-paused error. |
+| **Immediate cause** | N/A — all current pause-guarded paths emit `ContractPaused` (code 18).                                                             |
 
 **Recovery steps**
 
-1. Treat like a protocol pause: wait for admin `unpause_contract()`.
-2. Do not prompt users to “try again” in a tight loop — show maintenance messaging.
-3. Keepers should halt subscribe-related automation.
+1. If you receive code 30 in production, the WASM being executed is old — upgrade the contract.
+2. Update frontend and keeper error maps to treat code 30 as equivalent to `ContractPaused` (18) for backward compatibility.
+3. Use code 18 in all new integrations.
 
-**Prevention:** Same as code 18 — coordinated pause/unpause communications.
+**Prevention:** Always use `ContractPaused` (code 18) in integrations; never introduce new callers of code 30.
 
 ---
 
@@ -659,6 +688,62 @@ is not representable at all.
 
 ---
 
+
+### 37 — `Reserved37` (deprecated)
+
+Code 37 was skipped when the catalog was extended and has never been emitted by a released WASM. It is now claimed by the deprecated `Reserved37` variant so that no future error can reuse the number and change what existing clients decode. Do not use code 37 in clients or forked contracts; new errors take the next free code. If you see code 37 from a contract, it comes from a custom fork, not the canonical PayFlow WASM.
+
+---
+
+### 38 — `RefundMerchantMismatch`
+
+| Field               | Detail                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `refund_subscription` called by an address that is not the subscription's merchant              |
+| **Immediate cause** | The caller's address does not match `sub.merchant`                                              |
+
+**Recovery steps**
+
+1. Confirm the calling address — only the merchant who received the original subscription payment can issue a refund.
+2. Retry with the correct merchant account.
+
+**Prevention:** Validate `caller == sub.merchant` in merchant tooling before signing the tx.
+
+---
+
+### 39 — `RefundAmountMustBePositive`
+
+| Field               | Detail                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| **When it occurs**  | A prorated refund calculation produces a zero or negative amount                     |
+| **Immediate cause** | The remaining unused portion of the billing interval rounds down to zero stroops      |
+
+**Recovery steps**
+
+1. Check how much time has elapsed since the last charge — if nearly the full interval has passed, a prorated refund may legitimately be zero.
+2. Issue a manual goodwill payment instead if a refund is owed for business reasons.
+
+**Prevention:** Compute the prorated amount off-chain before calling the contract; skip refund calls when the result would be zero.
+
+---
+
+### 40 — `InsufficientMerchantBalance`
+
+| Field               | Detail                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| **When it occurs**  | Prorated refund amount exceeds the merchant's accrued revenue balance on-chain  |
+| **Immediate cause** | `merchant_revenue < refund_amount`                                              |
+
+**Recovery steps**
+
+1. Read `get_merchant_revenue` to see the available balance.
+2. If insufficient, the merchant should arrange a direct transfer for the difference; the contract refund path cannot pull from outside the accrued balance.
+3. Alternatively, wait for additional charges to accumulate revenue before issuing the refund.
+
+**Prevention:** Ensure the merchant has sufficient on-chain accrued revenue before calling the refund entrypoint.
+
+---
+
 ### 41 — `CannotClearActiveSubscriber`
 
 | Field               | Detail                                                                                          |
@@ -698,18 +783,158 @@ Follow the canonical operator procedure in [`DEPLOYMENT.md` — SchemaMigrationR
 
 ---
 
+
+### 43 — `ResumeGraceLapsed`
+
+| Field               | Detail                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `resume()` is called after the subscription's grace window has already closed                           |
+| **Immediate cause** | The time elapsed since `last_charged + interval` exceeds the configured grace period                    |
+
+If the grace window closes while a subscription is paused, the subscription is no longer chargeable. `resume()` is rejected to prevent false recoverability signals — the only valid exit is `cancel()` followed by a fresh `subscribe()`.
+
+**Recovery steps**
+
+1. Confirm grace period config via `get_grace_period()`.
+2. Inform the user: the subscription has lapsed and cannot be resumed; they must re-subscribe.
+3. Remove the address from keeper charge queues.
+
+**Prevention:** Notify users before a paused subscription's grace window closes (use indexer events + `get_next_charge_at`).
+
+---
+
+### 44 — `AdminAlreadySet`
+
+| Field               | Detail                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| **When it occurs**  | `set_initial_admin` is called after an admin address is already stored                        |
+| **Immediate cause** | Instance storage already holds the `Admin` key                                                |
+
+This is distinct from `AlreadyInitialized` (code 1), which guards the full `initialize()` entrypoint (token + admin together). Code 44 covers only the narrow `set_initial_admin` bootstrap path.
+
+**Recovery steps**
+
+1. Use `transfer_admin` / `accept_admin` to change admin after the contract is live.
+2. Do not retry `set_initial_admin` on a live instance.
+
+**Prevention:** Call `set_initial_admin` only once during bootstrapping; persist the admin address before calling.
+
+---
+
+### 45 — `NoPendingAdmin`
+
+| Field               | Detail                                                                            |
+| ------------------- | --------------------------------------------------------------------------------- |
+| **When it occurs**  | `accept_admin` is called when no staged admin transfer is pending                 |
+| **Immediate cause** | `PendingAdmin` instance key is absent — either expired or never set               |
+
+**Recovery steps**
+
+1. Re-run `transfer_admin(new_admin)` to stage a new transfer.
+2. Call `accept_admin()` from the new admin address before the proposal TTL expires (~24 hours).
+
+**Prevention:** Complete the `transfer_admin` → `accept_admin` flow within one window; automate in tooling. See [architecture/TWO-STEP-AUTH.md](architecture/TWO-STEP-AUTH.md).
+
+---
+
+### 46 — `IntervalExceedsMaximum`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `subscribe()` or `subscribe_with_metadata()` is called with an `interval` > `MAX_SUBSCRIPTION_INTERVAL` (12 623 040 000 s ≈ 400 years). |
+| **Immediate cause** | `validate_interval` rejects the value before any state is written. |
+| **Why it exists**   | Soroban timestamps are `u64` Unix seconds. Adding a near-`u64::MAX` interval to `last_charged` overflows, causing every charge call for that subscription to abort — and inside `batch_charge` that abort can skip the entire batch (a self-inflicted DoS / keeper hazard). The cap keeps all timestamp arithmetic safe. |
+
+**Recovery steps**
+
+1. Reduce the interval to at most `12_623_040_000` (about 400 years).
+2. If you truly need a longer billing cycle (unusual), discuss protocol governance — the constant is a compile-time value in `lib.rs`.
+3. For **legacy subscriptions** created before this cap was enforced (e.g. via direct storage injection in tests), the subscription can still be cancelled via `cancel(user)`; it cannot be charged. Re-subscribe with a valid interval to restore chargeability.
+
+**Prevention:** Validate the interval on the client side before calling `subscribe`. The maximum is exported as `MAX_SUBSCRIPTION_INTERVAL` in the contract source and documented in [`docs/LIMITS.md`](LIMITS.md).
+
+---
+
+### 47 — `FreezeReasonTooLong`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `freeze_merchant()` receives a reason longer than 128 bytes for a merchant that is not already frozen. |
+| **Immediate cause** | Freeze-reason validation rejects the input before writing freeze state or emitting an event. |
+
+**Recovery steps**
+
+1. Shorten the merchant freeze reason to at most 128 UTF-8 bytes.
+2. Retry `freeze_merchant()` as the admin.
+
+**Prevention:** Validate the UTF-8 byte length in admin tooling. Subscription labels have a separate 64-byte limit and continue to use code 14 (`MetadataLabelTooLong`). An already-frozen merchant remains an idempotent no-op.
+
+---
+
+### 52 — `InvalidAdminAddress`
+### 48 — `TrialExtensionExceedsMaximum`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `extend_trial()` adds more than `MAX_TRIAL_EXTENSION` (90 days) in one call, or would push `last_charged` past `now + MAX_TOTAL_TRIAL` (365 days). |
+| **Immediate cause** | The bounded trial policy rejects the extension before writing storage or emitting `trial_extended`. |
+
+**Recovery steps**
+
+1. Retry with `additional_seconds <= MAX_TRIAL_EXTENSION`.
+2. If the total-trial cap is already reached, wait until the current trial elapses instead of chaining more extensions.
+
+---
+
+### 49 — `SkipCooldownActive`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `skip_next_charge()` is called again before one full billing interval has elapsed since the last skip. |
+| **Immediate cause** | The per-subscriber `last_skip_at` cooldown guard in `BillingState` rejects the call. |
+
+**Recovery steps**
+
+1. Wait until `last_skip_at + interval`.
+2. Retry `skip_next_charge()`; each accepted call advances the schedule by exactly one interval.
+
+---
+
+### 50 — `NoLastChargeToRefund`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `refund_last_charge()` is called when no scheduled `charge` has been recorded, or the recorded charge was already refunded. |
+| **Immediate cause** | The `BillingState` last-charge snapshot is absent; the record is cleared after a successful refund to prevent double refunds. |
+
+**Recovery steps**
+
+1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
+2. Refund only once per charge; a new charge creates a new refundable snapshot.
+### 54 — `InvalidAdminAddress`
+
+| Field               | Detail |
+| ------------------- | ------ |
+| **When it occurs**  | `transfer_admin(new_admin)` targets the current admin or the contract itself. |
+| **Immediate cause** | The proposed address would make the two-step handoff a no-op or leave no usable account to call `accept_admin()`. |
+
+**Recovery steps**
+
+1. Choose a reachable account or multisig that differs from both the current admin and the FlowPay contract address.
+2. Call `transfer_admin(new_admin)` again, then have the proposed address call `accept_admin()`.
+
+**Prevention:** Verify the proposed address during the admin-rotation preflight. See [the two-step admin playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md#playbook-c--admin-rotation).
+
+---
+
 ## Error Categories
 
-| Category       | Codes                                                | Typical owners                |
-| -------------- | ---------------------------------------------------- | ----------------------------- |
-| Auth / access  | 8, 10, 22                                            | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36           | Deployer, user, admin, keeper |
-| Category       | Codes                                    | Typical owners                |
-| -------------- | ---------------------------------------- | ----------------------------- |
-| Auth / access  | 8, 10, 22                                | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35 | Client / admin tooling        |
-| Limit / timing | 6, 9, 15, 20, 25, 28                                 | Keeper + user                 |
+| Category       | Codes                                                        | Typical owners                |
+| -------------- | ------------------------------------------------------------ | ----------------------------- |
+| Auth / access  | 8, 10, 22                                                    | User + admin                  |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49                                 | Keeper + user                 |
 
 ---
 
@@ -740,6 +965,7 @@ Follow the canonical operator procedure in [`DEPLOYMENT.md` — SchemaMigrationR
 
 1. Check code:
    - `2` / `3` / `19` → fix amount/interval inputs.
+   - `46` → interval above the 400-year cap; reduce interval.
    - `8` → approve token allowance first (and fund balance).
    - `10` / `22` → merchant not allowed / frozen.
    - `11` → bad referrer.
@@ -768,7 +994,7 @@ Follow the canonical operator procedure in [`DEPLOYMENT.md` — SchemaMigrationR
 
 1. Parse error code from logs / simulation.
 2. Apply the table above — never infinite-retry grace or pause errors.
-3. For DLQ / advanced failover, see [operations/keeper_runbook.md](operations/keeper_runbook.md) and [KEEPER.md](KEEPER.md).
+3. For DLQ / advanced failover, see [operations/KEEPER-RUNBOOK.md](operations/KEEPER-RUNBOOK.md) and [KEEPER.md](KEEPER.md).
 
 ---
 
@@ -782,6 +1008,15 @@ Follow the canonical operator procedure in [`DEPLOYMENT.md` — SchemaMigrationR
 | 9            | “This subscription lapsed. Please subscribe again.”           |
 | 11           | “You cannot refer yourself.”                                  |
 | 14           | “Label must be 64 bytes or fewer.”                            |
+| 47           | “Merchant freeze reason must be 128 bytes or fewer.”          |
+| 48           | “Trial extension exceeds the maximum allowed duration.”       |
+| 49           | “You can only skip one billing cycle per interval.”           |
+| 50           | “There is no charge available to refund.”                     |
+| 48           | “Storage migration is not finished yet; process every account first.” |
+| 49           | “Keeper tip must be at most 5000 bps (half of the protocol fee).” |
+| 52           | “Choose an admin address different from the current admin and contract.” |
+| 50           | “Merchant fee must be within the configured protocol fee bounds.” |
+| 51           | “Operator cannot be the contract address.” |
 | 17           | “Resume your subscription to continue.”                       |
 | 22           | “This merchant is temporarily unavailable.”                   |
 | 24           | “Destination already has an active subscription.”             |
@@ -814,7 +1049,7 @@ Always map numeric Soroban contract errors to this document before inventing new
 
 - Contract source: [`contract/src/errors.rs`](../contract/src/errors.rs)
 - Schema write-denial invariant: [`docs/DEPLOYMENT.md` — SchemaMigrationRequired](DEPLOYMENT.md#schemamigrationrequired-error-42) (`contract/src/migration.rs`)
-- Troubleshooting runbook: [`docs/operations/troubleshooting.md`](operations/troubleshooting.md)
+- Troubleshooting runbook: [`docs/operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)
 - Keeper guide: [`docs/KEEPER.md`](KEEPER.md)
 - API reference: [`docs/API.md`](API.md)
 - Security model: [`docs/SECURITY.md`](SECURITY.md)

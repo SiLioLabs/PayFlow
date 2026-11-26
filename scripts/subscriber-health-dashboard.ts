@@ -39,6 +39,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   Contract,
   Networks,
@@ -50,16 +51,12 @@ import {
   xdr,
   scValToNative,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const CONTRACT_ID =
   process.env.CONTRACT_ID ?? process.env.VITE_CONTRACT_ID ?? "";
-const RPC_URL =
-  process.env.RPC_URL ??
-  process.env.VITE_RPC_URL ??
-  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.NETWORK_PASSPHRASE ??
   process.env.VITE_NETWORK_PASSPHRASE ??
@@ -172,7 +169,7 @@ Environment:
 
 // ── RPC helpers ──────────────────────────────────────────────────────────────
 
-const server = new Server(RPC_URL);
+const server = new MultiEndpointServer();
 const flowPayAddress = CONTRACT_ID ? Address.fromString(CONTRACT_ID) : null;
 
 function addressVal(addr: string): xdr.ScVal {
@@ -505,9 +502,6 @@ export async function collectHealth(): Promise<{
 
       const health = await getSubscriptionHealth(address);
       const allowance = sub.active ? await getAllowance(address, sub.token) : 0n;
-      const allowance = sub.active
-        ? await getAllowance(address, sub.token)
-        : 0n;
       const lowAllowance =
         sub.active && !sub.paused && allowance < sub.amount * 2n;
 
@@ -531,7 +525,6 @@ export async function collectHealth(): Promise<{
       if (health === null && sub.active && !sub.paused) {
         chargeDue = now >= sub.last_charged + sub.interval;
       }
-      const trialActive = health?.trial_active ?? sub.last_charged > now;
 
       const ttlRemaining =
         meta.liveUntilLedger != null
@@ -754,8 +747,6 @@ function toCsv(details: SubscriberHealth[]): string {
         d.expiring_ttl,
         d.requires_restore,
       ].join(",")
-        d.token,
-      ].join(","),
     );
   }
   return lines.join("\n") + "\n";

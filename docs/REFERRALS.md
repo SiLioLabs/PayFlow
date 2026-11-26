@@ -2,7 +2,7 @@
 
 This document is the **canonical** referral guide for PayFlow: data model, subscribe authentication, self-referral, events, frontend (`ReferralPanel`), and operations.
 
-[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/storage_and_ttl.md`](./architecture/storage_and_ttl.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`REFERRAL.md`](./REFERRAL.md) is a compatibility stub that points here. For storage TTL details see [`architecture/STORAGE-AND-TTL.md`](./architecture/STORAGE-AND-TTL.md). For the full function catalog see [`API.md`](./API.md). Errors: [`ERROR-CODES.md`](./ERROR-CODES.md). Event schema: [`EVENTS.md`](./EVENTS.md). Architecture: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 
@@ -33,38 +33,40 @@ This document is the **canonical** referral guide for PayFlow: data model, subsc
 
 ## Overview
 
-Referrals are **on-chain attribution**, not an on-chain reward vault. A subscriber may pass an optional referrer address when they subscribe. The contract stores that relationship and emits a `referred` event; payouts (bonuses, commissions) are built by integrators off-chain.
+Referrals record on-chain attribution and can earn a bounded share of protocol fees. A subscriber may pass an optional referrer at subscribe time; the protocol accrues rewards from successful recurring charges and lets the referrer withdraw the reserved token balance.
 
 | Where state lives                          | What                                                  |
 | ------------------------------------------ | ----------------------------------------------------- |
 | Persistent `DataKey::Referral(subscriber)` | Referrer `Address` (`contract/src/referral.rs`)       |
 | `Subscription.referrer: Option<Address>`   | Snapshot written at subscribe (`contract/src/lib.rs`) |
+| `ReferralReward(token, referrer)`           | Withdrawable reward liability, reserved in contract token balance |
 
 | Component                                        | Interaction                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------------------- |
 | Contract `subscribe` / `subscribe_with_metadata` | User signs; optional `referrer` is stored                                   |
 | Contract `get_referrer` / `get_referral`         | Public reads of the referral key                                            |
 | Indexer / RPC consumers                          | Index topic `referred`                                                      |
-| Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>`, referred-count display, self-referral warning |
-| Frontend `SubscribeForm`                         | Optional referrer text field passed into `buildSubscribeTx`                 |
+| Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>&merchant=<ADDRESS>`, referred-count display, self-referral warning |
+| Frontend `SubscribeForm`                         | Parses link params, pre-fills referrer/merchant, passes referrer into `buildSubscribeTx` |
 
-This is an attribution layer only. Protocol fees (`fee.rs`) do not pay referrers.
+The default reward is 10% of the protocol fee for the first 12 successful charges. Admin may configure a share up to 50% and a positive charge duration. The share is taken from the protocol fee, never from merchant net.
 
 ---
 
 ## Design Summary
 
-PayFlow's referral feature is an **on-chain attribution layer**, not an on-chain reward vault.
+PayFlow's referral feature combines attribution with protocol-fee rewards.
 
 | Concern                                | On-chain? | Where                                                                   |
 | -------------------------------------- | --------- | ----------------------------------------------------------------------- |
 | Record who referred a subscriber       | Yes       | `DataKey::Referral(user)` + `Subscription.referrer`                     |
 | Emit attribution event                 | Yes       | `referred` event                                                        |
 | Reject self-referral                   | Yes       | `ContractError::SelfReferral` (code `11`)                               |
-| Split protocol fees to a fee collector | Yes       | `fee.rs` (`FeeCollector` / `FeeBps`) — **not** referrer-aware           |
-| Pay referrer bonuses / commissions     | **No**    | Off-chain (or a separate reward contract) using events + `get_referrer` |
+| Split protocol fees to collector/referrer | Yes     | `fee.rs` (`FeeCollector` / `FeeBps`) plus bounded reward reserve       |
+| Accrue a share of the protocol fee      | Yes       | `ReferralReward(token, referrer)`; first N successful recurring charges |
+| Withdraw accrued rewards               | Yes       | `withdraw_referral_rewards(token, referrer)`; referrer signature required |
 
-The contract stores a single optional referrer address per subscriber and emits a `referred` event when that address is set. Integrators use that attribution signal to run signup bonuses, recurring commissions, or tiered rewards outside the core FlowPay transfer path.
+The contract stores one optional referrer per subscriber and emits `referred` when attribution is set. Integrators may still add signup bonuses or tiered rewards outside the core fee-share policy.
 
 ---
 
@@ -158,16 +160,20 @@ subscribe(user, ..., referrer: Some(R))
          │
          ├─ subscribe(referrer=R2) ──────────▶ [Referral(user)=R2]   // replaced
          ├─ subscribe(referrer=None) ────────▶ [cleared]
-         └─ cancel / cancel_and_refund_* ───▶ [cleared]
+         ├─ cancel / cancel_and_refund_* ───▶ [cleared]
+         └─ transfer_subscription ──────────▶ [Referral(new_user)=R]  // moved with subscription
 ```
 
-Rules enforced by the running contract (`contract/src/referral.rs` + `subscribe_inner` / `cancel_inner`):
+Rules enforced by the running contract (`contract/src/referral.rs` + `subscribe_inner` / `cancel_inner` / `transfer_subscription`):
 
 1. **Optional.** Omitting a referrer (`None` / CLI `null`) stores nothing.
 2. **No self-referral.** If `referrer == user`, the call panics with `SelfReferral` (error `11`).
 3. **Resubscribe updates.** A later `subscribe` with a different referrer overwrites the stored address and emits a new `referred` event.
 4. **Resubscribe with `None` clears.** Passing `referrer: None` removes `DataKey::Referral(user)`.
 5. **Cancel clears referral storage.** `cancel_inner` calls `referral::remove_referral`. The cancelled `Subscription` record may still show a historical `referrer` field until the user resubscribes; `get_referrer` returns `None` after cancel.
+6. **Transfer moves referral.** `transfer_subscription` moves the referral attribution from the old subscriber to the new one, preserving the original referrer attribution. The old address's referral entry is cleared. This ensures attribution remains intact when a subscription is transferred between wallets.
+
+> **Referral Transfer Semantics:** On `transfer_subscription`, the referral follows the subscription to the new owner. If the old subscriber had a referrer, that attribution continues under the new address. This preserves commission tracking across wallet changes.
 
 > **Note:** Older lifecycle notes that describe referrals as “immutable after first write” or “surviving cancel” do not match the current implementation. Treat this document and `referral.rs` as authoritative.
 
@@ -209,7 +215,7 @@ if r == user {
 
 Playbook: [`ERROR-CODES.md` — 11 `SelfReferral`](./ERROR-CODES.md#11--selfreferral).
 
-The dashboard [`ReferralPanel`](#frontend-referralpanel) warns when `?ref=` matches the connected wallet. That UI copy currently says the referral “will be ignored”; **on-chain the call panics** with `SelfReferral`. Do not treat self-referral as a silent no-op.
+The dashboard [`ReferralPanel`](#frontend-referralpanel) and `SubscribeForm` both warn when `?ref=` matches the connected wallet, and the form disables subscribe before signing. **On-chain the call panics** with `SelfReferral` (error 11) if a self-referral is submitted by any other client; do not treat it as a silent no-op.
 
 ---
 
@@ -278,7 +284,11 @@ user ──transfer_from──▶ FeeCollector   (fee)
 user ──transfer_from──▶ Merchant       (net)
 ```
 
-This split is **independent of referrals**. The referrer address is never an argument to `fee::transfer_subscription_charge`. Referrers do not automatically receive a share of protocol fees or merchant revenue inside FlowPay.
+When a referral exists and is within the configured charge duration, the protocol fee is split into a collector amount and a reward reserve. The reserved share is transferred into the contract and recorded by token and referrer; keeper tips are calculated first and do not reduce merchant net. The referral reward is accrued once inside the successful charge transaction, so a failed token transfer rolls the accrual back.
+
+Default policy: 1,000 bps (10%) of the protocol fee, for 12 successful recurring charges. `set_referral_reward_policy(bps, max_charges)` is admin-only; `bps` is capped at 5,000 and `max_charges` must be positive. Cancellation ends future eligibility and clears the subscriber's duration counter, but does not erase already accrued rewards. Subscription transfer carries the duration counter to the new subscriber.
+
+`get_referral_reward_balance(token, referrer)` reads the claimable amount. `withdraw_referral_rewards(token, referrer)` requires referrer authorization, clears the liability before transferring, and emits `referral_reward_withdrawn`. Reward accounting is token-specific because subscriptions can use different SAC tokens.
 
 ### Building referral payouts (integrator responsibility)
 
@@ -571,23 +581,23 @@ soroban contract invoke \
 
 ## Frontend: ReferralPanel
 
-Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` as `<ReferralPanel publicKey={userKey} />`.
+Source: [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx). Tests: `frontend/src/__tests__/ReferralPanel.test.tsx`. Mounted from `Dashboard.tsx` (and `SubscribeForm.tsx`) as `<ReferralPanel publicKey={userKey} merchant={merchant} />`.
 
-| Surface             | Behavior                                                                            |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Referral code       | Connected wallet public key (the shareable identifier)                              |
-| Share link          | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>` |
-| Copy                | Clipboard buttons for code and full URL (`useClipboard`)                            |
-| Users referred      | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts`                 |
-| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey`                       |
+| Surface             | Behavior                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| Referral code       | Connected wallet public key (the shareable identifier)                                          |
+| Share link          | `buildReferralUrl` → `{VITE_APP_BASE_URL or https://app.payflow.io}/?ref=<ADDRESS>&merchant=<ADDRESS>` |
+| Copy                | Clipboard buttons for code and full URL (`useClipboard`)                                        |
+| Users referred      | `fetchEvents("referred", publicKey)` from `frontend/src/stellar.ts`                             |
+| Self-referral alert | `getReferrerFromSearch(window.location.search) === publicKey`                                   |
 
-**Subscribe input is not on this panel.** [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) has an optional “Referrer (optional)” field; on submit it passes `referrer.trim() || null` into `buildSubscribeTx`. The form does **not** auto-fill from `?ref=` (the helper `getReferrerFromSearch` is used on the panel for the warning only). Integrators who want `?ref=` → subscribe should wire that themselves (see snippets below).
+**Link round-trip.** [`frontend/src/utils/subscribeLink.ts`](../frontend/src/utils/subscribeLink.ts) builds and parses the share link. `App.tsx` opens the Subscribe tab when `?ref=` or `?merchant=` is present. `SubscribeForm` pre-fills both fields from `parseSubscribeLinkParams`, shows the referrer from the link, ignores invalid addresses with a notice, and blocks self-referral before signing. The manual “Referrer (optional)” field remains available; on submit the form passes `referrer.trim() || null` into `buildSubscribeTx`.
 
 ---
 
 ## Frontend Integration (TypeScript)
 
-The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` accepts `referrer: string | null`. `SubscribeForm` exposes a manual referrer field. The snippets below show an end-to-end `?ref=` → resolve → subscribe pattern (off-chain codes still need a backend lookup).
+The in-repo helper `buildSubscribeTx` in `frontend/src/stellar.ts` accepts `referrer: string | null`. `SubscribeForm` now fills that value from either the URL or its manual referrer field. The snippets below show a lower-level `?ref=` → resolve → subscribe pattern for integrators (off-chain codes still need a backend lookup).
 
 ### Resolve URL code and subscribe
 
@@ -848,8 +858,9 @@ See [`ERROR-CODES.md`](./ERROR-CODES.md) for the full catalog.
 | [`contract/src/errors.rs`](../contract/src/errors.rs)                                       | `SelfReferral = 11`                                                       |
 | [`contract/src/fee.rs`](../contract/src/fee.rs)                                             | Protocol fee split (not referrer-aware)                                   |
 | [`frontend/src/stellar.ts`](../frontend/src/stellar.ts)                                     | `buildSubscribeTx(..., referrer, ...)`                                    |
-| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning                         |
-| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Optional referrer field on subscribe                                      |
+| [`frontend/src/components/ReferralPanel.tsx`](../frontend/src/components/ReferralPanel.tsx) | Share link, referred count, self-referral warning                                          |
+| [`frontend/src/components/SubscribeForm.tsx`](../frontend/src/components/SubscribeForm.tsx) | Referrer pre-fill from link, validation, subscribe                        |
+| [`frontend/src/utils/subscribeLink.ts`](../frontend/src/utils/subscribeLink.ts)             | Build/parse `?ref=` and `?merchant=` link params                          |
 | [`docs/REFERRAL.md`](./REFERRAL.md)                                                         | Compatibility stub → this file                                            |
 | [`docs/EVENTS.md`](./EVENTS.md)                                                             | `referred` event schema                                                   |
 | [`docs/API.md`](./API.md)                                                                   | Full API reference                                                        |

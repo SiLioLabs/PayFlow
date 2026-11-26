@@ -19,6 +19,7 @@ If you only need the mechanics of approving an allowance and subscribing with a 
 - [Subscribing with Custom Tokens](#subscribing-with-custom-tokens)
 - [Allowance Setup](#allowance-setup)
 - [Full CLI Walkthrough](#full-cli-walkthrough)
+- [Concurrent subscriptions](#concurrent-subscriptions)
 
 ---
 
@@ -46,10 +47,11 @@ pub struct Subscription {
     pub referrer: Option<Address>,
     pub label: Symbol,
     pub trial_duration: u64,
+    pub created_at: u64,
 }
 ```
 
-`token` is set once, at `subscribe()` / `subscribe_with_metadata()` time, and is read back on every subsequent `charge()` and `pay_per_use()` call for that subscriber. There is no global "the payment token" that all subscribers share — each `Subscription(user)` persistent record is self-describing. This is a deliberate design choice: it means one deployed contract instance can serve subscribers paying in USDC, subscribers paying in a game's reward token, and subscribers paying in wrapped XLM, all at the same time, with no per-token configuration step required from the admin.
+`token` is set once, at `subscribe()` / `subscribe_with_metadata()` time, and is read back on every subsequent `charge()` and `pay_per_use()` call for that subscriber. There is no global "the payment token" that all subscribers share — each `SubscriptionById(user, id)` persistent record is self-describing. This is a deliberate design choice: it means one deployed contract instance can serve subscribers paying in USDC, subscribers paying in a game's reward token, and subscribers paying in wrapped XLM, all at the same time, with no per-token configuration step required from the admin.
 
 ### How a charge resolves its token
 
@@ -71,11 +73,11 @@ This is why "multi-token" in PayFlow is accurate to describe as **per-subscripti
                      ┌─────────────────────────────┐
                      │   FlowPay contract instance   │
                      │                                │
-                     │  Subscription(alice)           │
+                     │  SubscriptionById(alice, 0)     │
                      │    token = USDC_SAC ───────────┼──┐
-                     │  Subscription(bob)              │  │
+                     │  SubscriptionById(bob, 0)       │  │
                      │    token = XLM_SAC ─────────────┼──┼──┐
-                     │  Subscription(carol)            │  │  │
+                     │  SubscriptionById(carol, 0)     │  │  │
                      │    token = REWARD_SAC ──────────┼──┼──┼──┐
                      └─────────────────────────────────┘  │  │  │
                                                             │  │  │
@@ -127,7 +129,7 @@ Deploy one FlowPay contract instance. Subscribers choose their own `token` per `
 
 **Pros:**
 
-- One contract to deploy, upgrade (via [`propose_upgrade`/`commit_upgrade`](./architecture/two-step-auth.md)), and monitor.
+- One contract to deploy, upgrade (via [`propose_upgrade`/`commit_upgrade`](./architecture/TWO-STEP-AUTH.md)), and monitor.
 - One `ActiveCount`, one whitelist, one grace period, one admin — all protocol-wide settings apply uniformly regardless of which token a subscriber uses.
 - Merchants can accept multiple tokens without deploying anything themselves.
 
@@ -135,7 +137,7 @@ Deploy one FlowPay contract instance. Subscribers choose their own `token` per `
 
 - The admin, `fee_collector`, and every merchant must be prepared to receive and manage balances in however many distinct tokens their subscribers choose. There is no on-chain aggregation across tokens (see [Fee Implications](#fee-implications)).
 - A bug or pause (`pause_contract()`) affects subscribers across _all_ tokens simultaneously, since it's one instance.
-- Per-token analytics (e.g., "total USDC-denominated revenue") must be computed off-chain by filtering `charged` events on the token address emitted in `subscribe`/`subscribed` events, since `merchant_stats.rs` revenue counters are token-agnostic integers.
+- Legacy per-token revenue can be reconstructed from events. Additional subscriptions expose a token-specific settled revenue query.
 
 ### Model B: Separate contract instance per base token
 
@@ -325,7 +327,7 @@ The global volume cap (`GLOBAL_MAX_VOLUME_PER_HOUR = 50_000_000_000_000` stroops
 
 2. **Per-token volume tracking must be done off-chain.** The `charged` and `pay_per_use` events include the token address (via the subscription's `token` field at charge time), so indexers can reconstruct per-token totals by filtering events.
 
-3. **The cap override (`set_global_volume_cap`) is stored but not enforced.** The `check_and_update_global_volume` function hardcodes `GLOBAL_MAX_VOLUME_PER_HOUR` rather than reading the override. This is a known gap — the override value is stored under `DataKey::GlobalVolumeCapOverride` but has no effect on enforcement.
+3. **The cap override (`set_global_volume_cap`) is enforced in the charge path.** `check_and_update_global_volume` calls `effective_global_volume_cap(env)`, which reads `DataKey::GlobalVolumeCapOverride` when set and falls back to `GLOBAL_MAX_VOLUME_PER_HOUR` otherwise. Setting `set_global_volume_cap` therefore takes immediate effect on every subsequent charge. See [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap) for the full cap model.
 
 ### Per-token fee transfer semantics
 
@@ -372,7 +374,7 @@ let should_increment = existing.as_ref().is_none_or(|s| !s.active);
 
 Practical implications:
 
-1. **All fields reset, not just `token`.** You must resupply `merchant`, `amount`, `interval`, `trial_period`, and `referrer` (referral is actually preserved separately via `DataKey::Referral`, immutable after first write — see the [lifecycle spec](./spec/lifecycle_spec.md#referral-data) — but `amount`/`interval`/`trial_period` are not carried over from the old record). There's no partial "just update the token" call.
+1. **All fields reset, not just `token`.** You must resupply `merchant`, `amount`, `interval`, `trial_period`, and `referrer` (referral is actually preserved separately via `DataKey::Referral`, immutable after first write — see the [lifecycle spec](./spec/LIFECYCLE-SPEC.md#referral-data) — but `amount`/`interval`/`trial_period` are not carried over from the old record). There's no partial "just update the token" call.
 2. **A new allowance is required.** The subscriber must call `approve()` on the _new_ token contract before the new `subscribe()` call, or it fails with `ContractError::InsufficientAllowance`. The allowance previously granted on the _old_ token is untouched by this call — it isn't revoked automatically. If you want to stop the contract from being able to pull the old token, the subscriber should separately reduce that allowance to zero on the old token contract.
 3. **Charge history and cancellation state are token-agnostic and persist.** `ChargeHistory(user)` and `SubscriptionMeta(user)` are keyed by user address, not by token, so switching tokens does not reset or fork your charge history — old charges recorded in the old token remain in the same paged history alongside new charges in the new token, with no field distinguishing which token each timestamp was charged in. If you need per-token charge auditing, reconstruct it off-chain from `charged` events (which do include `sub.token` implicitly via the subscription state at charge time) rather than from `get_charge_history_page`.
 4. **`active_count` is not double-counted.** Because the subscriber already had an active subscription, `should_increment` evaluates to `false`, so switching tokens does not inflate `ActiveCount`.
@@ -404,7 +406,7 @@ soroban contract invoke \
 let fee_amount = fee::transfer_pay_per_use(env, &user, &sub.token, amount, &recipient);
 ```
 
-There is no way to make a one-off `pay_per_use` payment in a token different from your active subscription's token — if you need that, the subscriber has to switch their subscription's token first (see above), or you deploy a separate FlowPay instance for that token (Model B). A subscriber with **no** active subscription cannot call `pay_per_use` at all — it requires an existing `Subscription` record purely to know which token and merchant to use, even though it is billed as a one-time charge.
+There is no way to make a one-off `pay_per_use` payment in a token different from your active subscription's token — if you need that, the subscriber has to switch their subscription's token first (see above), or you deploy a separate FlowPay instance for that token (Model B). A subscriber can use `pay_per_use_subscription(user, id, amount)` to select an active additional subscription. Legacy `pay_per_use` requires an active primary subscription — it requires an existing `Subscription` record purely to know which token and merchant to use, even though it is billed as a one-time charge.
 
 ---
 
@@ -413,6 +415,7 @@ There is no way to make a one-off `pay_per_use` payment in a token different fro
 PayFlow's multi-token support is **per-subscription token selection**, not a multi-token AMM or payment router. Concretely, it does **not**:
 
 - **Convert or swap between tokens.** There is no price oracle, no liquidity pool, and no exchange-rate logic anywhere in the contract. A merchant configured with `amount = 100` receives exactly 100 units of whatever token each subscriber picked — 100 USDC from one subscriber and 100 of an illiquid reward token from another are treated identically by the contract, with wildly different real value.
+- **Support fee-on-transfer or rebasing tokens.** PayFlow relies on standard Stellar Asset Contract (SAC) accounting where `transfer_from` transfers nominal amounts exactly. Tokens that deduct fees on transfer or modify balances dynamically via rebasing are unsupported: internal books (such as merchant revenue or protocol fees) assume nominal transfer values, so non-standard tokens whose net delivered amount differs from the specified transfer amount must be disallowed by integrations and merchants.
 - **Aggregate revenue across tokens.** `merchant_stats.rs` (`MerchantRevenue`, `MerchantRevenueDay`, `MerchantRevenueHistory`) stores plain `i128` sums with no token dimension. If a merchant accepts both USDC and XLM, their on-chain revenue counters silently mix unit-incompatible integers. See [Volume Accounting and Fee Semantics for Accountants](#volume-accounting-and-fee-semantics-for-accountants) for worked examples and the recommended approach for per-token reconciliation.
 - **Aggregate global volume in a meaningful cross-token way.** `GlobalVolumeWindow` sums stroop amounts from all tokens into a single `i128`. The 50 trillion stroop cap compares economically heterogeneous values. Per-token volume must be reconstructed from events off-chain.
 - **Enforce that `token` is a real SAC.** As noted in [Token address validation](#token-address-validation), the only on-chain check is an address-shape check, not an interface check.
@@ -617,3 +620,12 @@ async function subscribeWithToken(
 - The protocol fee, if enabled, is always charged in the same token as the subscription it's deducted from (see [Fee Implications](#fee-implications)).
 - A single user address can hold multiple independent subscriptions to different merchants, each with its own token — the one-subscription-per-user limit is per `(user)` key, so a second `subscribe()` call to a _different_ merchant while the first is still active is what [Switching Tokens](#switching-tokens) describes; PayFlow does not key subscriptions by `(user, merchant)`, so there is exactly one active `Subscription` slot per user at a time.
 - The token address must be a valid SAC contract, not a classic Stellar asset issuer/asset-code pair (see [Token address validation](#token-address-validation)).
+
+
+## Concurrent subscriptions
+
+Call `subscribe_additional(user, merchant, amount, interval, token, trial_period)` to create a separate recurring subscription and receive its ID. Each record retains its own merchant, token, schedule, and active flag. The subscriber approves FlowPay separately for each token. The token allowance is shared across all subscriptions that draw on that user and token.
+
+Use the pair `(user, id)` to look up, charge, pay per use, cancel, or maintain a record. ID zero is the primary subscription used by existing clients. Positive-ID payments settle directly in the subscription token and accrue per-token analytics via `get_settled_token_revenue(merchant, token)`. These analytics represent payments already received by the merchant.
+
+See the [storage and migration design](./ARCHITECTURE.md#concurrent-subscription-storage) for the prototype's keeper and lifecycle coverage.

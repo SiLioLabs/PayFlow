@@ -11,6 +11,7 @@ PayFlow/
 ├── .husky/              # Git hooks (pre-commit, pre-push)
 ├── .kiro/               # Spec notes under .kiro/specs/
 ├── contract/            # Soroban smart contract (Rust)
+├── vesting/             # Academy vesting contract (Rust)
 ├── deployments/         # deploy-pipeline config + manifest
 ├── docs/                # Project documentation
 ├── frontend/            # React + TypeScript UI
@@ -20,16 +21,13 @@ PayFlow/
 ├── .gitignore
 ├── AGENTS.md            # Agent-oriented project map
 ├── CHANGELOG.md
+├── Cargo.toml           # Workspace (flowpay + academy-vesting)
+├── Cargo.lock           # Shared Soroban dependency lockfile
 ├── CONTRIBUTING.md
 ├── LICENSE              # MIT License
 ├── README.md
 ├── SECURITY.md
-├── config.ts            # Shared keeper/indexer config
-├── config.test.ts
-├── keeper.ts            # Root keeper entry (canonical copy also in scripts/)
-├── keeper-config.ts
-├── keeper.test.ts
-├── indexer.ts
+├── config.ts            # Config for the root alert-failed-charges script
 ├── package.json         # Root npm scripts (frontend typecheck/build, contract test)
 ├── tsconfig.json
 └── …                    # Additional tracked root notes/scripts (see Root files)
@@ -45,17 +43,16 @@ The Soroban smart contract. Written in Rust, compiled to WASM, deployed to the S
 
 ```
 contract/
-├── Cargo.toml           # Rust package `flowpay`, crate-type cdylib
-├── Cargo.lock
+├── Cargo.toml           # flowpay workspace member manifest
 ├── package-lock.json
 ├── src/                 # Contract modules (see below)
 └── test_snapshots/      # soroban-sdk test snapshot JSON
 ```
 
-Release WASM path (after `cargo build --release --target wasm32-unknown-unknown` in this directory):
+Release WASM path (after `cargo build -p flowpay --release --target wasm32-unknown-unknown` from the repository root):
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 ### `contract/src/`
@@ -83,7 +80,7 @@ contract/src/
 ├── subscription_metadata.rs
 ├── token.rs                  # Note on token/vesting (vesting extracted to vesting/)
 ├── trial.rs
-├── upgrade.rs               # propose_upgrade / commit_upgrade (test-only upgrade())
+├── upgrade.rs               # propose_upgrade / commit_upgrade / cancel_pending_upgrade
 ├── validation.rs
 ├── whitelist.rs
 ├── test.rs                  # Unit tests
@@ -91,6 +88,8 @@ contract/src/
 ```
 
 ### `vesting/` (Academy Vesting Contract)
+
+Separate Soroban crate documentation: [`vesting/README.md`](../vesting/README.md).
 
 ```
 vesting/
@@ -222,8 +221,17 @@ deployments/
 
 ## `docs/`
 
+The task-oriented entry point for everything below is [docs/README.md](README.md).
+
 ```
 docs/
+├── ARCHITECTURE.md     # System design, data model, storage strategy
+├── DEPENDENCIES.md     # Dependency management policy and Dependabot configuration
+├── DEPLOYMENT.md       # Build, deploy, keeper setup
+├── TESTING.md          # How to run and write tests
+├── API.md              # Full contract function reference
+├── STRUCTURE.md        # This file
+└── SECURITY.md         # Security model and disclosure policy
 ├── API.md
 ├── ARCHITECTURE.md
 ├── COMPLIANCE.md
@@ -243,6 +251,7 @@ docs/
 ├── MERCHANT-INTEGRATION.md
 ├── MULTI-TOKEN.md
 ├── ONBOARDING.md
+├── README.md                # Documentation index — start here
 ├── REFERRAL.md              # Compatibility stub → REFERRALS.md
 ├── REFERRALS.md
 ├── SECURITY.md
@@ -251,24 +260,22 @@ docs/
 ├── SUBSCRIBER-LIFECYCLE.md
 ├── TESTING.md
 ├── architecture/
-│   ├── storage_and_ttl.md
-│   └── two-step-auth.md
+│   ├── STORAGE-AND-TTL.md
+│   └── TWO-STEP-AUTH.md
 ├── development/
-│   ├── ci-workflows.md
-│   ├── network-matrix.md
-│   ├── performance-benchmarking.md
-│   └── testing_runbook.md
-├── integrations/
-│   └── frontend_integration.md
+│   ├── CI-WORKFLOWS.md
+│   ├── NETWORK-MATRIX.md
+│   ├── PERFORMANCE-BENCHMARKING.md
+│   └── TESTING-RUNBOOK.md
 ├── operations/
-│   ├── keeper_runbook.md
-│   ├── troubleshooting.md
-│   └── two_step_admin_playbooks.md
+│   ├── KEEPER-RUNBOOK.md
+│   ├── TROUBLESHOOTING.md
+│   └── TWO-STEP-ADMIN-PLAYBOOKS.md
 ├── security/
-│   ├── audit-preparation.md
-│   └── threat_matrix.md
+│   ├── AUDIT-PREPARATION.md
+│   └── THREAT-MATRIX.md
 └── spec/
-    └── lifecycle_spec.md
+    └── LIFECYCLE-SPEC.md
 ```
 
 ---
@@ -296,13 +303,12 @@ Root `package.json` `npm test` runs `tsx --test tests/*.test.ts`.
 | `CONTRIBUTING.md`                   | How to contribute                                                           |
 | `LICENSE`                           | MIT                                                                         |
 | `SECURITY.md`                       | Security policy (Testnet-only until audit)                                  |
-| `config.ts` / `keeper.ts` / `indexer.ts` | Root copies of operational entrypoints                                 |
+| `config.ts`                        | Config for the root `alert-failed-charges.ts` script (canonical keeper/indexer live in `scripts/`) |
 | `AGENTS.md`                         | High-level architecture for agents                                          |
 | `CHANGELOG.md`, `TODO.md`, `UIDesign.md` | Project notes                                                          |
-| `issue.md`, `Issue.md`, `Issues.md` | Tracked issue dumps                                                         |
-| `code.md`, `md`, `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
+| `contract_validation_tasks.ipynb` | Additional tracked notes                                  |
 | `test_migration.rs`                 | Root-level migration test file (canonical tests live in `contract/src/`)    |
-| `alert-failed-charges.ts`, `query-events.ts`, `replay-events.ts` | Root script copies            |
+| `alert-failed-charges.ts`          | Root webhook alert script (`query-events.ts` / `replay-events.ts` live in `scripts/`) |
 
 ---
 
