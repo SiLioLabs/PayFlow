@@ -3180,31 +3180,13 @@ fn subscribe_inner(
         trial_period,
         referrer.clone(),
     );
+    // `prepare_subscription` already performed every validation above
+    // (TTL bump, migration gate, address/amount/interval/token checks, the
+    // whitelist and pause gates, `user.require_auth()` and the allowance
+    // preflight). Repeating them here re-ran `require_auth` in the same frame,
+    // which the host rejects with `Error(Auth, ExistingValue)`, and duplicated
+    // both the token allowance call and the auth check.
     let merchant = &sub.merchant;
-    bump_instance_ttl(env);
-    migration::require_current_version(env);
-    validation::require_valid_subscribe_addresses(env, &user, &merchant);
-    user.require_auth();
-
-    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
-        env.panic_with_error(ContractError::MerchantNotWhitelisted);
-    }
-
-    if whitelist::is_frozen(env, &merchant) {
-        env.panic_with_error(ContractError::MerchantFrozen);
-    }
-
-    // Prevent new subscriptions when contract is paused
-    ensure_contract_not_paused(env);
-
-    validation::require_valid_amount(env, amount);
-    validation::validate_interval(env, interval);
-
-    if !validation::is_contract_address(&token) {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
-
-    validation::check_allowance(env, &user, &token, amount);
 
     let now = env.ledger().timestamp();
     let trial_duration = trial_period.unwrap_or(0);

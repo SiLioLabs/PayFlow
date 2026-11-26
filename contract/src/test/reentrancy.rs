@@ -436,6 +436,7 @@ fn reentrant_token_cannot_double_withdraw_merchant_revenue() {
 
     assert_eq!(client.get_merchant_revenue(&merchant), revenue_before);
     let token = HostileTokenClient::new(&env, &token_addr);
-    // The merchant only holds its initial mint plus the one successful charge.
-    assert_eq!(token.balance(&merchant), 10_000_0000000);
+    // The merchant only holds its initial mint plus the one successful charge;
+    // the aborted withdrawal moved nothing.
+    assert_eq!(token.balance(&merchant), 10_000_0000000 + 1_0000000);
 }
