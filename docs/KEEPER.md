@@ -696,7 +696,7 @@ optional and off by default.
 
 - The admin sets the tip with `set_keeper_tip_bps(bps)`. It is basis points of the
   protocol fee, from `0` (off, the default) to `5000` (half the fee). Larger values
-  are rejected with `InvalidKeeperTipBps` (49). Read it with `get_keeper_tip_bps()`.
+  are rejected with `InvalidKeeperTipBps` (53). Read it with `get_keeper_tip_bps()`.
 - A keeper calls `charge_with_tip(user, keeper)`. The keeper signs as `keeper`, and
   on success receives `fee * bps / 10000` from the subscriber's allowance. The fee
   collector receives the rest of the protocol fee. The merchant's net is unchanged.

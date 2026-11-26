@@ -33,6 +33,10 @@
  *   48 TrialExtensionExceedsMaximum
  *   49 SkipCooldownActive
  *   50 NoLastChargeToRefund
+ *   51 TrialAlreadyUsed
+ *   52 MigrationIncomplete
+ *   53 InvalidKeeperTipBps
+ *   54 InvalidAdminAddress
  *   48 MigrationIncomplete
  *   49 InvalidKeeperTipBps
  *   52 InvalidAdminAddress
@@ -109,6 +113,16 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
   "error(contract, #49)": "You can only skip one billing cycle per interval.",
   "error(contract, #50)": "There is no charge available to refund.",
+  // 51 `TrialAlreadyUsed` — subscribe trial requested for a (user, merchant)
+  // pair that already consumed its one trial (cancel + re-subscribe cannot
+  // reset eligibility).
+  "error(contract, #51)": "You've already used your free trial with this merchant.",
+  // 52 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #52)": "Storage migration is not finished yet; process every account first.",
+  // 53 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
+  "error(contract, #53)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  // 54 `InvalidAdminAddress` — admin transfer target is the current admin or this contract.
+  "error(contract, #54)": "Choose an admin address different from the current admin and contract.",
   // 48 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
   "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
   // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.

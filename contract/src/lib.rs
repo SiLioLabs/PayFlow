@@ -157,6 +157,9 @@ pub enum DataKey {
     MigratedAccount(Address),
     // Feature: number of accounts processed by `migrate` in the current upgrade
     MigratedAccountCount,
+    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
+    // trial grant time so cancel + re-subscribe cannot reset eligibility)
+    TrialUsed(Address, Address),
     // Feature: pay_per_use idempotency nonces (temporary storage, bounded TTL)
     PayPerUseNonce(Address, u64),
     // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
@@ -699,7 +702,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `InvalidKeeperTipBps` (53) when `bps > MAX_KEEPER_TIP_BPS`.
     /// - `NotInitialized` (7) when no admin is set.
     pub fn set_keeper_tip_bps(env: Env, bps: u32) {
         admin::require_admin(&env);
@@ -2483,7 +2486,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// `MigrationIncomplete` (48) when `migrated_accounts < expected_total`.
+    /// `MigrationIncomplete` (52) when `migrated_accounts < expected_total`.
     pub fn finalize_migration(env: Env, expected_total: u64) {
         migration::finalize(&env, expected_total);
     }

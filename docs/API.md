@@ -614,7 +614,7 @@ get_keeper_tip_bps(env: Env) -> u32
 
 `set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
 fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
-maximum fail with `InvalidKeeperTipBps` (49), and a rejected value is not stored. It emits
+maximum fail with `InvalidKeeperTipBps` (53), and a rejected value is not stored. It emits
 [`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
 
 `get_keeper_tip_bps` is read-only.
@@ -2176,7 +2176,7 @@ the number of accounts the operator believes need migrating. Once complete, repe
 calls do nothing and emit nothing. On success it emits
 [`migration_completed`](./EVENTS.md#migration_completed).
 
-Errors: `MigrationIncomplete` (48) when fewer than `expected_total` accounts have been
+Errors: `MigrationIncomplete` (52) when fewer than `expected_total` accounts have been
 processed.
 
 CLI example:
