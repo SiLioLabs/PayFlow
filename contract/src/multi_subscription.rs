@@ -169,13 +169,18 @@ pub(super) fn record_revenue(env: &Env, merchant: &Address, token: &Address, amo
 }
 
 pub(super) fn settle(env: &Env, user: &Address, id: u64, sub: &mut Subscription, now: u64) {
-    let (fee, net, _, _) = fee::transfer_subscription_charge(env, user, sub, None, false);
+    // Checks-effects-interactions (issue #1434): plan the fee split, commit
+    // every state write, then transfer last.
+    let plan = fee::plan_subscription_charge(env, user, sub, None, false);
     check_and_update_global_volume(env, sub.amount);
-    record_revenue(env, &sub.merchant, &sub.token, net);
+    record_revenue(env, &sub.merchant, &sub.token, plan.net);
     sub.last_charged = now;
     env.storage().persistent().set(&key(env, user, id), sub);
     bump(env, user, id);
-    publish_payment(env, user, id, sub, sub.amount, fee, false);
+    publish_payment(env, user, id, sub, sub.amount, plan.fee_amount, false);
+
+    // Interaction: transfers last.
+    fee::settle_subscription_charge(env, user, sub, &plan);
 }
 
 pub(super) fn publish_payment(

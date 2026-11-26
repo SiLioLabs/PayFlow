@@ -260,25 +260,50 @@ pub fn set_keeper_tip_bps(env: &Env, bps: u32) {
     crate::events::publish_keeper_tip_bps_set(env, old, bps);
 }
 
-/// Transfers subscription charge amounts (fee to collector/merchant fee recipient, net to merchant).
+/// Fee split for a subscription charge, computed **before** any token
+/// interaction so the caller can commit every state write first
+/// (checks-effects-interactions, issue #1434).
 ///
-/// When `keeper` is `Some` and a protocol fee applies, the keeper receives
-/// `fee * keeper_tip_bps / 10_000` out of that fee; the fee collector receives the
-/// remainder. The keeper tip never changes `net` or the gross charge.
-///
-/// Returns `(fee_amount, net, paid_to, tip)`. `fee_amount` is the full protocol fee
-/// (collector share plus tip), so `fee_amount + net == sub.amount` still holds.
-/// Bookkeeping and events reuse these checked amounts.
+/// [`plan_subscription_charge`] performs the allowance preflight and every
+/// fee-side state write (`TotalProtocolFees`, referral accrual) but moves no
+/// funds; [`settle_subscription_charge`] performs the transfers described here.
+pub struct SubscriptionChargePlan {
+    /// Full protocol fee (collector share + keeper tip + referral reward).
+    pub fee_amount: i128,
+    /// Amount owed to the merchant (`sub.amount - fee_amount`).
+    pub net: i128,
+    /// Fee collector, when a fee is actually charged.
+    pub paid_to: Option<Address>,
+    /// Keeper tip carved out of `fee_amount` (0 without a keeper/tip bps).
+    pub tip: i128,
+    /// Referral reward carved out of `fee_amount`.
+    pub reward: i128,
+    keeper: Option<Address>,
+    collector: Option<Address>,
+}
+
+impl SubscriptionChargePlan {
+    /// Portion of the fee that stays with the fee collector.
+    fn collector_share(&self) -> i128 {
+        self.fee_amount - self.tip - self.reward
+    }
+}
+
+/// Computes the fee split for `sub.amount` and records every fee-side state
+/// write. Performs **no** token transfer: call
+/// [`settle_subscription_charge`] once the caller has written all of its own
+/// effects, so no state write can follow the token interaction.
 ///
 /// Panics with `InsufficientAllowance` when the contract's allowance over
-/// `user`'s tokens is below the **gross** `sub.amount`, before any transfer runs.
-pub fn transfer_subscription_charge(
+/// `user`'s tokens is below the **gross** `sub.amount`, before any transfer is
+/// planned.
+pub fn plan_subscription_charge(
     env: &Env,
     user: &Address,
     sub: &Subscription,
     keeper: Option<&Address>,
     accrue_referral: bool,
-) -> (i128, i128, Option<Address>, i128) {
+) -> SubscriptionChargePlan {
     // Preflight: one allowance check covering every leg (fee + net == gross).
     validation::check_allowance(env, user, &sub.token, sub.amount);
 
@@ -286,80 +311,122 @@ pub fn transfer_subscription_charge(
     let fee_collector =
         get_merchant_fee_recipient(env, &sub.merchant).or_else(|| get_fee_collector(env));
 
-    let (fee_amount, paid_to, tip) = match fee_collector {
-        Some(collector) if bps > 0 => {
+    let mut fee_amount = 0;
+    let mut tip = 0;
+    let mut reward = 0;
+    let mut collector = None;
+
+    if let Some(fee_recipient) = fee_collector {
+        if bps > 0 {
             let fee = calculate_fee_amount(env, sub.amount, bps);
             if fee > 0 {
                 // Tips come out of the protocol fee only, and only when a keeper
                 // is named. A zero tip bps yields zero via `calculate_fee_amount`.
-                let tip = keeper.map_or(0, |_| {
-                    calculate_fee_amount(env, fee, get_keeper_tip_bps(env))
-                });
-                let reward = if accrue_referral {
+                tip = keeper
+                    .map_or(0, |_| calculate_fee_amount(env, fee, get_keeper_tip_bps(env)));
+                // Referral accrual is a state write, so it happens here, in the
+                // effects phase, rather than between the transfer legs.
+                reward = if accrue_referral {
                     crate::referral::accrue_charge_reward(env, user, &sub.token, fee - tip)
                 } else {
                     0
                 };
+                // Effect: book the fees the protocol keeps (collector share +
+                // referral reward) before any transfer.
                 let to_collector = fee - tip - reward;
-                let token_client = token::Client::new(env, &sub.token);
-                if to_collector > 0 {
-                    token_client.transfer_from(
-                        &env.current_contract_address(),
-                        user,
-                        &collector,
-                        &to_collector,
-                    );
-                }
-                if tip > 0 {
-                    if let Some(keeper_addr) = keeper {
-                        token_client.transfer_from(
-                            &env.current_contract_address(),
-                            user,
-                            keeper_addr,
-                            &tip,
-                        );
-                    }
-                }
-                if reward > 0 {
-                    token_client.transfer_from(
-                        &env.current_contract_address(),
-                        user,
-                        &env.current_contract_address(),
-                        &reward,
-                    );
-                }
                 accumulate_protocol_fees(env, to_collector + reward);
-                (fee, Some(collector), tip)
-            } else {
-                (0, None, 0)
+                fee_amount = fee;
+                collector = Some(fee_recipient);
             }
         }
-        _ => (0, None, 0),
-    };
+    }
+
     let net = sub
         .amount
         .checked_sub(fee_amount)
         .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
 
-    let token_client = token::Client::new(env, &sub.token);
-    token_client.transfer_from(&env.current_contract_address(), user, &sub.merchant, &net);
-
-    (fee_amount, net, paid_to, tip)
+    SubscriptionChargePlan {
+        fee_amount,
+        net,
+        paid_to: collector.clone(),
+        tip,
+        reward,
+        keeper: keeper.cloned(),
+        collector,
+    }
 }
 
-/// Transfers a pay-per-use amount (fee to collector/merchant fee recipient, net to `recipient`).
-/// Returns the fee amount deducted from the gross amount.
+/// Performs the token transfers described by `plan` (the interaction phase).
+///
+/// Must be called only after the caller has committed every state write for
+/// this charge, so a (hypothetical) re-entrant callee can never observe
+/// pre-charge state. Transfer legs run in the same order as before: collector
+/// share, keeper tip, referral reward, then the merchant's net amount.
+pub fn settle_subscription_charge(
+    env: &Env,
+    user: &Address,
+    sub: &Subscription,
+    plan: &SubscriptionChargePlan,
+) {
+    let token_client = token::Client::new(env, &sub.token);
+    if let Some(collector) = &plan.collector {
+        let to_collector = plan.collector_share();
+        if to_collector > 0 {
+            token_client.transfer_from(
+                &env.current_contract_address(),
+                user,
+                collector,
+                &to_collector,
+            );
+        }
+        if plan.tip > 0 {
+            if let Some(keeper_addr) = &plan.keeper {
+                token_client.transfer_from(
+                    &env.current_contract_address(),
+                    user,
+                    keeper_addr,
+                    &plan.tip,
+                );
+            }
+        }
+        if plan.reward > 0 {
+            token_client.transfer_from(
+                &env.current_contract_address(),
+                user,
+                &env.current_contract_address(),
+                &plan.reward,
+            );
+        }
+    }
+
+    let token_client = token::Client::new(env, &sub.token);
+    token_client.transfer_from(&env.current_contract_address(), user, &sub.merchant, &plan.net);
+}
+
+/// Fee split for a pay-per-use payment; see [`SubscriptionChargePlan`].
+pub struct PayPerUsePlan {
+    /// Protocol fee deducted from the gross `amount`.
+    pub fee_amount: i128,
+    /// Amount owed to the recipient (`amount - fee_amount`).
+    pub net: i128,
+    collector: Option<Address>,
+}
+
+/// Computes the pay-per-use fee split and books the protocol-fee accrual.
+/// Performs **no** token transfer; call [`settle_pay_per_use`] after the
+/// caller's state writes.
 ///
 /// Panics with `InsufficientAllowance` when the contract's allowance over
-/// `user`'s tokens is below the **gross** `amount`, before any transfer runs.
-/// See the two-leg atomicity note above.
-pub fn transfer_pay_per_use(
+/// `user`'s tokens is below the **gross** `amount`, before any transfer is
+/// planned.
+pub fn plan_pay_per_use(
     env: &Env,
     user: &Address,
     token: &Address,
     amount: i128,
     recipient: &Address,
-) -> i128 {
+) -> PayPerUsePlan {
     // Preflight: one allowance check covering both legs (fee + net == gross).
     validation::check_allowance(env, user, token, amount);
 
@@ -367,26 +434,53 @@ pub fn transfer_pay_per_use(
     let fee_collector =
         get_merchant_fee_recipient(env, recipient).or_else(|| get_fee_collector(env));
 
-    let fee_amount = match fee_collector {
-        Some(collector) if bps > 0 => {
+    let mut fee_amount = 0;
+    let mut collector = None;
+
+    if let Some(fee_recipient) = fee_collector {
+        if bps > 0 {
             let fee = calculate_fee_amount(env, amount, bps);
             if fee > 0 {
-                let token_client = token::Client::new(env, token);
-                token_client.transfer_from(&env.current_contract_address(), user, &collector, &fee);
+                // Effect: book the fee before the transfer that collects it.
                 accumulate_protocol_fees(env, fee);
+                fee_amount = fee;
+                collector = Some(fee_recipient);
             }
-            fee
         }
-        _ => 0,
-    };
+    }
+
     let net = amount
         .checked_sub(fee_amount)
         .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
 
-    let token_client = token::Client::new(env, token);
-    token_client.transfer_from(&env.current_contract_address(), user, recipient, &net);
+    PayPerUsePlan {
+        fee_amount,
+        net,
+        collector,
+    }
+}
 
-    fee_amount
+/// Performs the pay-per-use token transfers described by `plan` (the
+/// interaction phase): fee leg first, then the recipient's net amount.
+pub fn settle_pay_per_use(
+    env: &Env,
+    user: &Address,
+    token: &Address,
+    recipient: &Address,
+    plan: &PayPerUsePlan,
+) {
+    let token_client = token::Client::new(env, token);
+    if let Some(collector) = &plan.collector {
+        if plan.fee_amount > 0 {
+            token_client.transfer_from(
+                &env.current_contract_address(),
+                user,
+                collector,
+                &plan.fee_amount,
+            );
+        }
+    }
+    token_client.transfer_from(&env.current_contract_address(), user, recipient, &plan.net);
 }
 
 #[cfg(test)]

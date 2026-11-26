@@ -167,7 +167,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         // here we convert that condition into a per-user result
                         // so the rest of the batch continues unaffected.
                         //
-                        // `fee::transfer_subscription_charge` asserts the same
+                        // `fee::plan_subscription_charge` asserts the same
                         // `allowance >= gross` invariant again before its two
                         // transfer legs. That re-read is deliberate: the helper
                         // is also reached from single `charge()` and from

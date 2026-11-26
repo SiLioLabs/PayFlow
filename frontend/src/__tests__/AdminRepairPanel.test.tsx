@@ -35,7 +35,9 @@ describe("AdminRepairPanel", () => {
 
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: true,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -98,7 +100,9 @@ describe("AdminRepairPanel", () => {
   it("disables repair for unauthorized wallets", async () => {
     vi.mocked(useAdmin).mockReturnValue({
       adminAddress: "GADMIN123",
+      pendingAdminAddress: null,
       isAdmin: false,
+      isPendingAdmin: false,
       loading: false,
       error: null,
       refresh: vi.fn(),

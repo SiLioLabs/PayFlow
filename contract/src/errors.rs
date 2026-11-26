@@ -129,7 +129,7 @@ pub enum ContractError {
     TrialExtensionExceedsMaximum = 48,
     /// Returned when `skip_next_charge` is called again before the cooldown of
     /// one full billing interval has elapsed since the previous skip.
-    SkipCooldownActive = 54,
+    SkipCooldownActive = 49,
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
@@ -138,24 +138,18 @@ pub enum ContractError {
     TrialAlreadyUsed = 51,
     /// Returned by `finalize_migration` while fewer accounts have been migrated
     /// than the operator-supplied total, so the schema version cannot be advanced.
-    MigrationIncomplete = 53,
     MigrationIncomplete = 52,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
     InvalidKeeperTipBps = 53,
     /// Returned when an admin transfer targets the current admin or this contract.
     InvalidAdminAddress = 54,
-    InvalidAdminAddress = 48,
     /// Returned by `pay_per_use_with_nonce` when the (user, nonce) pair has
     /// already been recorded, rejecting a replayed retry without charging again.
-    NonceAlreadyUsed = 51,
-    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
-    /// for a (user, merchant) pair that has already consumed its one trial.
-    TrialAlreadyUsed = 52,
-    InvalidAdminAddress = 52,
+    NonceAlreadyUsed = 58,
     /// Merchant fee override exceeds current configured protocol bounds.
     InvalidMerchantFeeBps = 55,
     /// Operator cannot be the contract itself.
-    InvalidOperatorAddress = 51,
+    InvalidOperatorAddress = 59,
     /// A live record already occupies the next allocated subscription ID.
     SubscriptionIdAlreadyExists = 56,
     /// The named emergency actor is neither the operator nor the admin.

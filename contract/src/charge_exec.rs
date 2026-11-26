@@ -423,11 +423,17 @@ pub fn execute_charge(
     now: u64,
     keeper: Option<&Address>,
 ) -> i128 {
-    let (fee_amount, net, paid_to, tip) =
-        fee::transfer_subscription_charge(env, user, sub, keeper, true);
+    // Checks: allowance preflight plus the fee split.
+    //
+    // Checks-effects-interactions (issue #1434): `plan_subscription_charge`
+    // only computes amounts and books fee-side state (protocol-fee accrual,
+    // referral accrual). Every remaining effect below is written before the
+    // token interaction, which is deferred to `settle_subscription_charge` at
+    // the end of this function. No state is written after the transfers.
+    let plan = fee::plan_subscription_charge(env, user, sub, keeper, true);
 
     crate::check_and_update_global_volume(env, sub.amount);
-    merchant_stats::increment_revenue_with_daily(env, &sub.merchant, net);
+    merchant_stats::increment_revenue_with_daily(env, &sub.merchant, plan.net);
     storage::set_last_charge(
         env,
         user,
@@ -435,8 +441,8 @@ pub fn execute_charge(
             merchant: sub.merchant.clone(),
             token: sub.token.clone(),
             amount: sub.amount,
-            fee: fee_amount,
-            net,
+            fee: plan.fee_amount,
+            net: plan.net,
             charged_at: now,
         },
     );
@@ -449,18 +455,21 @@ pub fn execute_charge(
         env,
         user,
         sub,
-        fee_amount,
-        net,
+        plan.fee_amount,
+        plan.net,
         now,
-        paid_to,
+        plan.paid_to.clone(),
         fee::effective_fee_bps(env, &sub.merchant),
     );
 
-    if tip > 0 {
+    if plan.tip > 0 {
         if let Some(keeper_addr) = keeper {
-            events::publish_keeper_tip(env, keeper_addr, user, tip);
+            events::publish_keeper_tip(env, keeper_addr, user, plan.tip);
         }
     }
 
-    fee_amount
+    // Interaction: transfers last.
+    fee::settle_subscription_charge(env, user, sub, &plan);
+
+    plan.fee_amount
 }

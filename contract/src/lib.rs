@@ -169,9 +169,6 @@ pub enum DataKey {
     TrialUsed(Address, Address),
     // Feature: pay_per_use idempotency nonces (temporary storage, bounded TTL)
     PayPerUseNonce(Address, u64),
-    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
-    // trial grant time so cancel + re-subscribe cannot reset eligibility)
-    TrialUsed(Address, Address),
     // Feature: per-merchant maximum pay_per_use amount
     MerchantMaxPerUse(Address),
     // New keys are appended to preserve the established DataKey discriminants.
@@ -909,8 +906,12 @@ impl FlowPay {
     pub fn pay_per_use_with_nonce(env: Env, user: Address, amount: i128, nonce: u64) {
         bump_instance_ttl(&env);
         spending_limit::enforce_nonce_unused(&env, &user, nonce);
-        pay_per_use_inner(&env, user.clone(), amount, None);
+        // Effect before the interaction: the nonce is committed before
+        // `pay_per_use_inner` reaches the token transfer (issue #1434). A
+        // failed charge reverts the whole invocation, so the nonce is still
+        // consumed only by a charge that succeeds.
         spending_limit::record_nonce(&env, &user, nonce);
+        pay_per_use_inner(&env, user.clone(), amount, None, 0);
     }
 
     pub fn get_day_start(env: Env, user: Address) -> Option<u64> {
@@ -1015,9 +1016,12 @@ impl FlowPay {
             env.panic_with_error(ContractError::InsufficientMerchantBalance);
         }
 
-        token_client.transfer(&merchant, &user, &refund);
+        // Checks-effects-interactions (issue #1434): clear the subscription and
+        // emit before the merchant -> user transfer, so no state write follows
+        // the token interaction.
         cancel_inner(&env, &user);
         events::publish_cancelled_with_refund(&env, &user, refund);
+        token_client.transfer(&merchant, &user, &refund);
     }
 
     /// Merchant-initiated refund of the subscriber's most recent scheduled
@@ -1069,9 +1073,9 @@ impl FlowPay {
             env.panic_with_error(ContractError::InsufficientMerchantBalance);
         }
 
-        token_client.transfer(&merchant, &user, &record.amount);
-
-        // Reverse the same legs booked by `charge_exec::execute_charge`.
+        // Checks-effects-interactions (issue #1434): reverse the same legs
+        // booked by `charge_exec::execute_charge`, clear the record and emit
+        // before the merchant -> user transfer.
         merchant_stats::decrement_revenue(&env, &merchant, record.net);
         fee::decrement_protocol_fees(&env, record.fee);
         storage::clear_last_charge(&env, &user);
@@ -1086,6 +1090,8 @@ impl FlowPay {
             record.net,
             record.charged_at,
         );
+
+        token_client.transfer(&merchant, &user, &record.amount);
     }
 
     /// Skips exactly one upcoming billing cycle for `user` without pausing or
@@ -1544,6 +1550,8 @@ impl FlowPay {
             Some(s) => s.amount.saturating_mul(cycles as i128),
             None => 0,
         }
+    }
+
     /// Returns subscriptions for multiple users in a single call, preserving
     /// input order (`result[i]` corresponds to `users[i]`; `None` where no
     /// subscription exists, mirroring `get_subscription`).
@@ -2357,13 +2365,14 @@ impl FlowPay {
             env.panic_with_error(ContractError::ZeroBalanceAvailable);
         }
 
-        // Reset before transfer to guard against reentrancy.
+        // Checks-effects-interactions (issue #1434): the revenue reset and the
+        // event are committed before the contract -> merchant transfer, so a
+        // hostile token can never observe a stale (withdrawable) balance.
         merchant_stats::reset_merchant_revenue(&env, &merchant);
+        events::publish_merchant_withdrawal(&env, &merchant, amount);
 
         let token_client = token::Client::new(&env, &token_addr);
         token_client.transfer(&env.current_contract_address(), &merchant, &amount);
-
-        events::publish_merchant_withdrawal(&env, &merchant, amount);
     }
 
     /// Returns per-charge revenue entries for the merchant (up to `days` most recent,
@@ -3129,8 +3138,11 @@ fn pay_per_use_inner(env: &Env, user: Address, amount: i128, recipient: Option<A
     charge_exec::enforce_merchant_max_per_use(env, &recipient, amount);
     spending_limit::enforce_limit(env, &user, amount);
 
-    let fee_amount = fee::transfer_pay_per_use(env, &user, &sub.token, amount, &recipient);
-    let net_amount = amount - fee_amount;
+    // Checks-effects-interactions (issue #1434): plan the fee split (checks +
+    // fee accrual), commit every state write below, then transfer last via
+    // `settle_pay_per_use`. No state is written after the token interaction.
+    let plan = fee::plan_pay_per_use(env, &user, &sub.token, amount, &recipient);
+    let net_amount = plan.net;
 
     check_and_update_global_volume(env, amount);
     spending_limit::record_spend(env, &user, amount);
@@ -3141,8 +3153,11 @@ fn pay_per_use_inner(env: &Env, user: Address, amount: i128, recipient: Option<A
     } else {
         multi_subscription::record_revenue(env, &recipient, &sub.token, net_amount);
         multi_subscription::bump(env, &user, id);
-        multi_subscription::publish_payment(env, &user, id, &sub, amount, fee_amount, true);
+        multi_subscription::publish_payment(env, &user, id, &sub, amount, plan.fee_amount, true);
     }
+
+    // Interaction: transfers last.
+    fee::settle_pay_per_use(env, &user, &sub.token, &recipient, &plan);
 }
 
 fn subscribe_inner(
@@ -3161,35 +3176,17 @@ fn subscribe_inner(
         merchant,
         amount,
         interval,
-        token,
+        token.clone(),
         trial_period,
         referrer.clone(),
     );
+    // `prepare_subscription` already performed every validation above
+    // (TTL bump, migration gate, address/amount/interval/token checks, the
+    // whitelist and pause gates, `user.require_auth()` and the allowance
+    // preflight). Repeating them here re-ran `require_auth` in the same frame,
+    // which the host rejects with `Error(Auth, ExistingValue)`, and duplicated
+    // both the token allowance call and the auth check.
     let merchant = &sub.merchant;
-    bump_instance_ttl(env);
-    migration::require_current_version(env);
-    validation::require_valid_subscribe_addresses(env, &user, &merchant);
-    user.require_auth();
-
-    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
-        env.panic_with_error(ContractError::MerchantNotWhitelisted);
-    }
-
-    if whitelist::is_frozen(env, &merchant) {
-        env.panic_with_error(ContractError::MerchantFrozen);
-    }
-
-    // Prevent new subscriptions when contract is paused
-    ensure_contract_not_paused(env);
-
-    validation::require_valid_amount(env, amount);
-    validation::validate_interval(env, interval);
-
-    if !validation::is_contract_address(&token) {
-        env.panic_with_error(ContractError::InvalidTokenAddress);
-    }
-
-    validation::check_allowance(env, &user, &token, amount);
 
     let now = env.ledger().timestamp();
     let trial_duration = trial_period.unwrap_or(0);

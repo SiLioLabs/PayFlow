@@ -2056,6 +2056,39 @@ export function getReferrer(user: string): Promise<string | null> {
   });
 }
 
+/** Returns the pending admin address awaiting accept_admin(), or null if none. */
+export async function getContractPendingAdmin(sourcePublicKey: string): Promise<string | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const retval = await simulateContractRead(sourcePublicKey, "get_pending_admin", []);
+    if (!retval || retval.switch().name === "scvVoid") return null;
+    if (retval.switch().name === "scvAddress") {
+      return Address.fromScVal(retval).toString();
+    }
+    // Option<Address>
+    const inner = (retval as any).value?.() ?? (retval as any)._value;
+    if (inner) {
+      return Address.fromScVal(inner).toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Builds a transfer_admin(new_admin) transaction for signing by the current admin. */
+export async function buildTransferAdminTx(
+  adminPublicKey: string,
+  newAdmin: string
+): Promise<string> {
+  return buildTx(adminPublicKey, "transfer_admin", [addressVal(newAdmin)]);
+}
+
+/** Builds an accept_admin() transaction for signing by the pending admin. */
+export async function buildAcceptAdminTx(pendingAdminPublicKey: string): Promise<string> {
+  return buildTx(pendingAdminPublicKey, "accept_admin", []);
+}
+
 // ── Issue #4: Withdraw Merchant Revenue ───────────────────────────────────────
 
 /**

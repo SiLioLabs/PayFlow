@@ -5,6 +5,8 @@ import MerchantFreezePanel from "../components/admin/MerchantFreezePanel";
 import PendingUpgradePanel from "../components/admin/PendingUpgradePanel";
 import BatchPausePanel from "../components/admin/BatchPausePanel";
 import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
+import AdminTransferPanel from "../components/admin/AdminTransferPanel";
+
 import FeeAdminPanel from "../components/admin/FeeAdminPanel";
 import { useAdmin } from "../hooks/useAdmin";
 import Spinner from "../components/Spinner";
@@ -16,7 +18,8 @@ interface Props {
 }
 
 export default function AdminDashboard({ publicKey, onSign, gatePassed = true }: Props) {
-  const { isAdmin, adminAddress, loading } = useAdmin(publicKey);
+  const { isAdmin, isPendingAdmin, adminAddress, pendingAdminAddress, loading, refresh } =
+    useAdmin(publicKey);
 
   const effectiveAdmin = isAdmin && gatePassed;
 
@@ -40,6 +43,8 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
         <p className="text-sm text-muted mb-6">
           {isAdmin
             ? `Authorized as contract admin (${adminAddress?.slice(0, 8)}…).`
+            : isPendingAdmin
+            ? `Pending admin — accept the transfer to take ownership (${pendingAdminAddress?.slice(0, 8)}…).`
             : "Diagnostic tools are available in read-only mode. Repair actions require the contract admin wallet."}
         </p>
       )}
@@ -83,7 +88,7 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
       </div>
 
       <div
-        className="card admin-dashboard__section"
+        className="card admin-dashboard__section mb-4"
         style={{ opacity: effectiveAdmin ? 1 : 0.6 }}
         aria-disabled={!effectiveAdmin}
       >
@@ -94,6 +99,18 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
           </div>
         )}
         <BatchWhitelistPanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
+      </div>
+
+      <div className="card admin-dashboard__section">
+        <AdminTransferPanel
+          publicKey={publicKey}
+          onSign={onSign}
+          isAdmin={effectiveAdmin}
+          isPendingAdmin={isPendingAdmin}
+          adminAddress={adminAddress}
+          pendingAdminAddress={pendingAdminAddress}
+          onSuccess={refresh}
+        />
       </div>
     </div>
   );
