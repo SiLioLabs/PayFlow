@@ -212,6 +212,8 @@ PayFlow is **non-custodial**:
 > **Non-Custodial Architecture:**
 > Because funds settle immediately into the merchant's wallet at charge time, the smart contract never escrows or holds merchant revenue. There is no withdrawal step or contract holding balance. See [§ 5](#5-non-custodial-settlement--revenue-tracking).
 
+Accounting invariants therefore compare each successful charge's token balance deltas with the recorded merchant net and protocol-fee distribution; they do not compare the contract balance with cumulative merchant revenue. Refunds debit the merchant wallet and credit the subscriber directly. Referral rewards are the exception: their protocol-fee share is reserved in the contract until the referrer withdraws it, so the contract's token balance must cover the sum of outstanding referral reward balances for that token.
+
 ### 2.3 Optional fee recipient
 
 Merchants can redirect net proceeds to a different address via `set_merchant_fee_recipient`. This affects both subscription charges and `pay_per_use` / `pay_per_use_to` calls routed through the merchant.

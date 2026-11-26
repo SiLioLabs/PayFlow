@@ -10,7 +10,44 @@ use crate::storage;
 use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
-use crate::{extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, MAX_AMOUNT};
+use crate::{
+    extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, SUBSCRIPTION_TTL_LEDGERS,
+    MAX_AMOUNT,
+};
+
+/// Sets `merchant`'s per-call maximum `pay_per_use` amount. Enforced
+/// alongside the global `MAX_AMOUNT` cap (`AmountExceedsMaximum`), not in
+/// place of it. The caller must authorize as `merchant`.
+pub fn set_merchant_max_per_use(env: &Env, merchant: &Address, max_amount: i128) {
+    merchant.require_auth();
+    validation::require_valid_amount(env, max_amount);
+    let key = DataKey::MerchantMaxPerUse(merchant.clone());
+    env.storage().persistent().set(&key, &max_amount);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+    events::publish_merchant_max_per_use_set(env, merchant, max_amount);
+}
+
+/// Returns `merchant`'s configured per-call `pay_per_use` maximum, or `None`
+/// if unset (only the global `MAX_AMOUNT` cap applies).
+pub fn get_merchant_max_per_use(env: &Env, merchant: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MerchantMaxPerUse(merchant.clone()))
+}
+
+/// Panics with `AmountExceedsMaximum` if `merchant` has configured a
+/// per-call maximum and `amount` exceeds it. No-op if unset.
+pub fn enforce_merchant_max_per_use(env: &Env, merchant: &Address, amount: i128) {
+    if let Some(max_amount) = get_merchant_max_per_use(env, merchant) {
+        if amount > max_amount {
+            env.panic_with_error(crate::errors::ContractError::AmountExceedsMaximum);
+        }
+    }
+}
 
 /// ─────────────────────────────────────────────────────────────
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
@@ -294,6 +331,12 @@ pub fn simulate_pay_per_use(
         }
     }
 
+    if let Some(max_amount) = get_merchant_max_per_use(env, &recipient) {
+        if amount > max_amount {
+            return PayPerUseSimResult::AmountExceedsMaximum;
+        }
+    }
+
     if let Some(limit) = spending_limit::get_daily_limit(env, &user) {
         let spent = spending_limit::get_daily_spent(env, &user);
         if spent + amount > limit {
@@ -398,7 +441,16 @@ pub fn execute_charge(
     env.storage().persistent().set(key, sub);
     extend_subscription_ttl(env, user);
     subscription_history::record_charge(env, user, now);
-    events::publish_charged(env, user, sub, fee_amount, net, now, paid_to);
+    events::publish_charged(
+        env,
+        user,
+        sub,
+        fee_amount,
+        net,
+        now,
+        paid_to,
+        fee::effective_fee_bps(env, &sub.merchant),
+    );
 
     if tip > 0 {
         if let Some(keeper_addr) = keeper {

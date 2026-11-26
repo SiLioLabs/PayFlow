@@ -160,6 +160,20 @@ pub enum DataKey {
     // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
     // trial grant time so cancel + re-subscribe cannot reset eligibility)
     TrialUsed(Address, Address),
+    // Feature: pay_per_use idempotency nonces (temporary storage, bounded TTL)
+    PayPerUseNonce(Address, u64),
+    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
+    // trial grant time so cancel + re-subscribe cannot reset eligibility)
+    TrialUsed(Address, Address),
+    // Feature: per-merchant maximum pay_per_use amount
+    MerchantMaxPerUse(Address),
+    // New keys are appended to preserve the established DataKey discriminants.
+    Operator,
+    MerchantFeeBps(Address),
+    ReferralReward(Address, Address),
+    ReferralRewardChargeCount(Address),
+    ReferralRewardBps,
+    ReferralRewardMaxCharges,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -798,6 +812,33 @@ impl FlowPay {
     /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
     pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
         pay_per_use_inner(&env, user, amount, Some(recipient));
+    }
+
+    /// Idempotent variant of `pay_per_use`: a client retry after a timeout
+    /// can safely resend the same `(user, nonce)` without double-charging.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber address. Must authorize the call.
+    /// - `amount`: One-time amount to transfer. Must be greater than zero.
+    /// - `nonce`: Caller-chosen request identity. Replaying an already-seen
+    ///   `(user, nonce)` pair panics with `NonceAlreadyUsed` instead of
+    ///   charging again.
+    ///
+    /// # Errors
+    ///
+    /// Panics with `NonceAlreadyUsed` if `(user, nonce)` was already recorded
+    /// (within its ~1-day TTL); otherwise the same errors as `pay_per_use`.
+    ///
+    /// # Side Effects
+    ///
+    /// Same as `pay_per_use`, plus records `(user, nonce)` in temporary
+    /// storage (bounded TTL) once the charge succeeds.
+    pub fn pay_per_use_with_nonce(env: Env, user: Address, amount: i128, nonce: u64) {
+        bump_instance_ttl(&env);
+        spending_limit::enforce_nonce_unused(&env, &user, nonce);
+        pay_per_use_inner(&env, user.clone(), amount, None);
+        spending_limit::record_nonce(&env, &user, nonce);
     }
 
     pub fn get_day_start(env: Env, user: Address) -> Option<u64> {
@@ -1770,22 +1811,49 @@ impl FlowPay {
         fee::set_merchant_fee_recipient(&env, &merchant, &recipient);
     }
 
+    /// Admin sets or clears a merchant-specific protocol fee override.
+    pub fn set_merchant_fee_bps(env: Env, merchant: Address, bps: Option<u32>) {
+        admin::require_admin(&env);
+        fee::set_merchant_fee_bps(&env, &merchant, bps);
+    }
+
+    pub fn get_merchant_fee_bps(env: Env, merchant: Address) -> Option<u32> {
+        fee::get_merchant_fee_bps(&env, &merchant)
+    }
+
+    pub fn get_effective_fee_bps(env: Env, merchant: Address) -> u32 {
+        fee::effective_fee_bps(&env, &merchant)
+    }
+
     /// Returns the configured merchant fee recipient, or None when unset.
     pub fn get_merchant_fee_recipient(env: Env, merchant: Address) -> Option<Address> {
         fee::get_merchant_fee_recipient(&env, &merchant)
+    }
+
+    /// Sets a per-call maximum `pay_per_use`/`pay_per_use_to` amount for a
+    /// merchant. The caller must be the merchant. Enforced alongside the
+    /// existing global `MAX_AMOUNT` cap, not in place of it.
+    pub fn set_merchant_max_per_use(env: Env, merchant: Address, max_amount: i128) {
+        ensure_contract_not_paused(&env);
+        charge_exec::set_merchant_max_per_use(&env, &merchant, max_amount);
+    }
+
+    /// Returns the configured merchant per-call maximum, or None when unset.
+    pub fn get_merchant_max_per_use(env: Env, merchant: Address) -> Option<i128> {
+        charge_exec::get_merchant_max_per_use(&env, &merchant)
     }
 
     /// Freezes a merchant, blocking new subscriptions while leaving existing
     /// subscribers' charge and pay_per_use calls unaffected. Independent of
     /// whitelist status — idempotent.
     pub fn freeze_merchant(env: Env, merchant: Address, reason: Option<String>) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         whitelist::freeze(&env, &merchant, reason);
     }
 
     /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
     pub fn unfreeze_merchant(env: Env, merchant: Address) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         whitelist::unfreeze(&env, &merchant);
     }
 
@@ -2377,6 +2445,26 @@ impl FlowPay {
         referral::get_referrer(&env, &user)
     }
 
+    /// Admin policy: share of protocol fee paid as referral credit and eligible charge count.
+    pub fn set_referral_reward_policy(env: Env, bps: u32, max_charges: u32) {
+        admin::require_admin(&env);
+        if bps > referral::MAX_REFERRAL_REWARD_BPS || max_charges == 0 {
+            env.panic_with_error(ContractError::InvalidMerchantFeeBps);
+        }
+        env.storage().instance().set(&DataKey::ReferralRewardBps, &bps);
+        env.storage().instance().set(&DataKey::ReferralRewardMaxCharges, &max_charges);
+        events::publish_referral_reward_policy(&env, bps, max_charges);
+    }
+
+    pub fn get_referral_reward_balance(env: Env, token: Address, referrer: Address) -> i128 {
+        referral::get_reward_balance(&env, &token, &referrer)
+    }
+
+    /// Withdraws accrued referral rewards for the supplied SAC token.
+    pub fn withdraw_referral_rewards(env: Env, token: Address, referrer: Address) -> i128 {
+        referral::withdraw_reward(&env, &token, &referrer)
+    }
+
     // ─────────────────────────────────────────────────────────────
     // State migration
     // ─────────────────────────────────────────────────────────────
@@ -2485,16 +2573,34 @@ impl FlowPay {
 
     /// Pauses the contract. Only the admin can call this.
     pub fn pause_contract(env: Env) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         storage::set_contract_paused(&env, true);
         events::publish_contract_paused(&env);
     }
 
     /// Unpauses the contract. Only the admin can call this.
     pub fn unpause_contract(env: Env) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         storage::set_contract_paused(&env, false);
         events::publish_contract_unpaused(&env);
+    }
+
+    /// Admin assigns or clears the emergency operator role.
+    pub fn set_operator(env: Env, operator: Option<Address>) {
+        admin::require_admin(&env);
+        if operator.as_ref().is_some_and(|a| a == &env.current_contract_address()) {
+            env.panic_with_error(ContractError::InvalidOperatorAddress);
+        }
+        if let Some(ref address) = operator {
+            env.storage().instance().set(&DataKey::Operator, address);
+        } else {
+            env.storage().instance().remove(&DataKey::Operator);
+        }
+        events::publish_operator_changed(&env, &operator);
+    }
+
+    pub fn get_operator(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Operator)
     }
 
     // Admin setup
@@ -2904,6 +3010,7 @@ fn pay_per_use_inner(env: &Env, user: Address, amount: i128, recipient: Option<A
         }
     }
 
+    charge_exec::enforce_merchant_max_per_use(env, &recipient, amount);
     spending_limit::enforce_limit(env, &user, amount);
 
     let fee_amount = fee::transfer_pay_per_use(env, &user, &sub.token, amount, &recipient);

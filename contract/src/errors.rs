@@ -138,4 +138,16 @@ pub enum ContractError {
     InvalidKeeperTipBps = 53,
     /// Returned when an admin transfer targets the current admin or this contract.
     InvalidAdminAddress = 54,
+    InvalidAdminAddress = 48,
+    /// Returned by `pay_per_use_with_nonce` when the (user, nonce) pair has
+    /// already been recorded, rejecting a replayed retry without charging again.
+    NonceAlreadyUsed = 51,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 52,
+    InvalidAdminAddress = 52,
+    /// Merchant fee override exceeds current configured protocol bounds.
+    InvalidMerchantFeeBps = 50,
+    /// Operator cannot be the contract itself.
+    InvalidOperatorAddress = 51,
 }

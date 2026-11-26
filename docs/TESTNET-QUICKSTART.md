@@ -163,7 +163,7 @@ Testnet setup complete!
 Manifest written to: data/testnet-accounts.json
 ```
 
-The manifest at `scripts/data/testnet-accounts.json` holds throwaway `G…`/`S…` keys. **Testnet only — never commit it or reuse keys on Mainnet.**
+The manifest at `scripts/data/testnet-accounts.json` holds throwaway `G…`/`S…` keys generated locally by the setup script. **Testnet only — this file is .gitignored and must never be committed or reused on Mainnet.** The setup script generates fresh random keypairs automatically.
 
 > Prefer manual funding? `curl "https://friendbot.stellar.org?addr=<G_ADDRESS>"` per account works too.
 

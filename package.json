@@ -9,6 +9,7 @@
   "scripts": {
     "prepare": "husky",
     "build:frontend": "cd frontend && npm ci && npm run build",
+    "build:check": "npm --prefix frontend run build:check",
     "typecheck": "cd frontend && npm ci && npm exec -- tsc --noEmit",
     "typecheck:scripts": "cd scripts && npx tsc --noEmit",
     "test:scripts": "cd scripts && npm install --prefer-offline && npm test",
