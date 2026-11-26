@@ -1,3 +1,6 @@
+// Legacy events use dynamic topics and version tags. Keep their wire encoding.
+#![allow(deprecated)]
+
 use soroban_sdk::{Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
 use crate::Subscription;
@@ -193,7 +196,11 @@ pub fn publish_charged(
 ) {
     // Charge payload gained `fee_bps`; mark only this event v3 so existing
     // consumers can continue decoding the v2 payload shape for other events.
-    let mut topics = (Symbol::new(env, "charged"), user.clone()).into_val(env);
+    let mut topics: soroban_sdk::Vec<Val> = soroban_sdk::vec![
+        env,
+        Symbol::new(env, "charged").into_val(env),
+        user.into_val(env)
+    ];
     topics.push_back(Symbol::new(env, "v3").into_val(env));
     env.events().publish(
         topics,
@@ -773,7 +780,11 @@ pub fn publish_fee_bounds_set(env: &Env, min_bps: u32, max_bps: u32) {
 }
 
 pub fn publish_operator_changed(env: &Env, operator: &Option<Address>) {
-    publish_versioned(env, (Symbol::new(env, "operator_changed"),), operator.clone());
+    publish_versioned(
+        env,
+        (Symbol::new(env, "operator_changed"),),
+        operator.clone(),
+    );
 }
 
 pub fn publish_merchant_fee_bps_set(env: &Env, merchant: &Address, bps: Option<u32>) {
@@ -798,11 +809,22 @@ pub fn publish_referral_reward_accrued(
 }
 
 pub fn publish_referral_reward_withdrawn(env: &Env, referrer: &Address, amount: i128) {
-    publish_versioned(env, (Symbol::new(env, "referral_reward_withdrawn"), referrer.clone()), amount);
+    publish_versioned(
+        env,
+        (
+            Symbol::new(env, "referral_reward_withdrawn"),
+            referrer.clone(),
+        ),
+        amount,
+    );
 }
 
 pub fn publish_referral_reward_policy(env: &Env, bps: u32, max_charges: u32) {
-    publish_versioned(env, (Symbol::new(env, "referral_reward_policy"),), (bps, max_charges));
+    publish_versioned(
+        env,
+        (Symbol::new(env, "referral_reward_policy"),),
+        (bps, max_charges),
+    );
 }
 
 pub fn publish_global_volume_cap_set(env: &Env, old: i128, new: i128) {

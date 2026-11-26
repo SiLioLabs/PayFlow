@@ -31,8 +31,9 @@
  *   46 IntervalExceedsMaximum
  *   47 FreezeReasonTooLong
  *   48 TrialExtensionExceedsMaximum
- *   49 SkipCooldownActive
+ *   54 SkipCooldownActive
  *   50 NoLastChargeToRefund
+ *   53 MigrationIncomplete
  *   51 TrialAlreadyUsed
  *   52 MigrationIncomplete
  *   53 InvalidKeeperTipBps
@@ -111,8 +112,10 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #46)": "Billing interval must not exceed 400 years.",
   "error(contract, #47)": "Merchant freeze reason must be 128 bytes or fewer.",
   "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
-  "error(contract, #49)": "You can only skip one billing cycle per interval.",
+  "error(contract, #54)": "You can only skip one billing cycle per interval.",
   "error(contract, #50)": "There is no charge available to refund.",
+  // 53 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #53)": "Storage migration is not finished yet; process every account first.",
   // 51 `TrialAlreadyUsed` — subscribe trial requested for a (user, merchant)
   // pair that already consumed its one trial (cancel + re-subscribe cannot
   // reset eligibility).
@@ -128,8 +131,10 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
   "error(contract, #49)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
   "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
-  "error(contract, #50)": "Merchant fee must be within the configured protocol fee bounds.",
+  "error(contract, #55)": "Merchant fee must be within the configured protocol fee bounds.",
   "error(contract, #51)": "Operator cannot be the contract address.",
+  "error(contract, #56)": "Subscription ID is already in use.",
+  "error(contract, #57)": "This action requires the contract admin or operator.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").

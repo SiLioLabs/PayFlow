@@ -10,14 +10,12 @@ pub fn require_admin(env: &Env) {
 }
 
 /// Authorize the emergency operator or the admin, who retains full control.
-pub fn require_operator_or_admin(env: &Env) {
+pub fn require_operator_or_admin(env: &Env, actor: &Address) {
     let operator: Option<Address> = env.storage().instance().get(&DataKey::Operator);
-    let invoker = env.invoker();
-    if operator.as_ref().is_some_and(|configured| configured == &invoker) {
-        invoker.require_auth();
-    } else {
-        get_admin(env).require_auth();
+    if operator.as_ref() != Some(actor) && &get_admin(env) != actor {
+        env.panic_with_error(ContractError::Unauthorized);
     }
+    actor.require_auth();
 }
 
 /// Authorize `admin` and persist it as the sole contract admin.

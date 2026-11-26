@@ -15,7 +15,7 @@
 /// cargo test --features bench bench -- --nocapture
 /// ```
 ///
-/// ## Baseline instruction counts (Soroban SDK 21.7.7 / env-host 21.2.1, recorded 2026-09-28)
+/// ## Historical instruction counts (Soroban SDK 21.7.7 / env-host 21.2.1, recorded 2026-09-28)
 ///
 /// | Function                        | CPU Instructions | Memory Bytes | Pinned budget |
 /// |---------------------------------|-----------------|--------------|---------------|
@@ -25,37 +25,31 @@
 /// | batch_charge() – 10 users       |   8_860_549     | 1_894_229    | 10_200_000    |
 /// | get_top_merchants_by_subs() – 15 merchants | 724_790 | 68_839   |    835_000    |
 ///
-/// The top-merchants bench is parameterised over index sizes (15 / 100 / 500)
-/// so the scan-over-index shape is exercised as the index grows. The
-/// 15-merchant row is the last recorded baseline; the larger sizes pin budgets
-/// extrapolated from it (see `MAX_TOP_MERCHANTS_INDEX_*_INSTRUCTIONS`) and
-/// print their measured cost at runtime so the numbers can be re-recorded.
+/// ## SDK 30 instruction counts (soroban-env-host 30.0.1)
 ///
-/// These numbers are printed at runtime (see `--nocapture`).  Update the
-/// table above whenever a deliberate change shifts the baseline by more
-/// than ~5 %.
+/// | Function or sample | CPU instructions | Memory bytes | Pinned budget |
+/// |--------------------|-----------------:|-------------:|--------------:|
+/// | subscribe | 690,773 | 252,859 | 795,000 |
+/// | charge | 1,070,028 | 353,092 | 1,235,000 |
+/// | pay_per_use | 1,048,220 | 349,258 | 1,210,000 |
+/// | batch_charge, 10 users | 15,006,744 | 3,796,606 | 17,300,000 |
+/// | top merchants, 15 | 1,175,007 | 343,164 | 1,355,000 |
+/// | top merchants, 100 | 9,634,171 | 811,334 | 11,100,000 |
+/// | top merchants, 500 | 138,194,488 | 13,816,134 | 159,000,000 |
 ///
-/// ## Re-pinning history
-///
-/// The thresholds below were originally recorded on 2026-06-01 against an
-/// earlier build and sat ~10x above the true cost of every entrypoint
-/// (subscribe: 4_620_000 pinned vs. 429_145 measured). A budget that loose
-/// cannot fail, so the gate would have passed while a regression shipped.
-/// They were re-pinned on 2026-09-28 to the measured cost plus ~15 %
-/// headroom: enough to absorb host/SDK noise, tight enough that a scan-based
-/// rewrite of a single entrypoint trips the build. `get_top_merchants_by_subs`
-/// was previously unbudgeted entirely — it is the entrypoint whose
-/// scan-over-subscribers shape is the most likely source of a budget blowup,
-/// so it is now pinned too.
-pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 495_000;
-pub const MAX_CHARGE_INSTRUCTIONS: u64 = 770_000;
-pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 825_000;
-pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 10_200_000;
-pub const MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS: u64 = 835_000;
+/// The SDK 30 ceilings retain approximately 15% headroom over the measured
+/// costs. The historical 100- and 500-merchant ceilings were extrapolations.
+/// Those two samples disable the host transaction limits to measure scaling
+/// beyond the size of a single network transaction.
+pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 795_000;
+pub const MAX_CHARGE_INSTRUCTIONS: u64 = 1_235_000;
+pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 1_210_000;
+pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 17_300_000;
+pub const MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS: u64 = 1_355_000;
 /// Pinned budget for `get_top_merchants_by_subs` over a 100-merchant index.
-/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
-pub const MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS: u64 = 8_000_000;
+pub const MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS: u64 = 11_100_000;
 /// Pinned budget for `get_top_merchants_by_subs` over a 500-merchant index.
+pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 159_000_000;
 /// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
 pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 40_000_000;
 /// Pinned budget for `batch_cancel` over the maximum batch
@@ -103,7 +97,7 @@ fn bench_setup() -> (Env, Address, Address, Address, Address) {
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_addr = token_id.address();
 
-    let contract_id = env.register_contract(None, FlowPay);
+    let contract_id = env.register(FlowPay, ());
 
     // Whitelisting is enabled by default, so an unregistered merchant would make
     // every state-changing benchmark fail with `MerchantNotWhitelisted` (code 10)
@@ -156,7 +150,7 @@ fn bench_subscribe() {
     let interval: u64 = 30 * 24 * 60 * 60; // 30 days
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.subscribe(
         &user,
@@ -168,10 +162,10 @@ fn bench_subscribe() {
         &None,
     );
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_subscribe]");
     println!("  CPU Instructions : {}", cpu);
@@ -223,14 +217,14 @@ fn bench_charge() {
     });
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.charge(&user);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_charge]");
     println!("  CPU Instructions : {}", cpu);
@@ -273,14 +267,14 @@ fn bench_pay_per_use() {
     );
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.pay_per_use(&user, &5_0000000);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_pay_per_use]");
     println!("  CPU Instructions : {}", cpu);
@@ -342,14 +336,14 @@ fn bench_batch_charge_10_users() {
     });
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     let results = client.batch_charge(&users);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_batch_charge_10_users]");
     println!("  CPU Instructions : {}", cpu);
@@ -399,7 +393,7 @@ fn bench_charge_vs_subscribe_ratio() {
     let interval: u64 = 86400;
 
     // ── Measure subscribe ────────────────────────────────────────────────────
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
     client.subscribe(
         &user,
         &merchant,
@@ -409,16 +403,16 @@ fn bench_charge_vs_subscribe_ratio() {
         &None,
         &None,
     );
-    let subscribe_cpu = env.budget().cpu_instruction_cost();
+    let subscribe_cpu = env.cost_estimate().budget().cpu_instruction_cost();
 
     // ── Measure charge ───────────────────────────────────────────────────────
     env.ledger().with_mut(|l| {
         l.timestamp += interval + 1;
     });
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
     client.charge(&user);
-    let charge_cpu = env.budget().cpu_instruction_cost();
+    let charge_cpu = env.cost_estimate().budget().cpu_instruction_cost();
 
     println!("\n[bench_charge_vs_subscribe_ratio]");
     println!("  subscribe() CPU  : {}", subscribe_cpu);
@@ -470,22 +464,26 @@ fn seed_merchant_index(env: &Env, contract_id: &Address, n: u32) {
 /// top-10 window, and the ranking is ordered descending by subscriber count.
 fn run_top_merchants_bench(n: u32, budget: u64) {
     let (env, contract_id, _token_addr, _user, _merchant) = bench_setup();
+    // Measure algorithmic scaling, including fixtures larger than a network transaction.
+    if n > 15 {
+        env.cost_estimate().disable_resource_limits();
+    }
     let client = FlowPayClient::new(&env, &contract_id);
 
     // Lift the meter while building fixtures: seeding a 500-entry index would
     // otherwise risk tripping the default budget before the measured call.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
     seed_merchant_index(&env, &contract_id, n);
 
     // Reset immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     let top = client.get_top_merchants_by_subs(&10);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_get_top_merchants_by_subs]");
     println!("  Index size       : {}", n);

@@ -22,6 +22,7 @@
  * Environment variables:
  *   CONTRACT_ID   — Deployed FlowPay contract ID (required)
  *   RPC_URL       — Soroban RPC endpoint (default: https://soroban-testnet.stellar.org)
+ *   RPC_URLS      — Optional comma-separated endpoints in failover order
  *   NETWORK       — Network passphrase identifier (default: testnet)
  *   HEALTH_DEEP   — Set "true" to enable deep checks without --deep flag
  *
@@ -38,9 +39,10 @@ import {
   TransactionBuilder,
   BASE_FEE,
   nativeToScVal,
+  rpc,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
-import { MultiEndpointServer } from "./rpc-client.js";
 import { logger as rootLogger } from "./logger.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -81,8 +83,8 @@ interface HealthReport {
   contract_paused: boolean;
   token_configured: boolean;
   admin_configured: boolean;
-  instance_ttl_ledgers: number;
-  active_subscription_count: number;
+  instance_bump_age_ledgers?: number | null;
+  active_subscription_count: number | bigint;
   schema_version: number;
   fee_collector_set: boolean;
   global_volume_utilization_pct: number;
@@ -126,24 +128,19 @@ function log(status: "healthy" | "unhealthy", detail?: string): void {
 }
 
 function logJSON(output: HealthCheckOutput): void {
-  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  const json = JSON.stringify(output, (_key, value: unknown) =>
+    typeof value === "bigint" ? value.toString() : value, 2);
+  process.stdout.write(json + "\n");
 }
 
-/**
- * Simulate a read-only contract call and return the raw result xdr.
- */
+/** Simulate a read-only call and decode the Soroban return value. */
 async function simulateCall(
-  server: MultiEndpointServer,
+  servers: rpc.Server[],
   fnName: string,
   args: xdr.ScVal[] = [],
 ): Promise<unknown> {
   const contract = new Contract(CONTRACT_ID);
-  const account = await server.getAccount(SIMULATION_SOURCE).catch(async () => {
-    // For simulation-only calls, build a synthetic account if lookup fails.
-    return new Account(SIMULATION_SOURCE, "0");
-  });
-
-  const tx = new TransactionBuilder(account, {
+  const tx = new TransactionBuilder(new Account(SIMULATION_SOURCE, "0"), {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
@@ -151,119 +148,35 @@ async function simulateCall(
     .setTimeout(30)
     .build();
 
-  const simulation = await server.simulateTransaction(tx);
-
-  if ("error" in simulation && simulation.error) {
-    throw new Error(`Simulation failed for ${fnName}: ${simulation.error}`);
+  const failures: string[] = [];
+  for (const server of servers) {
+    try {
+      const simulation = await server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationError(simulation)) {
+        throw new Error(simulation.error);
+      }
+      if (!simulation.result?.retval) {
+        throw new Error("No return value");
+      }
+      return scValToNative(simulation.result.retval);
+    } catch (err: unknown) {
+      failures.push(err instanceof Error ? err.message : String(err));
+    }
   }
 
-  if (!("result" in simulation) || !simulation.result) {
-    throw new Error(`No result returned for ${fnName}`);
-  }
-
-  return simulation.result;
+  throw new Error(`Simulation failed for ${fnName}: ${failures.join("; ")}`);
 }
 
-/**
- * Decode a ScVal into a JavaScript object. The Stellar SDK's simulation
- * response may return decoded structs with symbol-keyed properties, raw
- * xdr.ScVal, or already-decoded JS values depending on the SDK version.
- */
-function decodeScVal(val: unknown): unknown {
-  if (val == null) return val;
-  // If already a plain JS value (not xdr), return as-is
-  if (typeof val === "boolean" || typeof val === "number" || typeof val === "string") {
-    return val;
-  }
-  if (Array.isArray(val)) {
-    return val.map(decodeScVal);
-  }
-  if (typeof val === "object") {
-    // Check for xdr.ScVal marker (has _switch, _arm, _value etc.)
-    const obj = val as Record<string, unknown>;
-    if ("b" in obj && typeof obj.b === "function") {
-      // bool ScVal
-      return (obj as { b: () => boolean }).b();
-    }
-    if ("u32" in obj) return Number((obj as { u32: number }).u32);
-    if ("u64" in obj) {
-      const v = (obj as { u64: { toString(): string } }).u64;
-      return Number(v.toString());
-    }
-    if ("i128" in obj) {
-      const v = (obj as { i128: { hi: number; lo: number } }).i128;
-      return Number(v.hi) * 2 ** 32 + Number(v.lo);
-    }
-    // Map / struct with symbol keys — return as-is
-    return obj;
-  }
-  return val;
-}
-
-const HEALTH_REPORT_FIELDS = [
-  "is_healthy",
-  "contract_paused",
-  "token_configured",
-  "admin_configured",
-  "instance_ttl_ledgers",
-  "active_subscription_count",
-  "schema_version",
-  "fee_collector_set",
-  "global_volume_utilization_pct",
-  "pending_merchant_rev_count",
-] as const;
-
-/**
- * Extract a HealthReport from a simulation result (ScVal or decoded object).
- * The contract returns a struct; the SDK simulation result may be the
- * raw xdr or a decoded object depending on the SDK version.
- */
-function extractHealthReport(result: unknown): HealthReport {
-  // If it's already a plain object with the expected shape, use it directly
+function extractHealthReport(report: unknown): HealthReport {
   if (
-    result &&
-    typeof result === "object" &&
-    "is_healthy" in (result as Record<string, unknown>)
+    report && typeof report === "object" &&
+    "is_healthy" in report && typeof report.is_healthy === "boolean" &&
+    "contract_paused" in report && typeof report.contract_paused === "boolean" &&
+    "token_configured" in report && typeof report.token_configured === "boolean" &&
+    "admin_configured" in report && typeof report.admin_configured === "boolean"
   ) {
-    return result as HealthReport;
+    return report as HealthReport;
   }
-
-  // Try decoding as ScVal
-  const decoded = decodeScVal(result);
-  if (
-    decoded &&
-    typeof decoded === "object" &&
-    "is_healthy" in (decoded as Record<string, unknown>)
-  ) {
-    return decoded as HealthReport;
-  }
-
-  // If the result is an array/tuple, map fields by position
-  if (Array.isArray(result) || Array.isArray(decoded)) {
-    const arr = (Array.isArray(result) ? result : decoded) as unknown[];
-    if (arr.length >= 10) {
-      const report: Record<string, unknown> = {};
-      for (let i = 0; i < HEALTH_REPORT_FIELDS.length; i++) {
-        report[HEALTH_REPORT_FIELDS[i]] = decodeScVal(arr[i]);
-      }
-      return report as unknown as HealthReport;
-    }
-  }
-
-  // If it looks like an xdr.ScStruct or map with symbol keys, try extracting
-  // fields by name from the decoded value
-  if (decoded && typeof decoded === "object") {
-    const obj = decoded as Record<string, unknown>;
-    const hasAllFields = HEALTH_REPORT_FIELDS.every((f) => f in obj);
-    if (hasAllFields) {
-      const report: Record<string, unknown> = {};
-      for (const field of HEALTH_REPORT_FIELDS) {
-        report[field] = decodeScVal(obj[field]);
-      }
-      return report as unknown as HealthReport;
-    }
-  }
-
   throw new Error("Unable to decode HealthReport from simulation result");
 }
 
@@ -274,10 +187,10 @@ function extractHealthReport(result: unknown): HealthReport {
  * Returns a ProbeResult indicating pass/fail.
  */
 async function probeContractHealthCheck(
-  server: MultiEndpointServer,
+  servers: rpc.Server[],
 ): Promise<ProbeResult> {
   try {
-    const result = await simulateCall(server, "contract_health_check");
+    const result = await simulateCall(servers, "contract_health_check");
     const report = extractHealthReport(result);
 
     // Validate critical invariants
@@ -295,9 +208,15 @@ async function probeContractHealthCheck(
     if (!report.admin_configured) {
       failures.push("admin not configured");
     }
-    if (report.instance_ttl_ledgers <= 17_280) {
+    const age = report.instance_bump_age_ledgers;
+    const maxBumpAgeLedgers = 17_280; // About one day at five seconds per ledger.
+    if (age == null) {
+      failures.push("instance TTL maintenance ledger unavailable");
+    } else if (!Number.isInteger(age) || age < 0 || age > 0xffff_ffff) {
+      failures.push("invalid instance TTL maintenance age");
+    } else if (age > maxBumpAgeLedgers) {
       failures.push(
-        `instance_ttl_ledgers=${report.instance_ttl_ledgers} (below threshold 17280)`,
+        `instance TTL maintenance age is ${age} ledgers (threshold ${maxBumpAgeLedgers})`,
       );
     }
 
@@ -325,20 +244,19 @@ async function probeContractHealthCheck(
  * signals schema drift, RPC issues, or a broken charge path.
  */
 async function probeBatchEstimate(
-  server: MultiEndpointServer,
+  servers: rpc.Server[],
 ): Promise<ProbeResult> {
   try {
     // get_batch_charge_estimate expects Vec<Address>. An empty vec is valid.
     const emptyVec = nativeToScVal([], { type: "vec" });
-    const result = await simulateCall(
-      server,
+    const decoded = await simulateCall(
+      servers,
       "get_batch_charge_estimate",
       [emptyVec],
     );
 
     // The result should be an empty Vec — any decode failure means the
     // charge path has schema drift.
-    const decoded = decodeScVal(result);
     const isEmpty =
       decoded === null ||
       decoded === undefined ||
@@ -388,7 +306,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new MultiEndpointServer();
+  const endpoints = (process.env.RPC_URLS || RPC_URL)
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const servers = (endpoints.length ? endpoints : [RPC_URL]).map((url) =>
+    new rpc.Server(url, { allowHttp: url.startsWith("http://"), timeout: 30_000 }),
+  );
   const probes: ProbeResult[] = [];
   let healthReport: HealthReport | undefined;
   let batchEstimate: string | undefined;
@@ -399,7 +323,7 @@ async function main(): Promise<void> {
 
     // Probe 1: get_schema_version
     try {
-      const schemaResult = await simulateCall(server, "get_schema_version");
+      const schemaResult = await simulateCall(servers, "get_schema_version");
       if (schemaResult === undefined || schemaResult === null) {
         probes.push({
           name: "get_schema_version",
@@ -424,7 +348,7 @@ async function main(): Promise<void> {
 
     // Probe 2: get_active_count
     try {
-      const countResult = await simulateCall(server, "get_active_count");
+      const countResult = await simulateCall(servers, "get_active_count");
       if (countResult === undefined || countResult === null) {
         probes.push({
           name: "get_active_count",
@@ -451,14 +375,14 @@ async function main(): Promise<void> {
 
     if (DEEP) {
       // Probe 3: contract_health_check
-      const healthProbe = await probeContractHealthCheck(server);
+      const healthProbe = await probeContractHealthCheck(servers);
       probes.push(healthProbe);
       if (healthProbe.data && typeof healthProbe.data === "object") {
         healthReport = healthProbe.data as HealthReport;
       }
 
       // Probe 4: get_batch_charge_estimate (empty list liveness)
-      const batchProbe = await probeBatchEstimate(server);
+      const batchProbe = await probeBatchEstimate(servers);
       probes.push(batchProbe);
       if (batchProbe.detail) {
         batchEstimate = batchProbe.detail;

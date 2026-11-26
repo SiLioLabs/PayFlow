@@ -254,7 +254,7 @@ pub enum ChargeSimResult {
 ///     a broken presence invariant yields `ChargeResult::NoSubscription`
 ///     (mapped to `Inactive`) rather than an abort.
 pub fn simulate_charge(env: &Env, user: Address) -> ChargeSimResult {
-    let key = DataKey::Subscription(user.clone());
+    let key = storage::subscription_key(env, &user);
     let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
     let (outcome, sub_after_precheck) = dry_run_skip_precheck(env, &user, sub_opt, true);
@@ -308,7 +308,7 @@ pub fn simulate_pay_per_use(
         return PayPerUseSimResult::AmountExceedsMaximum;
     }
 
-    let key = DataKey::Subscription(user.clone());
+    let key = storage::subscription_key(env, &user);
     let sub: Option<Subscription> = env.storage().persistent().get(&key);
     let sub = match sub {
         None => return PayPerUseSimResult::Inactive,
@@ -362,7 +362,7 @@ pub fn compute_next_charge_at(sub: &Subscription) -> Option<u64> {
     if !sub.active || sub.paused {
         return None;
     }
-    Some(sub.last_charged + sub.interval)
+    sub.last_charged.checked_add(sub.interval)
 }
 
 /// Attempts to auto-resume a paused subscription if the pause expiry has passed.
@@ -377,7 +377,7 @@ pub fn try_auto_resume(env: &Env, user: &Address, sub: &mut Subscription, now: u
                 sub.active = true;
                 env.storage()
                     .persistent()
-                    .set(&DataKey::Subscription(user.clone()), sub);
+                    .set(&storage::subscription_key(env, user), sub);
                 storage::clear_pause_expiry(env, user);
                 events::publish_subscription_auto_resumed(env, user);
                 return true;
@@ -424,7 +424,7 @@ pub fn execute_charge(
     keeper: Option<&Address>,
 ) -> i128 {
     let (fee_amount, net, paid_to, tip) =
-        fee::transfer_subscription_charge(env, user, sub, keeper);
+        fee::transfer_subscription_charge(env, user, sub, keeper, true);
 
     crate::check_and_update_global_volume(env, sub.amount);
     merchant_stats::increment_revenue_with_daily(env, &sub.merchant, net);

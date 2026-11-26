@@ -289,7 +289,7 @@ pub struct HealthReport {
   pub contract_paused: bool,
   pub token_configured: bool,
   pub admin_configured: bool,
-  pub instance_ttl_ledgers: u32,
+  pub instance_bump_age_ledgers: Option<u32>,
   pub active_subscription_count: u64,
   pub schema_version: u32,
   pub fee_collector_set: bool,
@@ -304,14 +304,14 @@ pub struct HealthReport {
 | `contract_paused`               | `bool` | Protocol pause flag                                                                                                                                                                     |
 | `token_configured`              | `bool` | Instance token is set                                                                                                                                                                   |
 | `admin_configured`              | `bool` | Admin is set                                                                                                                                                                            |
-| `instance_ttl_ledgers`          | `u32`  | **Placeholder on-chain:** hardcoded `100_000` (Soroban does not expose `get_ttl()` outside tests). **Test/testutils:** real instance TTL. Telemetry only; not used by `is_healthy`.     |
+| `instance_bump_age_ledgers` | `Option<u32>` | Elapsed ledgers since the last committed TTL maintenance request. Void until recorded. The host can satisfy a maintenance request without extending expiration. |
 | `active_subscription_count`     | `u64`  | Active subscription counter                                                                                                                                                             |
 | `schema_version`                | `u32`  | Migration schema version                                                                                                                                                                |
 | `fee_collector_set`             | `bool` | Protocol fee collector is set                                                                                                                                                           |
 | `global_volume_utilization_pct` | `u32`  | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`.                                                       |
 | `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with accumulated revenue (`MerchantRevenue`) `> 0`. This is a **tracking metric**, not a custodial balance — revenue settles directly into merchant wallets on every charge via SAC `transfer_from`. See [`MERCHANT-INTEGRATION.md` § 5](./MERCHANT-INTEGRATION.md#5-non-custodial-settlement--revenue-tracking). |
 
-**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, or admin flags are understood. `instance_ttl_ledgers`, `fee_collector_set`, and volume utilization are informational and do **not** enter the `is_healthy` formula. On-chain `instance_ttl_ledgers` is a fabricated constant, not a measurement. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap)).
+**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, or admin flags are understood. `instance_bump_age_ledgers`, `fee_collector_set`, and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap)).
 
 ### `DataKey`
 
@@ -864,9 +864,9 @@ skip_next_charge(env: Env, user: Address)
 
 **Returns:** `()`.
 
-**Abuse limit:** at most one skip per billing interval. The previous skip timestamp is stored in `LastSkipAt(user)`; a second call before `last_skip + interval` fails with `SkipCooldownActive` (#49).
+**Abuse limit:** at most one skip per billing interval. The previous skip timestamp is stored in `LastSkipAt(user)`; a second call before `last_skip + interval` fails with `SkipCooldownActive` (#54).
 
-**Errors:** `NoSubscriptionFound` (#4), `SubscriptionInactive` (#5), `SubscriptionPaused` (#17), `SkipCooldownActive` (#49), `ArithmeticOverflow` (#36).
+**Errors:** `NoSubscriptionFound` (#4), `SubscriptionInactive` (#5), `SubscriptionPaused` (#17), `SkipCooldownActive` (#54), `ArithmeticOverflow` (#36).
 
 **Side effects:** overwrites `last_charged`, stores `LastSkipAt(user)`, refreshes the subscription TTL, and emits `charge_skipped`.
 
@@ -2182,6 +2182,7 @@ the number of accounts the operator believes need migrating. Once complete, repe
 calls do nothing and emit nothing. On success it emits
 [`migration_completed`](./EVENTS.md#migration_completed).
 
+Errors: `MigrationIncomplete` (53) when fewer than `expected_total` accounts have been
 Errors: `MigrationIncomplete` (52) when fewer than `expected_total` accounts have been
 processed.
 
@@ -2388,7 +2389,7 @@ contract_health_check(env: Env) -> HealthReport
 
 **Errors:** none defined.
 
-**Operational notes:** on-chain `instance_ttl_ledgers` is a hardcoded `100_000` placeholder and must not be read as remaining TTL. Off-chain `scripts/health-check.ts` is a **shallow** RPC simulation of `get_schema_version` and `get_active_count` only — it does not call this method. See [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#3-health).
+**Operational notes.** The deep monitor alerts when maintenance age is missing or exceeds 17,280 ledgers. Shallow monitoring probes the schema version and active count. See [deployment health checks](./MAINNET-DEPLOYMENT.md#3-health).
 
 CLI example:
 

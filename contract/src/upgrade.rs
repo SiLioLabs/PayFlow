@@ -35,7 +35,7 @@ pub fn commit_upgrade(env: &Env) {
 
     #[cfg(not(test))]
     env.deployer()
-        .update_current_contract_wasm(pending_hash.clone());
+        .update_current_contract(soroban_sdk::ContractExecutable::Wasm(pending_hash.clone()));
 
     events::publish_upgraded(env, &pending_hash);
 }

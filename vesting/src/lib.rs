@@ -103,6 +103,8 @@ pub enum VestingError {
 #[contract]
 pub struct AcademyVestingContract;
 
+// Keep the existing vesting event topics and data encoding.
+#[allow(deprecated)]
 #[contractimpl]
 impl AcademyVestingContract {
     /// Initialize the vesting contract with admin and governance roles

@@ -29,7 +29,7 @@ fn keeper_setup() -> (Env, Address, Address, Address, Address) {
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_addr = token_id.address();
 
-    let contract_id = env.register_contract(None, FlowPay);
+    let contract_id = env.register(FlowPay, ());
     let admin = Address::generate(&env);
     let merchant = Address::generate(&env);
 
@@ -75,14 +75,42 @@ fn test_due_window_matches_next_charge_at_per_user() {
     let early = funded_subscriber(&env, &contract_id, &token_addr);
     let mid = funded_subscriber(&env, &contract_id, &token_addr);
     let late = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&early, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
-    client.subscribe(&mid, &merchant, &AMOUNT, &86_400u64, &token_addr, &None, &None);
-    client.subscribe(&late, &merchant, &AMOUNT, &604_800u64, &token_addr, &None, &None);
+    client.subscribe(
+        &early,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &mid,
+        &merchant,
+        &AMOUNT,
+        &86_400u64,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &late,
+        &merchant,
+        &AMOUNT,
+        &604_800u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     let window_end = START + 100_000;
     let due = client.get_charges_due_between(&START, &window_end, &0u64, &50u32);
 
-    assert_eq!(due.len(), 2, "the week-long subscription is outside the window");
+    assert_eq!(
+        due.len(),
+        2,
+        "the week-long subscription is outside the window"
+    );
     for i in 0..due.len() {
         let (addr, at) = due.get(i).unwrap();
         assert_eq!(client.next_charge_at(&addr), Some(at));
@@ -98,7 +126,15 @@ fn test_due_window_bounds_are_inclusive() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
     let due_at = START + 3_600;
 
     let exact = client.get_charges_due_between(&due_at, &due_at, &0u64, &50u32);
@@ -117,7 +153,15 @@ fn test_due_window_paging_covers_every_match() {
 
     for interval in [3_600u64, 7_200, 90_000] {
         let user = funded_subscriber(&env, &contract_id, &token_addr);
-        client.subscribe(&user, &merchant, &AMOUNT, &interval, &token_addr, &None, &None);
+        client.subscribe(
+            &user,
+            &merchant,
+            &AMOUNT,
+            &interval,
+            &token_addr,
+            &None,
+            &None,
+        );
     }
 
     let window_end = START + 100_000;
@@ -145,7 +189,10 @@ fn test_due_window_rejects_page_above_cap() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     let result = client.try_get_charges_due_between(&START, &(START + 1), &0u64, &51u32);
-    assert!(result.is_err(), "limit above SUBSCRIBER_PAGE_SIZE must be rejected");
+    assert!(
+        result.is_err(),
+        "limit above SUBSCRIBER_PAGE_SIZE must be rejected"
+    );
 
     let at_cap = client.try_get_charges_due_between(&START, &(START + 1), &0u64, &50u32);
     assert!(at_cap.is_ok());
@@ -158,7 +205,15 @@ fn test_due_window_empty_for_zero_limit_or_inverted_window() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     assert_eq!(
         client
@@ -182,8 +237,24 @@ fn test_due_window_skips_cancelled_and_paused() {
 
     let cancelled = funded_subscriber(&env, &contract_id, &token_addr);
     let paused = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&cancelled, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
-    client.subscribe(&paused, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &cancelled,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
+    client.subscribe(
+        &paused,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     client.cancel(&cancelled);
     client.pause(&paused);
@@ -215,7 +286,15 @@ fn test_charge_with_tip_pays_keeper_out_of_protocol_fee() {
     client.set_keeper_tip_bps(&2_000u32);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     env.ledger().with_mut(|l| {
         l.timestamp = START + 3_600 + 1;
@@ -244,7 +323,15 @@ fn test_charge_with_tip_at_zero_bps_pays_no_tip() {
     let collector = set_five_percent_fee(&env, &client);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     env.ledger().with_mut(|l| {
         l.timestamp = START + 3_600 + 1;
@@ -267,14 +354,25 @@ fn test_plain_charge_pays_no_tip_even_when_configured() {
     client.set_keeper_tip_bps(&5_000u32);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     env.ledger().with_mut(|l| {
         l.timestamp = START + 3_600 + 1;
     });
     client.charge(&user);
 
-    assert_eq!(TokenClient::new(&env, &token_addr).balance(&collector), 500_000);
+    assert_eq!(
+        TokenClient::new(&env, &token_addr).balance(&collector),
+        500_000
+    );
 }
 
 /// With no protocol fee configured there is nothing to tip from, so the keeper is
@@ -286,7 +384,15 @@ fn test_keeper_tip_needs_a_protocol_fee() {
     client.set_keeper_tip_bps(&5_000u32);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     env.ledger().with_mut(|l| {
         l.timestamp = START + 3_600 + 1;
@@ -311,7 +417,11 @@ fn test_keeper_tip_bps_is_capped() {
         Err(Ok(soroban_sdk::Error::from_contract_error(53))),
         "tips above the cap must fail with InvalidKeeperTipBps (53)"
     );
-    assert_eq!(client.get_keeper_tip_bps(), 0, "a rejected value must not be stored");
+    assert_eq!(
+        client.get_keeper_tip_bps(),
+        0,
+        "a rejected value must not be stored"
+    );
 
     client.set_keeper_tip_bps(&MAX_KEEPER_TIP_BPS);
     assert_eq!(client.get_keeper_tip_bps(), MAX_KEEPER_TIP_BPS);
@@ -326,7 +436,15 @@ fn test_charge_with_tip_requires_keeper_auth() {
     client.set_keeper_tip_bps(&2_000u32);
 
     let user = funded_subscriber(&env, &contract_id, &token_addr);
-    client.subscribe(&user, &merchant, &AMOUNT, &3_600u64, &token_addr, &None, &None);
+    client.subscribe(
+        &user,
+        &merchant,
+        &AMOUNT,
+        &3_600u64,
+        &token_addr,
+        &None,
+        &None,
+    );
 
     env.ledger().with_mut(|l| {
         l.timestamp = START + 3_600 + 1;
@@ -335,6 +453,9 @@ fn test_charge_with_tip_requires_keeper_auth() {
     env.set_auths(&[]);
 
     let result = client.try_charge_with_tip(&user, &keeper);
-    assert!(result.is_err(), "charge_with_tip must reject a call without keeper auth");
+    assert!(
+        result.is_err(),
+        "charge_with_tip must reject a call without keeper auth"
+    );
     assert_eq!(TokenClient::new(&env, &token_addr).balance(&keeper), 0);
 }

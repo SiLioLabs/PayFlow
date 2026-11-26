@@ -13,6 +13,22 @@
 // a test here is renamed or removed. `contract/scripts/snapshot-check.mjs` fails
 // CI on orphaned, corrupt, gapped or stale snapshot files.
 
+// Include feature files in this module to preserve libtest names and SDK snapshot paths.
+include!("test/common.rs");
+include!("test/admin.rs");
+include!("test/batch.rs");
+include!("test/charge.rs");
+include!("test/config.rs");
+include!("test/daily_limit.rs");
+include!("test/fees.rs");
+include!("test/health.rs");
+include!("test/history.rs");
+include!("test/indexes.rs");
+include!("test/lifecycle.rs");
+include!("test/subscribe.rs");
+include!("test/upgrade.rs");
+include!("test/whitelist.rs");
+include!("test/multi_subscription.rs");
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},

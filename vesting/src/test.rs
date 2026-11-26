@@ -20,7 +20,7 @@ fn setup() -> (Env, Address, Address, Address, Address, Address) {
     let token_contract = env.register_stellar_asset_contract_v2(token_admin);
     let token_addr = token_contract.address();
 
-    let contract_id = env.register_contract(None, AcademyVestingContract);
+    let contract_id = env.register(AcademyVestingContract, ());
 
     (env, contract_id, admin, token_addr, governance, beneficiary)
 }
@@ -58,7 +58,7 @@ fn test_init_requires_admin_authorization() {
     let admin = Address::generate(&env);
     let reward_token = Address::generate(&env);
     let governance = Address::generate(&env);
-    let contract_id = env.register_contract(None, AcademyVestingContract);
+    let contract_id = env.register(AcademyVestingContract, ());
     let client = AcademyVestingContractClient::new(&env, &contract_id);
 
     assert!(client.try_init(&admin, &reward_token, &governance).is_err());
