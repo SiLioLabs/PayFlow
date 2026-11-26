@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { usePolling } from "../hooks/usePolling";
 import {
   CHARGE_SIM_LABELS,
   ChargeSimResult,
@@ -34,69 +35,64 @@ export default function SubscriptionHealthWidget({
   const onSimulateResultRef = useRef(onSimulateResult);
   onSimulateResultRef.current = onSimulateResult;
 
-  useEffect(() => {
-    let mounted = true;
-    const fetchHealth = async () => {
-      try {
-        setLoading(true);
-        const data = await getSubscriptionHealth(userKey);
-        if (mounted) {
-          setHealth(data);
-          setError(!data);
-          onHealthChangeRef.current?.(data);
-        }
-      } catch {
-        if (mounted) {
-          setError(true);
-          setHealth(null);
-          onHealthChangeRef.current?.(null);
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    fetchHealth();
-    const intervalId = setInterval(fetchHealth, 30000);
-    return () => {
-      mounted = false;
-      clearInterval(intervalId);
-    };
+  const fetchHealth = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getSubscriptionHealth(userKey);
+      setHealth(data);
+      setError(!data);
+      onHealthChangeRef.current?.(data);
+    } catch {
+      setError(true);
+      setHealth(null);
+      onHealthChangeRef.current?.(null);
+    } finally {
+      setLoading(false);
+    }
   }, [userKey]);
 
+  usePolling({
+    callback: fetchHealth,
+    interval: 30000,
+    enabled: true,
+  });
+
+  // Initial fetch
   useEffect(() => {
+    fetchHealth();
+  }, [fetchHealth]);
+
+  const fetchSim = useCallback(async () => {
     if (!showSimulateCharge) {
       setSimResult(null);
       onSimulateResultRef.current?.(null);
       return;
     }
-
-    let mounted = true;
-    const fetchSim = async () => {
-      try {
-        setSimLoading(true);
-        const result = await simulateCharge(userKey);
-        if (mounted) {
-          setSimResult(result);
-          onSimulateResultRef.current?.(result);
-        }
-      } catch {
-        if (mounted) {
-          setSimResult(null);
-          onSimulateResultRef.current?.(null);
-        }
-      } finally {
-        if (mounted) setSimLoading(false);
-      }
-    };
-
-    fetchSim();
-    const intervalId = setInterval(fetchSim, 30000);
-    return () => {
-      mounted = false;
-      clearInterval(intervalId);
-    };
+    try {
+      setSimLoading(true);
+      const result = await simulateCharge(userKey);
+      setSimResult(result);
+      onSimulateResultRef.current?.(result);
+    } catch {
+      setSimResult(null);
+      onSimulateResultRef.current?.(null);
+    } finally {
+      setSimLoading(false);
+    }
   }, [userKey, showSimulateCharge]);
+
+  usePolling({
+    callback: fetchSim,
+    interval: 30000,
+    enabled: showSimulateCharge,
+  });
+
+  // Initial sim fetch
+  useEffect(() => {
+    if (showSimulateCharge) {
+      fetchSim();
+    }
+  }, [fetchSim, showSimulateCharge]);
 
   if (loading && !health) {
     return (

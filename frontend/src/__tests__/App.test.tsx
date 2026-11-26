@@ -85,6 +85,33 @@ vi.mock("../hooks/useWallet", () => {
       disconnect: vi.fn(),
       signTransaction: vi.fn(),
     },
+    {
+      id: "albedo",
+      name: "Albedo",
+      icon: "🔷",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
+    {
+      id: "rabet",
+      name: "Rabet",
+      icon: "🟣",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
+    {
+      id: "walletconnect",
+      name: "WalletConnect",
+      icon: "🔗",
+      isInstalled: vi.fn().mockResolvedValue(true),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn(),
+    },
   ];
 
   return {
@@ -105,6 +132,16 @@ vi.mock("../hooks/useWallet", () => {
 import App from "../App";
 import { useWallet, AVAILABLE_WALLETS } from "../hooks/useWallet";
 import { useAdmin } from "../hooks/useAdmin";
+import { ShortcutRegistryProvider, useRegisterShortcuts } from "../context/ShortcutRegistry";
+
+const REGISTERED_TEST_SHORTCUT = [
+  { key: "x", description: "Cancel subscription", action: vi.fn() },
+];
+
+function AppWithRegisteredShortcut() {
+  useRegisterShortcuts(REGISTERED_TEST_SHORTCUT);
+  return <App />;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -175,7 +212,7 @@ describe("App — wallet connect UX", () => {
     );
   });
 
-  it("renders all four wallet adapters in the modal", async () => {
+  it("renders all seven wallet adapters in the modal", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
     await waitFor(() => {
@@ -183,6 +220,9 @@ describe("App — wallet connect UX", () => {
       expect(screen.getByText("xBull")).toBeInTheDocument();
       expect(screen.getByText("Lobstr")).toBeInTheDocument();
       expect(screen.getByText("Hana")).toBeInTheDocument();
+      expect(screen.getByText("Albedo")).toBeInTheDocument();
+      expect(screen.getByText("Rabet")).toBeInTheDocument();
+      expect(screen.getByText("WalletConnect")).toBeInTheDocument();
     });
   });
 
@@ -210,6 +250,19 @@ describe("App — wallet connect UX", () => {
     fireEvent.click(screen.getByText("xBull").closest("button")!);
 
     expect(mockConnect).toHaveBeenCalledWith(expect.objectContaining({ id: "xbull" }));
+  });
+
+  it("calls connect with WalletConnect adapter when selected in modal", async () => {
+    const mockConnect = vi.fn();
+    mockUseWallet({ connect: mockConnect });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await waitFor(() => expect(screen.getByText("WalletConnect")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("WalletConnect").closest("button")!);
+
+    expect(mockConnect).toHaveBeenCalledWith(expect.objectContaining({ id: "walletconnect" }));
   });
 
   it("closes the modal when Cancel is clicked", async () => {
@@ -292,6 +345,26 @@ describe("App — tab shell navigation", () => {
     expect(screen.getByTestId("dashboard")).toBeInTheDocument();
   });
 
+  it("opens Subscribe view when loaded with a referral link", () => {
+    const originalSearch = window.location.search;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, search: "?ref=GREFERRER&merchant=GMERCHANT" },
+    });
+
+    try {
+      mockUseWallet(CONNECTED_STATE);
+      render(<App />);
+      expect(screen.getByTestId("subscribe-form")).toBeInTheDocument();
+      expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "location", {
+        writable: true,
+        value: { ...window.location, search: originalSearch },
+      });
+    }
+  });
+
   it("switches to Subscribe view when Subscribe tab is clicked", () => {
     mockUseWallet(CONNECTED_STATE);
     render(<App />);
@@ -300,20 +373,24 @@ describe("App — tab shell navigation", () => {
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 
-  it("switches to Merchant view when Merchant tab is clicked", () => {
+  it("switches to Merchant view when Merchant tab is clicked", async () => {
     mockUseWallet(CONNECTED_STATE);
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Merchant" }));
-    expect(screen.getByTestId("merchant-dashboard")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("merchant-dashboard")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 
-  it("switches to Admin view when Admin tab is clicked by an admin", () => {
+  it("switches to Admin view when Admin tab is clicked by an admin", async () => {
     mockUseWallet(CONNECTED_STATE);
     mockUseAdmin(true);
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Admin" }));
-    expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("dashboard")).not.toBeInTheDocument();
   });
 
@@ -321,5 +398,28 @@ describe("App — tab shell navigation", () => {
     mockUseWallet({});
     render(<App />);
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+
+  it("shows registered shortcuts and restores focus when help closes with Escape", async () => {
+    mockUseWallet(CONNECTED_STATE);
+    render(
+      <ShortcutRegistryProvider>
+        <AppWithRegisteredShortcut />
+      </ShortcutRegistryProvider>
+    );
+
+    const trigger = screen.getByRole("button", { name: "Show keyboard shortcuts" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("dialog", { name: /keyboard shortcuts/i })).toBeInTheDocument();
+    expect(screen.getByText("Cancel subscription")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /keyboard shortcuts/i })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(trigger);
+    });
   });
 });

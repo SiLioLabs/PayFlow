@@ -2,9 +2,11 @@ import React, { useMemo, useRef, useState } from "react";
 import { useContractEvents } from "../hooks/useContractEvents";
 import { ChargeEvent } from "../types";
 import { STROOPS_PER_XLM } from "../constants";
+import { explorerTxUrl } from "../stellar";
 import Spinner from "./Spinner";
 import CopyButton from "./CopyButton";
 import { ChargeHistorySkeleton } from "./Skeleton";
+import ChargeReceipt from "./ChargeReceipt";
 
 interface Props {
   userKey: string;
@@ -12,14 +14,6 @@ interface Props {
 
 /** Number of charge events shown per page. */
 const PAGE_SIZE = 20;
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function truncateHash(hash: string): string {
   if (hash.length <= 12) return hash;
@@ -137,6 +131,9 @@ export default function SubscriptionHistory({ userKey }: Props) {
 
   // Client-side pagination state.
   const [page, setPage] = useState(1);
+
+  // Receipt modal state: holds the event whose receipt is currently open.
+  const [receiptEvent, setReceiptEvent] = useState<ChargeEvent | null>(null);
 
   // Filter state — persists while component is mounted.
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
@@ -513,7 +510,7 @@ export default function SubscriptionHistory({ userKey }: Props) {
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
                   <a
-                    href={`https://stellar.expert/explorer/testnet/tx/${event.txHash}`}
+                    href={explorerTxUrl(event.txHash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="merchant-row__address"
@@ -523,6 +520,15 @@ export default function SubscriptionHistory({ userKey }: Props) {
                     {truncateHash(event.txHash)}
                   </a>
                   <CopyButton text={event.txHash} />
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+                    onClick={() => setReceiptEvent(event)}
+                    aria-label={`View receipt for charge on ${formatDate(event.date)}`}
+                    data-testid={`view-receipt-${pageStart + index}`}
+                  >
+                    Receipt
+                  </button>
                 </div>
               </div>
             </div>
@@ -571,6 +577,15 @@ export default function SubscriptionHistory({ userKey }: Props) {
             Next
           </button>
         </div>
+      )}
+
+      {/* Receipt modal — shown when the user clicks "Receipt" on a charge row */}
+      {receiptEvent && (
+        <ChargeReceipt
+          event={receiptEvent}
+          onClose={() => setReceiptEvent(null)}
+          modal={true}
+        />
       )}
     </div>
   );

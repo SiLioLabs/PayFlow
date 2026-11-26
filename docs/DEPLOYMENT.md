@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md).
+Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-pipeline.ts`, post-deployment health gates, upgrades, and rollback. For the Mainnet audit gate and phased checklist, see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md). New here? Start with the copy-paste [`TESTNET-QUICKSTART.md`](TESTNET-QUICKSTART.md) (deploy → subscribe → charge → withdraw in ~10 minutes).
 
 ---
 
@@ -8,7 +8,7 @@ Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-
 
 | Tool             | Version | Install                                     |
 | ---------------- | ------- | ------------------------------------------- |
-| Rust             | 1.70+   | `curl https://sh.rustup.rs -sSf \| sh`      |
+| Rust             | 1.78+   | `curl https://sh.rustup.rs -sSf \| sh`      |
 | wasm32 target    | —       | `rustup target add wasm32-unknown-unknown`  |
 | Stellar CLI      | current | used by the pipeline as `stellar contract deploy` |
 | Soroban CLI      | 21.x    | `cargo install --locked soroban-cli` (invokes and reads) |
@@ -18,7 +18,7 @@ Covers building the FlowPay contract, deploying to Testnet with `scripts/deploy-
 Verify your setup:
 
 ```bash
-rustc --version    # 1.70+
+rustc --version    # 1.78+
 stellar --version  # required for live `stellar contract deploy`
 soroban --version  # 21.x (optional; used for manual invoke/read)
 node --version     # v18+
@@ -37,14 +37,13 @@ cd scripts && npm install && cd ..
 From the repository root:
 
 ```bash
-cd contract
-cargo build --release --target wasm32-unknown-unknown
+cargo build -p flowpay --release --target wasm32-unknown-unknown
 ```
 
 The artifact used by [`deployments/config.json`](../deployments/config.json) and `scripts/deploy-pipeline.ts` is:
 
 ```text
-contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 The pipeline also runs this build as its first step unless `deployments/manifest.json` already records `steps.build = true`.
@@ -69,7 +68,7 @@ Edit `deployments/config.json` before a live run. Required fields:
 | `feeBps`            | Protocol fee (proposed then committed)    |
 | `feeCollector`      | Fee collector address                     |
 | `initialMerchants`  | Optional list for `whitelist_batch_add`   |
-| `wasmPath`          | Path to `flow_pay.wasm`                   |
+| `wasmPath`          | Path to `flowpay.wasm`                   |
 
 If `NETWORK_PASSPHRASE` or `VITE_NETWORK_PASSPHRASE` is set, it must equal `networkPassphrase` in the config file.
 
@@ -96,14 +95,14 @@ npx tsx scripts/deploy-pipeline.ts
 
 The pipeline, in order:
 
-1. **Build** — `cargo build --release --target wasm32-unknown-unknown` in `contract/`.
+1. **Build** — `cargo build -p flowpay --release --target wasm32-unknown-unknown` from the repository root.
 2. **Deploy** — `stellar contract deploy --wasm <wasmPath> --source <DEPLOYER_SECRET_KEY> --rpc-url <rpcUrl> --network-passphrase <networkPassphrase>`. Parses a `C…` contract ID from stdout.
 3. **Initialize** — `initialize(token, admin)` unless `contract_health_check` already reports `admin_configured` and `token_configured`.
 4. **Health gate (in-pipeline)** — re-reads `contract_health_check` and aborts if token/admin are not configured.
 5. **Fee** — `propose_fee` then `commit_fee` when the on-chain fee does not already match config.
 6. **Merchants** — `whitelist_batch_add` for addresses in `initialMerchants` that are not yet whitelisted.
 
-It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md)).
+It does **not** set fee bounds or the global volume cap. Those are operator-only follow-ups (see [`MAINNET-DEPLOYMENT.md`](MAINNET-DEPLOYMENT.md) and [`LIMITS.md` — Global Hourly Volume Cap](LIMITS.md#global-hourly-volume-cap)).
 
 Save the printed contract ID.
 
@@ -189,29 +188,26 @@ CONTRACT_ID=<CONTRACT_ID> npx tsx health-check.ts
 
 ## State Migration
 
-`migrate(users)` is **admin-only** (`admin::require_admin`). It takes a page of subscriber addresses. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs). Already-migrated slots are no-ops; repeating `migrate` at version 3 does not bump the version again.
+The migration is **resumable** and has two admin steps. `migrate(users)` processes accounts in batches. `finalize_migration(expected_total)` completes the upgrade. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs).
 
-Paged workflow (also documented on `require_current_version` / `migrate` in that file):
-
-1. Upgrade WASM. `schema_version` stays at the pre-upgrade value until migration finishes.
-2. Page subscribers with `get_subscriber_page` (capped at 50 addresses per call).
-3. Invoke `migrate` for each page.
-4. Confirm `get_schema_version() == 3` before treating the instance as caught up.
-`migrate(users)` is admin-only. It takes a **page of subscriber addresses**, not an empty invoke. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs). Subsequent calls are no-ops for already-migrated slots.
+- `migrate(users)` is admin-only and batch-safe. Each account is processed once, even if a batch is re-sent. It **does not advance `schema_version`**, so new subscriptions stay blocked (error 42) until `finalize_migration` succeeds.
+- `get_migration_progress()` returns `migrated_accounts`, the number of distinct accounts processed. An interrupted run resumes from that position in the operator's account list.
+- `finalize_migration(expected_total)` is admin-only. It advances the version only when `migrated_accounts >= expected_total`, and returns `MigrationIncomplete` (52) otherwise. It is idempotent after completion.
 
 Recommended operator workflow after a WASM upgrade that changes storage layout:
 
-1. Upgrade WASM (`propose_upgrade` / `commit_upgrade`). Schema version stays at the pre-upgrade value until `migrate` finishes.
-2. Page subscribers with `get_subscriber_page` (contract pages up to 50 addresses per call).
-3. Call `migrate` for each page.
-4. Confirm `get_schema_version() == 3` before accepting new subscription writes.
+1. Upgrade WASM (`propose_upgrade` / `commit_upgrade`). `schema_version` stays at the pre-upgrade value until `finalize_migration` succeeds.
+2. Build the complete list of legacy subscriber addresses from a snapshot. Keep the order stable and remove duplicates. The total is the list length.
+3. Read progress with `get_migration_progress`, then call `migrate` with the next batches of up to 50 addresses, starting at `migrated_accounts`.
+4. When `migrated_accounts` equals the list length, call `finalize_migration(<list length>)`.
+5. Confirm `get_schema_version() == 3` before accepting new subscription writes.
 
 ```bash
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --source admin \
   --network testnet \
-  -- get_subscriber_page --offset 0 --limit 50
+  -- get_migration_progress
 
 soroban contract invoke \
   --id <CONTRACT_ID> \
@@ -221,11 +217,17 @@ soroban contract invoke \
 
 soroban contract invoke \
   --id <CONTRACT_ID> \
+  --source admin \
+  --network testnet \
+  -- finalize_migration --expected_total 1200
+
+soroban contract invoke \
+  --id <CONTRACT_ID> \
   --network testnet \
   -- get_schema_version
 ```
 
-Optional helper: [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts) (`npx tsx scripts/migrate-contract.ts [--dry-run]`), using `VITE_CONTRACT_ID` / `VITE_RPC_URL` / `VITE_NETWORK_PASSPHRASE`. Prefer the CLI invokes above unless you have validated that script in your environment.
+Helper: [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts). It reads progress, resumes at `migrated_accounts`, and simulates each batch and the final `finalize_migration`. It is given the account list with `--accounts <file.json>` and uses `CONTRACT_ID` / `VITE_CONTRACT_ID`. It **never submits** a transaction, because signing needs the admin key. Submit the batches with your admin tooling, then re-run the script to finalize. Prefer the CLI invokes above unless you have validated the script in your environment.
 
 If subscription writes fail with **error 42**, follow [SchemaMigrationRequired (error 42)](#schemamigrationrequired-error-42) — do not treat it as a random subscribe bug.
 
@@ -264,8 +266,8 @@ This is **intentional**, not a keeper or wallet defect.
 ### Remedy (order)
 
 1. Confirm version: `get_schema_version` (and optional `contract_health_check`).
-2. Keep **admin** access — you still need it for `migrate`.
-3. Run the [paged `migrate(users)` procedure](#state-migration) until `get_schema_version() == 3`.
+2. Keep **admin** access — you still need it for `migrate` and `finalize_migration`.
+3. Run the [paged `migrate(users)` procedure](#state-migration), then `finalize_migration`, until `get_schema_version() == 3`.
 4. Retry the subscription write.
 
 Do not redeploy a new contract ID solely because of 42. Do not skip paging on a large `SubscriberIndex`.
@@ -297,7 +299,7 @@ There is also [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts) (`
 
 ## Contract Upgrade (WASM)
 
-Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. Direct `upgrade()` exists only under `#[cfg(test)]`. Full ceremony: [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md).
+Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. Direct `upgrade()` exists only under `#[cfg(test)]`. Full ceremony: [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md).
 
 ### Pre-upgrade health gate
 
@@ -305,7 +307,7 @@ Production upgrades are **two-step**: `propose_upgrade` then `commit_upgrade`. D
 
 ```bash
 CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts
-CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/pre-upgrade-check.ts --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 ```
 
 From `scripts/`: `npm run pre-upgrade-check` → `tsx pre-upgrade-check.ts`.
@@ -326,7 +328,7 @@ npx tsx scripts/snapshot-diff.ts before.json after.json
 soroban contract upload \
   --source admin \
   --network testnet \
-  --wasm contract/target/wasm32-unknown-unknown/release/flow_pay.wasm
+  --wasm target/wasm32-unknown-unknown/release/flowpay.wasm
 
 # 2. Propose
 soroban contract invoke \
@@ -375,7 +377,7 @@ FlowPay does not support automatic rollback. To revert to a previous WASM, run t
      --network <NETWORK> \
      -- upgrade <PREVIOUS_WASM_HASH>
    ```
-4. **Run migration** if the restored WASM still requires schema catch-up (paged `migrate(users)` — [State Migration](#state-migration)):
+4. **Run migration** if the restored WASM still requires schema catch-up (paged `migrate(users)`, then `finalize_migration(<total>)` — [State Migration](#state-migration)):
    ```bash
    soroban contract invoke --id <CONTRACT_ID> --source admin --network <NETWORK> -- migrate --users '["<USER_ADDRESS>"]'
 1. **Re-upload the previous WASM** if the hash is no longer on-chain:
@@ -383,7 +385,7 @@ FlowPay does not support automatic rollback. To revert to a previous WASM, run t
    soroban contract upload --source admin --network testnet --wasm <previous.wasm>
    ```
 2. **Propose** the previous hash, verify `get_pending_upgrade`, then **commit**.
-3. **Run `migrate`** only if the restored WASM still requires schema catch-up for current storage.
+3. **Run `migrate` and then `finalize_migration`** only if the restored WASM still requires schema catch-up for current storage.
 4. **Verify** with `contract_health_check` and `CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/health-check.ts --deep`.
 
 To abort a bad proposal **before** commit:
@@ -412,9 +414,182 @@ Source: [`frontend/.env.example`](../frontend/.env.example).
 
 ---
 
+## Error reporting (optional, disabled by default)
+
+The root `ErrorBoundary` in `main.tsx` accepts an optional `onError` reporter. It is **disabled by default** — no error data leaves the browser unless you explicitly opt in.
+
+### Opt-in
+
+Set `VITE_ERROR_REPORT_URL` in `frontend/.env` (or your host environment):
+
+```bash
+VITE_ERROR_REPORT_URL=https://errors.example.com/report
+```
+
+When set, the boundary POSTs a JSON payload to that URL whenever a React component tree crash is caught:
+
+```json
+{
+  "message": "Cannot read properties of undefined (reading 'amount')",
+  "name": "TypeError",
+  "componentStack": "\n    at SubscriptionCard\n    at Dashboard\n    ...",
+  "timestamp": "2025-01-15T15:04:05.000Z"
+}
+```
+
+### Privacy — what is redacted before sending
+
+Before the payload is built, the boundary runs `redactError` on `message` and `componentStack`. The following patterns are replaced with `[redacted]`:
+
+| Pattern | Example | Replaced by |
+| ------- | ------- | ----------- |
+| Stellar secret key (`S` + 55 base32 chars) | `SABC...XYZ` | `[redacted]` |
+| Contract ID (`C` + 55 base32 chars) | `CABC...XYZ` | `[redacted]` |
+| Public key (`G` + 55 base32 chars) | `GABC...XYZ` | `[redacted]` |
+
+Secret keys are matched first so they cannot be mis-classified as public keys. No wallet address or signing key ever appears in a report.
+
+### Pluggable reporter interface
+
+The reporter is any function matching `(report: ErrorReport) => void`. To use a custom reporter instead of the built-in `fetch`-based one, pass it directly to `<ErrorBoundary onError={myReporter}>` in `main.tsx`:
+
+```tsx
+import ErrorBoundary, { type ErrorReporter } from "./components/ErrorBoundary";
+
+const myReporter: ErrorReporter = (report) => {
+  // e.g. send to Sentry, Datadog, or a custom backend
+  mySdk.captureError(report);
+};
+
+// In main.tsx:
+<ErrorBoundary onError={myReporter}>
+  <App />
+</ErrorBoundary>
+```
+
+Errors thrown inside the reporter are silently swallowed so a broken reporting endpoint cannot affect the user experience.
+
+---
+
+## Content-Security-Policy and hardening headers
+
+`frontend/index.html` ships a `<meta http-equiv="Content-Security-Policy">` tag that is active in every deployment regardless of host. It restricts:
+
+| Directive       | Allowed values                                                                 | Reason |
+| --------------- | ------------------------------------------------------------------------------ | ------ |
+| `default-src`   | `'self'`                                                                       | Baseline; everything not listed falls back here |
+| `script-src`    | `'self'` `'wasm-unsafe-eval'` `'sha256-…'`                                    | `'wasm-unsafe-eval'` is required by `@stellar/stellar-sdk` (WASM compilation); the sha256 hash covers the inline theme-detection script |
+| `style-src`     | `'self'` `'unsafe-inline'`                                                     | Vite injects CSS custom-property overrides as inline styles at dev time; `'unsafe-inline'` retains that behaviour |
+| `connect-src`   | `'self'` testnet/mainnet Soroban RPC and Horizon                               | All outbound XHR/fetch must go to Stellar network endpoints |
+| `img-src`       | `'self'` `data:`                                                               | Vite inlines small assets as `data:` URIs |
+| `font-src`      | `'self'`                                                                       | Fonts are bundled |
+| `object-src`    | `'none'`                                                                       | Disables Flash and other plugins |
+| `base-uri`      | `'self'`                                                                       | Prevents `<base>` injection attacks |
+| `form-action`   | `'self'`                                                                       | No form submissions to third-party origins |
+| `frame-ancestors` | `'none'`                                                                     | Clickjacking protection |
+
+### Updating the inline-script hash
+
+The `script-src` hash covers the exact bytes of the theme-detection `<script>` block in `index.html`. If you edit that script, recompute and replace the hash:
+
+```bash
+python3 -c "
+import hashlib, base64, re
+s = open('frontend/index.html').read()
+body = re.search(r'<script>(.*?)</script>', s, re.DOTALL).group(1)
+print('sha256-' + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode())
+"
+```
+
+Replace the `'sha256-…'` value in the `content` attribute of the CSP meta tag.
+
+### Custom RPC endpoint
+
+If `VITE_RPC_URL` is set to a non-default value (e.g. a self-hosted Soroban RPC node), add that origin to `connect-src` in `frontend/index.html`:
+
+```html
+connect-src 'self'
+  https://soroban-testnet.stellar.org
+  https://soroban-mainnet.stellar.org
+  https://horizon-testnet.stellar.org
+  https://horizon.stellar.org
+  https://your-custom-rpc.example.com;
+```
+
+### Host-level headers (recommended)
+
+The `<meta>` tag covers script and connection enforcement but cannot set `Strict-Transport-Security`, `X-Frame-Options`, or `Permissions-Policy`. Add these at your hosting layer:
+
+**Nginx** (`nginx.conf` or a `location` block):
+
+```nginx
+add_header Content-Security-Policy "
+  default-src 'self';
+  script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg=';
+  style-src 'self' 'unsafe-inline';
+  connect-src 'self'
+    https://soroban-testnet.stellar.org
+    https://soroban-mainnet.stellar.org
+    https://horizon-testnet.stellar.org
+    https://horizon.stellar.org;
+  img-src 'self' data:;
+  font-src 'self';
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+  frame-ancestors 'none';
+" always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "payment=(), geolocation=(), camera=()" always;
+```
+
+**Vercel** (`vercel.json`):
+
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg='; style-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "X-Content-Type-Options",    "value": "nosniff" },
+        { "key": "X-Frame-Options",           "value": "DENY" },
+        { "key": "Referrer-Policy",           "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy",        "value": "payment=(), geolocation=(), camera=()" }
+      ]
+    }
+  ]
+}
+```
+
+**Netlify** (`netlify.toml`):
+
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-GSgQJZCJKkjIOS/6vRkl/pq9HbmXgpBjpmLwAw80yIg='; style-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options    = "nosniff"
+    X-Frame-Options           = "DENY"
+    Referrer-Policy           = "strict-origin-when-cross-origin"
+    Permissions-Policy        = "payment=(), geolocation=(), camera=()"
+```
+
+> **Note:** `frame-ancestors 'none'` in a `<meta>` CSP tag is ignored by most browsers — the tag cannot prevent framing. Use the `X-Frame-Options: DENY` and CSP `frame-ancestors` **HTTP header** to reliably prevent clickjacking. The meta tag remains useful as a defence-in-depth baseline for environments where response headers cannot be customised.
+
+---
+
 ## Related operations
 
 - Keeper bot setup and cadence: [`docs/KEEPER.md`](KEEPER.md)
-- Advanced keeper scenarios (DLQ replay, multi-instance locks, RPC failover, incident pause): [`docs/operations/keeper_runbook.md`](operations/keeper_runbook.md)
-- Two-step upgrade and fee ceremonies: [`docs/operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md)
+- Advanced keeper scenarios (DLQ replay, multi-instance locks, RPC failover, incident pause): [`docs/operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md)
+- Two-step upgrade and fee ceremonies: [`docs/operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md)
 - Script catalog: [`scripts/README.md`](../scripts/README.md)

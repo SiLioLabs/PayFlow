@@ -136,16 +136,6 @@ async function main() {
 
   const addresses = readAddresses();
   if (addresses.length === 0) {
-    console.error("No addresses provided");
-    process.exit(1);
-  }
-  if (!CONTRACT_ID) {
-    logger.error("CONTRACT_ID required");
-    process.exit(1);
-  }
-
-  const addresses = readAddresses();
-  if (addresses.length === 0) {
     logger.error("No addresses provided");
     process.exit(1);
   }
@@ -178,10 +168,6 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
 main().catch((e) => {
   logger.error(e instanceof Error ? e.message : e);
   process.exit(1);

@@ -3,6 +3,11 @@
  * check-allowances.ts — Audit subscriber token allowances against FlowPay
  * subscription amounts.
  *
+ * Accepts a list of G-addresses (from args or --file) and checks whether each subscriber's
+ * allowance for their subscription token covers the next charge amount.
+ *
+ * Rate-limit and retry defaults are imported from allowance-utils.ts.
+ * Previously they were re-declared inline here — see issue #1301.
  * Accepts a list of G-addresses (from args or --file) and checks whether each
  * subscriber's allowance for their subscription token covers the next charge
  * amount.  Checks run concurrently under a configurable cap; transient RPC
@@ -39,6 +44,18 @@ import {
   xdr,
   Account,
 } from "@stellar/stellar-sdk";
+import {
+  DEFAULT_REQUESTS_PER_SECOND,
+  DEFAULT_BURST,
+  DEFAULT_WINDOW_MS,
+} from "./allowance-utils.js";
+import { STROOPS_PER_XLM } from "./lib/contract-limits.js";
+
+// ── Configuration ────────────────────────────────────────────────────────────────
+
+const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
+const CONTRACT_ID = process.env.CONTRACT_ID || "";
+const NETWORK_PASSPHRASE = (process.env.NETWORK_PASSPHRASE ?? Networks.TESTNET) as string;
 import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger.js";
 import {
@@ -63,6 +80,12 @@ const RETRY_BASE_MS = Math.max(
   parseInt(process.env.RETRY_BASE_MS ?? "300", 10),
 );
 
+// Rate-limit settings — imported from allowance-utils.ts (issue #1301).
+// Previously re-declared inline; now sourced from the single canonical definition.
+const REQUESTS_PER_SECOND = DEFAULT_REQUESTS_PER_SECOND;
+const BURST = DEFAULT_BURST;
+const WINDOW_MS = DEFAULT_WINDOW_MS;
+
 if (!CONTRACT_ID) {
   logger.error(
     "Error: CONTRACT_ID environment variable is required.\n" +
@@ -79,6 +102,14 @@ const FlowPayAddress = Address.fromString(CONTRACT_ID);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Convert stroops to XLM using STROOPS_PER_XLM from contract-limits.ts.
+ * NOTE: Only valid for XLM and XLM-derived SAC tokens.
+ * For other tokens query the token's decimals() entry-point instead.
+ */
+function stroopsToXlm(stroops: string | bigint): string {
+  const value = typeof stroops === "bigint" ? Number(stroops) : Number(stroops);
+  return (value / STROOPS_PER_XLM).toFixed(7);
 function stroopsToXlm(stroops: string): string {
   return (Number(stroops) / 10_000_000).toFixed(7);
 }

@@ -2,7 +2,6 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useSubscription } from "../hooks/useSubscription";
 import * as stellar from "../stellar";
-import { RpcHealthContext } from "../context/RpcHealthContext";
 import React from "react";
 
 vi.mock("../stellar", async (importOriginal) => {
@@ -15,11 +14,12 @@ vi.mock("../stellar", async (importOriginal) => {
 
 vi.mock("../context/RpcHealthContext", () => ({
   useRpcHealthContext: vi.fn(() => ({
-    status: "healthy",
-    latencyMs: 100,
-    error: null,
+    healthy: true,
     circuitOpen: false,
-    lastCheck: Date.now()
+    error: null,
+    activeRpcUrl: "https://soroban-testnet.stellar.org",
+    customRpcUrl: null,
+    setCustomRpcUrl: () => {},
   })),
 }));
 

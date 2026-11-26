@@ -7,21 +7,23 @@
  *
  * Strategy
  * ────────
- * SQLite's built-in `VACUUM INTO` (or `backup` API via better-sqlite3) gives
+ * SQLite's built-in `VACUUM INTO` gives
  * a consistent, hot-copy snapshot without locking writes on the source.  This
  * means the indexer can keep running during backup.
  *
  * After the backup is written, an integrity check (`PRAGMA integrity_check`)
- * is run on the backup file to verify it is not corrupt before the script
- * exits successfully.
+ * is run on the backup file to verify it is not corrupt, and a SHA-256
+ * checksum is written to `<backup>.sha256` (sha256sum format) before the
+ * script exits successfully.
  *
  * Usage
  * ─────
  *   # Create a backup
  *   npx ts-node scripts/backup-indexer-db.ts backup [options]
  *
- *   # Restore from a backup
- *   npx ts-node scripts/backup-indexer-db.ts restore --from <backup-path> [options]
+ *   # Restore from a backup (delegates to restore-indexer-db.ts — prefer calling
+ *   # that script directly; see "Backup and restore runbook" in scripts/README.md)
+ *   npx tsx scripts/restore-indexer-db.ts --from <backup-path> [options]
  *
  * Options (backup):
  *   --db <path>       Source database path (default: data/events.db)
@@ -44,6 +46,9 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { restoreIndexerDb, writeChecksumFile } from "./restore-indexer-db.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,7 +80,7 @@ export interface BackupResult {
 }
 
 // ── SQLite abstraction ────────────────────────────────────────────────────────
-// We isolate the better-sqlite3 import so tests can mock it easily.
+// We isolate the database import so tests can inject a mock instead.
 
 export interface SqliteDb {
   /** Run a VACUUM INTO backup to destPath */
@@ -89,24 +94,26 @@ export interface SqliteDb {
 }
 
 /**
- * Opens a better-sqlite3 database and wraps it with our SqliteDb interface.
+ * Opens the indexer database and wraps it with our SqliteDb interface.
  * This is the production implementation.  Tests inject a mock.
  */
 export function openDatabase(dbPath: string): SqliteDb {
-  // Dynamic import so the module can be tree-shaken or mocked in tests
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-  const db = new Database(dbPath, { readonly: false });
+  // node:sqlite, matching indexer.ts. (This module is ESM, so the previous
+  // `require("better-sqlite3")` could never resolve, and better-sqlite3 is not
+  // a dependency. node:sqlite's DatabaseSync also has no .backup(), so the
+  // backup uses SQLite's own VACUUM INTO, which is online-safe.)
+  const db = new DatabaseSync(dbPath, { open: true });
 
   return {
     backup(destPath: string) {
-      // better-sqlite3 v9+ ships a synchronous backup() method.
-      // VACUUM INTO is an equally valid online-safe strategy; we use backup()
-      // for its progress callback support.
-      (db as any).backup(destPath);
+      // VACUUM INTO refuses to overwrite, which is the same safety property
+      // better-sqlite3's backup() provided.
+      db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);
     },
     pragmaIntegrity(): string {
-      const rows = db.pragma("integrity_check") as { integrity_check: string }[];
+      const rows = db.prepare("PRAGMA integrity_check").all() as {
+        integrity_check: string;
+      }[];
       return rows[0]?.integrity_check ?? "error";
     },
     countEvents(): number {
@@ -233,7 +240,7 @@ export function runBackup(
     sourceDb = openDb(opts.dbPath);
     result.rowCount = sourceDb.countEvents();
 
-    // better-sqlite3 backup() copies atomically to destPath
+    // VACUUM INTO writes destPath atomically and refuses to overwrite it
     sourceDb.backup(opts.outPath);
     console.log(`  ✓ Backup written (${result.rowCount} event rows)`);
   } catch (err: unknown) {
@@ -263,6 +270,21 @@ export function runBackup(
     return result;
   } finally {
     backupDb?.close();
+  }
+
+  // Checksum sidecar so restore can detect corruption/truncation that
+  // integrity_check cannot (verified by restore-indexer-db.ts).
+  try {
+    // (VACUUM INTO always creates the file; the guard only matters for tests
+    // that inject a mock SqliteDb.)
+    if (fs.existsSync(opts.outPath)) {
+      writeChecksumFile(opts.outPath);
+      console.log(`  ✓ Checksum written (${path.basename(opts.outPath)}.sha256)`);
+    }
+  } catch (err: unknown) {
+    result.message = `Could not write checksum file: ${(err as Error).message}`;
+    console.error(`  ✗ ${result.message}`);
+    return result;
   }
 
   result.success = true;
@@ -379,7 +401,11 @@ function main() {
   let result: BackupResult;
 
   if (command === "restore") {
-    result = runRestore(restore);
+    // Delegate to the hardened restore (checksum, schema checks, safety copy,
+    // atomic swap). runRestore() below is kept for API compatibility only.
+    const r = restoreIndexerDb({ ...restore, requireChecksum: false });
+    console.log(r.success ? `  ✓ ${r.message}` : `  ✗ ${r.message}`);
+    process.exit(r.success ? 0 : 1);
   } else {
     result = runBackup(backup);
   }
@@ -389,6 +415,11 @@ function main() {
   }
 }
 
-if (require.main === module) {
+// ESM entrypoint guard (scripts/package.json sets "type": "module", so the CJS
+// `require.main === module` check would throw `require is not defined`).
+// Run only when executed directly (`tsx scripts/backup-indexer-db.ts`), not
+// when imported by tests.
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
   main();
 }

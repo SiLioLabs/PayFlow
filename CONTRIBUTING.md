@@ -16,8 +16,11 @@ Thank you for considering a contribution to FlowPay. This document covers everyt
 - [Branching & Workflow](#branching--workflow)
 - [Contract Contribution Guidelines](#contract-contribution-guidelines)
 - [Frontend Contribution Guidelines](#frontend-contribution-guidelines)
+- [Dependency Management](#dependency-management)
 - [Commit Style](#commit-style)
 - [Generated TypeScript Bindings](#generated-typescript-bindings)
+- [Documentation Naming Convention](#documentation-naming-convention)
+- [Changelog and versioning](#changelog-and-versioning)
 - [Pull Request Checklist](#pull-request-checklist)
 - [Questions](#questions)
 
@@ -70,9 +73,12 @@ rustup target add wasm32-unknown-unknown
 # Install Soroban CLI
 cargo install --locked soroban-cli
 
-# Run tests
-cd contract
-cargo test
+# Run all contract tests from the Cargo workspace root
+cargo test --workspace
+
+# Or test one contract package
+cargo test -p flowpay
+cargo test -p academy-vesting
 ```
 
 ### Frontend
@@ -99,9 +105,13 @@ See [`scripts/README.md`](scripts/README.md) and [`docs/ONBOARDING.md`](docs/ONB
 
 ## CI workflows
 
-GitHub Actions runs **Backend (Rust)** and **Frontend** workflows on every PR to `master`. Frontend Vitest and scripts typecheck are **not** enforced in CI today.
+Two GitHub Actions workflows run automatically on every PR and push to `master`:
 
-Full truth table, line-by-line job steps, and copy-pastable recommended YAML: [`docs/development/ci-workflows.md`](docs/development/ci-workflows.md).
+- **`scripts-ci.yml`** — runs TypeScript typecheck, ESLint lint, duplicate lint (`npm run lint:duplicates` and `node lint-duplicates.mjs`), and Vitest tests for the `scripts/` package, with Node 22 and `NODE_OPTIONS=--experimental-sqlite`.
+- **`security-audit.yml`** — runs `cargo audit` against `contract/Cargo.lock` and `vesting/Cargo.lock`, and `npm audit --omit=dev` for the root, `frontend/`, and `scripts/` packages; also runs on a weekly schedule (every Monday). High-severity dependency vulnerabilities block the PR.
+
+See [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) for the full command reference and local equivalents.
+This repository ships one GitHub Actions workflow — [`docker-smoke.yml`](.github/workflows/docker-smoke.yml), which builds the keeper Docker image and runs a dry-run cycle plus SIGTERM checks against a mock RPC on PRs touching `scripts/**`. Everything else (contract, frontend, scripts typecheck/tests) is enforced manually: run the local checks (`cargo test`, `npm run typecheck`, …) listed in [`docs/development/CI-WORKFLOWS.md`](docs/development/CI-WORKFLOWS.md) before opening a PR.
 
 ---
 
@@ -154,6 +164,30 @@ See the full guide: [`docs/CONTRIBUTING-FRONTEND.md`](docs/CONTRIBUTING-FRONTEND
 
 ---
 
+## Dependency Management
+
+PayFlow uses **Dependabot** to automatically create pull requests for dependency updates on a weekly schedule. See [Dependency Management Policy](docs/DEPENDENCIES.md) for full details.
+
+### For PRs Triggered by Dependabot
+
+1. **Review the changes**: Check the release notes or changelog for breaking changes
+2. **Run tests**: Verify all tests pass locally
+3. **Update documentation**: If there are API changes, update relevant docs
+4. **Approve & merge**: If tests pass and changes are compatible, approve the PR
+
+### Adding New Dependencies
+
+When adding new dependencies:
+
+1. Use exact or pinned versions initially (e.g., `soroban-sdk = "21.0.0"` or `"^12.0.0"`)
+2. Document why the dependency is needed in your PR description
+3. Ensure it aligns with the project's tech stack (Rust/Soroban for contract, React/TypeScript for frontend)
+4. Dependabot will automatically manage updates from that point forward
+
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for the full policy.
+
+---
+
 ## Commit Style
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
@@ -202,11 +236,33 @@ npm run generate:types
 This invokes `scripts/generate-types.sh`, which requires either:
 
 - `CONTRACT_ID` env var pointing to a deployed contract, or
-- A compiled WASM artifact at `contract/target/wasm32-unknown-unknown/release/payflow.wasm`
+- A compiled WASM artifact at `target/wasm32-unknown-unknown/release/flowpay.wasm`
 
 ### Output Location
 
 All generated files are written to `frontend/src/generated/`. Do not manually edit files in this directory — they will be overwritten on the next generation run.
+
+---
+
+## Documentation Naming Convention
+
+All Markdown files under `docs/` use `UPPER-KEBAB.md`: uppercase letters and digits joined by hyphens, ending in `.md` (e.g. `DEPLOYMENT.md`, `TWO-STEP-AUTH.md`, `TESTING-RUNBOOK.md`). This is enforced by `node check-doc-links.mjs`, which fails on any `docs/**/*.md` file that does not match `^[A-Z0-9]+(-[A-Z0-9]+)*\.md$`.
+
+When adding a new doc:
+
+- Name it `UPPER-KEBAB.md` and place it in the matching subdirectory (`architecture/`, `development/`, `frontend/`, `operations/`, `security/`, `spec/`) or at the top level of `docs/`.
+- Link it from [`docs/README.md`](docs/README.md) — files under `docs/` that nothing links to are reported as orphans and also fail the check.
+- Rename with `git mv` so history is preserved, then update every link target (the checker validates all relative links and `#anchor`s).
+
+Rationale: one convention keeps links greppable and avoids case-sensitivity surprises across macOS/Windows/Linux checkouts (see issue #1500).
+
+## Changelog and versioning
+
+Keep [`CHANGELOG.md`](CHANGELOG.md) in Keep a Changelog format with `[Unreleased]` at the top and category headings for `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and `Security`.
+
+Use SemVer for a release: MAJOR for incompatible contract/ABI changes, MINOR for backward-compatible additions, and PATCH for behavior fixes. Any storage schema or migration change must state the old and current schema versions and whether existing deployments require `migrate(users)`.
+
+Prefix incompatible contract changes with `**BREAKING**`. Include the affected public function or storage field and the required off-chain or deployment action. Update [docs/API.md](docs/API.md) and run `node scripts/check-contract-api.mjs` when public contract functions change.
 
 ---
 
@@ -217,10 +273,14 @@ Before opening a PR, confirm:
 - [ ] `cargo test` passes (contract changes)
 - [ ] `npm run lint` passes with no errors (frontend changes)
 - [ ] `npm run build` passes (frontend changes)
+- [ ] `npm run docs:check-all` passes (documentation changes)
 - [ ] New functions have tests
 - [ ] No secrets or `.env` files committed
 - [ ] PR description explains what changed and why
 - [ ] Linked to a relevant issue if one exists
+- [ ] CI passes (scripts-ci and security-audit workflows green)
+
+For documentation changes, see [Documentation Guards](docs/DOC-GUARDS.md) for details on running checks locally.
 
 ---
 

@@ -1,0 +1,12 @@
+# Repository-wide fallback
+* @SiLioLabs
+
+# Smart contract
+/contract/ @SiLioLabs
+
+# Frontend
+/frontend/ @SiLioLabs
+
+# Operations and scripts
+/docs/operations/ @SiLioLabs
+/scripts/ @SiLioLabs

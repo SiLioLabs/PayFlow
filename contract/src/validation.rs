@@ -3,6 +3,24 @@ use soroban_sdk::{token, Address, Env};
 use crate::errors::ContractError;
 use crate::Subscription;
 
+/// Length of an account (`G…`) or contract (`C…`) strkey.
+const ADDRESS_STRKEY_LEN: usize = 56;
+
+/// Returns whether `address` is a contract address rather than an account.
+///
+/// soroban-sdk 21 exposes no typed accessor for the address kind, so this reads
+/// the strkey version prefix defined by SEP-23: `C` for contracts, `G` for
+/// accounts.
+pub fn is_contract_address(address: &Address) -> bool {
+    let strkey = address.to_string();
+    if strkey.len() as usize != ADDRESS_STRKEY_LEN {
+        return false;
+    }
+    let mut buf = [0u8; ADDRESS_STRKEY_LEN];
+    strkey.copy_into_slice(&mut buf);
+    buf[0] == b'C'
+}
+
 /// Required SAC allowance for a subscribe or charge of `gross`.
 ///
 /// Always `gross`, whether protocol fees are off (`fee_bps == 0`, one
@@ -69,6 +87,9 @@ pub fn validate_interval(env: &Env, interval: u64) {
     if interval < crate::min_interval::get_min_interval(env) {
         env.panic_with_error(ContractError::IntervalTooShort);
     }
+    if interval > crate::MAX_SUBSCRIPTION_INTERVAL {
+        env.panic_with_error(ContractError::IntervalExceedsMaximum);
+    }
 }
 
 #[allow(dead_code)]
@@ -87,7 +108,10 @@ pub fn require_active_subscription(env: &Env, active: bool) {
 
 #[allow(dead_code)]
 pub fn require_charge_interval_elapsed(env: &Env, now: u64, last_charged: u64, interval: u64) {
-    if now < last_charged + interval {
+    let next = last_charged
+        .checked_add(interval)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+    if now < next {
         env.panic_with_error(ContractError::IntervalNotElapsed);
     }
 }
@@ -109,4 +133,3 @@ pub fn require_valid_subscribe_addresses(env: &Env, user: &Address, merchant: &A
         env.panic_with_error(ContractError::InvalidRecipient);
     }
 }
-

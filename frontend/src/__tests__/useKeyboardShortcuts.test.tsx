@@ -1,6 +1,7 @@
 import { fireEvent, renderHook } from "@testing-library/react";
 import { vi, describe, it, expect } from "vitest";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { ShortcutRegistryProvider } from "../context/ShortcutRegistry";
 
 // ── useKeyboardShortcuts ──────────────────────────────────────────────────────
 
@@ -70,6 +71,51 @@ describe("useKeyboardShortcuts", () => {
     ta.focus();
     fireEvent.keyDown(ta, { key: "r" });
     document.body.removeChild(ta);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["SELECT", undefined],
+    ["DIV", "textbox"],
+    ["DIV", "combobox"],
+  ])("does not fire shortcut for %s with role %s", (tagName, role) => {
+    const action = vi.fn();
+    renderHook(() =>
+      useKeyboardShortcuts({ shortcuts: [{ key: "p", description: "Pay per use", action }] })
+    );
+    const control = document.createElement(tagName);
+    if (role) control.setAttribute("role", role);
+    document.body.appendChild(control);
+    fireEvent.keyDown(control, { key: "p" });
+    document.body.removeChild(control);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("does not fire shortcut from a contenteditable element", () => {
+    const action = vi.fn();
+    renderHook(() =>
+      useKeyboardShortcuts({ shortcuts: [{ key: "x", description: "Cancel", action }] })
+    );
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    document.body.appendChild(editable);
+    fireEvent.keyDown(editable, { key: "x" });
+    document.body.removeChild(editable);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("does not fire shortcuts while a modal is open", () => {
+    const action = vi.fn();
+    renderHook(
+      () => useKeyboardShortcuts({ shortcuts: [{ key: "x", description: "Cancel", action }] }),
+      { wrapper: ShortcutRegistryProvider }
+    );
+    const modal = document.createElement("div");
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    document.body.appendChild(modal);
+    fireEvent.keyDown(window, { key: "x" });
+    document.body.removeChild(modal);
     expect(action).not.toHaveBeenCalled();
   });
 

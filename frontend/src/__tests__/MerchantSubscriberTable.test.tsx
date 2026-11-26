@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -10,6 +10,15 @@ import type { MerchantSubscriber } from "../stellar";
 vi.mock("../components/CopyButton", () => ({
   default: ({ text }: { text: string }) => <button data-testid={`copy-${text}`}>Copy</button>,
 }));
+
+const { buildCancelAndRefundTxMock } = vi.hoisted(() => ({
+  buildCancelAndRefundTxMock: vi.fn(),
+}));
+
+vi.mock("../stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stellar")>();
+  return { ...actual, buildCancelAndRefundTx: buildCancelAndRefundTxMock };
+});
 
 // ── Test data ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +57,14 @@ const LOW_AMOUNT_SUB = makeSub({
   nextChargeAt: FUTURE + 200,
 });
 
+const MERCHANT = "GMERCHANT555555555555555555555555555555555555555555555555";
+const REFUND_SUB = makeSub({
+  subscriber: "GREFUND666666666666666666666666666666666666666666666666666",
+  merchant: MERCHANT,
+  lastCharged: NOW - 864_000,
+  nextChargeAt: FUTURE,
+});
+
 // ── deriveStatus unit tests ────────────────────────────────────────────────────
 
 describe("deriveStatus", () => {
@@ -65,6 +82,10 @@ describe("deriveStatus", () => {
 describe("MerchantSubscriberTable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ── Empty state ──────────────────────────────────────────────────────────
@@ -248,8 +269,10 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show active/i }));
 
-      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
-      expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+        expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+      });
     });
 
     it("filters to only overdue subscribers when Overdue is clicked", async () => {
@@ -257,8 +280,10 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
-      expect(screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).not.toBeInTheDocument();
-      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).not.toBeInTheDocument();
+        expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+      });
     });
 
     it("shows 'no results' message when filter yields empty set", async () => {
@@ -267,10 +292,12 @@ describe("MerchantSubscriberTable", () => {
 
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
-      expect(screen.getByTestId("mst-no-results")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId("mst-no-results")).toBeInTheDocument();
+      });
     });
 
-    it("marks the active filter button as aria-pressed", async () => {
+    it("marks the active filter button as aria-pressed immediately on click", async () => {
       render(<MerchantSubscriberTable subscribers={subs} />);
 
       const activeBtn = screen.getByRole("button", { name: /show active/i });
@@ -286,6 +313,102 @@ describe("MerchantSubscriberTable", () => {
       expect(screen.getByRole("button", { name: /show all \(2\)/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /show active \(1\)/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /show overdue \(1\)/i })).toBeInTheDocument();
+    });
+
+    it("debounces rapid burst filter changes into a single settled update", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      render(<MerchantSubscriberTable subscribers={subs} debounceMs={200} />);
+
+      const allBtn = screen.getByRole("button", { name: /show all/i });
+      const activeBtn = screen.getByRole("button", { name: /show active/i });
+      const overdueBtn = screen.getByRole("button", { name: /show overdue/i });
+
+      // Initially both rows are displayed
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+
+      // Burst of rapid filter clicks
+      act(() => {
+        overdueBtn.click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(50);
+        allBtn.click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(50);
+        activeBtn.click();
+      });
+
+      // At time = 100ms (0ms after active click), the debounce has not elapsed
+      // Both rows should still be visible (no intermediate thrashing)
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).toBeInTheDocument();
+
+      // Advance through the remaining debounce window
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Now settled into the active-only filter
+      expect(screen.getByTestId(`mst-row-${ACTIVE_SUB.subscriber}`)).toBeInTheDocument();
+      expect(screen.queryByTestId(`mst-row-${OVERDUE_SUB.subscriber}`)).not.toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+  });
+
+  // ── Scroll position reset ──────────────────────────────────────────────────
+
+  describe("scroll position reset", () => {
+    const subs = [LOW_AMOUNT_SUB, HIGH_AMOUNT_SUB, ACTIVE_SUB, OVERDUE_SUB];
+
+    it("resets scroll position to top when sort field or direction changes", async () => {
+      const { container } = render(<MerchantSubscriberTable subscribers={subs} />);
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+      expect(scrollContainer).toBeInTheDocument();
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 350;
+      expect(scrollContainer.scrollTop).toBe(350);
+
+      // Toggle sort
+      const amountHeader = screen.getByRole("columnheader", { name: /amount/i });
+      await userEvent.click(amountHeader);
+
+      // Scroll position must be reset to 0
+      expect(scrollContainer.scrollTop).toBe(0);
+    });
+
+    it("resets scroll position to top when subscribers prop changes", () => {
+      const { container, rerender } = render(<MerchantSubscriberTable subscribers={subs} />);
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 420;
+      expect(scrollContainer.scrollTop).toBe(420);
+
+      // Update subscribers prop (e.g. newly fetched or filtered list from parent)
+      rerender(<MerchantSubscriberTable subscribers={[LOW_AMOUNT_SUB, HIGH_AMOUNT_SUB]} />);
+
+      // Scroll position must be reset to 0
+      expect(scrollContainer.scrollTop).toBe(0);
+    });
+
+    it("resets scroll position to top when filter changes", async () => {
+      const { container } = render(
+        <MerchantSubscriberTable subscribers={subs} debounceMs={0} />
+      );
+      const scrollContainer = container.querySelector(".mst-scroll-container") as HTMLElement;
+
+      // Simulate scrolling down
+      scrollContainer.scrollTop = 280;
+      expect(scrollContainer.scrollTop).toBe(280);
+
+      // Apply filter
+      await userEvent.click(screen.getByRole("button", { name: /show active/i }));
+
+      expect(scrollContainer.scrollTop).toBe(0);
     });
   });
 
@@ -316,8 +439,11 @@ describe("MerchantSubscriberTable", () => {
       await userEvent.click(screen.getByRole("button", { name: /show overdue/i }));
 
       const overdueCount = MANY_SUBS.filter((s) => deriveStatus(s.nextChargeAt) === "overdue").length;
-      const table = screen.getByRole("table", { name: /merchant subscriber list/i });
-      expect(table).toHaveAttribute("aria-rowcount", String(overdueCount));
+      // The filter is applied through a debounced setter, so wait for it to settle.
+      await waitFor(() => {
+        const table = screen.getByRole("table", { name: /merchant subscriber list/i });
+        expect(table).toHaveAttribute("aria-rowcount", String(overdueCount));
+      });
 
       // Every rendered row must actually be overdue — the filter must apply to
       // the full list before virtualization windows it, not the other way round.
@@ -325,6 +451,120 @@ describe("MerchantSubscriberTable", () => {
       renderedRows.forEach((row) => {
         expect(row.className).toContain("mst-row--overdue");
       });
+    });
+  });
+
+  describe("prorated refunds", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(NOW * 1000));
+      buildCancelAndRefundTxMock.mockReset();
+      buildCancelAndRefundTxMock.mockResolvedValue("refund-xdr");
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows a refund amount preview in the row action", () => {
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`)).toHaveTextContent(
+        "6.6666666 XLM"
+      );
+    });
+
+    it("signs the refund, updates the row, and notifies the parent", async () => {
+      const onSign = vi.fn().mockResolvedValue("refund-hash");
+      const onRefunded = vi.fn();
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={onSign}
+          onRefunded={onRefunded}
+        />
+      );
+
+      await userEvent.click(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`));
+      expect(screen.getByTestId("mst-refund-preview")).toHaveTextContent("6.6666666 XLM");
+
+      await userEvent.click(screen.getByTestId("mst-refund-confirm"));
+
+      await waitFor(() =>
+        expect(buildCancelAndRefundTxMock).toHaveBeenCalledWith(MERCHANT, REFUND_SUB.subscriber)
+      );
+      expect(onSign).toHaveBeenCalledWith("refund-xdr");
+      await waitFor(() =>
+        expect(
+          within(screen.getByTestId(`mst-row-${REFUND_SUB.subscriber}`)).getByLabelText(
+            "Status: refunded"
+          )
+        ).toBeInTheDocument()
+      );
+      expect(onRefunded).toHaveBeenCalledWith(REFUND_SUB, "refund-hash");
+    });
+
+    it("blocks a refund when the connected wallet is not the merchant", () => {
+      const mismatched = { ...REFUND_SUB, merchant: "GOTHER77777777777777777777777777777777777777777777777" };
+      render(
+        <MerchantSubscriberTable
+          subscribers={[mismatched]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      const button = screen.getByTestId(`mst-refund-${mismatched.subscriber}`);
+      expect(button).toBeDisabled();
+      expect(screen.getByText(/merchant wallet mismatch \(error 38\)/i)).toBeInTheDocument();
+    });
+
+    it("blocks a refund with no positive prorated amount", () => {
+      const exhausted = {
+        ...REFUND_SUB,
+        lastCharged: NOW - 2_592_000,
+        nextChargeAt: FUTURE,
+      };
+      render(
+        <MerchantSubscriberTable
+          subscribers={[exhausted]}
+          merchantKey={MERCHANT}
+          onSign={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId(`mst-refund-${exhausted.subscriber}`)).toBeDisabled();
+      expect(screen.getByText(/nothing left to refund \(error 39\)/i)).toBeInTheDocument();
+    });
+
+    it("surfaces underfunded merchant errors clearly", async () => {
+      const onSign = vi.fn().mockRejectedValue(new Error("error(Contract, #40)"));
+      render(
+        <MerchantSubscriberTable
+          subscribers={[REFUND_SUB]}
+          merchantKey={MERCHANT}
+          onSign={onSign}
+        />
+      );
+
+      await userEvent.click(screen.getByTestId(`mst-refund-${REFUND_SUB.subscriber}`));
+      await userEvent.click(screen.getByTestId("mst-refund-confirm"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("mst-refund-modal-error")).toHaveTextContent(
+          /insufficient balance to fund this refund/i
+        )
+      );
+      expect(screen.getByTestId(`mst-row-${REFUND_SUB.subscriber}`)).not.toHaveTextContent(
+        "Refunded"
+      );
     });
   });
 });

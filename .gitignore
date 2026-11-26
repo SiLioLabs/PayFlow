@@ -193,8 +193,18 @@ iissue.md
 skills-lock.json
 
 contract/target/
-
-contract/target/
+vesting/target/
+/target/
 
 # Webhook Dead Letter Queue
 data/webhook-dlq.jsonl
+
+# Debug brace dumps (recurring local artefacts, see #1252)
+frontend/*_braces.txt
+*_braces.txt
+
+# Testnet account secrets (generated locally by testnet-setup.ts)
+scripts/data/testnet-accounts.json
+**/testnet-accounts.json
+*.local.json
+data/testnet-accounts.json

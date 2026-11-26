@@ -1,6 +1,6 @@
 # PayFlow: Decentralized Subscriptions on Stellar
 
-PayFlow (also referred to as FlowPay) is a decentralized subscription and recurring payment protocol built on the Stellar network using Soroban smart contracts. It enables trustless, non-custodial recurring billing by allowing users to approve a contract to periodically transfer funds to a merchant.
+PayFlow is the product and repository name. It is a decentralized subscription and recurring payment protocol built on the Stellar network using Soroban smart contracts. It enables trustless, non-custodial recurring billing by allowing users to approve a contract to periodically transfer funds to a merchant. `FlowPay` is the Rust/Soroban contract implementation name.
 
 ## Project Overview
 
@@ -35,7 +35,7 @@ PayFlow (also referred to as FlowPay) is a decentralized subscription and recurr
 
 ### Prerequisites
 
-- Rust 1.70+ with `wasm32-unknown-unknown` target.
+- Rust 1.78+ with `wasm32-unknown-unknown` target.
 - Soroban CLI.
 - Node.js 18+.
 

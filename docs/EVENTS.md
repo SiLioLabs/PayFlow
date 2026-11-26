@@ -2,9 +2,20 @@
 
 This document provides a complete reference for all events emitted by the FlowPay smart contract. Events are grouped by functional area for easy navigation.
 
-> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
+> **Building on these events?** This file is the payload/schema reference. For polling Soroban RPC, deduplication, reaction patterns (keeper / analytics / notifications / reconciliation), ordering, and reliability, see the companion cookbook: [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md). For delivering events over signed HTTP webhooks with retries and dead-letter queues, see [`docs/WEBHOOKS.md`](WEBHOOKS.md). Reference scripts: [`scripts/watch-events.ts`](../scripts/watch-events.ts), [`scripts/replay-events.ts`](../scripts/replay-events.ts).
 
-> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-08-27. All 40 `publish_*` helpers are documented below.
+> **Catalog version:** Synchronized with `contract/src/events.rs` as of 2026-11-22. Every event emitted by the contract is documented below.
+
+## Permanent abbreviated topics
+
+These four topic strings are **intentional and permanent**. They are the public wire names. Do **not** expand or rename them during cleanup. Consumers must not assume a longer sibling name will be emitted instead; any rename requires a coordinated dual-emission migration.
+
+| Emitted topic | Event | Permanent? | Rationale |
+| --- | --- | --- | --- |
+| `max_wl_batch_size_set` | Max whitelist batch size changed (`publish_max_whitelist_batch_size_set`) | Yes | Historical short form next to `max_batch_size_set`; kept so existing indexers keep matching. |
+| `merch_hist_cleared` | Merchant revenue history cleared (`publish_merchant_history_cleared`) | Yes | Abbreviation shipped on the original helper; sibling prose names are documentation only. |
+| `upg_proposed` | WASM upgrade proposed (`publish_upgrade_proposed`) | Yes | Short topic used by watchers and playbooks; expanding it would break those filters. |
+| `upg_cancelled` | Pending WASM upgrade cancelled (`publish_upgrade_cancelled`) | Yes | Pair of `upg_proposed`; same abbreviated prefix is the on-chain name. |
 
 ---
 
@@ -144,6 +155,36 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### refunded
+
+- **Trigger**: `refund_last_charge()` (merchant-initiated refund of the last scheduled charge; subscription stays active)
+- **Topic keys**: `["refunded", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    amount: i128,
+    fee: i128,
+    net: i128,
+    charged_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["refunded", "GABC...XYZ"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "amount": 10000000,
+      "fee": 500000,
+      "net": 9500000,
+      "charged_at": 1719388800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### subscription_paused
 
 - **Trigger**: `batch_pause_subscriptions()` (admin batch operation)
@@ -194,6 +235,32 @@ Events related to subscription lifecycle transitions.
   }
   ```
 
+### charge_skipped
+
+- **Trigger**: `skip_next_charge()`
+- **Topic keys**: `["charge_skipped", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    interval: u64,
+    new_last_charged: u64,
+    next_charge_at: u64,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["charge_skipped", "GABC...XYZ"],
+    "data": {
+      "interval": 2592000,
+      "new_last_charged": 1721980800,
+      "next_charge_at": 1724572800,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ---
 
 ## Charge & Payment Events
@@ -204,6 +271,7 @@ Events related to charges and payments.
 
 - **Trigger**: `charge()` or `batch_charge()`
 - **Topic keys**: `["charged", user_address]`
+- **Schema marker**: `v3` (appended after existing topics)
 - **Payload schema**:
   ```rust
   {
@@ -212,7 +280,9 @@ Events related to charges and payments.
     fee: i128,
     net: i128,
     charged_at: u64,
-    ledger_sequence: u32
+    ledger_sequence: u32,
+    paid_to: Option<Address>,
+    fee_bps: u32
   }
   ```
 - **JSON example**:
@@ -225,10 +295,14 @@ Events related to charges and payments.
       "fee": 500000,
       "net": 49500000,
       "charged_at": 1719388800,
-      "ledger_sequence": 12345
+      "ledger_sequence": 12345,
+      "paid_to": "GCOLLECTOR...XYZ",
+      "fee_bps": 100
     }
   }
   ```
+- **Fee destination (`paid_to`)**: Records the address receiving the collector share (`MerchantFeeRecipient` if configured for the merchant, otherwise the global `FeeCollector`). It is `None` when no protocol fee is charged.
+- **Effective rate (`fee_bps`)**: The merchant override when configured, otherwise the global rate. The marker advances to `v3` so consumers can distinguish this payload from v2.
 
 ### batch_charge_skips
 
@@ -346,9 +420,11 @@ Events related to subscription configuration changes.
 
 ### sub_transferred
 
-- **Trigger**: `transfer_subscription()` (legacy event)
+- **Trigger**: `transfer_subscription()` — compact/legacy event, always emitted first
+- **Helper**: `publish_subscription_transferred`
 - **Topic keys**: `["sub_transferred", old_user_address]`
 - **Payload schema**: `new_user: Address`
+- **Relationship**: Same transfer also emits `subscription_transferred` with a richer payload. Keep this topic for existing compact consumers; do not treat the two events as interchangeable.
 - **JSON example**:
   ```json
   {
@@ -359,14 +435,62 @@ Events related to subscription configuration changes.
 
 ### subscription_transferred
 
-- **Trigger**: `transfer_subscription()` (new event, emitted alongside `sub_transferred`)
+- **Trigger**: `transfer_subscription()` — detailed event, always emitted after `sub_transferred`
+- **Helper**: `publish_subscription_transferred_detailed`
 - **Topic keys**: `["subscription_transferred", from_address, to_address]`
 - **Payload schema**: `(merchant: Address, amount: i128, interval: u64, token: Address)`
+- **Consumer guidance**: Prefer this event for new indexers (from/to in topics plus merchant/amount/interval/token). The contract still emits `sub_transferred` as well; both names are permanent.
 - **JSON example**:
   ```json
   {
     "topic": ["subscription_transferred", "GFROM...XYZ", "GTO...ABC"],
     "data": ["GMERCH...DEF", 50000000, 2592000, "GTOKEN...GHI"]
+  }
+  ```
+
+### metadata_set
+
+- **Trigger**: `set_metadata()`
+- **Topic keys**: `["metadata_set", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    user: Address,
+    label: String,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["metadata_set", "GABC...XYZ"],
+    "data": {
+      "user": "GABC...XYZ",
+      "label": "pro",
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
+### metadata_cleared
+
+- **Trigger**: `clear_metadata()`
+- **Topic keys**: `["metadata_cleared", user_address]`
+- **Payload schema**:
+  ```rust
+  {
+    user: Address,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["metadata_cleared", "GABC...XYZ"],
+    "data": {
+      "user": "GABC...XYZ",
+      "ledger_sequence": 12345
+    }
   }
   ```
 
@@ -402,6 +526,28 @@ Events related to admin operations.
   }
   ```
 
+### admin_transfer_proposed
+
+- **Trigger**: `transfer_admin()` (step 1 of two-step admin transfer)
+- **Topic keys**: `["admin_transfer_proposed", new_admin_address]`
+- **Payload schema**:
+  ```rust
+  {
+    new_admin: Address,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["admin_transfer_proposed", "GNEW...ADMIN"],
+    "data": {
+      "new_admin": "GNEW...ADMIN",
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
 ### admin_transferred
 
 - **Trigger**: Two-step admin transfer completed (`accept_admin()`)
@@ -430,6 +576,7 @@ Events related to admin operations.
 
 ### upg_proposed
 
+- **Compatibility**: topic spelling is **permanent** (see [Permanent abbreviated topics](#permanent-abbreviated-topics)). Do not rename to `upgrade_proposed`.
 - **Trigger**: WASM upgrade proposed (`propose_upgrade()`)
 - **Topic keys**: `["upg_proposed"]`
 - **Payload schema**: `new_wasm_hash: BytesN<32>`
@@ -438,6 +585,20 @@ Events related to admin operations.
   {
     "topic": ["upg_proposed"],
     "data": "0xabcdef123456..."
+  }
+  ```
+
+### upg_cancelled
+
+- **Compatibility**: topic spelling is **permanent** (see [Permanent abbreviated topics](#permanent-abbreviated-topics)). Do not rename to `upgrade_cancelled`.
+- **Trigger**: Pending WASM upgrade cancelled (`cancel_pending_upgrade()`)
+- **Topic keys**: `["upg_cancelled"]`
+- **Payload schema**: `()`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["upg_cancelled"],
+    "data": []
   }
   ```
 
@@ -465,6 +626,7 @@ Events related to admin operations.
 
 ### merch_hist_cleared
 
+- **Compatibility**: topic spelling is **permanent** (see [Permanent abbreviated topics](#permanent-abbreviated-topics)). Do not rename to `merchant_history_cleared`.
 - **Trigger**: `clear_merchant_revenue_history()`
 - **Topic keys**: `["merch_hist_cleared"]`
 - **Payload schema**: `merchant: Address`
@@ -473,6 +635,55 @@ Events related to admin operations.
   {
     "topic": ["merch_hist_cleared"],
     "data": "GDEF...ABC"
+  }
+  ```
+
+### max_batch_size_set
+
+- **Trigger**: `set_max_batch_size()`
+- **Topic keys**: `["max_batch_size_set"]`
+- **Payload schema**:
+  ```rust
+  {
+    old: u32,
+    new: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["max_batch_size_set"],
+    "data": {
+      "old": 50,
+      "new": 100
+    }
+  }
+  ```
+
+### max_wl_batch_size_set
+
+- **Compatibility**: topic spelling is **permanent** (see [Permanent abbreviated topics](#permanent-abbreviated-topics)). Do not rename to `max_whitelist_batch_size_set`.
+- **Trigger**: `set_max_whitelist_batch_size()`
+- **Topic keys**: `["max_wl_batch_size_set"]`
+- **Payload schema**: `(old: u32, new: u32)`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["max_wl_batch_size_set"],
+    "data": [50, 100]
+  }
+  ```
+
+### whitelist_enabled
+
+- **Trigger**: `set_whitelist_enabled()`
+- **Topic keys**: `["whitelist_enabled"]`
+- **Payload schema**: `enabled: bool`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["whitelist_enabled"],
+    "data": true
   }
   ```
 
@@ -534,6 +745,45 @@ Events related to protocol fee configuration.
   }
   ```
 
+### merchant_fee_recipient_cleared
+
+- **Trigger**: Clearing a merchant's custom fee recipient (reverts to the global fee collector)
+- **Topic keys**: `["merchant_fee_recipient_cleared", merchant_address]`
+- **Payload schema**: `()`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["merchant_fee_recipient_cleared", "GMERCH...ABC"],
+    "data": []
+  }
+  ```
+
+### fee_bounds_set
+
+- **Trigger**: `set_fee_bounds()`
+- **Topic keys**: `["fee_bounds_set"]`
+- **Payload schema**: `(min_bps: u32, max_bps: u32)`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["fee_bounds_set"],
+    "data": [0, 10000]
+  }
+  ```
+
+### global_volume_cap_set
+
+- **Trigger**: `set_global_volume_cap()`
+- **Topic keys**: `["global_volume_cap_set"]`
+- **Payload schema**: `(old: i128, new: i128)`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["global_volume_cap_set"],
+    "data": [50000000000000, 25000000000000]
+  }
+  ```
+
 ---
 
 ## Merchant Events
@@ -589,6 +839,65 @@ Events related to merchant management.
   {
     "topic": ["merchant_unfrozen", "GDEF...ABC"],
     "data": []
+  }
+  ```
+
+### merchant_revenue_reset
+
+- **Trigger**: `reset_merchant_revenue()` (admin operation)
+- **Topic keys**: `["merchant_revenue_reset", merchant_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["merchant_revenue_reset", "GDEF...ABC"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
+### merchant_revenue_pruned
+
+- **Trigger**: `prune_merchant_revenue_days()` (admin operation)
+- **Topic keys**: `["merchant_revenue_pruned", merchant_address]`
+- **Payload schema**:
+  ```rust
+  {
+    merchant: Address,
+    removed_days: u32,
+    ledger_sequence: u32
+  }
+  ```
+- **JSON example**:
+  ```json
+  {
+    "topic": ["merchant_revenue_pruned", "GDEF...ABC"],
+    "data": {
+      "merchant": "GDEF...ABC",
+      "removed_days": 30,
+      "ledger_sequence": 12345
+    }
+  }
+  ```
+
+### merchant_withdrawal
+
+- **Trigger**: `withdraw_merchant_revenue()`
+- **Topic keys**: `["merchant_withdrawal", merchant_address]`
+- **Payload schema**: `amount: i128`
+- **JSON example**:
+  ```json
+  {
+    "topic": ["merchant_withdrawal", "GDEF...ABC"],
+    "data": 1000000000
   }
   ```
 
@@ -685,14 +994,53 @@ Events related to contract migration and infrastructure operations.
 
 ### migration_completed
 
-- **Trigger**: `migrate()` (schema migration)
+- **Trigger**: `finalize_migration()`, once the schema version advances to the current version. `migrate()` emits nothing.
 - **Topic keys**: `["migration_completed"]`
-- **Payload schema**: `(version: u32, user_count: u32)`
+- **Payload schema**: `(version: u32, user_count: u32)`, where `user_count` is the number of accounts processed.
 - **JSON example**:
   ```json
   {
     "topic": ["migration_completed"],
     "data": [3, 150]
+  }
+  ```
+
+### migration_progress
+
+- **Trigger**: `migrate()`, when a batch processes at least one new account
+- **Topic keys**: `["migration_progress"]`
+- **Payload schema**: `migrated_accounts: u64`, the running total for this upgrade
+- **JSON example**:
+  ```json
+  {
+    "topic": ["migration_progress"],
+    "data": 150
+  }
+  ```
+
+### keeper_tip_bps_set
+
+- **Trigger**: `set_keeper_tip_bps()` (admin)
+- **Topic keys**: `["keeper_tip_bps_set"]`
+- **Payload schema**: `(old: u32, new: u32)`, in basis points of the protocol fee
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip_bps_set"],
+    "data": [0, 2000]
+  }
+  ```
+
+### keeper_tip
+
+- **Trigger**: `charge_with_tip()`, when a tip is paid to the keeper
+- **Topic keys**: `["keeper_tip", <keeper: Address>]`
+- **Payload schema**: `(user: Address, tip: i128)`, in token base units. Emitted only when `tip > 0`.
+- **JSON example**:
+  ```json
+  {
+    "topic": ["keeper_tip", "G...KEEPER"],
+    "data": ["G...SUBSCRIBER", 100000]
   }
   ```
 
@@ -728,6 +1076,7 @@ Events related to contract migration and infrastructure operations.
 | Doc                                                       | Role                                                           |
 | --------------------------------------------------------- | -------------------------------------------------------------- |
 | [`docs/EVENT-DRIVEN-GUIDE.md`](EVENT-DRIVEN-GUIDE.md)     | Cookbook: consume events reliably, react, dedupe, detect gaps  |
+| [`docs/WEBHOOKS.md`](WEBHOOKS.md)                         | Webhook delivery, schemas, signatures, retries, and DLQ replay |
 | [`docs/KEEPER.md`](KEEPER.md)                             | Keeper operations (primary producer/consumer of charge cycles) |
 | [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md)       | Third-party app integration (transactions + reads)             |
 | [`docs/API.md`](API.md)                                   | Contract function surface                                      |

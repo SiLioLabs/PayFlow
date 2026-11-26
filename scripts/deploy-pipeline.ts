@@ -1,4 +1,30 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env tsx
+/**
+ * deploy-pipeline.ts — Pre-deployment validation pipeline for FlowPay.
+ *
+ * Runs a sequence of safety gates before a WASM upgrade is committed:
+ *
+ *   1. Schema-version gate  — on-chain version matches the expected value.
+ *   2. WASM-hash gate       — on-chain WASM hash matches the local build artifact.
+ *
+ * If either gate fails the process exits non-zero, blocking the deployment.
+ * Gates that cannot be determined fail **closed** (i.e. they block, not warn).
+ *
+ * Usage:
+ *   CONTRACT_ID=C... RPC_URL=https://... tsx scripts/deploy-pipeline.ts [--help]
+ *   CONTRACT_ID=C... tsx scripts/deploy-pipeline.ts --expected-wasm-hash <hex>
+ *
+ * Environment:
+ *   CONTRACT_ID         Required. Deployed FlowPay contract address.
+ *   RPC_URL             Optional. Soroban RPC endpoint (default: testnet).
+ *   NETWORK_PASSPHRASE  Optional. Network passphrase (default: testnet).
+ *   EXPECTED_SCHEMA_VERSION  Optional. Schema version to assert (default: 2).
+ *
+ * Exit codes:
+ *   0 — all gates passed
+ *   1 — at least one gate failed or an unrecoverable error occurred
+ */
+
 /**
  * deploy-pipeline.ts
  *
@@ -34,17 +60,18 @@
 import * as fs from "fs";
 import * as crypto from "crypto";
 import * as path from "path";
+import { Contract, Networks, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
+import * as fs from "fs";
+import * as crypto from "crypto";
+import * as path from "path";
 import {
   Contract,
   Networks,
   TransactionBuilder,
   BASE_FEE,
-  nativeToScVal,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
 import { fileURLToPath } from "url";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { MultiEndpointServer } from "./rpc-client.js";
 
 export type GateStatus = "pass" | "fail" | "skip" | "warn";
 
@@ -64,6 +91,10 @@ export interface PipelineSummary {
   wasmHash: string | null;
   onChainHash: string | null;
   schemaVersion: number | null;
+  /** `get_version()` of the deployed contract, when readable. */
+  contractVersion: string | null;
+  /** Version this build embeds (contract/Cargo.toml). */
+  buildVersion: string | null;
   rpcHealthy: boolean;
   gates: GateResult[];
   passed: boolean;
@@ -162,7 +193,7 @@ export function computeWasmHash(wasmPath: string): string {
  */
 export async function fetchOnChainWasmHash(
   contractId: string,
-  server: Server
+  server: MultiEndpointServer
 ): Promise<string | null> {
   try {
     // Use getContractData or getLedgerEntries to read ContractCode
@@ -184,7 +215,7 @@ const LATEST_SCHEMA_VERSION = 2;
 
 export async function fetchSchemaVersion(
   contractId: string,
-  server: Server,
+  server: MultiEndpointServer,
   networkPassphrase: string,
   sourceAccount: string
 ): Promise<number | null> {
@@ -212,13 +243,74 @@ export async function fetchSchemaVersion(
   }
 }
 
+// ── Contract version helpers (#1412) ──────────────────────────────────────────
+
+const PIPELINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const DEFAULT_CARGO_TOML = path.join(PIPELINE_ROOT, "contract", "Cargo.toml");
+export const DEFAULT_MANIFEST = path.join(PIPELINE_ROOT, "deployments", "manifest.json");
+
+/** The `[package] version` from a Cargo.toml: the value `get_version` embeds. */
+export function readCargoVersion(cargoTomlPath: string = DEFAULT_CARGO_TOML): string | null {
+  try {
+    const toml = fs.readFileSync(cargoTomlPath, "utf8");
+    const pkg = toml.split(/^\[(?!package\])/m)[0];
+    const match = pkg.match(/^\s*version\s*=\s*"([^"]+)"/m);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Simulates `get_version()` on the deployed contract; null when unavailable. */
+export async function fetchContractVersion(
+  contractId: string,
+  server: MultiEndpointServer,
+  networkPassphrase: string,
+  sourceAccount: string
+): Promise<string | null> {
+  try {
+    const contract = new Contract(contractId);
+    const account = await server.getAccount(sourceAccount);
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+      .addOperation(contract.call("get_version"))
+      .setTimeout(30)
+      .build();
+    const simResult = await server.simulateTransaction(tx);
+    if ("error" in simResult) return null;
+    const retval = (simResult as any).result?.retval;
+    if (!retval || retval.switch().name !== "scvString") return null;
+    return retval.str().toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records the contract version in deployments/manifest.json, keeping every
+ * other field. Called on real (non dry-run) pipeline runs.
+ */
+export function recordContractVersion(
+  version: { onChain: string | null; build: string | null },
+  manifestPath: string = DEFAULT_MANIFEST,
+  now: Date = new Date()
+): void {
+  let manifest: Record<string, unknown> = {};
+  if (fs.existsSync(manifestPath)) {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  }
+  manifest.contractVersion = version.onChain;
+  manifest.buildVersion = version.build;
+  manifest.lastUpdatedAt = now.toISOString();
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+}
+
 // ── Gate runners ──────────────────────────────────────────────────────────────
 
 /**
  * Gate 1: RPC Health
  * Fails the pipeline if the Soroban RPC node reports unhealthy.
  */
-export async function runHealthGate(server: Server): Promise<GateResult> {
+export async function runHealthGate(server: MultiEndpointServer): Promise<GateResult> {
   try {
     const health = await server.getHealth();
     const healthy = (health as any).status === "healthy";
@@ -247,7 +339,7 @@ export async function runHealthGate(server: Server): Promise<GateResult> {
 export async function runWasmHashGate(
   wasmPath: string | undefined,
   contractId: string,
-  server: Server
+  server: MultiEndpointServer
 ): Promise<GateResult & { localHash: string | null; onChainHash: string | null }> {
   if (!wasmPath) {
     return {
@@ -306,7 +398,7 @@ export async function runWasmHashGate(
  */
 export async function runSchemaVersionGate(
   contractId: string,
-  server: Server,
+  server: MultiEndpointServer,
   networkPassphrase: string,
   sourceAccount: string
 ): Promise<GateResult & { schemaVersion: number | null }> {
@@ -347,6 +439,53 @@ export async function runSchemaVersionGate(
   };
 }
 
+/**
+ * Gate 4: Contract version
+ * Reads `get_version()` from the deployed contract and compares it with the
+ * version this build embeds (contract/Cargo.toml). A difference is expected
+ * before an upgrade, so it warns rather than fails.
+ */
+export async function runContractVersionGate(
+  contractId: string,
+  server: MultiEndpointServer,
+  networkPassphrase: string,
+  sourceAccount: string,
+  buildVersion: string | null = readCargoVersion()
+): Promise<GateResult & { contractVersion: string | null; buildVersion: string | null }> {
+  if (!contractId || !sourceAccount) {
+    return {
+      gate: "contract-version",
+      status: "skip",
+      message: "Contract ID or source account not set; skipping version check",
+      contractVersion: null,
+      buildVersion,
+    };
+  }
+
+  const onChain = await fetchContractVersion(contractId, server, networkPassphrase, sourceAccount);
+  if (onChain === null) {
+    return {
+      gate: "contract-version",
+      status: "warn",
+      message: "Could not read get_version() (contract may predate it)",
+      contractVersion: null,
+      buildVersion,
+    };
+  }
+
+  const same = buildVersion !== null && onChain === buildVersion;
+  return {
+    gate: "contract-version",
+    status: same ? "pass" : "warn",
+    message: same
+      ? `Deployed contract version ${onChain} matches this build`
+      : `Deployed contract version ${onChain} differs from this build (${buildVersion ?? "unknown"})`,
+    detail: { onChain, buildVersion },
+    contractVersion: onChain,
+    buildVersion,
+  };
+}
+
 // ── Summary artifact ──────────────────────────────────────────────────────────
 
 export function writeSummary(
@@ -377,6 +516,8 @@ export async function runPipeline(
     wasmHash: null,
     onChainHash: null,
     schemaVersion: null,
+    contractVersion: null,
+    buildVersion: readCargoVersion(),
     rpcHealthy: false,
     gates: [],
     passed: false,
@@ -397,6 +538,7 @@ export async function runPipeline(
       { gate: "rpc-health", status: "skip", message: "Dry-run — skipped" },
       { gate: "wasm-hash", status: "skip", message: "Dry-run — skipped" },
       { gate: "schema-version", status: "skip", message: "Dry-run — skipped" },
+      { gate: "contract-version", status: "skip", message: "Dry-run — skipped" },
     ];
     summary.passed = true;
     writeSummary(summary, args.summaryOut);
@@ -404,7 +546,7 @@ export async function runPipeline(
     return summary;
   }
 
-  const server = new Server(rpcUrl);
+  const server = new MultiEndpointServer(rpcUrl);
 
   // ── Gate 1: RPC Health ─────────────────────────────────────────────────────
   const healthGate = await runHealthGate(server);
@@ -445,6 +587,19 @@ export async function runPipeline(
   summary.gates.push(schemaGate);
   summary.schemaVersion = schemaGate.schemaVersion;
   printGate(schemaGate);
+
+  // ── Gate 4: Contract version (recorded in deployments/manifest.json) ──────
+  const versionGate = await runContractVersionGate(
+    contractId,
+    server,
+    networkPassphrase,
+    sourceAccount,
+    summary.buildVersion
+  );
+  summary.gates.push(versionGate);
+  summary.contractVersion = versionGate.contractVersion;
+  printGate(versionGate);
+  recordContractVersion({ onChain: versionGate.contractVersion, build: summary.buildVersion });
 
   // Schema warnings don't fail the pipeline — they remind the operator to migrate
   summary.passed = summary.gates.every(
@@ -502,7 +657,7 @@ Options:
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain || process.argv[1]?.includes("deploy-pipeline")) {
+if (isMain) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

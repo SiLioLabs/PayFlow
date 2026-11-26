@@ -10,10 +10,54 @@ use crate::storage;
 use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
-use crate::{extend_subscription_ttl, DataKey, MAX_AMOUNT, Subscription};
+use crate::{
+    extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, SUBSCRIPTION_TTL_LEDGERS,
+    MAX_AMOUNT,
+};
+
+/// Sets `merchant`'s per-call maximum `pay_per_use` amount. Enforced
+/// alongside the global `MAX_AMOUNT` cap (`AmountExceedsMaximum`), not in
+/// place of it. The caller must authorize as `merchant`.
+pub fn set_merchant_max_per_use(env: &Env, merchant: &Address, max_amount: i128) {
+    merchant.require_auth();
+    validation::require_valid_amount(env, max_amount);
+    let key = DataKey::MerchantMaxPerUse(merchant.clone());
+    env.storage().persistent().set(&key, &max_amount);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+    events::publish_merchant_max_per_use_set(env, merchant, max_amount);
+}
+
+/// Returns `merchant`'s configured per-call `pay_per_use` maximum, or `None`
+/// if unset (only the global `MAX_AMOUNT` cap applies).
+pub fn get_merchant_max_per_use(env: &Env, merchant: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MerchantMaxPerUse(merchant.clone()))
+}
+
+/// Panics with `AmountExceedsMaximum` if `merchant` has configured a
+/// per-call maximum and `amount` exceeds it. No-op if unset.
+pub fn enforce_merchant_max_per_use(env: &Env, merchant: &Address, amount: i128) {
+    if let Some(max_amount) = get_merchant_max_per_use(env, merchant) {
+        if amount > max_amount {
+            env.panic_with_error(crate::errors::ContractError::AmountExceedsMaximum);
+        }
+    }
+}
 
 /// ─────────────────────────────────────────────────────────────
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
+///
+/// Full comparison of estimate vs live differences:
+/// docs/architecture/BATCH-ESTIMATE-VS-LIVE.md
+///
+/// Randomized parity property (every chargeable/skip state, boundary
+/// allowances, fees, repeated addresses):
+/// `scenario::scenario_property_estimate_matches_live_batch_outcomes`.
 /// ─────────────────────────────────────────────────────────────
 ///
 /// Both `simulate_charge` and `get_batch_charge_estimate` are
@@ -29,8 +73,13 @@ use crate::{extend_subscription_ttl, DataKey, MAX_AMOUNT, Subscription};
 ///   * Return enums differ (ChargeSimResult vs ChargeResult)
 ///     because ChargeResult has a stable discriminant layout
 ///     consumed by off-chain keepers/indexers and cannot be
-///     changed.  `into_sim_result` / `into_batch_result` map
-///     the shared precheck outcomes accordingly.
+///     changed.  `into_batch_result` maps the shared precheck
+///     outcomes to `ChargeResult` for the batch path, while
+///     `into_sim_result` maps them to `ChargeSimResult` for the
+///     simulate path.  `charge_result_from_precheck` resolves the
+///     `ProceedToAllowance` case into a `ChargeResult` (performing
+///     the allowance gate) which `ChargeResult::into_sim_result`
+///     then maps onto `ChargeSimResult`.
 ///   * Allowance / InsufficientAllowance handling is NOT part
 ///     of the shared precheck.  It belongs to Issue 001 and is
 ///     performed separately by each caller after this helper
@@ -46,39 +95,6 @@ use crate::{extend_subscription_ttl, DataKey, MAX_AMOUNT, Subscription};
 ///     while the batch path distinguishes `NoSubscription`
 ///     from `Inactive` — the mapping is explicit in the
 ///     conversion helpers below.
-///
-/// ─────────────────────────────────────────────────────────────
-/// Estimate-vs-live parity contract (Issue #1041)
-/// ─────────────────────────────────────────────────────────────
-///
-/// `get_batch_charge_estimate` mirrors the dry-run precheck but
-/// claims `Charged` from the allowance snapshot alone, whereas the
-/// live `batch_charge` path additionally performs fee collection
-/// and `try_auto_resume` side effects.  The parity fixture in
-/// `src/test.rs` (`estimate_live_parity_*`) drives both paths from
-/// an identical paused/grace/allowance snapshot and pins the
-/// following contract so a refactor cannot silently change it:
-///
-///   * For a *normal* snapshot (active, due, sufficient allowance,
-///     no fee configured, no pause expiry to auto-resume) the
-///     estimate outcome and the live outcome are **equal**:
-///     estimate `Charged` ⇔ live `Charged`.
-///   * Residual, intentional differences (do NOT "fix" these by
-///     making the paths identical — that is out of scope):
-///       - Fee collection: the live path debits the configured
-///         fee via `fee::collect_fee`; the estimate does not model
-///         the fee debit, so a snapshot that is only sufficient
-///         *before* the fee may estimate `Charged` while the live
-///         path fails the transfer.  The fixture bounds this by
-///         asserting equality only when no fee is configured.
-///       - `try_auto_resume`: the live path writes the auto-resumed
-///         subscription back to storage; the estimate performs a
-///         purely virtual auto-resume (no writes).  The fixture
-///         asserts the *outcome* matches for an expired pause
-///         expiry, while the estimate leaves storage untouched.
-///
-/// Keep this comment adjacent to the precheck so the divergence is
-/// documented next to the code that produces it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DryRunSkipOutcome {
     NoSubscription,
@@ -106,9 +122,7 @@ impl DryRunSkipOutcome {
     pub(crate) fn into_batch_result(self) -> ChargeResult {
         match self {
             DryRunSkipOutcome::NoSubscription => ChargeResult::NoSubscription,
-            DryRunSkipOutcome::ContractPaused => {
-                ChargeResult::Inactive
-            }
+            DryRunSkipOutcome::ContractPaused => ChargeResult::Inactive,
             DryRunSkipOutcome::SubscriptionPaused => ChargeResult::Paused,
             DryRunSkipOutcome::Inactive => ChargeResult::Inactive,
             DryRunSkipOutcome::NotDue => ChargeResult::Skipped,
@@ -116,6 +130,32 @@ impl DryRunSkipOutcome {
             DryRunSkipOutcome::ProceedToAllowance => ChargeResult::Charged,
         }
     }
+}
+
+/// Resolves the `ProceedToAllowance` outcome of `dry_run_skip_precheck` into
+/// the final `ChargeResult`, performing the allowance gate.
+///
+/// This is the single place where the simulate path constructs its
+/// `ChargeResult`, and the presence-invariant check is co-located here: the
+/// precheck only returns `ProceedToAllowance` when a subscription is present,
+/// so a `None` subscription alongside that outcome means the invariant is
+/// broken. That case now surfaces a typed `ChargeResult::NoSubscription`
+/// instead of aborting the whole call via `expect` — a broken invariant
+/// degrades to a per-subscription outcome, which matters most inside batches
+/// where one user's abort would sink every other user's charge.
+pub(crate) fn charge_result_from_precheck(
+    env: &Env,
+    user: &Address,
+    sub_after_precheck: Option<Subscription>,
+) -> ChargeResult {
+    let sub = match sub_after_precheck {
+        Some(sub) => sub,
+        None => return ChargeResult::NoSubscription,
+    };
+    if !validation::has_sufficient_allowance(env, user, &sub.token, sub.amount) {
+        return ChargeResult::AllowanceInsufficient;
+    }
+    ChargeResult::Charged
 }
 
 /// Shared precheck covering the existing skip/pause/grace/inactive/
@@ -166,6 +206,7 @@ pub(crate) fn dry_run_skip_precheck(
     }
 
     if !sub.active {
+        // sub.active required here: paused subscriptions must not be charged/acted upon
         return (DryRunSkipOutcome::Inactive, None);
     }
 
@@ -179,7 +220,7 @@ pub(crate) fn dry_run_skip_precheck(
     }
 
     let grace_period = grace::get_grace_period(env);
-    if grace_period > 0 && now > next + grace_period {
+    if grace_period > 0 && now > next.saturating_add(grace_period) {
         return (DryRunSkipOutcome::GracePeriodElapsed, None);
     }
 
@@ -209,22 +250,21 @@ pub enum ChargeSimResult {
 ///   * Returns `ChargeSimResult` (keeper-friendly enum).
 ///   * Missing subscriptions map to `ChargeSimResult::Inactive`.
 ///   * Allowance check performed locally after the shared precheck
-///     returns `ProceedToAllowance` (Issue 001 scope — do not move).
+///     returns `ProceedToAllowance` (Issue 001 scope — do not move);
+///     a broken presence invariant yields `ChargeResult::NoSubscription`
+///     (mapped to `Inactive`) rather than an abort.
 pub fn simulate_charge(env: &Env, user: Address) -> ChargeSimResult {
-    let key = DataKey::Subscription(user.clone());
+    let key = storage::subscription_key(env, &user);
     let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
-    let (outcome, sub_after_precheck) =
-        dry_run_skip_precheck(env, &user, sub_opt, true);
+    let (outcome, sub_after_precheck) = dry_run_skip_precheck(env, &user, sub_opt, true);
 
-    if let DryRunSkipOutcome::ProceedToAllowance = outcome {
-        let sub = sub_after_precheck.expect("sub present when ProceedToAllowance");
-        if !validation::has_sufficient_allowance(env, &user, &sub.token, sub.amount) {
-            return ChargeSimResult::InsufficientAllowance;
+    match outcome {
+        DryRunSkipOutcome::ProceedToAllowance => {
+            charge_result_from_precheck(env, &user, sub_after_precheck).into_sim_result()
         }
+        other => other.into_sim_result(),
     }
-
-    outcome.into_sim_result()
 }
 
 /// Outcome of dry-running/simulating a `pay_per_use` / `pay_per_use_to` call.
@@ -240,6 +280,196 @@ pub enum PayPerUseSimResult {
     AmountMustBePositive,
     /// `amount` exceeds the per-call cap (`MAX_AMOUNT`, `AmountExceedsMaximum`).
     AmountExceedsMaximum,
-    /// The daily spending limit would be exceeded (`DailyLimit
+    /// The daily spending limit would be exceeded (`DailyLimitExceeded`).
+    DailyLimitExceeded,
+    /// `pay_per_use_to` recipient is the contract's own address (`InvalidRecipient`).
+    InvalidRecipient,
+    /// The whitelist is enabled and `pay_per_use_to` recipient is not whitelisted.
+    MerchantNotWhitelisted,
+}
 
-/* … truncated 4834 chars — edit only what you need near the top … */
+/// Simulates a `pay_per_use` / `pay_per_use_to` call without making any state
+/// modifications. `recipient == None` mirrors `pay_per_use` (payment routed to
+/// the subscription merchant, no re-validation of the merchant whitelist);
+/// `Some(recipient)` mirrors `pay_per_use_to`.
+pub fn simulate_pay_per_use(
+    env: &Env,
+    user: Address,
+    amount: i128,
+    recipient: Option<Address>,
+) -> PayPerUseSimResult {
+    if storage::is_contract_paused(env) {
+        return PayPerUseSimResult::ContractPaused;
+    }
+    if amount <= 0 {
+        return PayPerUseSimResult::AmountMustBePositive;
+    }
+    if amount > MAX_AMOUNT {
+        return PayPerUseSimResult::AmountExceedsMaximum;
+    }
+
+    let key = storage::subscription_key(env, &user);
+    let sub: Option<Subscription> = env.storage().persistent().get(&key);
+    let sub = match sub {
+        None => return PayPerUseSimResult::Inactive,
+        Some(s) => s,
+    };
+
+    if sub.paused {
+        return PayPerUseSimResult::SubscriptionPaused;
+    }
+    if !sub.active {
+        // sub.active required here: paused subscriptions must not be charged/acted upon
+        return PayPerUseSimResult::Inactive;
+    }
+
+    let is_pay_per_use_to = recipient.is_some();
+    let recipient = recipient.unwrap_or_else(|| sub.merchant.clone());
+
+    if is_pay_per_use_to {
+        if recipient == env.current_contract_address() {
+            return PayPerUseSimResult::InvalidRecipient;
+        }
+        if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &recipient) {
+            return PayPerUseSimResult::MerchantNotWhitelisted;
+        }
+    }
+
+    if let Some(max_amount) = get_merchant_max_per_use(env, &recipient) {
+        if amount > max_amount {
+            return PayPerUseSimResult::AmountExceedsMaximum;
+        }
+    }
+
+    if let Some(limit) = spending_limit::get_daily_limit(env, &user) {
+        let spent = spending_limit::get_daily_spent(env, &user);
+        if spent + amount > limit {
+            return PayPerUseSimResult::DailyLimitExceeded;
+        }
+    }
+
+    if !validation::has_sufficient_allowance(env, &user, &sub.token, amount) {
+        return PayPerUseSimResult::InsufficientAllowance;
+    }
+
+    PayPerUseSimResult::WouldSucceed
+}
+
+/// Returns the next charge timestamp for a subscription, or `None` if not chargeable.
+/// Handles the trial case: when `last_charged` is in the future, it is the trial end time.
+pub fn compute_next_charge_at(sub: &Subscription) -> Option<u64> {
+    // sub.active required here: paused subscriptions must not be charged/acted upon
+    if !sub.active || sub.paused {
+        return None;
+    }
+    sub.last_charged.checked_add(sub.interval)
+}
+
+/// Attempts to auto-resume a paused subscription if the pause expiry has passed.
+/// Returns `true` if the subscription was auto-resumed (and caller should proceed with charge),
+/// or `false` if the subscription remains paused.
+pub fn try_auto_resume(env: &Env, user: &Address, sub: &mut Subscription, now: u64) -> bool {
+    if sub.paused {
+        let expiry = storage::get_pause_expiry(env, user);
+        if let Some(expiry_ts) = expiry {
+            if now >= expiry_ts {
+                sub.paused = false;
+                sub.active = true;
+                env.storage()
+                    .persistent()
+                    .set(&storage::subscription_key(env, user), sub);
+                storage::clear_pause_expiry(env, user);
+                events::publish_subscription_auto_resumed(env, user);
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Batch pre-check: returns `Ok(())` when a charge may proceed, or the skip result.
+pub fn precheck_charge(
+    sub: &Subscription,
+    now: u64,
+    grace_period: u64,
+) -> Result<(), ChargeResult> {
+    let next = compute_next_charge_at(sub).ok_or({
+        if sub.paused {
+            ChargeResult::Paused
+        } else {
+            ChargeResult::Inactive
+        }
+    })?;
+    if now < next {
+        return Err(ChargeResult::Skipped);
+    }
+    if grace_period > 0 && now > next.saturating_add(grace_period) {
+        return Err(ChargeResult::GracePeriodElapsed);
+    }
+    Ok(())
+}
+
+/// Fee-aware transfer, bookkeeping, and persistence shared by `charge()`,
+/// `charge_with_tip()` and `batch_charge()`.
+///
+/// `keeper` is `Some` only for `charge_with_tip`; it names the address that receives
+/// the keeper tip out of the protocol fee (see `fee::transfer_subscription_charge`).
+/// Returns the protocol fee deducted from the subscription amount, tip included.
+pub fn execute_charge(
+    env: &Env,
+    user: &Address,
+    key: &DataKey,
+    sub: &mut Subscription,
+    now: u64,
+    keeper: Option<&Address>,
+) -> i128 {
+    // Checks: allowance preflight plus the fee split.
+    //
+    // Checks-effects-interactions (issue #1434): `plan_subscription_charge`
+    // only computes amounts and books fee-side state (protocol-fee accrual,
+    // referral accrual). Every remaining effect below is written before the
+    // token interaction, which is deferred to `settle_subscription_charge` at
+    // the end of this function. No state is written after the transfers.
+    let plan = fee::plan_subscription_charge(env, user, sub, keeper, true);
+
+    crate::check_and_update_global_volume(env, sub.amount);
+    merchant_stats::increment_revenue_with_daily(env, &sub.merchant, plan.net);
+    storage::set_last_charge(
+        env,
+        user,
+        &LastChargeRecord {
+            merchant: sub.merchant.clone(),
+            token: sub.token.clone(),
+            amount: sub.amount,
+            fee: plan.fee_amount,
+            net: plan.net,
+            charged_at: now,
+        },
+    );
+
+    sub.last_charged = now;
+    env.storage().persistent().set(key, sub);
+    extend_subscription_ttl(env, user);
+    subscription_history::record_charge(env, user, now);
+    events::publish_charged(
+        env,
+        user,
+        sub,
+        plan.fee_amount,
+        plan.net,
+        now,
+        plan.paid_to.clone(),
+        fee::effective_fee_bps(env, &sub.merchant),
+    );
+
+    if plan.tip > 0 {
+        if let Some(keeper_addr) = keeper {
+            events::publish_keeper_tip(env, keeper_addr, user, plan.tip);
+        }
+    }
+
+    // Interaction: transfers last.
+    fee::settle_subscription_charge(env, user, sub, &plan);
+
+    plan.fee_amount
+}

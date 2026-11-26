@@ -7,7 +7,7 @@
  * - Analytics queries work offline against fixture DB
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import assert from "node:assert";
 import * as fs from "fs";
 import * as path from "path";
@@ -149,11 +149,11 @@ function createRealisticFixture(): string {
 describe("merchant-analytics", () => {
   let fixtureDbPath: string;
 
-  before(() => {
+  beforeAll(() => {
     fixtureDbPath = createRealisticFixture();
   });
 
-  after(() => {
+  afterAll(() => {
     if (fs.existsSync(fixtureDbPath)) {
       fs.unlinkSync(fixtureDbPath);
     }
@@ -161,14 +161,14 @@ describe("merchant-analytics", () => {
 
   describe("fixture DB setup", () => {
     it("creates a valid SQLite database", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const row = db.prepare("SELECT COUNT(*) as cnt FROM events").get() as { cnt: number };
       assert.strictEqual(row.cnt, 2);
       db.close();
     });
 
     it("has meta table with last_ledger", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const row = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger'").get() as { value: string };
       assert.strictEqual(row.value, "100010");
       db.close();
@@ -182,7 +182,7 @@ describe("merchant-analytics", () => {
       setMeta(staleDbPath, "last_ledger", "50000");
       setMeta(staleDbPath, "last_ledger_timestamp", String(now - 7200));
 
-      const db = new DatabaseSync(staleDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(staleDbPath, { open: true, readOnly: true });
       const lastLedgerStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger'").get() as { value: string };
       const lastLedgerTimestampStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger_timestamp'").get() as { value: string };
 
@@ -199,7 +199,7 @@ describe("merchant-analytics", () => {
     });
 
     it("does not warn when DB is fresh", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const lastLedgerTimestampStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger_timestamp'").get() as { value: string };
 
       const now = Math.floor(Date.now() / 1000);
@@ -211,7 +211,7 @@ describe("merchant-analytics", () => {
 
   describe("analytics queries work offline", () => {
     it("reads events from fixture DB without RPC", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const events = db.prepare(
         "SELECT event_name, raw_data FROM events WHERE event_name IN ('subscribed', 'charged') ORDER BY timestamp ASC",
       ).all() as { event_name: string; raw_data: string }[];
@@ -222,7 +222,7 @@ describe("merchant-analytics", () => {
     });
 
     it("computes metrics from fixture DB without RPC", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const events = db.prepare(
         "SELECT event_name, raw_data, merchant, amount, fee_amount FROM events WHERE event_name = 'charged'",
       ).all() as { event_name: string; raw_data: string; merchant: string | null; amount: string | null; fee_amount: string | null }[];

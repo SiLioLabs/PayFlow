@@ -131,6 +131,23 @@ describe("Dashboard", () => {
     await waitFor(() => expect(screen.getByText(/No active subscription found/)).toBeTruthy());
   });
 
+  it("shows a distinct retryable error state when getSubscription fails", async () => {
+    vi.mocked(stellar.getSubscription).mockRejectedValue(new Error("RPC unreachable"));
+
+    render(<Dashboard userKey="GUSER" onSign={vi.fn()} refreshTrigger={0} announce={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByTestId("subscription-error")).toBeTruthy());
+    expect(screen.getByText(/Couldn't load your subscription/i)).toBeTruthy();
+    expect(screen.getByText(/RPC unreachable/i)).toBeTruthy();
+    expect(screen.queryByText(/No active subscription found/)).not.toBeInTheDocument();
+
+    const retry = screen.getByRole("button", { name: /retry/i });
+    await userEvent.click(retry);
+    await waitFor(() =>
+      expect(vi.mocked(stellar.getSubscription).mock.calls.length).toBeGreaterThanOrEqual(2)
+    );
+  });
+
   it("shows an inline RPC warning when RPC is unhealthy", async () => {
     vi.mocked(useRpcHealth).mockReturnValue({
       healthy: false,

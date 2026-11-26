@@ -13,6 +13,7 @@ interface ShortcutRegistryContextType {
   registerShortcuts: (id: string, shortcuts: KeyboardShortcut[]) => void;
   unregisterShortcuts: (id: string) => void;
   shortcuts: KeyboardShortcut[];
+  isModalActive: () => boolean;
 }
 
 export const ShortcutRegistryContext = createContext<ShortcutRegistryContextType | undefined>(
@@ -48,13 +49,19 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
     return Array.from(map.values());
   }, [registry]);
 
+  const isModalActive = useCallback(
+    () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null,
+    []
+  );
+
   const value = useMemo(
     () => ({
       registerShortcuts,
       unregisterShortcuts,
       shortcuts,
+      isModalActive,
     }),
-    [registerShortcuts, unregisterShortcuts, shortcuts]
+    [registerShortcuts, unregisterShortcuts, shortcuts, isModalActive]
   );
 
   return (
@@ -68,12 +75,14 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
 export function useRegisterShortcuts(shortcuts: KeyboardShortcut[]) {
   const context = useContext(ShortcutRegistryContext);
   const id = useId();
+  const registerShortcuts = context?.registerShortcuts;
+  const unregisterShortcuts = context?.unregisterShortcuts;
 
   useEffect(() => {
-    if (!context) return;
-    context.registerShortcuts(id, shortcuts);
+    if (!registerShortcuts || !unregisterShortcuts) return;
+    registerShortcuts(id, shortcuts);
     return () => {
-      context.unregisterShortcuts(id);
+      unregisterShortcuts(id);
     };
-  }, [id, shortcuts, context]);
+  }, [id, shortcuts, registerShortcuts, unregisterShortcuts]);
 }

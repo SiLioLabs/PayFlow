@@ -7,10 +7,11 @@
  */
 
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { STROOPS_PER_XLM } from "./lib/contract-limits.js";
 import { EventDedupCache, createCacheKey } from "./event-dedup.js";
 import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger";
-import { sendWebhook, WebhookConfig } from "./webhook.js";
+import { sendWebhook, WebhookConfig, loadWebhookEndpoints, dispatchWebhookEvent, type WebhookEndpoint } from "./webhook.js";
 import { resolve } from "node:path";
 
 // ── Configuration ────────────────────────────────────────────────────────────────
@@ -33,11 +34,20 @@ const webhookConfig: WebhookConfig | null = WEBHOOK_URL && WEBHOOK_SECRET
   ? { url: WEBHOOK_URL, secret: WEBHOOK_SECRET, dlqFile: WEBHOOK_DLQ_FILE }
   : null;
 
+// Issue #1485: multiple endpoints with event filters and key rotation.
+// When set, WEBHOOK_ENDPOINTS_FILE replaces WEBHOOK_URL / WEBHOOK_SECRET.
+const WEBHOOK_ENDPOINTS_FILE = process.env.WEBHOOK_ENDPOINTS_FILE;
+let webhookEndpoints: WebhookEndpoint[] | null = null;
+if (WEBHOOK_ENDPOINTS_FILE) {
+  try {
+    webhookEndpoints = loadWebhookEndpoints(WEBHOOK_ENDPOINTS_FILE);
+  } catch (err) {
+    logger.error(`Error: invalid WEBHOOK_ENDPOINTS_FILE (${WEBHOOK_ENDPOINTS_FILE}): ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+}
+
 if (!CONTRACT_ID) {
-  console.error("Error: CONTRACT_ID environment variable is required");
-  console.error(
-    "Usage: CONTRACT_ID=your_contract_id RPC_URL=https://... tsx watch-events.ts",
-  );
   logger.error("Error: CONTRACT_ID environment variable is required");
   logger.error("Usage: CONTRACT_ID=your_contract_id RPC_URL=https://... tsx watch-events.ts");
   process.exit(1);
@@ -85,11 +95,13 @@ const eventColors: Record<string, string> = {
 // ── Helpers ───────────────────────────────────────────────────────────────────────
 
 /**
- * Convert stroops to XLM (1 XLM = 10,000,000 stroops)
+ * Convert stroops to XLM using STROOPS_PER_XLM from contract-limits.ts.
+ * NOTE: Only valid for XLM and XLM-derived SAC tokens (7 decimal places).
+ * For other tokens, query the token's decimals() entry-point.
  */
 function stroopsToXlm(stroops: string | number | bigint): string {
   const value = typeof stroops === "bigint" ? Number(stroops) : Number(stroops);
-  const xlm = value / 10_000_000;
+  const xlm = value / STROOPS_PER_XLM;
   return xlm.toFixed(7);
 }
 
@@ -197,7 +209,9 @@ function parseEvent(event: any): ParsedEvent | null {
 }
 
 /**
- * Pretty-print an event to stdout
+ * Pretty-print an event to stdout.
+ * Human-readable output uses ANSI colors; the logger call uses plain text +
+ * structured context so LOG_FORMAT=json output never contains raw escape codes.
  */
 function printEvent(event: ParsedEvent): void {
   const color = getEventColor(event.type);
@@ -206,7 +220,18 @@ function printEvent(event: ParsedEvent): void {
   const merchant = event.merchant ? shortenAddress(event.merchant) : "N/A";
   const amount = event.amount ? `${stroopsToXlm(event.amount)} XLM` : "N/A";
 
-  logger.info(
+  // Structured log — no ANSI, so JSON mode stays clean.
+  logger.info("event", {
+    event_type: event.type,
+    user: event.user,
+    merchant: event.merchant ?? null,
+    amount_xlm: event.amount ? stroopsToXlm(event.amount) : null,
+    ledger: event.ledger,
+    timestamp,
+  });
+
+  // Human-readable colored line to stdout (independent of log format).
+  process.stdout.write(
     `${colors.dim}${timestamp}${colors.reset} ` +
       `${color}${colors.bright}${event.type}${colors.reset} ` +
       `${colors.dim}|${colors.reset} ` +
@@ -216,7 +241,7 @@ function printEvent(event: ParsedEvent): void {
       `${colors.dim}|${colors.reset} ` +
       `Amount: ${amount} ` +
       `${colors.dim}|${colors.reset} ` +
-      `Ledger: ${event.ledger}`,
+      `Ledger: ${event.ledger}\n`,
   );
 }
 
@@ -227,13 +252,12 @@ function printEvent(event: ParsedEvent): void {
  */
 function debugLog(...args: unknown[]): void {
   if (DEBUG) {
-    logger.error(colors.dim + "[DEBUG]" + colors.reset, ...args);
+    logger.debug("[DEBUG]", { detail: args.map(String).join(" ") });
   }
 }
 
 const server = new MultiEndpointServer(RPC_URL);
 const dedupCache = new EventDedupCache();
-const seenEvents = new Set<string>();
 let currentLedger = 0;
 let totalEventsSeen = 0;
 
@@ -260,39 +284,37 @@ async function fetchAndPrintEvents(): Promise<void> {
       const parsed = parseEvent(event);
       if (!parsed) continue;
 
-      if (!seenEvents.has(parsed.id)) {
-        seenEvents.add(parsed.id);
-
-        // Deduplication check
-        if (!dedupCache.checkAndRecord(parsed.txHash, parsed.type, parsed.ledger)) {
-          newEvents.push(parsed);
-        } else {
-          debugLog(`Duplicate event skipped: ${createCacheKey(parsed.txHash, parsed.type, parsed.ledger)}`);
-        }
+      // EventDedupCache is the bounded deduplication layer — no separate Set needed.
+      if (!dedupCache.checkAndRecord(parsed.txHash, parsed.type, parsed.ledger)) {
+        newEvents.push(parsed);
+      } else {
+        debugLog(`Duplicate event skipped: ${createCacheKey(parsed.txHash, parsed.type, parsed.ledger)}`);
       }
     }
 
-    
     // Periodic stats logging (every 100 events processed)
     totalEventsSeen += response.events.length;
     if (totalEventsSeen >= 100) {
       const s = dedupCache.stats;
-      logger.error(
-        colors.dim + `[DEDUP] ${s.deduplicatedTotal} duplicates skipped, ` +
-        `${s.totalProcessed} unique processed, ` +
-        `${s.size}/${s.maxSize} cache entries, ` +
-        `${s.evictions} evictions` + colors.reset
-      );
+      logger.info("dedup stats", {
+        duplicates_skipped: s.deduplicatedTotal,
+        unique_processed: s.totalProcessed,
+        cache_size: s.size,
+        cache_max: s.maxSize,
+        evictions: s.evictions,
+      });
       totalEventsSeen = 0;
     }
-    
+
     // Sort by timestamp and print new events
     newEvents.sort((a, b) => a.timestamp - b.timestamp);
     for (const event of newEvents) {
       printEvent(event);
 
       // Issue #894: Reliable Signed Webhook Delivery
-      if (webhookConfig) {
+      if (webhookEndpoints) {
+        void dispatchWebhookEvent(event.type, event, webhookEndpoints, WEBHOOK_DLQ_FILE);
+      } else if (webhookConfig) {
         sendWebhook(event, webhookConfig).catch(err => {
           logger.error(`Failed to trigger webhook for event ${event.id}: ${err}`);
         });
@@ -338,16 +360,22 @@ async function main(): Promise<void> {
 
 // ── Error Handling ───────────────────────────────────────────────────────────────
 
+// After an uncaughtException the process is in an undefined state (corrupt DB
+// handle, half-signed transaction, etc.).  Log and exit immediately so a
+// supervisor (Docker restart policy, systemd, etc.) can restart cleanly.
 process.on("uncaughtException", (error) => {
-  logger.error(colors.red + `Uncaught exception: ${error}` + colors.reset);
+  logger.error("Uncaught exception — exiting", { error: error.message, stack: error.stack });
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
-  logger.error(colors.red + `Unhandled rejection: ${reason}` + colors.reset);
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  logger.error("Unhandled rejection — exiting", { reason: msg });
+  process.exit(1);
 });
 
 // Start the watcher
 main().catch((error) => {
-  logger.error(colors.red + `Fatal error: ${error}` + colors.reset);
+  logger.error("Fatal error starting watcher", { error: error instanceof Error ? error.message : String(error) });
   process.exit(1);
 });

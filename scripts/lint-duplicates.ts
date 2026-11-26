@@ -16,16 +16,54 @@
  * becomes clean must be removed from the list, so the baseline only shrinks.
  *
  * Usage: npx tsx lint-duplicates.ts
- * Exit codes: 0 — clean; 1 — new failures or stale baseline entries.
+ * Exit codes: 0 — clean; 1 — new failures, stale baseline entries, or an
+ * unreadable baseline.
+ *
+ * The baseline path defaults to .duplicate-lint-baseline.json next to this
+ * script and can be overridden with LINT_DUPLICATES_BASELINE (used by the
+ * baseline smoke test to exercise the malformed-baseline error path).
  */
 
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-const BASELINE_FILE = join(ROOT, ".duplicate-lint-baseline.json");
+const BASELINE_FILE =
+  process.env.LINT_DUPLICATES_BASELINE ?? join(ROOT, ".duplicate-lint-baseline.json");
+
+/**
+ * Parse the duplicate-lint baseline and return its `files` array.
+ *
+ * Throws an error that names `file` and states that it contains invalid JSON,
+ * so a malformed baseline fails the gate with an actionable message instead of
+ * an uncaught `JSON.parse` stack trace. The original parser error is preserved
+ * in the message (and as the error `cause`) as diagnostic context.
+ */
+export function loadBaseline(file: string): string[] {
+  const raw = readFileSync(file, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `${file} contains invalid JSON and cannot be used as the duplicate-lint baseline. ` +
+        `Fix the file (a missing comma, duplicate key, or trailing fragment makes JSON invalid), then re-run. ` +
+        `JSON.parse reported: ${detail}`,
+      { cause: err },
+    );
+  }
+  const files = (parsed as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files) || files.some((f) => typeof f !== "string")) {
+    throw new Error(
+      `${file} does not contain a top-level "files" array of script names; ` +
+        `restore the baseline structure ("//": header, "files": [...]).`,
+    );
+  }
+  return files;
+}
 
 /** Diagnostics that mean "the same name is declared twice". */
 const DUPLICATE_CODES = new Set([
@@ -92,15 +130,29 @@ function checkJson(file: string, findings: Map<string, string[]>): void {
 }
 
 function main(): void {
+  // Parse the baseline first so a malformed file fails with an actionable
+  // error naming the file, rather than a raw JSON.parse stack trace.
+  let baseline: Set<string>;
+  try {
+    baseline = new Set(loadBaseline(BASELINE_FILE));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    console.error("\nlint-duplicates: FAILED");
+    process.exit(1);
+  }
+
   const findings = new Map<string, string[]>();
   checkTypeScript(findings);
   for (const name of readdirSync(ROOT)) {
-    if (name === "package.json" || /^tsconfig.*\.json$/.test(name)) {
+    if (
+      name === "package.json" ||
+      /^tsconfig.*\.json$/.test(name) ||
+      name === basename(BASELINE_FILE)
+    ) {
       checkJson(join(ROOT, name), findings);
     }
   }
 
-  const baseline = new Set<string>(JSON.parse(readFileSync(BASELINE_FILE, "utf8")).files);
   let failed = false;
 
   for (const [file, messages] of [...findings].sort()) {
@@ -125,4 +177,11 @@ function main(): void {
   console.log(`lint-duplicates: OK (${baseline.size} baselined file(s))`);
 }
 
-main();
+// Only run the gate when this file is the entrypoint, so tests can import
+// `loadBaseline` without executing a full lint pass.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (invokedDirectly) {
+  main();
+}

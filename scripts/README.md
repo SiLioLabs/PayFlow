@@ -1,10 +1,3 @@
-# FlowPay Scripts
-
-Operational and analytics scripts for the FlowPay contract.  All scripts are written in TypeScript and run with `ts-node`.
-
----
-
-## Setup
 # PayFlow Scripts
 
 Operational scripts for the FlowPay recurring-billing contract. All scripts are
@@ -56,19 +49,19 @@ Fetches the top merchants by subscriber count using the on-chain `get_top_mercha
 
 ```bash
 # Show top 10 merchants (default)
-npx ts-node scripts/top-merchants.ts
+npx tsx scripts/top-merchants.ts
 
 # Show top 20 (contract maximum)
-npx ts-node scripts/top-merchants.ts --limit 20
+npx tsx scripts/top-merchants.ts --limit 20
 
 # Paginate: page 2, 5 per page
-npx ts-node scripts/top-merchants.ts --limit 20 --page 2 --page-size 5
+npx tsx scripts/top-merchants.ts --limit 20 --page 2 --page-size 5
 
 # JSON output
-npx ts-node scripts/top-merchants.ts --json
+npx tsx scripts/top-merchants.ts --json
 
 # Dry-run (validate config without RPC call)
-npx ts-node scripts/top-merchants.ts --dry-run
+npx tsx scripts/top-merchants.ts --dry-run
 ```
 
 **Options:**
@@ -147,52 +140,45 @@ Closes [issue #897](https://github.com/SiLioLabs/PayFlow/issues/897).
 
 ---
 
-### backup-indexer-db.ts
+### backup-indexer-db.ts / restore-indexer-db.ts
 
-Online-safe backup and restore helper for the indexer SQLite database (`data/events.db`).
+Online-safe backup and verified restore for the indexer SQLite database (`data/events.db`).
+Full procedure: **[docs/operations/INDEXER-BACKUP-RESTORE.md](../docs/operations/INDEXER-BACKUP-RESTORE.md)**.
 
-The backup uses SQLite's `backup()` API (hot copy — no write lock on source).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file.  Restore verifies integrity of the backup before touching the live database.
+The backup uses SQLite's `VACUUM INTO` (consistent hot snapshot — the indexer can keep running).  After writing, an integrity check (`PRAGMA integrity_check`) is run on the backup file and a SHA-256 checksum is written next to it (`<backup>.sha256`, `sha256sum` format).
+
+`restore-indexer-db.ts` verifies the backup (file header, checksum, integrity check, indexer tables/columns, `schema_version`) **before** touching anything, refuses to overwrite an existing database without `--force`, refuses if the destination is locked by another process, keeps a `<db>.pre-restore-<timestamp>` safety copy of the database it replaces, removes stale `-wal`/`-shm` files, installs the backup with an atomic rename, and re-verifies the result by hash.  `backup-indexer-db.ts restore` now delegates to it.
 
 #### Backup
 
 ```bash
-# Default: backup to data/backups/events-<timestamp>.db
-npx ts-node scripts/backup-indexer-db.ts backup
+# Default: backup to data/backups/events-<timestamp>.db (+ .sha256)
+npx tsx scripts/backup-indexer-db.ts backup
 
 # Custom paths
-npx ts-node scripts/backup-indexer-db.ts backup \
+npx tsx scripts/backup-indexer-db.ts backup \
   --db data/events.db \
   --out /mnt/backups/events-2026-08-29.db
 
-# Overwrite if destination exists
-npx ts-node scripts/backup-indexer-db.ts backup --force
-
-# Dry-run
-npx ts-node scripts/backup-indexer-db.ts backup --dry-run
+# Overwrite if destination exists / dry-run
+npx tsx scripts/backup-indexer-db.ts backup --force
+npx tsx scripts/backup-indexer-db.ts backup --dry-run
 ```
 
 #### Restore
 
+Stop the indexer first.
+
 ```bash
-# Restore from a backup
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db
+# Verify only: checks the backup and prints the plan, writes nothing
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --dry-run
 
-# Overwrite live DB
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --force
+# Restore to a new path (refuses if the path already exists)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --db data/events-restored.db
 
-# Dry-run (verify backup integrity, print plan, do not overwrite)
-npx ts-node scripts/backup-indexer-db.ts restore \
-  --from data/backups/events-2026-08-29.db \
-  --dry-run
+# Replace the live database (previous one is kept as events.db.pre-restore-<ts>)
+npx tsx scripts/restore-indexer-db.ts --from data/backups/events-2026-08-29.db --force
 ```
-
-**Restore safety rules:**
-1. Backup integrity check (`PRAGMA integrity_check`) must return `ok`.
-2. If destination exists, `--force` is required.
-3. Destination directory is created if it does not exist.
 
 **Options (backup):**
 
@@ -209,16 +195,18 @@ npx ts-node scripts/backup-indexer-db.ts restore \
 | --- | --- | --- |
 | `--from <path>` | — (required) | Backup file to restore from |
 | `--db <path>` | `$INDEXER_DB_PATH` or `data/events.db` | Restore destination |
-| `--force` | `false` | Overwrite destination if it exists |
+| `--force` | `false` | Replace the destination if it exists |
 | `--dry-run` | `false` | Verify + print plan without writing |
+| `--require-checksum` | `false` | Fail (instead of warn) if `<backup>.sha256` is missing |
 
 **Optional: S3 lifecycle policies**
 
 For production deployments you may want to ship backups to S3 and apply lifecycle rules to expire old backups automatically.  This is not implemented in the script but can be added by piping the backup output to `aws s3 cp`:
 
 ```bash
-npx ts-node scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
+npx tsx scripts/backup-indexer-db.ts backup --out /tmp/events-backup.db
 aws s3 cp /tmp/events-backup.db s3://my-bucket/flowpay-backups/
+aws s3 cp /tmp/events-backup.db.sha256 s3://my-bucket/flowpay-backups/   # keep the checksum next to the backup
 ```
 
 Closes [issue #898](https://github.com/SiLioLabs/PayFlow/issues/898).
@@ -243,16 +231,9 @@ npm run typecheck
 
 ## Environment Variables
 
-| Variable | Used by | Description |
-| --- | --- | --- |
-| `CONTRACT_ID` / `VITE_CONTRACT_ID` | all | Deployed FlowPay contract ID |
-| `RPC_URL` / `VITE_RPC_URL` | all | Soroban RPC endpoint |
-| `NETWORK_PASSPHRASE` / `VITE_NETWORK_PASSPHRASE` | all | Stellar network passphrase |
-| `SOROBAN_SOURCE_ACCOUNT` | deploy-pipeline, top-merchants | Source account for read-only RPC queries |
-| `SOROBAN_SECRET_KEY` | keeper (not in this dir) | Keeper signing key |
-| `INDEXER_DB_PATH` | backup-indexer-db | Override default `data/events.db` |
-| `BACKUP_DIR` | backup-indexer-db | Override default `data/backups/` |
-| `PAGE_SIZE` | keeper | Batch size for `batch_charge` (max **20**) |
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
+
+The keeper's signing key is `SECRET_KEY` (deprecated alias `KEEPER_SECRET`), read by [`keeper.ts`](keeper.ts) in this directory. `PAGE_SIZE` is the subscriber page size used by `batch-optimizer.ts` (default and max `50`), not the `batch_charge` batch size.
 
 ---
 
@@ -261,6 +242,7 @@ npm run typecheck
 - [`docs/KEEPER.md`](../docs/KEEPER.md) — Full keeper runbook (env vars, DLQ, dry-run, ChargeResult table)
 - [`docs/API.md`](../docs/API.md) — Contract function reference
 - [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) — Contract deployment and migration guide
+
 ---
 
 ## Scripts
@@ -277,18 +259,6 @@ npm run typecheck
 | `subscription-snapshot.ts`     | Snapshot all subscription states                                         |
 | `daily-revenue-summary.ts`     | Daily revenue report                                                     |
 | `export-merchant-report.ts`    | Per-merchant activity report                                             |
-| Script                         | Purpose                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `keeper.ts`                    | Autonomous keeper — calls `batch_charge` on a schedule; supports dry-run  |
-| `watch-events.ts`              | Real-time contract event monitor                          |
-| `check-allowances.ts`          | Audit subscriber token allowances                         |
-| `alert-expiring-allowances.ts` | Alert on allowances expiring within a configurable window |
-| `indexer.ts`                   | Persist contract events to SQLite                         |
-| `query-events.ts`              | Query the SQLite event database                           |
-| `health-check.ts`              | Contract responsiveness check                             |
-| `subscription-snapshot.ts`     | Snapshot all subscription states                          |
-| `daily-revenue-summary.ts`     | Daily revenue report                                      |
-| `export-merchant-report.ts`    | Per-merchant activity report                              |
 
 ## Testnet quick start
 
@@ -415,6 +385,15 @@ Smoke after Compose:
 ```bash
 docker compose logs keeper | grep '"message":"Keeper started'
 ```
+
+### Exit codes (--once mode)
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | Cycle completed — all batches were processed. Charging nothing is normal when no subscriptions are due. |
+| `1`  | Cycle could not run — no subscribers were checked and errors occurred (e.g. complete RPC failure at startup). |
+
+Per-subscriber charge failures (insufficient allowance, contract panics for a single user, etc.) are written to the DLQ and surfaced via Prometheus metrics. They do **not** influence the exit code. Loop mode (`--once` not set) never exits non-zero except on an unhandled fatal error.
 
 ### Logs and metrics
 
@@ -547,9 +526,16 @@ Set the variables that match how you start the process. Prefer the
 ### Purpose
 
 Polls Soroban RPC `getEvents` for the configured contract and upserts events
-into a local SQLite database. On restart it resumes from `meta.last_ledger`
+into a local SQLite database, or into PostgreSQL when `DATABASE_URL` is set. On restart it resumes from `meta.last_ledger`
 so the same events are not re-fetched as duplicates (upsert key
 `tx_hash:event_name`).
+
+**Pause lifecycle events:** the indexer should track `paused`, `resumed`, and
+`subscription_auto_resumed` events to maintain accurate pause state for each
+subscriber. `pause_until` subscriptions auto-resume on the next `charge` or
+`batch_charge` after their expiry — the expiry timestamp is in the `paused`
+event payload. See [docs/architecture/PAUSE-LIFECYCLE.md](../docs/architecture/PAUSE-LIFECYCLE.md#keeper-and-indexer-guidance) for the full event-driven
+tracking guide.
 
 ### Prerequisites
 
@@ -565,13 +551,15 @@ so the same events are not re-fetched as duplicates (upsert key
 | `CONTRACT_ID`      | (required)                            | Contract to filter                    |
 | `RPC_URL`          | `https://soroban-testnet.stellar.org` | Soroban RPC                           |
 | `POLL_INTERVAL_MS` | `10000`                               | Poll interval                         |
-| `LOG_LEVEL`        | `info`                                | `debug` \| `info` \| `error`          |
+| `LOG_LEVEL`        | `info`                                | `debug` \| `info` \| `warn` \| `error` |
 | `DATA_DIR`         | `data`                                | Directory for the DB file             |
 | `DB_FILE`          | `resolve(DATA_DIR, "events.db")`      | Full path override                    |
 | `START_LEDGER`     | unset → latest ledger                 | First-run start when no `last_ledger` |
+| `DATABASE_URL`     | unset → SQLite                        | `postgres://…` indexes into PostgreSQL instead (see [docs/operations/indexer-postgres.md](../docs/operations/indexer-postgres.md)) |
 
-The indexer header mentions `NETWORK_PASSPHRASE`; the implementation does **not**
-read that env var.
+`indexer.ts` does not read `NETWORK_PASSPHRASE` itself, but its RPC client
+(`rpc-client.ts`) does, along with `RPC_URLS` — see
+[`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ### Startup
 
@@ -609,6 +597,85 @@ tsx query-events.ts --ledger 500000 --to 510000
 ```
 
 ---
+
+
+### HTTP API
+
+`indexer-api.ts` (`npm run api`) serves a read-only HTTP API over the indexer database:
+events by user/merchant, merchant revenue and churn, with pagination, bounded limits,
+configurable CORS and an OpenAPI spec (`docs/openapi/indexer-api.json`). See
+[docs/INDEXER-API.md](../docs/INDEXER-API.md).
+
+### Database schema and migrations
+
+The indexer's SQLite schema is defined **only** by the numbered, forward-only
+migrations in `db/migrations/` (`001_initial_schema.ts`, `002_add_event_columns.ts`, `003_ledger_gaps.ts`,
+listed in `db/migrations/index.ts`). `db/migrate.ts` applies pending migrations at
+startup (`initSchema` in `indexer.ts`), each in its own transaction together with the
+`meta.schema_version` bump. `db/schema.ts` defines no tables; it exposes `SCHEMA_VERSION`
+and read-only introspection helpers (`getSchemaVersion`, `getTableColumns`, `listIndexes`).
+
+To change the schema, add `NNN_description.ts` (idempotent `up(db)`), append it to
+`db/migrations/index.ts`, and extend `db/migrations.test.ts`. Existing databases upgrade in
+place with no data loss; a database whose `schema_version` is newer than the running
+indexer is refused rather than modified.
+
+
+### Ledger gaps and backfill
+
+Soroban RPC keeps only a limited window of ledgers (the *retention window*, typically
+a few days on public providers; see `oldestLedger` in `getHealth`). If the indexer is
+down longer than that, the ledgers between its cursor and the RPC's oldest ledger can
+no longer be read through `getEvents`.
+
+**Detection.** Before every poll the indexer compares its cursor
+(`meta.last_ledger`, the next ledger to fetch; `meta.last_processed_ledger` is the last
+fully processed one) with the RPC's `oldestLedger`. If `oldestLedger > cursor` it
+1. logs an `ERROR` "Ledger gap detected" line with `start_ledger`, `end_ledger`, `missed_ledgers`;
+2. stores the range in the `ledger_gaps` table (status `open`; one row per range, idempotent);
+3. bumps Prometheus metrics, and
+4. resumes indexing from the RPC's oldest ledger instead of failing on every poll.
+
+If `getHealth` does not report the retention window, the check is skipped (no false gaps).
+
+| Metric (set `INDEXER_METRICS_ENABLED=true`, port `METRICS_PORT`) | Meaning |
+|---|---|
+| `indexer_ledger_gaps_total` | Gaps detected |
+| `indexer_ledger_gap_ledgers_total` | Ledgers lost to detected gaps |
+| `indexer_open_ledger_gaps` | Gaps not yet backfilled — alert on `> 0` |
+| `indexer_last_processed_ledger` | Last fully processed ledger |
+| `indexer_oldest_available_ledger` | RPC retention boundary |
+
+**Backfill.** `horizon-backfill.ts` recovers a gap from a Horizon instance that still has
+the history: it reads each ledger's transactions, decodes the contract's Soroban events
+from the transaction result meta, and writes them through the normal indexer path.
+
+```bash
+npx tsx horizon-backfill.ts --list                         # show recorded gaps (no network)
+CONTRACT_ID=C... HORIZON_URL=https://<full-history-horizon> npx tsx horizon-backfill.ts
+CONTRACT_ID=C... HORIZON_URL=... npx tsx horizon-backfill.ts --gap-id 3   # one gap
+```
+
+Safety: events are keyed by their on-chain position (`tx_hash:op:event index`) and
+upserted, so re-running, overlapping gaps, or events the indexer already stored never
+create duplicates. Progress is saved after every ledger (`backfilled_through`); a
+transient Horizon error leaves the gap `open` and the next run resumes where it stopped.
+The indexer and the backfill can run at the same time.
+
+**Limitations / recovery.**
+- Horizon must retain the gap's ledgers. Public Horizons often do not; use a provider or
+  your own Horizon with full history. If Horizon answers 404 the gap becomes
+  `unrecoverable` (see `detail`); recovery then needs a history archive, which is not
+  automated here.
+- Only events from successful transactions with Soroban meta v3 are decoded; other meta
+  versions are skipped with a warning.
+- Backfill reads one ledger at a time (roughly one request per ledger); large gaps take time.
+- Event ids are derived from the transaction TOID plus the event's index in the
+  transaction's contract events. This follows the Soroban RPC id format but has only been
+  verified against synthetic fixtures, not a live RPC — spot-check a recovered range
+  against `getEvents` before relying on it for accounting.
+- Prevention: alert on `indexer_open_ledger_gaps` and on indexer downtime well before the
+  retention window elapses.
 
 ## Metrics server
 
@@ -853,53 +920,9 @@ uses `RPC_URL` to probe the Soroban RPC endpoint.
 
 ## Environment matrix
 
-Variables actually used by keeper, indexer, metrics-server, Compose, or the
-keeper Dockerfile. Defaults are from source or `.env.example`.
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
-| Variable | Default / example | Used by | Purpose | Notes |
-| --- | --- | --- | --- | --- |
-| `CONTRACT_ID` | empty; `.env.example` blank | keeper, indexer | Deployed contract ID | Required (validateEnv / indexer exit 1). Metrics header lists it but does not read it. Compose via `.env`. |
-| `KEEPER_SECRET` | empty | keeper | Sign keeper transactions | Required unless `DRY_RUN=true`. Testnet `S…` only in examples. |
-| `KEEPER_PUBLIC_KEY` | `""` | keeper | Source account pubkey | Required by `validateEnv` (including dry-run). **Not** in `.env.example`. |
-| `DRY_RUN` | unset → live | keeper | Simulation vs live | Only `"true"` enables dry-run. Not in `.env.example`. |
-| `RPC_URL` | `https://soroban-testnet.stellar.org` | keeper, indexer, Dockerfile HEALTHCHECK | Soroban RPC | Compose via `.env`. Metrics header only. |
-| `NETWORK_PASSPHRASE` | `Networks.TESTNET` / `.env.example`: `Test SDF Network ; September 2015` | keeper | Network passphrase | Indexer header only — not read by indexer. |
-| `BATCH_SIZE` | `50` (clamped 1–50) | keeper | Page size for `batch_charge` | Not in `.env.example`. |
-| `INTERVAL_SECONDS` | `3600` (min 1) | keeper | Loop interval | Not in `.env.example`. |
-| `REPORT_DIR` | `<script_dir>/data/benchmarks` | keeper | Dry-run reports / live pointer | Not in `.env.example`. |
-| `CHARGE_INTERVAL_MS` | `3600000` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
-| `PAGE_SIZE` | `100` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
-| `MAX_RETRIES` | `3` in `.env.example` | **none (stale example)** | — | Listed in `.env.example`; **not read** by current `keeper.ts`. |
-| `LOG_LEVEL` | `info` | keeper, indexer | Log verbosity | All four core scripts (keeper, indexer, health-check, alert-failed-charges) now use the shared logger and respect `LOG_LEVEL`. Set `LOG_FORMAT=json` for JSON-lines output. |
-| `DATA_DIR` | `data` | indexer | SQLite directory | Compose volume is `/app/data` if indexer is run there. Not in `.env.example`. |
-| `DB_FILE` | `DATA_DIR/events.db` | indexer | SQLite path override | Not in `.env.example`. |
-| `POLL_INTERVAL_MS` | `10000` | indexer | Event poll interval | Not in `.env.example`. |
-| `START_LEDGER` | unset → latest | indexer | First-run start ledger | Not in `.env.example`. |
-| `METRICS_PORT` | `9090` | metrics-server | HTTP listen port | Not in `.env.example` or Compose. |
-| `NODE_ENV` | `production` (image) | Docker runtime | Node environment | Set in Dockerfile. |
-| `NODE_OPTIONS` | `--unhandled-rejections=throw` | Docker runtime | Crash on unhandled rejections | Set in Dockerfile. |
-| Variable             | Default / example                                                        | Used by                                 | Purpose                       | Notes                                                                                           |
-| -------------------- | ------------------------------------------------------------------------ | --------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| `CONTRACT_ID`        | empty; `.env.example` blank                                              | keeper, indexer                         | Deployed contract ID          | Required (exit 1 if missing). Metrics header lists it but does not read it. Compose via `.env`. |
-| `KEEPER_SECRET`      | empty                                                                    | keeper                                  | Sign keeper transactions      | Required in the primary config block. Testnet `S…` only in examples.                            |
-| `KEEPER_PUBLIC_KEY`  | empty; `.env.example` blank                                              | keeper                                  | Source account pubkey         | Required by `validateEnv`. Now included in `.env.example`.                                      |
-| `DRY_RUN`            | `false`; `.env.example`                                                  | keeper                                  | Simulation vs live            | Set `"true"` to enable dry-run. Included in `.env.example`.                                     |
-| `RPC_URL`            | `https://soroban-testnet.stellar.org`                                    | keeper, indexer, Dockerfile HEALTHCHECK | Soroban RPC                   | Compose via `.env`. Metrics header only.                                                        |
-| `NETWORK_PASSPHRASE` | `Networks.TESTNET` / `.env.example`: `Test SDF Network ; September 2015` | keeper                                  | Network passphrase            | Indexer header only — not read by indexer.                                                      |
-| `BATCH_SIZE`         | `50` (clamped 1–50)                                                      | keeper                                  | Page size for `batch_charge`  | Included in `.env.example`.                                                                     |
-| `INTERVAL_SECONDS`   | `3600`                                                                   | keeper                                  | Loop interval                 | Included in `.env.example`.                                                                     |
-| `KEEPER_USE_LEGACY_PAGING` | `false`                                                            | keeper                                  | Use legacy sequential paging | Included in `.env.example`.                                                                     |
-| `LOG_LEVEL`          | `info`                                                                   | keeper, indexer                         | Log verbosity                 | Indexer: `debug` \| `info` \| `error`.                                                          |
-| `DATA_DIR`           | `data`                                                                   | indexer                                 | SQLite directory              | In Docker, mounted to `/app/data` via shared volume. Included in `.env.example`.                |
-| `DB_FILE`            | `DATA_DIR/events.db`                                                     | indexer                                 | SQLite path override          | Optional. Included in `.env.example` (commented out).                                           |
-| `POLL_INTERVAL_MS`   | `10000`                                                                  | indexer                                 | Event poll interval           | Included in `.env.example`.                                                                     |
-| `START_LEDGER`       | unset → latest                                                           | indexer                                 | First-run start ledger        | Optional. Included in `.env.example` (commented out).                                           |
-| `METRICS_PORT`       | `9090`                                                                   | metrics-server                          | HTTP listen port              | Included in `.env.example`.                                                                     |
-| `REPORT_DIR`         | `<script_dir>/data/benchmarks`                                           | keeper                                  | Dry-run reports / live pointer | Not in `.env.example`.                                                                          |
-| `NODE_ENV`           | `production` (image)                                                     | Docker runtime                          | Node environment              | Set in Dockerfile.                                                                              |
-| `NODE_OPTIONS`       | `--unhandled-rejections=throw`                                           | Docker runtime                          | Crash on unhandled rejections | Set in Dockerfile.                                                                              |
-
-Compose itself declares no `environment:` keys; it only loads `.env`.
+Compose itself declares no `environment:` keys; it only loads `.env`. The Docker image additionally sets `NODE_ENV=production` and `NODE_OPTIONS=--unhandled-rejections=throw`.
 
 ---
 
@@ -923,14 +946,63 @@ This ops guide does not reproduce those playbooks:
 | Topic                             | Where                                                                                                              |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Keeper overview + runbook pointer | [`docs/KEEPER.md`](../docs/KEEPER.md)                                                                              |
-| Dead-letter queue recovery        | [`docs/operations/keeper_runbook.md`](../docs/operations/keeper_runbook.md) (section “Dead-Letter Queue Recovery”) |
+| Dead-letter queue recovery        | [`docs/operations/KEEPER-RUNBOOK.md`](../docs/operations/KEEPER-RUNBOOK.md) (section “Dead-Letter Queue Recovery”) |
 | RPC failover (runbook)            | Same file, section “RPC Failover Configuration”                                                                    |
 | TS DLQ replay helper              | [`replay-dlq.ts`](replay-dlq.ts) (default `DLQ_FILE=dlq/failed-batches.jsonl`)                                     |
 | Event backfill                    | [`docs/EVENT-DRIVEN-GUIDE.md`](../docs/EVENT-DRIVEN-GUIDE.md), [`replay-events.ts`](replay-events.ts)              |
+| **Charge outcome encoding**       | **[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md)** - `scvU32` discriminants, event `scvSymbol` keys, DLQ row schema, `null` vs failure |
 | Multi-endpoint RPC helper         | [`rpc-client.ts`](rpc-client.ts) (`RPC_URLS`) — **not** imported by the current keeper/indexer entrypoints         |
 
 `replay-dlq.ts` states that `keeper.ts` writes the JSONL DLQ. Confirm that path
 against the keeper you actually run before relying on it in production.
+
+### Reading charge outcomes
+
+If you are building anything that needs to know *which subscribers were charged*,
+read [`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) first. The short
+version, because it is easy to get wrong:
+
+- `batch_charge` returns a `Vec<ChargeResult>` where **each element is an
+  `scvU32` holding a variant discriminant 0-6** - *not* an `scvSymbol` and not
+  a string. Map `0..6` to `Charged`, `Skipped`, `NoSubscription`, `Inactive`,
+  `Paused`, `GracePeriodElapsed`, `AllowanceInsufficient`.
+- `scvSymbol` appears only in the `batch_charge_skips` event: as `topics[0]`, and
+  as the keys of the event's `scvMap` (snake_case field names such as
+  `not_due` and `allowance_insufficient`).
+- A DLQ row records a **transaction-level** abort. It carries no per-subscriber
+  outcome, `tx_xdr` is always `null`, and `error` is free-form text.
+- `AllowanceInsufficient` is a successful transaction that transferred nothing
+  for one subscriber. It never reaches the DLQ, so alerting on it has to come
+  from the event.
+
+The doc also carries drop-in TypeScript and Python decoders, a worked XDR
+example with hex and base64, and a list of the in-repo decoders that currently
+assume the wrong encoding.
+
+---
+
+## Module Map: Entrypoints, Shared Libraries, and Harnesses
+
+Every script in this directory falls into one of three categories:
+
+| Category | Purpose | Examples |
+| --- | --- | --- |
+| **Entrypoint** | Runnable CLI tools invoked by operators or CI. Have a `main` function, parse CLI args, and exit with a status code. | `keeper.ts`, `indexer.ts`, `metrics-server.ts`, `deploy-pipeline.ts`, `pre-upgrade-check.ts`, `top-merchants.ts`, `check-allowances.ts`, `alert-expiring-allowances.ts`, `health-check.ts`, `subscription-snapshot.ts`, `daily-revenue-summary.ts`, `export-merchant-report.ts`, `watch-events.ts`, `query-events.ts`, `onboard-merchant.ts`, `rotate-fee-collector.ts`, `migrate-contract.ts`, `replay-dlq.ts`, `replay-events.ts`, `backup-indexer-db.ts`, `grace-period-monitor.ts`, `alert-failed-charges.ts`, `batch-optimizer.ts`, `churn-analysis.ts`, `merchant-analytics.ts`, `subscriber-churn-report.ts`, `subscriber-health-dashboard.ts`, `topup-allowance.ts`, `fee-revenue-report.ts`, `audit-trail.ts`, `snapshot-diff.ts`, `renewal-forecast.ts`, `testnet-setup.ts`, `validate-config.ts`, `soroban-admin.ts` |
+| **Shared Library (`lib/`)** | Reusable helpers imported by entrypoints. No `main`; export pure functions or classes. | `lib/dry-run-stats.ts`, `lib/forecast.ts`, `lib/scval-helpers.ts` |
+| **Internal Harness** | Benchmarking, testing, or development tools not meant for production operations. | `keeper-benchmark.ts`, `watch-events.ts` (also entrypoint), `contrast-check.mjs`, `lint-duplicates.ts`, `lint-duplicates.mjs`, `generate-types.sh` |
+
+### Shared Helper Locations
+
+| Helper | Location | Purpose |
+| --- | --- | --- |
+| ScVal encoding/decoding | `lib/scval-helpers.ts` | Soroban Value (ScVal) serialization helpers for contract interaction |
+| Structured logging | `logger.ts` | JSON/human log formatter with child context binding |
+| Configuration parsing | `config.ts` | Zod schema for env vars, deprecation alias handling (`KEEPER_SECRET`→`SECRET_KEY`, `NETWORK_PASSTHRASE`→`NETWORK_PASSPHRASE`), mainnet gate (`ALLOW_MAINNET`), `redactSecret`, signer/`KEEPER_PUBLIC_KEY` match check |
+| RPC client with failover | `rpc-client.ts` | Multi-endpoint RPC client (`RPC_URLS`) |
+| Dry-run statistics | `lib/dry-run-stats.ts` | Aggregation of `ChargeResult` pages for keeper dry-run reports |
+| Forecasting utilities | `lib/forecast.ts` | Renewal forecasting math |
+| Database schema | `db/migrations/`, `db/migrate.ts` | Single source of truth for the indexer SQLite schema (numbered migrations + runner); `db/schema.ts` holds read-only helpers |
+| Node SQLite mock | `__tests__/support/node-sqlite.ts` | Test mock for `node:sqlite` |
 
 ---
 
@@ -941,6 +1013,15 @@ Out of scope for this ops-guide revision. Existing helpers include (non-exhausti
 `health-check.ts`, `subscription-snapshot.ts`, `daily-revenue-summary.ts`,
 `export-merchant-report.ts`, `pre-upgrade-check.ts`, `snapshot-diff.ts`,
 `deploy-pipeline.ts`, `replay-dlq.ts`, `replay-events.ts`.
+
+**Adding a charge-outcome column to an export?** The report scripts read the
+indexer's stored events, so they work from the `batch_charge_skips` aggregate
+rather than from per-subscriber results. If you need per-subscriber outcomes,
+read the return value, and get the encoding right:
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md). The two spellings of the
+same outcome differ (`Charged` vs `charged`, `Skipped` vs `not_due`), and mixing
+them up is the usual cause of an export that reports every subscriber as
+unpaid.
 
 ### Daily revenue delivery
 
@@ -1161,48 +1242,299 @@ Fixture files in `data/` enable testing without a live RPC connection:
 
 ---
 
+## Undocumented operator scripts
+
+The eight maintenance tools below are the ones most likely to be needed during
+an incident, and all of them are runnable with nothing but the repository. Each
+entry gives the purpose, a command that works as written, and the environment
+variables it reads.
+
+| Script | Purpose |
+| ------ | ------- |
+| [`alert-expiring-allowances.ts`](#alert-expiring-allowancests) | Warn about token allowances about to expire |
+| [`churn-analysis.ts`](#churn-analysists) | Cohort retention, churn and projection report |
+| [`keeper-benchmark.ts`](#keeper-benchmarkts) | Measure keeper throughput and batch economics |
+| [`metrics-server.ts`](#metrics-serverts) | Prometheus exporter for keeper metrics |
+| [`migrate-contract.ts`](#migrate-contractts) | Run the storage schema migration |
+| [`onboard-merchant.ts`](#onboard-merchantts) | Whitelist merchants, singly or from a CSV |
+| [`renewal-forecast.ts`](#renewal-forecastts) | Project upcoming renewals per subscriber |
+| [`topup-allowance.ts`](#topup-allowancets) | Top up a subscriber's token allowance |
+
+Run these from the `scripts/` directory, or with `npx tsx scripts/<file>`
+from the repository root. They are ESM TypeScript run with `tsx`, not
+`ts-node`; see [`docs/KEEPER.md`](../docs/KEEPER.md#runtime-and-invocation).
+
+Flags and environment variables at a glance:
+
+<!-- BEGIN undocumented-scripts -->
+| Script | Flags | Environment variables |
+| ------ | ----- | --------------------- |
+| `alert-expiring-allowances.ts` | `--dry-run`, `--file`, `--help` | `CONTRACT_ID`, `NETWORK_PASSPHRASE`, `ALERT_WINDOW_LEDGERS`, `CONCURRENCY`, `MAX_RETRIES`, `RETRY_BASE_MS`, `WEBHOOK_URL` |
+| `churn-analysis.ts` | `--format`, `--db`, `--out`, `--resubscription-logic` | `INDEXER_DB_PATH`, `INDEXER_DB` |
+| `keeper-benchmark.ts` | `--dry-run`, `--fixture`, `--simulate` | `CONTRACT_ID`, `KEEPER_SECRET_KEY`, `NETWORK_PASSPHRASE`, `RPC_URL` |
+| `metrics-server.ts` | none | `METRICS_PORT` |
+| `migrate-contract.ts` | `--dry-run` | `VITE_CONTRACT_ID`, `VITE_NETWORK_PASSPHRASE`, `VITE_RPC_URL` |
+| `onboard-merchant.ts` | `--batch`, `--contractId`, `--rpcUrl` | `MERCHANT_ONBOARD_WEBHOOK_URL` |
+| `renewal-forecast.ts` | `--db`, `--stdin`, `--json`, `--out` | `DATA_DIR`, `DB_FILE` |
+| `topup-allowance.ts` | `--simulate` | `CONTRACT_ID`, `TOKEN_ADDRESS`, `USER_ADDRESS`, `USER_SECRET`, `AMOUNT`, `EXPIRY_LEDGERS`, `NETWORK_PASSPHRASE`, `RPC_URL` |
+<!-- END undocumented-scripts -->
+
+`node scripts/gen-undocumented-scripts.mjs --check` fails if any flag or
+variable in that table stops matching the source, or if one of these sections
+disappears.
+
+### alert-expiring-allowances.ts
+
+Scans live subscriptions and warns about token allowances that are about to
+expire, so subscribers can be nudged before a charge starts failing with
+`AllowanceInsufficient`. See
+[`docs/CHARGE-RESULTS.md`](../docs/CHARGE-RESULTS.md) for what that outcome
+means.
+
+```bash
+# Scan and POST each alert to a webhook
+CONTRACT_ID=C... WEBHOOK_URL=https://hooks.example.com/payflow \
+  npx tsx alert-expiring-allowances.ts
+
+# See what would be sent, without sending it
+CONTRACT_ID=C... npx tsx alert-expiring-allowances.ts --dry-run
+
+# Write the alert list to a file instead of POSTing
+CONTRACT_ID=C... npx tsx alert-expiring-allowances.ts --file expiring.json
+
+# Flags and their defaults
+npx tsx alert-expiring-allowances.ts --help
+```
+
+| Variable | Default | Notes |
+| -------- | ------- | ----- |
+| `CONTRACT_ID` | - | Required. Deployed FlowPay contract ID. |
+| `NETWORK_PASSPHRASE` | testnet | Must match the deployment network. |
+| `ALERT_WINDOW_LEDGERS` | `17280` | How far ahead to look. 17280 ledgers is roughly 24 hours at 5s blocks. |
+| `CONCURRENCY` | `5` | Subscriptions checked in parallel. |
+| `MAX_RETRIES` | `3` | RPC retries per subscription. |
+| `RETRY_BASE_MS` | `300` | Base backoff between retries. |
+| `WEBHOOK_URL` | - | Optional. Without it the script only logs. |
+
+### churn-analysis.ts
+
+Builds a cohort retention and churn report from the indexer's event database:
+30- and 90-day retention per monthly cohort, per-merchant churn, and a
+projection of next month's churn. Falls back to RPC if the SQLite database is
+absent, and says which source it used in `data_source`.
+
+```bash
+# Human-readable report from the local indexer DB
+npx tsx churn-analysis.ts
+
+# Machine-readable, to a file
+npx tsx churn-analysis.ts --format json --out churn.json
+
+# CSV for a spreadsheet
+npx tsx churn-analysis.ts --format csv --out churn.csv
+
+# Point at a specific indexer DB
+npx tsx churn-analysis.ts --db data/events.db
+
+# Treat a resubscribe as a retention win rather than a new subscriber
+npx tsx churn-analysis.ts --resubscription-logic retention
+```
+
+| Variable | Default | Notes |
+| -------- | ------- | ----- |
+| `INDEXER_DB_PATH` | `indexer.db` | Path to the indexer SQLite database. |
+| `INDEXER_DB` | `indexer.db` | Fallback when `INDEXER_DB_PATH` is unset. `--db` beats both. |
+
+`--format` accepts `json` or `csv`; anything else is ignored and the default
+is used. `--resubscription-logic` accepts `new` (default) or `retention`.
+
+### keeper-benchmark.ts
+
+Measures how the keeper behaves at different batch sizes, so you can pick a
+`BATCH_SIZE` from data rather than guesswork. Compares throughput, fee cost
+and simulation time across sizes.
+
+```bash
+# Run against the live contract, simulating only
+CONTRACT_ID=C... npx tsx keeper-benchmark.ts --dry-run
+
+# Repeat the sweep without submitting anything
+CONTRACT_ID=C... npx tsx keeper-benchmark.ts --simulate
+
+# Replay a recorded fixture, no RPC at all
+npx tsx keeper-benchmark.ts --fixture data/benchmarks/keeper-dryrun-report-sample.json
+```
+
+| Variable | Notes |
+| -------- | ----- |
+| `CONTRACT_ID` | Deployed FlowPay contract ID. Also read from `VITE_CONTRACT_ID`. |
+| `KEEPER_SECRET_KEY` | Signing key, for the non-dry-run path. Also read from `SECRET_KEY`. |
+| `NETWORK_PASSPHRASE` | Also read from `VITE_NETWORK_PASSPHRASE`. |
+| `RPC_URL` | Also read from `VITE_RPC_URL`. |
+
+Use `--fixture` to iterate on keeper changes with no network dependency, and
+[`docs/LIMITS.md`](../docs/LIMITS.md) to check the result against the caps
+the contract actually enforces.
+
+### metrics-server.ts
+
+Standalone Prometheus exporter for the metrics the keeper records. Useful when
+you want metrics without running a keeper cycle, or to confirm the exporter
+works before wiring up a full deployment.
+
+```bash
+# Default port 9090
+npx tsx metrics-server.ts
+
+# Somewhere else
+METRICS_PORT=9999 npx tsx metrics-server.ts
+
+# Then
+curl -s localhost:9090/metrics | grep flowpay
+```
+
+| Variable | Default | Notes |
+| -------- | ------- | ----- |
+| `METRICS_PORT` | `9090` | HTTP port serving `/metrics`. |
+
+The keeper starts this itself on the same port, so run this script **only** if
+you want the exporter without a keeper. Running both will collide on the port.
+See [Metrics server](#metrics-server) for the endpoint and Grafana wiring.
+
+### migrate-contract.ts
+
+Runs the contract's storage schema migration and verifies the schema version
+actually incremented. Used after a WASM upgrade that introduced a new schema
+version.
+
+```bash
+# Verify against the manifest, no network write
+npx tsx migrate-contract.ts --dry-run
+
+# For real, against a specific contract
+VITE_CONTRACT_ID=C... VITE_NETWORK_PASSPHRASE="Public Testnet Stellar Network ; September 2022" \
+  VITE_RPC_URL=https://soroban-testnet.stellar.org \
+  npx tsx migrate-contract.ts
+```
+
+| Variable | Notes |
+| -------- | ----- |
+| `VITE_CONTRACT_ID` | Contract to migrate. Also read from `CONTRACT_ID`. |
+| `VITE_NETWORK_PASSPHRASE` | Also read from `NETWORK_PASSPHRASE`. |
+| `VITE_RPC_URL` | Also read from `RPC_URL`. |
+
+The script exits non-zero if the schema version does not increment, which is
+the signal that the migration did not apply. Requires the admin key. See
+[`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md#state-migration) for the wider
+procedure and [`pre-upgrade-check.ts`](pre-upgrade-check.ts) for the gate that
+should run first.
+
+### onboard-merchant.ts
+
+Adds merchants to the contract whitelist, either one at a time or in bulk from
+a CSV. Verifies the write landed before reporting success, and can notify a
+webhook.
+
+```bash
+# One merchant
+npx tsx onboard-merchant.ts GABC...
+
+# A CSV of addresses
+npx tsx onboard-merchant.ts --batch merchants.csv
+
+# Override the manifest, e.g. against testnet
+npx tsx onboard-merchant.ts GABC... --contractId C... --rpcUrl https://soroban-testnet.stellar.org
+```
+
+| Variable | Notes |
+| -------- | ----- |
+| `MERCHANT_ONBOARD_WEBHOOK_URL` | Optional. POSTs the outcome of each onboarding. |
+
+By default the contract ID, RPC URL and network come from
+`deployments/manifest.json`; the flags override that. The merchant key must
+authorize the write. The batch size is bounded by the contract's whitelist cap
+- see [`docs/LIMITS.md`](../docs/LIMITS.md#batch-operations) - and the script
+chunks to it.
+
+### renewal-forecast.ts
+
+Projects the next renewal date and amount for every active subscription, so you
+can see upcoming revenue and spot subscribers who will fail. Reads either a
+SQLite database or a JSON array on stdin.
+
+```bash
+# From the local database
+npx tsx renewal-forecast.ts --db data/subscriptions.db
+
+# From stdin, as JSON
+echo "$SUBSCRIPTIONS" | npx tsx renewal-forecast.ts --stdin
+
+# Machine-readable output to a file
+npx tsx renewal-forecast.ts --db data/subscriptions.db --json --out renewals.json
+```
+
+| Variable | Notes |
+| -------- | ----- |
+| `DATA_DIR` | Base directory for the default database location. |
+| `DB_FILE` | Explicit database path. `--db` beats both. |
+
+Subscribers that cannot be forecast, e.g. a non-positive subscription amount,
+get a `reason` of `validation_error` and a `null` renewal date rather than
+being dropped. Filter on that field to find accounts needing attention.
+
+### topup-allowance.ts
+
+Approves a token allowance on behalf of a subscriber, so their next charge
+succeeds. This is the direct remedy for
+`ChargeResult::AllowanceInsufficient`.
+
+```bash
+# Simulate only
+CONTRACT_ID=C... TOKEN_ADDRESS=C... USER_ADDRESS=G... \
+USER_SECRET=S... AMOUNT=5000000000 \
+  npx tsx topup-allowance.ts --simulate
+
+# For real
+CONTRACT_ID=C... TOKEN_ADDRESS=C... USER_ADDRESS=G... \
+USER_SECRET=S... AMOUNT=5000000000 \
+  npx tsx topup-allowance.ts
+```
+
+| Variable | Notes |
+| -------- | ----- |
+| `CONTRACT_ID` | Required. FlowPay contract that will spend the allowance. |
+| `TOKEN_ADDRESS` | Required. The SAC token being approved. |
+| `USER_ADDRESS` | Required. The subscriber's public key. |
+| `USER_SECRET` | Required to sign. The subscriber's own secret. |
+| `AMOUNT` | Required. Allowance in stroops. |
+| `EXPIRY_LEDGERS` | Optional. Approvals default to expiring. |
+| `NETWORK_PASSPHRASE`, `RPC_URL` | Standard overrides. |
+
+**This script needs the subscriber's secret key.** That is the subscriber's
+own authority to spend their balance, and it is not something an operator
+should hold in bulk. Prefer asking the subscriber to raise their own allowance;
+use this for a one-off rescue, and always with `--simulate` first. `AMOUNT`
+is in stroops, so 1 XLM is `10000000`.
+
+### allowance-utils.ts
+
+Shared rate-limiting, retry, and ledger-time defaults used by the allowance-checking scripts.
+
+### event-dedup.ts
+
+Reusable in-memory LRU cache for skipping duplicate contract events in the indexer and event watcher. It is process-local, not durable across restarts.
+
+### merchant-queries.ts
+
+Read-only SQLite query helpers for merchant analytics and reports, including indexer freshness checks.
+
+### webhook.ts
+
+Delivers HMAC-SHA256-signed webhook payloads with retries; exhausted deliveries are written to a local dead-letter queue. Requires `WEBHOOK_URL` and `WEBHOOK_SECRET`. See [`docs/WEBHOOKS.md`](../docs/WEBHOOKS.md) for full payload reference, verification code, and DLQ replay procedures.
+
 ## Environment variable reference
 
-All scripts read configuration from environment variables. The full set used
-across all scripts:
-
-| Variable               | Used by                                         | Description                                                                          |
-| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                         |
-| `RPC_URL`              | all                                             | Soroban RPC endpoint                                                                 |
-| `NETWORK_PASSPHRASE`   | keeper, check-allowances                        | Stellar network passphrase                                                           |
-| `KEEPER_PUBLIC_KEY`    | keeper                                          | Source account public key (must be funded on the network)                            |
-| `KEEPER_SECRET`        | keeper                                          | Stellar secret key (S…) for signing transactions (required in live mode)             |
-| `DRY_RUN`              | keeper                                          | Set `true` to simulate charges without submitting transactions                       |
-| `BATCH_SIZE`           | keeper                                          | Subscriptions per batch_charge call (default 50, max 50)                             |
-| `INTERVAL_SECONDS`     | keeper                                          | Seconds between charge cycles (default 3600)                                         |
-| `REPORT_DIR`           | keeper                                          | Directory for dry-run reports and live-cycle pointer (default: `data/benchmarks`)    |
-| `WEBHOOK_URL`          | alert-expiring-allowances, alert-failed-charges | Webhook POST target                                                                  |
-| `ALERT_WINDOW_LEDGERS` | alert-expiring-allowances                       | Expiry alert threshold                                                               |
-| `DATA_DIR`             | indexer, query-events                           | SQLite database directory                                                            |
-| `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                        |
-| `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                               |
-| `START_LEDGER`         | indexer                                         | First-run start ledger                                                               |
-| `LOG_LEVEL`            | keeper, indexer, health-check, alert-failed-charges | Log verbosity (`debug` \| `info` \| `warn` \| `error`, default `info`)          |
-| `LOG_FORMAT`           | keeper, indexer, health-check, alert-failed-charges | Set to `json` for JSON-lines output (recommended in Docker)                     |
-| Variable               | Used by                                         | Description                                                                       |
-| ---------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| `CONTRACT_ID`          | all                                             | Deployed FlowPay contract ID                                                      |
-| `RPC_URL`              | all                                             | Soroban RPC endpoint                                                              |
-| `NETWORK_PASSPHRASE`   | keeper, check-allowances                        | Stellar network passphrase                                                        |
-| `KEEPER_PUBLIC_KEY`    | keeper                                          | Source account public key (must be funded on the network)                         |
-| `KEEPER_SECRET`        | keeper                                          | Stellar secret key (S…) for signing transactions (required in live mode)          |
-| `DRY_RUN`              | keeper                                          | Set `true` to simulate charges without submitting transactions                    |
-| `BATCH_SIZE`           | keeper                                          | Subscriptions per batch_charge call (default 50, max 50)                          |
-| `INTERVAL_SECONDS`     | keeper                                          | Seconds between charge cycles (default 3600)                                      |
-| `REPORT_DIR`           | keeper                                          | Directory for dry-run reports and live-cycle pointer (default: `data/benchmarks`) |
-| `WEBHOOK_URL`          | alert-expiring-allowances, alert-failed-charges | Webhook POST target                                                               |
-| `ALERT_WINDOW_LEDGERS` | alert-expiring-allowances                       | Expiry alert threshold                                                            |
-| `DATA_DIR`             | indexer, query-events                           | SQLite database directory                                                         |
-| `DB_FILE`              | indexer, query-events                           | SQLite database path override                                                     |
-| `POLL_INTERVAL_MS`     | indexer                                         | Event polling interval                                                            |
-| `START_LEDGER`         | indexer                                         | First-run start ledger                                                            |
-| `LOG_LEVEL`            | keeper, indexer                                 | Log verbosity                                                                     |
+Every environment variable read under `scripts/` — with its default and the scripts that read it — is documented in one place: [`docs/SCRIPTS-ENVIRONMENT.md`](../docs/SCRIPTS-ENVIRONMENT.md).
 
 ## Related
 

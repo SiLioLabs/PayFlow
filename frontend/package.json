@@ -1,14 +1,24 @@
 {
-  "name": "flowpay-ui",
+  "name": "payflow-ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:check": "npm run build && node scripts/check-bundle-size.mjs",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test": "vitest run && node --test scripts/check-bundle-size.node-test.mjs",
+    "test:e2e": "playwright test",
+    "catalogue": "ladle serve",
+    "catalogue:build": "ladle build"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",
@@ -17,18 +27,24 @@
   },
   "devDependencies": {
     "@eslint/js": "^8.57.0",
+    "@playwright/test": "^1.65.1",
+    "@ladle/react": "^4.3.0",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/jest-axe": "^3.5.9",
     "@types/node": "^20.19.43",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.6.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^13.24.0",
+    "jest-axe": "^11.0.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.3.3",
     "typescript": "^5.2.2",

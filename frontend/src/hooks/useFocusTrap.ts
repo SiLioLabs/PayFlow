@@ -1,5 +1,23 @@
 import { useEffect, useRef } from "react";
 
+const FOCUSABLE_SELECTORS = [
+  "button:not(:disabled)",
+  "[href]",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  "audio[controls]",
+  "video[controls]",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS)).filter(
+    (element) => !element.matches(":disabled")
+  );
+}
+
 /**
  * Hook to trap keyboard focus within a container element.
  *
@@ -13,6 +31,11 @@ export function useFocusTrap(
   onEscape?: () => void
 ) {
   const previouslyFocusedElement = useRef<HTMLElement | null>(null);
+  const onEscapeRef = useRef(onEscape);
+
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
 
   useEffect(() => {
     if (!active) return;
@@ -23,11 +46,8 @@ export function useFocusTrap(
     const element = ref.current;
     if (!element) return;
 
-    const focusableSelectors =
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
     // Focus the first focusable element inside the ref container
-    const focusableElements = Array.from(element.querySelectorAll<HTMLElement>(focusableSelectors));
+    const focusableElements = getFocusableElements(element);
     if (focusableElements.length > 0) {
       focusableElements[0].focus();
     }
@@ -37,18 +57,16 @@ export function useFocusTrap(
       if (!container) return;
 
       if (event.key === "Escape") {
-        if (onEscape) {
+        if (onEscapeRef.current) {
           event.preventDefault();
-          onEscape();
+          onEscapeRef.current();
         }
         return;
       }
 
       if (event.key !== "Tab") return;
 
-      const currentFocusable = Array.from(
-        container.querySelectorAll<HTMLElement>(focusableSelectors)
-      );
+      const currentFocusable = getFocusableElements(container);
 
       if (currentFocusable.length === 0) {
         event.preventDefault();
@@ -82,5 +100,5 @@ export function useFocusTrap(
         previouslyFocusedElement.current.focus();
       }
     };
-  }, [active, ref, onEscape]);
+  }, [active, ref]);
 }

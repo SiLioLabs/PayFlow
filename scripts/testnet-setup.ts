@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
-import { join } from "node:path";
-import { Keypair } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Keypair, Networks } from "@stellar/stellar-sdk";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { logger } from "./logger";
 import { projectPath, readJsonFile } from "./soroban-admin.js";
 import { ManifestSchema } from "./config.js";
@@ -20,53 +21,6 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 // const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
 // const FRIENDBOT_URL = process.env.FRIENDBOT_URL || "https://friendbot.stellar.org";
 
-interface SetupArgs {
-  seed: number;
-  users: number;
-  merchants: number;
-}
-
-function parseArgs(argv: string[]): SetupArgs {
-  let seed = 1;
-  let users = 3;
-  let merchants = 1;
-
-  for (let i = 2; i < argv.length; i++) {
-    switch (argv[i]) {
-      case "--seed":
-        seed = parseInt(argv[++i], 10);
-        break;
-      case "--users":
-        users = parseInt(argv[++i], 10);
-        break;
-      case "--merchants":
-        merchants = parseInt(argv[++i], 10);
-        break;
-      default:
-        console.error(`Unknown argument: ${argv[i]}`);
-        console.error(
-          "Usage: testnet-setup.ts --seed <n> --users <n> --merchants <n>",
-        );
-        process.exit(1);
-    }
-  }
-
-  if (
-    !Number.isInteger(seed) ||
-    !Number.isInteger(users) ||
-    !Number.isInteger(merchants)
-  ) {
-    console.error("ERROR: --seed, --users, and --merchants must be integers.");
-    process.exit(1);
-  }
-
-  if (users < 1 || merchants < 1) {
-    console.error("ERROR: --users and --merchants must each be at least 1.");
-    process.exit(1);
-  }
-
-  return { seed, users, merchants };
-}
 
 // ── Deterministic identity derivation ────────────────────────────────────────
 
@@ -77,6 +31,10 @@ interface Identity {
 const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || process.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET;
 const DEFAULT_TOKEN = process.env.VITE_DEFAULT_TOKEN || "CB64D3BV7P25CBZ76AEGY2FJD2N2Z35TXTLA2HO7DS4SYYBZWAZZTACC"; // Native XLM SAC on Testnet
 
+// IMPORTANT: Account secrets are generated locally and stored in data/testnet-accounts.json
+// This file is .gitignored and must NEVER be committed to version control.
+// The file will be created automatically on first run with randomly generated keypairs.
+// See testnet-accounts.example.json for the expected structure.
 const MANIFEST_PATH = join(process.cwd(), "data", "testnet-accounts.json");
 const BACKUP_MANIFEST_PATH = join(process.cwd(), "data", "testnet-accounts.json.bak");
 
@@ -139,7 +97,7 @@ function generateAccount(role: "admin" | "merchant" | "subscriber", name: string
   };
 }
 
-async function isAccountFunded(server: Server, publicKey: string): Promise<boolean> {
+async function isAccountFunded(server: MultiEndpointServer, publicKey: string): Promise<boolean> {
   try {
     await server.getAccount(publicKey);
     return true;
@@ -249,7 +207,7 @@ async function main(): Promise<void> {
     manifest.network = activeNetworkPassphrase;
   }
 
-  const server = new Server(activeRpcUrl);
+  const server = new MultiEndpointServer(activeRpcUrl);
 
   // 1. Fund Accounts via Friendbot
   logger.info(`Step 1: Funding test accounts via Friendbot...`);
@@ -296,6 +254,8 @@ async function main(): Promise<void> {
   logger.info(`Testnet setup complete!`);
   logger.info(`Manifest written to: ${MANIFEST_PATH}`);
   logger.info(`====================================================`);
+  logger.info(`\nNext step: use the Soroban CLI with these identities to call subscribe()/charge()`);
+  logger.info(`against your deployed contract — see docs/TESTING.md, Integration Testing section.`);
 }
 
 main().catch((err) => {

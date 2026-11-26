@@ -7,10 +7,11 @@
  * 3. Confirms the webhook payload has the expected shape
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { collectFailedCharges, SubscriptionAmountLookup } from "../alert-failed-charges";
 
 describe("alert-failed-charges fixture", () => {
   let dbFile: string;
@@ -137,7 +138,9 @@ describe("alert-failed-charges fixture", () => {
 
     // Simulate the alert logic: skip if allowance_insufficient is 0
     const shouldAlert = parsed.allowance_insufficient && parsed.allowance_insufficient > 0;
-    expect(shouldAlert).toBe(false);
+    // `0 && ...` evaluates to 0, not false, so assert falsiness rather than
+    // strict equality with `false`.
+    expect(shouldAlert).toBeFalsy();
   });
 
   it("should aggregate multiple batch_charge_skips events in alert payload", () => {
@@ -226,5 +229,73 @@ describe("alert-failed-charges fixture", () => {
     if (fs.existsSync(dbFile)) {
       fs.unlinkSync(dbFile);
     }
+  });
+});
+
+describe("alert-failed-charges subscription amounts", () => {
+  let db: InstanceType<typeof DatabaseSync>;
+  let seq = 0;
+  const now = Math.floor(Date.now() / 1000);
+
+  function insert(event_name: string, address: string, amount: string | null, ledger: number, raw: unknown): void {
+    db.prepare(
+      `INSERT INTO events(id, event_name, address, amount, ledger, timestamp, tx_hash, raw_data,
+         merchant, fee_amount, token, result_code)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+    ).run(`tx${++seq}:0:0`, event_name, address, amount, ledger, now, `tx${seq}`, JSON.stringify(raw));
+  }
+
+  beforeEach(() => {
+    db = new DatabaseSync(":memory:");
+    db.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY, event_name TEXT NOT NULL, address TEXT NOT NULL, amount TEXT,
+        ledger INTEGER NOT NULL, timestamp INTEGER NOT NULL, tx_hash TEXT NOT NULL, raw_data TEXT NOT NULL,
+        merchant TEXT, fee_amount TEXT, token TEXT, result_code TEXT
+      )
+    `);
+  });
+
+  afterEach(() => db.close());
+
+  it("reports the user's real subscription amount instead of 0", () => {
+    insert("subscribed", "GUSER1", "50000000", 10, { amount: "50000000", merchant: "GMERCH" });
+    insert("batch_charge_skips", "", null, 20, { user: "GUSER1", reason: "allowance_insufficient" });
+
+    expect(collectFailedCharges(db, 0)).toEqual([
+      { user_address: "GUSER1", reason: "allowance_insufficient", subscription_amount: "50000000" },
+    ]);
+  });
+
+  it("uses the latest sub_amount_updated over the original subscribed amount", () => {
+    insert("subscribed", "GUSER2", "50000000", 10, { amount: "50000000" });
+    insert("sub_amount_updated", "GUSER2", null, 15, ["50000000", "75000000"]);
+    insert("batch_charge_skips", "", null, 20, { user: "GUSER2" });
+
+    expect(collectFailedCharges(db, 0)[0].subscription_amount).toBe("75000000");
+  });
+
+  it("reports null (not 0) with failed_count for aggregate batch summaries", () => {
+    insert("batch_charge_skips", "", null, 20, { total: 5, charged: 3, allowance_insufficient: 2 });
+
+    expect(collectFailedCharges(db, 0)).toEqual([
+      { user_address: "batch_summary", reason: "allowance_insufficient", subscription_amount: null, failed_count: 2 },
+    ]);
+  });
+
+  it("returns null for a user with no subscription events", () => {
+    insert("batch_charge_skips", "", null, 20, { user: "GUNKNOWN" });
+    expect(collectFailedCharges(db, 0)[0].subscription_amount).toBeNull();
+  });
+
+  it("caches each user's amount for the run", () => {
+    insert("subscribed", "GUSER3", "10", 10, { amount: "10" });
+    const lookup = new SubscriptionAmountLookup(db);
+    expect(lookup.get("GUSER3")).toBe("10");
+
+    // A later change is not re-read within the same run.
+    insert("sub_amount_updated", "GUSER3", null, 11, ["10", "20"]);
+    expect(lookup.get("GUSER3")).toBe("10");
+    expect(new SubscriptionAmountLookup(db).get("GUSER3")).toBe("20");
   });
 });

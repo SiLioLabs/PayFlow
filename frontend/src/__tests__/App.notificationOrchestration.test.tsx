@@ -52,7 +52,7 @@ vi.mock("../hooks/useContractId", () => ({
 
 // Mock useContractPaused — the single source of truth this test suite exercises.
 vi.mock("../hooks/useContractPaused", () => ({
-  useContractPaused: vi.fn(() => ({ isPaused: false, loading: false })),
+  useContractPaused: vi.fn(() => ({ isPaused: false, status: "active", loading: false })),
 }));
 
 // Mock heavy child components so this suite stays focused on App-level wiring.
@@ -63,8 +63,12 @@ vi.mock("../pages/AdminDashboard", () => ({
   default: () => <div data-testid="admin-dashboard" />,
 }));
 vi.mock("../components/Dashboard", () => ({
-  default: (props: { isPaused?: boolean }) => (
-    <div data-testid="dashboard" data-is-paused={String(props.isPaused)} />
+  default: (props: { isPaused?: boolean; userKey?: string }) => (
+    <div
+      data-testid="dashboard"
+      data-is-paused={String(props.isPaused)}
+      data-user-key={props.userKey}
+    />
   ),
 }));
 vi.mock("../components/MerchantDashboard", () => ({
@@ -120,7 +124,12 @@ function mockWallet(publicKey: string | null) {
 }
 
 function mockPaused(isPaused: boolean) {
-  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({ isPaused, loading: false });
+  const status = isPaused ? "paused" : "active";
+  (useContractPaused as ReturnType<typeof vi.fn>).mockReturnValue({
+    isPaused,
+    status,
+    loading: false,
+  });
 }
 
 describe("App — notification priority orchestration", () => {
@@ -164,13 +173,15 @@ describe("App — notification priority orchestration", () => {
     expect(screen.getByTestId("dashboard")).toHaveAttribute("data-is-paused", "false");
   });
 
-  it("threads isPaused down to MerchantDashboard", () => {
+  it("threads isPaused down to MerchantDashboard", async () => {
     mockPaused(true);
     mockWallet("GABCDEF1234567890");
     render(<App />);
     // Dashboard is the default tab; switch to Merchant to render MerchantDashboard.
     fireEvent.click(screen.getByRole("tab", { name: "Merchant" }));
-    expect(screen.getByTestId("merchant-dashboard")).toHaveAttribute("data-is-paused", "true");
+    await waitFor(() => {
+      expect(screen.getByTestId("merchant-dashboard")).toHaveAttribute("data-is-paused", "true");
+    });
   });
 
   it("mounts NotificationCenter (bell trigger) once a wallet is connected", () => {
@@ -183,5 +194,15 @@ describe("App — notification priority orchestration", () => {
     mockWallet(null);
     render(<App />);
     expect(screen.queryByTestId("notification-bell")).not.toBeInTheDocument();
+  });
+
+  it("passes a switched wallet account to the dashboard without a page refresh", () => {
+    mockWallet("GACCOUNT_ONE");
+    const { rerender } = render(<App />);
+    expect(screen.getByTestId("dashboard")).toHaveAttribute("data-user-key", "GACCOUNT_ONE");
+
+    mockWallet("GACCOUNT_TWO");
+    rerender(<App />);
+    expect(screen.getByTestId("dashboard")).toHaveAttribute("data-user-key", "GACCOUNT_TWO");
   });
 });

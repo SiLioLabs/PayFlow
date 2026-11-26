@@ -7,30 +7,70 @@
 ///
 /// ## How to run
 ///
+/// The module is gated behind the `bench` cargo feature, so it must be
+/// enabled explicitly — without `--features bench` the filter below matches
+/// zero tests and the run exits successfully without measuring anything.
+///
 /// ```
-/// cargo test bench -- --nocapture
+/// cargo test --features bench bench -- --nocapture
 /// ```
 ///
-/// ## Baseline instruction counts (Soroban SDK 21, recorded 2026-06-01)
+/// ## Historical instruction counts (Soroban SDK 21.7.7 / env-host 21.2.1, recorded 2026-09-28)
 ///
-/// | Function                        | CPU Instructions | Memory Bytes |
-/// |---------------------------------|-----------------|--------------|
-/// | subscribe()                     |   ~4_200_000    |  ~200_000    |
-/// | charge()                        |   ~3_800_000    |  ~180_000    |
-/// | pay_per_use()                   |   ~3_600_000    |  ~170_000    |
-/// | batch_charge() – 10 users       |  ~28_000_000    | ~1_200_000   |
+/// | Function                        | CPU Instructions | Memory Bytes | Pinned budget |
+/// |---------------------------------|-----------------|--------------|---------------|
+/// | subscribe()                     |     429_145     |    77_234    |    495_000    |
+/// | charge()                        |     668_949     |   110_970    |    770_000    |
+/// | pay_per_use()                   |     715_958     |   125_058    |    825_000    |
+/// | batch_charge() – 10 users       |   8_860_549     | 1_894_229    | 10_200_000    |
+/// | get_top_merchants_by_subs() – 15 merchants | 724_790 | 68_839   |    835_000    |
 ///
-/// These numbers are printed at runtime (see `--nocapture`).  Update the
-/// table above whenever a deliberate change shifts the baseline by more
-/// than ~5 %.
+/// ## SDK 30 instruction counts (soroban-env-host 30.0.1)
 ///
-/// Budget baselines were recorded with Soroban SDK 21.0.0 on 2026-06-01.
-/// Each threshold includes ~10% headroom to catch regressions without
-/// failing on minor environment variation.
-pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 4_620_000;
-pub const MAX_CHARGE_INSTRUCTIONS: u64 = 4_180_000;
-pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 3_960_000;
-pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 30_800_000;
+/// | Function or sample | CPU instructions | Memory bytes | Pinned budget |
+/// |--------------------|-----------------:|-------------:|--------------:|
+/// | subscribe | 690,773 | 252,859 | 795,000 |
+/// | charge | 1,070,028 | 353,092 | 1,235,000 |
+/// | pay_per_use | 1,048,220 | 349,258 | 1,210,000 |
+/// | batch_charge, 10 users | 15,006,744 | 3,796,606 | 17,300,000 |
+/// | top merchants, 15 | 1,175,007 | 343,164 | 1,355,000 |
+/// | top merchants, 100 | 9,634,171 | 811,334 | 11,100,000 |
+/// | top merchants, 500 | 138,194,488 | 13,816,134 | 159,000,000 |
+///
+/// The SDK 30 ceilings retain approximately 15% headroom over the measured
+/// costs. The historical 100- and 500-merchant ceilings were extrapolations.
+/// Those two samples disable the host transaction limits to measure scaling
+/// beyond the size of a single network transaction.
+pub const MAX_SUBSCRIBE_INSTRUCTIONS: u64 = 795_000;
+pub const MAX_CHARGE_INSTRUCTIONS: u64 = 1_235_000;
+pub const MAX_PAY_PER_USE_INSTRUCTIONS: u64 = 1_210_000;
+pub const MAX_BATCH_10_INSTRUCTIONS: u64 = 17_300_000;
+pub const MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS: u64 = 1_355_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 100-merchant index.
+pub const MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS: u64 = 11_100_000;
+/// Pinned budget for `get_top_merchants_by_subs` over a 500-merchant index.
+pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 159_000_000;
+/// Extrapolated linearly from the 15-merchant baseline (724_790) with headroom.
+pub const MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS: u64 = 40_000_000;
+/// Pinned budget for `batch_cancel` over the maximum batch
+/// (`MAX_BATCH_PAUSE_SUBSCRIPTIONS` = 25 active subscribers).
+/// Provisional: ~25x the per-user write path (sized from the `batch_charge`
+/// 10-user baseline of ~886k per user) with headroom. Re-pin from the printed
+/// measurement as described in the re-pinning notes above.
+pub const MAX_BATCH_CANCEL_25_INSTRUCTIONS: u64 = 20_000_000;
+/// Pinned budget for `batch_pause_subscriptions` over 25 active subscribers.
+/// Provisional; pausing writes the subscription and its pause expiry per user.
+pub const MAX_BATCH_PAUSE_25_INSTRUCTIONS: u64 = 16_000_000;
+/// Pinned budget for `get_next_charge_batch` scanning a full page
+/// (`SUBSCRIBER_PAGE_SIZE` = 50) where every slot is live and due.
+pub const MAX_NEXT_CHARGE_BATCH_DENSE_50_INSTRUCTIONS: u64 = 8_000_000;
+/// Pinned budget for the worst-case sparse scan: a 50-slot page in which 49
+/// slots are tombstoned, so the reader pays the tombstone check per slot and
+/// returns a single address. Must stay at or below the dense budget.
+pub const MAX_NEXT_CHARGE_BATCH_SPARSE_50_INSTRUCTIONS: u64 = 8_000_000;
+/// Pinned budget for a single `transfer_subscription` call
+/// (moves the subscription, index slot and counters to the new address).
+pub const MAX_TRANSFER_SUBSCRIPTION_INSTRUCTIONS: u64 = 1_200_000;
 
 use super::*;
 use soroban_sdk::{
@@ -57,7 +97,15 @@ fn bench_setup() -> (Env, Address, Address, Address, Address) {
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_addr = token_id.address();
 
-    let contract_id = env.register_contract(None, FlowPay);
+    let contract_id = env.register(FlowPay, ());
+
+    // Whitelisting is enabled by default, so an unregistered merchant would make
+    // every state-changing benchmark fail with `MerchantNotWhitelisted` (code 10)
+    // before it ever reached its budget assertion. Disable it for the whole bench
+    // env so each benchmark measures its entrypoint rather than the whitelist.
+    env.as_contract(&contract_id, || {
+        crate::whitelist::set_whitelist_enabled(&env, false);
+    });
 
     let user = Address::generate(&env);
     let merchant = Address::generate(&env);
@@ -89,9 +137,10 @@ fn add_funded_user(env: &Env, contract_id: &Address, token_addr: &Address) -> Ad
 
 /// Measures the instruction cost of a single `subscribe()` call.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~4_200_000
-///   Memory Bytes     : ~200_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 429_145
+///   Memory Bytes     : 77_234
+///   Pinned budget    : 495_000 (+15 % headroom)
 #[test]
 fn bench_subscribe() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -101,7 +150,7 @@ fn bench_subscribe() {
     let interval: u64 = 30 * 24 * 60 * 60; // 30 days
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.subscribe(
         &user,
@@ -113,10 +162,10 @@ fn bench_subscribe() {
         &None,
     );
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_subscribe]");
     println!("  CPU Instructions : {}", cpu);
@@ -139,9 +188,10 @@ fn bench_subscribe() {
 /// Measures the instruction cost of a single `charge()` call after the
 /// billing interval has elapsed.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~3_800_000
-///   Memory Bytes     : ~180_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 668_949
+///   Memory Bytes     : 110_970
+///   Pinned budget    : 770_000 (+15 % headroom)
 #[test]
 fn bench_charge() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -167,14 +217,14 @@ fn bench_charge() {
     });
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.charge(&user);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_charge]");
     println!("  CPU Instructions : {}", cpu);
@@ -196,9 +246,10 @@ fn bench_charge() {
 
 /// Measures the instruction cost of a single `pay_per_use()` call.
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~3_600_000
-///   Memory Bytes     : ~170_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 715_958
+///   Memory Bytes     : 125_058
+///   Pinned budget    : 825_000 (+15 % headroom)
 #[test]
 fn bench_pay_per_use() {
     let (env, contract_id, token_addr, user, merchant) = bench_setup();
@@ -216,14 +267,14 @@ fn bench_pay_per_use() {
     );
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     client.pay_per_use(&user, &5_0000000);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_pay_per_use]");
     println!("  CPU Instructions : {}", cpu);
@@ -246,9 +297,10 @@ fn bench_pay_per_use() {
 /// Measures the instruction cost of `batch_charge()` across 10 subscribers
 /// whose billing intervals have all elapsed (all 10 result in `Charged`).
 ///
-/// Baseline (2026-06-01):
-///   CPU Instructions : ~28_000_000
-///   Memory Bytes     : ~1_200_000
+/// Baseline (Soroban SDK 21.7.7, 2026-09-28):
+///   CPU Instructions : 8_860_549
+///   Memory Bytes     : 1_894_229
+///   Pinned budget    : 10_200_000 (+15 % headroom)
 #[test]
 fn bench_batch_charge_10_users() {
     let (env, contract_id, token_addr, first_user, merchant) = bench_setup();
@@ -284,14 +336,14 @@ fn bench_batch_charge_10_users() {
     });
 
     // Reset budget immediately before the call under measurement.
-    env.budget().reset_unlimited();
+    env.cost_estimate().budget().reset_unlimited();
 
     let results = client.batch_charge(&users);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
     println!("\n[bench_batch_charge_10_users]");
     println!("  CPU Instructions : {}", cpu);
@@ -341,7 +393,7 @@ fn bench_charge_vs_subscribe_ratio() {
     let interval: u64 = 86400;
 
     // ── Measure subscribe ────────────────────────────────────────────────────
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
     client.subscribe(
         &user,
         &merchant,
@@ -351,16 +403,16 @@ fn bench_charge_vs_subscribe_ratio() {
         &None,
         &None,
     );
-    let subscribe_cpu = env.budget().cpu_instruction_cost();
+    let subscribe_cpu = env.cost_estimate().budget().cpu_instruction_cost();
 
     // ── Measure charge ───────────────────────────────────────────────────────
     env.ledger().with_mut(|l| {
         l.timestamp += interval + 1;
     });
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
     client.charge(&user);
-    let charge_cpu = env.budget().cpu_instruction_cost();
+    let charge_cpu = env.cost_estimate().budget().cpu_instruction_cost();
 
     println!("\n[bench_charge_vs_subscribe_ratio]");
     println!("  subscribe() CPU  : {}", subscribe_cpu);
@@ -379,39 +431,252 @@ fn bench_charge_vs_subscribe_ratio() {
     );
 }
 
-#[test]
-fn bench_get_top_merchants_by_subs_large_index() {
-    let (env, contract_id, token_addr, _, _) = bench_setup();
-    let client = FlowPayClient::new(&env, &contract_id);
-    env.as_contract(&contract_id, || {
-        crate::whitelist::set_whitelist_enabled(&env, false);
-    });
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmark: get_top_merchants_by_subs() at multiple index sizes
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Seed 15 merchants with varying subscriber counts
-    for i in 0..15 {
-        let merchant = Address::generate(&env);
-        let user = add_funded_user(&env, &contract_id, &token_addr);
-        client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
-        if i % 2 == 0 {
-            let u2 = add_funded_user(&env, &contract_id, &token_addr);
-            client.subscribe(&u2, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+/// Seeds `n` distinct merchants into the merchant index with varying subscriber
+/// counts by writing the index directly rather than going through `subscribe()`.
+///
+/// The point of this benchmark is the cost of the ranking scan as the index
+/// grows, so the measured call must not be dominated by the cost of building
+/// the fixtures. Seeding through `subscribe()` would also require a funded user
+/// and token approval per merchant, which is both slower and irrelevant to what
+/// is being measured.
+fn seed_merchant_index(env: &Env, contract_id: &Address, n: u32) {
+    env.as_contract(contract_id, || {
+        for i in 0..n {
+            let merchant = Address::generate(env);
+            crate::merchant_stats::index_merchant(env, &merchant);
+            // Vary the counts so the descending-order assertion is meaningful.
+            let count = (i % 5) as u64 + 1;
+            let key = DataKey::MerchantSubCount(merchant.clone());
+            env.storage().persistent().set(&key, &count);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, 1555200, 1555200);
         }
-    }
+    });
+}
 
-    env.budget().reset_unlimited();
+/// Runs `get_top_merchants_by_subs(10)` over an index of `n` merchants and
+/// asserts the measured CPU cost stays within `budget`, the result fills the
+/// top-10 window, and the ranking is ordered descending by subscriber count.
+fn run_top_merchants_bench(n: u32, budget: u64) {
+    let (env, contract_id, _token_addr, _user, _merchant) = bench_setup();
+    // Measure algorithmic scaling, including fixtures larger than a network transaction.
+    if n > 15 {
+        env.cost_estimate().disable_resource_limits();
+    }
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Lift the meter while building fixtures: seeding a 500-entry index would
+    // otherwise risk tripping the default budget before the measured call.
+    env.cost_estimate().budget().reset_unlimited();
+    seed_merchant_index(&env, &contract_id, n);
+
+    // Reset immediately before the call under measurement.
+    env.cost_estimate().budget().reset_unlimited();
 
     let top = client.get_top_merchants_by_subs(&10);
 
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
 
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
 
-    println!("\n[bench_get_top_merchants_by_subs_large_index]");
+    println!("\n[bench_get_top_merchants_by_subs]");
+    println!("  Index size       : {}", n);
     println!("  CPU Instructions : {}", cpu);
     println!("  Memory Bytes     : {}", mem);
+    println!("  Pinned budget    : {}", budget);
 
-    assert_eq!(top.len(), 10);
-    assert!(cpu > 0, "get_top_merchants_by_subs must consume CPU instructions");
+    assert_eq!(
+        top.len(),
+        10,
+        "the top-10 window must fill with {} merchants in the index",
+        n
+    );
+
+    let mut prev: u32 = u32::MAX;
+    for i in 0..top.len() {
+        let (_merchant, count) = top.get(i).unwrap();
+        assert!(
+            count <= prev,
+            "ranking must be ordered descending at position {}",
+            i
+        );
+        prev = count;
+    }
+
+    assert!(
+        cpu > 0,
+        "get_top_merchants_by_subs must consume CPU instructions"
+    );
     assert!(mem > 0, "get_top_merchants_by_subs must consume memory");
+    assert!(
+        cpu <= budget,
+        "get_top_merchants_by_subs() CPU ({}) exceeds budget threshold ({}) at index size {}",
+        cpu,
+        budget,
+        n
+    );
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_15() {
+    run_top_merchants_bench(15, MAX_TOP_MERCHANTS_LARGE_INDEX_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_100() {
+    run_top_merchants_bench(100, MAX_TOP_MERCHANTS_INDEX_100_INSTRUCTIONS);
+}
+
+#[test]
+fn bench_get_top_merchants_by_subs_index_500() {
+    run_top_merchants_bench(500, MAX_TOP_MERCHANTS_INDEX_500_INSTRUCTIONS);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmarks: batch and scan paths (#1413)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sets an admin (batch entrypoints are admin-only) and subscribes `n` funded
+/// users to `merchant`. Returns the subscribed users in index order.
+fn subscribe_n(
+    env: &Env,
+    client: &FlowPayClient,
+    contract_id: &Address,
+    token_addr: &Address,
+    first: &Address,
+    merchant: &Address,
+    n: u32,
+) -> Vec<Address> {
+    client.set_initial_admin(&Address::generate(env));
+    let mut users: Vec<Address> = Vec::new(env);
+    for i in 0..n {
+        let user = if i == 0 {
+            first.clone()
+        } else {
+            add_funded_user(env, contract_id, token_addr)
+        };
+        client.subscribe(&user, merchant, &1_0000000, &86400, token_addr, &None, &None);
+        users.push_back(user);
+    }
+    users
+}
+
+/// Prints the measurement and fails loudly when it exceeds `budget`.
+fn report(name: &str, cpu: u64, mem: u64, budget: u64) {
+    println!("\n[{}]", name);
+    println!("  CPU Instructions : {}", cpu);
+    println!("  Memory Bytes     : {}", mem);
+    println!("  Pinned budget    : {}", budget);
+    assert!(cpu > 0, "{} must consume CPU instructions", name);
+    assert!(
+        cpu <= budget,
+        "{} CPU ({}) exceeds budget threshold ({})",
+        name,
+        cpu,
+        budget
+    );
+}
+
+/// `batch_cancel` over the maximum batch of 25 active subscriptions.
+#[test]
+fn bench_batch_cancel_25_users() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let users = subscribe_n(&env, &client, &contract_id, &token_addr, &user, &merchant, MAX_BATCH_PAUSE_SUBSCRIPTIONS);
+
+    env.budget().reset_unlimited();
+    let results = client.batch_cancel(&users);
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+    env.budget().reset_default();
+
+    assert_eq!(results.len(), MAX_BATCH_PAUSE_SUBSCRIPTIONS);
+    for u in users.iter() {
+        assert!(!client.get_subscription(&u).unwrap().active, "every user must be cancelled");
+    }
+    report("bench_batch_cancel_25_users", cpu, mem, MAX_BATCH_CANCEL_25_INSTRUCTIONS);
+}
+
+/// `batch_pause_subscriptions` over the maximum batch of 25 active subscriptions.
+#[test]
+fn bench_batch_pause_subscriptions_25_users() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let users = subscribe_n(&env, &client, &contract_id, &token_addr, &user, &merchant, MAX_BATCH_PAUSE_SUBSCRIPTIONS);
+
+    env.budget().reset_unlimited();
+    client.batch_pause_subscriptions(&users);
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+    env.budget().reset_default();
+
+    for u in users.iter() {
+        assert!(client.get_subscription(&u).unwrap().paused, "every user must be paused");
+    }
+    report("bench_batch_pause_subscriptions_25_users", cpu, mem, MAX_BATCH_PAUSE_25_INSTRUCTIONS);
+}
+
+/// `get_next_charge_batch` over a dense, fully due 50-slot page.
+#[test]
+fn bench_get_next_charge_batch_dense_50() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    subscribe_n(&env, &client, &contract_id, &token_addr, &user, &merchant, SUBSCRIBER_PAGE_SIZE);
+    env.ledger().with_mut(|l| l.timestamp += 86400 + 1);
+
+    env.budget().reset_unlimited();
+    let due = client.get_next_charge_batch(&0, &SUBSCRIBER_PAGE_SIZE, &None);
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+    env.budget().reset_default();
+
+    assert_eq!(due.len(), SUBSCRIBER_PAGE_SIZE, "every slot is live and due");
+    report("bench_get_next_charge_batch_dense_50", cpu, mem, MAX_NEXT_CHARGE_BATCH_DENSE_50_INSTRUCTIONS);
+}
+
+/// Worst-case sparse index: 49 of the 50 scanned slots are tombstoned.
+#[test]
+fn bench_get_next_charge_batch_sparse_50() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let users = subscribe_n(&env, &client, &contract_id, &token_addr, &user, &merchant, SUBSCRIBER_PAGE_SIZE);
+    env.as_contract(&contract_id, || {
+        for i in 0..(SUBSCRIBER_PAGE_SIZE - 1) {
+            crate::subscription_count::remove_subscriber_index(&env, &users.get(i).unwrap());
+        }
+    });
+    env.ledger().with_mut(|l| l.timestamp += 86400 + 1);
+
+    env.budget().reset_unlimited();
+    let due = client.get_next_charge_batch(&0, &SUBSCRIBER_PAGE_SIZE, &None);
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+    env.budget().reset_default();
+
+    assert_eq!(due.len(), 1, "only the last slot is live");
+    report("bench_get_next_charge_batch_sparse_50", cpu, mem, MAX_NEXT_CHARGE_BATCH_SPARSE_50_INSTRUCTIONS);
+}
+
+/// A single `transfer_subscription` to a fresh address.
+#[test]
+fn bench_transfer_subscription() {
+    let (env, contract_id, token_addr, user, merchant) = bench_setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    let new_user = add_funded_user(&env, &contract_id, &token_addr);
+
+    env.budget().reset_unlimited();
+    client.transfer_subscription(&user, &new_user);
+    let cpu = env.budget().cpu_instruction_cost();
+    let mem = env.budget().memory_bytes_cost();
+    env.budget().reset_default();
+
+    assert!(client.get_subscription(&new_user).unwrap().active);
+    report("bench_transfer_subscription", cpu, mem, MAX_TRANSFER_SUBSCRIPTION_INSTRUCTIONS);
 }

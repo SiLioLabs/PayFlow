@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { fetchEventsFromRpc, ParsedRpcEvent } from "./rpc-client.js";
 
 // ── Interface Definitions ───────────────────────────────────────────────────
@@ -424,14 +425,10 @@ export function calculateChurnAnalysis(
 // ── Main CLI Execution ────────────────────────────────────────────────────────
 
 async function main() {
-  // Only execute CLI parsing and output if called directly
-  const isMain =
-    process.argv[1]?.endsWith("/churn-analysis.ts") ||
-    process.argv[1]?.endsWith("\\churn-analysis.ts") ||
-    process.argv[1]?.endsWith("/churn-analysis.js") ||
-    process.argv[1]?.endsWith("\\churn-analysis.js") ||
-    process.argv[1]?.endsWith("scripts/churn-analysis.ts") ||
-    process.argv[1]?.endsWith("scripts/churn-analysis.js");
+  // Only execute CLI parsing and output if called directly — ESM entrypoint
+  // guard: `process.argv[1]` matches this file's path only on direct execution
+  // (`tsx churn-analysis.ts`), not when imported by tests/reports.
+  const isMain = process.argv[1] === fileURLToPath(import.meta.url);
   if (!isMain) return;
 
   const cli = new CommandLineArgs();
@@ -460,13 +457,13 @@ async function main() {
       hasSqlite = true;
       const rows = db
         .prepare(
-          `SELECT event_name, data, timestamp FROM events
+          `SELECT event_name, raw_data, timestamp FROM events
            WHERE event_name IN ('subscribed', 'cancelled', 'cancelled_with_refund')
            ORDER BY timestamp ASC`,
         )
         .all() as Array<{
         event_name: string;
-        data: string;
+        raw_data: string;
         timestamp: number;
       }>;
 

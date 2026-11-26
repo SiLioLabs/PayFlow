@@ -1,9 +1,13 @@
 import React from "react";
-import SubscriptionRepairPanel from "../components/admin/SubscriptionRepairPanel";
+import AdminRepairPanel from "../components/admin/AdminRepairPanel";
 import ProtocolStatsPanel from "../components/admin/ProtocolStatsPanel";
+import MerchantFreezePanel from "../components/admin/MerchantFreezePanel";
+import PendingUpgradePanel from "../components/admin/PendingUpgradePanel";
 import BatchPausePanel from "../components/admin/BatchPausePanel";
 import BatchWhitelistPanel from "../components/admin/BatchWhitelistPanel";
 import AdminTransferPanel from "../components/admin/AdminTransferPanel";
+
+import FeeAdminPanel from "../components/admin/FeeAdminPanel";
 import { useAdmin } from "../hooks/useAdmin";
 import Spinner from "../components/Spinner";
 
@@ -46,8 +50,27 @@ export default function AdminDashboard({ publicKey, onSign, gatePassed = true }:
       )}
 
       <div className="card admin-dashboard__section mb-4">
-        <SubscriptionRepairPanel adminKey={publicKey} onSign={onSign} gatePassed={gatePassed} />
+        <AdminRepairPanel adminKey={publicKey} onSign={onSign} gatePassed={gatePassed} />
         <ProtocolStatsPanel callerKey={publicKey} />
+      </div>
+
+      <div className="card admin-dashboard__section mb-4">
+        <MerchantFreezePanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
+        <PendingUpgradePanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
+      </div>
+
+      <div
+        className="card admin-dashboard__section mb-4"
+        style={{ opacity: effectiveAdmin ? 1 : 0.6 }}
+        aria-disabled={!effectiveAdmin}
+      >
+        {!effectiveAdmin && !loading && (
+          <div className="network-warning mb-4" role="alert">
+            <span>🔒</span>
+            <span>Admin access required to change the protocol fee.</span>
+          </div>
+        )}
+        <FeeAdminPanel adminKey={publicKey} onSign={onSign} isAdmin={effectiveAdmin} />
       </div>
 
       <div

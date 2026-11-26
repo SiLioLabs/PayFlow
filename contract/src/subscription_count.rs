@@ -4,6 +4,26 @@ use crate::errors::ContractError;
 use crate::storage;
 use crate::{DataKey, SUBSCRIPTION_TTL_LEDGERS};
 
+// Issue #1009 — paused-subscription active-flag semantics:
+//
+// Pausing (`pause` or `pause_until`) never clears the `active` flag; only
+// cancellation does (see `storage::is_cancelled` for the full rule). The
+// readers below therefore treat `active == true` as "counted / listed",
+// which includes paused subscriptions:
+//
+// - `get_active_count`: a paused subscription stays counted. Pause and
+//   resume never move the counter — it only moves on the subscribe and
+//   cancel edges (`cancel_inner`).
+// - `get_active_subscriber_page` (lib.rs): a paused subscription stays
+//   listed; keepers filtering by `paused` do that client-side.
+// - `clear_subscriber_index_entry`: refuses to tombstone the slot of a
+//   counted subscriber, so a paused subscription still blocks clearing.
+//
+// Legacy note: rows written before issue #1009 by the old `pause_until`
+// carry `paused && !active` and are NOT counted by these readers. They
+// become counted again as soon as auto-resume or `resume` rewrites the row
+// with `active = true`.
+
 /// Returns the current number of active subscriptions.
 pub fn get_active_count(env: &Env) -> u64 {
     env.storage()
@@ -39,11 +59,11 @@ pub fn get_subscriber_index_size(env: &Env) -> u64 {
 }
 
 /// Returns the number of active subscribers for a given merchant.
+///
+/// Thin delegation to the canonical reader in `merchant_stats` so every
+/// reader of `DataKey::MerchantSubCount` goes through one module.
 pub fn get_merchant_sub_count(env: &Env, merchant: &Address) -> u64 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::MerchantSubCount(merchant.clone()))
-        .unwrap_or(0u64)
+    crate::merchant_stats::get_merchant_subscriber_count(env, merchant)
 }
 
 /// Appends `user` to the next available slot in the subscriber index and increments the size.
@@ -63,9 +83,18 @@ pub fn append_subscriber_index(env: &Env, user: &Address) {
         SUBSCRIPTION_TTL_LEDGERS,
     );
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::SubscriberIndexSize, &(slot + 1));
+    let size_key = DataKey::SubscriberIndexSize;
+    env.storage().persistent().set(&size_key, &(slot + 1));
+    // Issue #1010: keep the size counter on the same TTL window as its
+    // sibling keys. If it archived before the slots, the next append would
+    // read a stale (archived) size and re-introduce already-occupied slots,
+    // diverging the index from actual subscriptions and silently breaking
+    // paged reads.
+    env.storage().persistent().extend_ttl(
+        &size_key,
+        SUBSCRIPTION_TTL_LEDGERS,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
 }
 
 /// Marks `user`'s slot in the subscriber index as removed (tombstoned) so
@@ -89,7 +118,11 @@ pub fn transfer_subscriber_index(env: &Env, user: &Address, new_user: &Address) 
     remove_subscriber_index(env, user);
 
     let new_slot_key = DataKey::SubscriberIndexSlot(new_user.clone());
-    if let Some(slot) = env.storage().persistent().get::<DataKey, u64>(&new_slot_key) {
+    if let Some(slot) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u64>(&new_slot_key)
+    {
         if !is_subscriber_index_removed(env, slot) {
             return;
         }
@@ -114,13 +147,22 @@ pub fn is_subscriber_index_removed(env: &Env, index: u64) -> bool {
 /// index. Returns the subscriber address that occupied the slot.
 ///
 /// # Errors
-///
-/// - `NoSubscriptionFound` if `index` is out of range, empty, or already
-///   tombstoned.
-/// - `CannotClearActiveSubscriber` if the occupant still has an active
-///   subscription.
+////// - `NoSubscriptionFound` if `index` is out of range, empty, or already
+/// tombstoned.
+/// - `CannotClearActiveSubscriber` if the occupant still has a live
+///   subscription (active or paused — pausing never clears `active`, see
+///   `storage::is_cancelled`).
 pub fn clear_subscriber_index_entry(env: &Env, index: u64) -> Address {
     let size = get_subscriber_index_size(env);
+    // Issue #1010: an admin repair touch is a free opportunity to keep the
+    // size counter on the same TTL window as the index slots it counts.
+    if size > 0 {
+        env.storage().persistent().extend_ttl(
+            &DataKey::SubscriberIndexSize,
+            SUBSCRIPTION_TTL_LEDGERS,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
     if index >= size || is_subscriber_index_removed(env, index) {
         env.panic_with_error(ContractError::NoSubscriptionFound);
     }
@@ -132,7 +174,10 @@ pub fn clear_subscriber_index_entry(env: &Env, index: u64) -> Address {
         .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
 
     if let Some(sub) = storage::get_subscription(env, &user) {
-        if sub.active {
+        // counted/listed: use !is_cancelled rather than sub.active so that
+        // legacy `paused && !active` rows (pre-#1009) are also treated as
+        // occupied slots that block clearing.
+        if !storage::is_cancelled(&sub) {
             env.panic_with_error(ContractError::CannotClearActiveSubscriber);
         }
     }

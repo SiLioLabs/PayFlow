@@ -2,7 +2,7 @@
  * ReferralPanel — shows the connected user's referral link and referred count.
  *
  * - Displays the user's own address as a shareable referral code
- * - Generates a share link: <BASE_URL>/?ref=<ADDRESS>
+ * - Generates a share link: <BASE_URL>/?ref=<ADDRESS>&merchant=<ADDRESS>
  *   (base URL is VITE_APP_BASE_URL env var, falls back to https://app.payflow.io)
  * - Copy button for both the raw address and the full share link
  * - Counts users referred by querying 'referred' contract events
@@ -13,29 +13,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchEvents } from "../stellar";
 import { useClipboard } from "../hooks/useClipboard";
+import { buildReferralUrl, getReferrerFromSearch } from "../utils/subscribeLink";
 
-// ── Config ────────────────────────────────────────────────────────────────────
-
-const APP_BASE_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_BASE_URL ??
-  "https://app.payflow.io";
-
-// ── Exported helpers (tested independently) ───────────────────────────────────
-
-/** Build the referral share URL for a given Stellar address. */
-export function buildReferralUrl(address: string, baseUrl = APP_BASE_URL): string {
-  return `${baseUrl}/?ref=${address}`;
-}
-
-/**
- * Read the ?ref= query param from a URL search string (e.g. window.location.search).
- * Returns null if the param is absent or empty.
- */
-export function getReferrerFromSearch(search: string): string | null {
-  const params = new URLSearchParams(search);
-  const ref = params.get("ref");
-  return ref && ref.trim() ? ref.trim() : null;
-}
+export { buildReferralUrl, getReferrerFromSearch } from "../utils/subscribeLink";
 
 // ── Copy icon / Check icon (inline to avoid extra files) ─────────────────────
 
@@ -104,9 +84,11 @@ function InlineCopyButton({ text, ariaLabel }: InlineCopyButtonProps) {
 interface Props {
   /** Connected wallet public key — null when wallet not yet connected */
   publicKey: string | null;
+  /** Merchant address to pre-fill in the generated subscribe link. */
+  merchant?: string | null;
 }
 
-export default function ReferralPanel({ publicKey }: Props) {
+export default function ReferralPanel({ publicKey, merchant }: Props) {
   const [referredCount, setReferredCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
 
@@ -118,8 +100,11 @@ export default function ReferralPanel({ publicKey }: Props) {
   }, [publicKey]);
 
   const referralUrl = useMemo(
-    () => (publicKey ? buildReferralUrl(publicKey) : buildReferralUrl("YOUR_ADDRESS")),
-    [publicKey]
+    () =>
+      publicKey
+        ? buildReferralUrl(publicKey, undefined, merchant)
+        : buildReferralUrl("YOUR_ADDRESS"),
+    [publicKey, merchant]
   );
 
   // Fetch referred count from contract events
@@ -143,7 +128,7 @@ export default function ReferralPanel({ publicKey }: Props) {
       <div className="referral-panel__header">
         <h3 className="referral-panel__title">Referral Program</h3>
         <p className="referral-panel__subtitle text-muted text-sm">
-          Share your referral link to invite others to FlowPay.
+          Share your referral link to invite others to PayFlow.
         </p>
       </div>
 
@@ -154,7 +139,7 @@ export default function ReferralPanel({ publicKey }: Props) {
           role="alert"
           data-testid="self-referral-warning"
         >
-          ⚠ You cannot refer yourself — the referral will be ignored by the contract.
+          ⚠ You cannot refer yourself — the contract rejects self-referral (error 11).
         </div>
       )}
 
@@ -201,6 +186,7 @@ export default function ReferralPanel({ publicKey }: Props) {
         <span
           className="referral-panel__stat-value"
           data-testid="referred-count"
+          role="status"
           aria-label={
             loadingCount
               ? "Loading referred count"

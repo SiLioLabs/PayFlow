@@ -2,7 +2,7 @@
 
 [`docs/INTEGRATION-GUIDE.md`](INTEGRATION-GUIDE.md) covers the **subscriber** side of PayFlow (subscribe, approve allowance, listen for charges). This cookbook is the companion for **merchants** — developers who want to accept subscription revenue, monitor their subscriber base, react to billing events, and track earned revenue.
 
-If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md).
+If you are building a SaaS billing dashboard, a marketplace settlement backend, or a merchant ops panel on Stellar, start here. For exact function signatures and error codes, cross-reference [`docs/API.md`](API.md). For event payload shapes, see [`docs/EVENTS.md`](EVENTS.md). Common merchant questions are answered in [`docs/FAQ.md`](FAQ.md#merchant-questions).
 
 ---
 
@@ -211,6 +211,8 @@ PayFlow is **non-custodial**:
 
 > **Non-Custodial Architecture:**
 > Because funds settle immediately into the merchant's wallet at charge time, the smart contract never escrows or holds merchant revenue. There is no withdrawal step or contract holding balance. See [§ 5](#5-non-custodial-settlement--revenue-tracking).
+
+Accounting invariants therefore compare each successful charge's token balance deltas with the recorded merchant net and protocol-fee distribution; they do not compare the contract balance with cumulative merchant revenue. Refunds debit the merchant wallet and credit the subscriber directly. Referral rewards are the exception: their protocol-fee share is reserved in the contract until the referrer withdraws it, so the contract's token balance must cover the sum of outstanding referral reward balances for that token.
 
 ### 2.3 Optional fee recipient
 
@@ -443,33 +445,120 @@ npx tsx scripts/watch-events.ts
 
 ### 4.2 Webhook Notifications
 
-`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks.
+`scripts/watch-events.ts` supports forwarding deduplicated contract events to an external system via signed webhooks. For exhaustive payload schemas for every event type, verification examples in multiple languages, and DLQ replay details, see the dedicated reference [`docs/WEBHOOKS.md`](WEBHOOKS.md).
 
 #### Configuration
 Set the following environment variables (e.g. in `scripts/.env`):
 * `WEBHOOK_URL`: The HTTP POST endpoint of your server.
 * `WEBHOOK_SECRET`: A shared secret string used to sign request bodies.
 * `WEBHOOK_DLQ_FILE`: Optional path to write failed deliveries after retry exhaustion (default: `data/webhook-dlq.jsonl`).
+* `WEBHOOK_ENDPOINTS_FILE`: Optional path to a JSON endpoints config (multiple endpoints, event filters, key rotation; see below). When set, it replaces `WEBHOOK_URL` / `WEBHOOK_SECRET`.
+* `WEBHOOK_LEGACY_SIGNATURE`: Optional. Set to `false` to stop sending the legacy body-only signature header once receivers verify `X-PayFlow-Signature-V2` (default: sent).
 
 #### Signature Verification
-Each request is signed with a deterministic HMAC-SHA256 signature calculated over the exact raw JSON request body bytes using `WEBHOOK_SECRET` as the key. The signature is sent as a hexadecimal string in the `X-PayFlow-Signature` header.
+
+Each request carries a **timestamped** HMAC-SHA256 signature. Verifying both the
+signature and the timestamp stops a captured request from being replayed later.
+
+| Header | Value |
+|---|---|
+| `X-PayFlow-Timestamp` | Unix time in seconds when the attempt was sent. Each retry is re-signed with a fresh timestamp. |
+| `X-PayFlow-Signature-V2` | Hex HMAC-SHA256 of `"<X-PayFlow-Timestamp>.<raw request body>"`, keyed with `WEBHOOK_SECRET`. |
+| `X-PayFlow-Signature` | **Legacy** (transition only). Hex HMAC-SHA256 of the raw body alone. It can be replayed indefinitely, so don't rely on it. |
 
 To verify a webhook delivery:
-1. Read the raw request body buffer.
-2. Compute the HMAC-SHA256 hash using your configured shared secret.
-3. Compare the computed signature to the value in the `X-PayFlow-Signature` header using constant-time comparison.
+1. Read the raw request body bytes, before any JSON parsing.
+2. Reject the request if `X-PayFlow-Timestamp` is missing or more than your
+   tolerance (recommended **300 seconds**) away from your server clock.
+3. Compute `HMAC-SHA256(secret, timestamp + "." + rawBody)` as hex.
+4. Compare it to `X-PayFlow-Signature-V2` using a constant-time comparison.
 
-Example verification in Node.js:
+Node.js:
 ```typescript
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-function verifyWebhook(body: string, secret: string, headerSignature: string): boolean {
-  const computed = createHmac("sha256", secret).update(body).digest("hex");
-  const a = Buffer.from(computed);
-  const b = Buffer.from(headerSignature);
-  return a.length === b.length && timingSafeEqual(a, b);
+const TOLERANCE_SECONDS = 300;
+
+function verifyWebhook(rawBody: string, secret: string, timestamp?: string, signature?: string): boolean {
+  if (!timestamp || !signature || !/^\d+$/.test(timestamp)) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > TOLERANCE_SECONDS) return false; // replay / stale
+  const expected = Buffer.from(createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex"));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && timingSafeEqual(expected, given);
 }
+
+// verifyWebhook(rawBody, process.env.WEBHOOK_SECRET!, req.headers["x-payflow-timestamp"], req.headers["x-payflow-signature-v2"])
 ```
+
+Python:
+```python
+import hashlib, hmac, time
+
+TOLERANCE_SECONDS = 300
+
+def verify_webhook(raw_body: bytes, secret: str, timestamp: str | None, signature: str | None) -> bool:
+    if not timestamp or not signature or not timestamp.isdigit():
+        return False
+    if abs(time.time() - int(timestamp)) > TOLERANCE_SECONDS:
+        return False  # replay / stale
+    expected = hmac.new(secret.encode(), timestamp.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```
+
+The same check ships as `verifyWebhookSignature()` in `scripts/webhook.ts`.
+
+**Migrating from the legacy header:** switch your receiver to
+`X-PayFlow-Signature-V2` + `X-PayFlow-Timestamp`. Once every receiver has
+switched, set `WEBHOOK_LEGACY_SIGNATURE=false` to stop sending the body-only
+`X-PayFlow-Signature` (and `X-Signature-SHA256` from the `webhook.ts` CLI).
+The legacy headers will be removed in a future release.
+
+#### Multiple Endpoints, Event Filters & Secret Rotation
+
+To send different events to different systems, point `WEBHOOK_ENDPOINTS_FILE` at a
+JSON list of endpoints. When it is set, it replaces `WEBHOOK_URL` / `WEBHOOK_SECRET`.
+See [`scripts/webhook-endpoints.example.json`](../scripts/webhook-endpoints.example.json):
+
+```json
+[
+  {
+    "id": "billing",
+    "url": "https://billing.example.com/payflow",
+    "events": ["charged", "cancelled"],
+    "secrets": [{ "id": "billing-2026-11", "secretEnv": "WEBHOOK_SECRET_BILLING" }]
+  }
+]
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique endpoint name, used in logs. |
+| `url` | http(s) destination. |
+| `events` | Event types to deliver (the contract event name, e.g. `charged`). Omit it, or use `["*"]`, for all events. |
+| `secrets` | One or two active secrets, **primary first**. Each has a key `id` and either `secretEnv` (the name of an env var holding the secret; recommended) or an inline `secret`. |
+
+The file is validated at startup (unique ids, at most two secrets, valid URLs,
+env vars present), and `watch-events.ts` exits if it is invalid. Each delivery
+also sends:
+
+| Header | Value |
+|---|---|
+| `X-PayFlow-Key-Id` | Key id of the primary secret. |
+| `X-PayFlow-Signatures` | `"<kid>=<sig>[,<kid>=<sig>]"`: the V2 signature (`HMAC(secret, timestamp + "." + body)`) for **each** active secret. |
+
+**Rotating a secret without downtime:**
+
+1. Add the new secret **first** in `secrets`, keeping the old one second
+   (`[{ "id": "k2", ... }, { "id": "k1", ... }]`), and restart the watcher.
+   Every delivery is now signed with both keys.
+2. Update the receiver to the new secret. During the switch it can accept either:
+   pick the `X-PayFlow-Signatures` entry for the key id it holds, or pass both
+   secrets to `verifyWebhookSignature({ secret: [newSecret, oldSecret], signatures, ... })`.
+3. Remove the old secret from `secrets` and restart. Signatures made with the
+   old key stop being sent.
+
+Receivers on the old secret and receivers on the new one both verify throughout
+the rotation, so no deliveries are rejected.
 
 #### Reliability & Retry Logic
 Webhook delivery handles network/server errors automatically:
@@ -569,4 +658,4 @@ The `recipient` address is the contract address itself. Both `pay_per_use_to` an
 | [`SECURITY.md`](SECURITY.md)                                                | Auth matrix for merchant vs admin calls                     |
 | [`MULTI-TOKEN.md`](MULTI-TOKEN.md)                                          | Per-subscription tokens and fee recipients                  |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md)                                            | Deploying / configuring a testnet instance                  |
-| [`operations/troubleshooting.md`](operations/troubleshooting.md)            | Common ChargeResult errors, wallet failures, and ops issues |
+| [`operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md)            | Common ChargeResult errors, wallet failures, and ops issues |

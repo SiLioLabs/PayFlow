@@ -23,7 +23,7 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { MultiEndpointServer } from "./rpc-client.js";
 import { resolve } from "node:path";
 import { logger } from "./logger.js";
 import {
@@ -36,8 +36,6 @@ import {
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const RPC_URL =
-  process.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.VITE_NETWORK_PASSPHRASE ?? Networks.TESTNET;
 const CONTRACT_ID = process.env.VITE_CONTRACT_ID ?? "";
@@ -83,7 +81,7 @@ function stroopsToXlm(stroops: bigint): string {
   return isNegative ? `-${result}` : result;
 }
 
-async function getDummyAccount(server: Server, fallbackAddr: string) {
+async function getDummyAccount(server: MultiEndpointServer, fallbackAddr: string) {
   try {
     return await server.getAccount(fallbackAddr);
   } catch {
@@ -93,7 +91,7 @@ async function getDummyAccount(server: Server, fallbackAddr: string) {
 }
 
 async function getMerchantRevenueViaRpc(
-  server: Server,
+  server: MultiEndpointServer,
   merchant: string,
 ): Promise<bigint> {
   if (!CONTRACT_ID) return 0n;
@@ -118,7 +116,7 @@ async function getMerchantRevenueViaRpc(
 }
 
 async function getMerchantSubscriberCountViaRpc(
-  server: Server,
+  server: MultiEndpointServer,
   merchant: string,
 ): Promise<number> {
   if (!CONTRACT_ID) return 0;
@@ -140,6 +138,9 @@ async function getMerchantSubscriberCountViaRpc(
     const userAddress = topic[1]?.toString();
     if (!userAddress) continue;
 
+    const eventTime = (event as { ledgerClosedAt?: string }).ledgerClosedAt
+      ? new Date((event as { ledgerClosedAt: string }).ledgerClosedAt).getTime() / 1000
+      : 0;
     const eventTime =
       Number(
         (event as { ledgerCloseTime?: number }).ledgerCloseTime ??
@@ -178,7 +179,7 @@ async function getMerchantSubscriberCountViaRpc(
 }
 
 async function getMerchantRevenueHistoryViaRpc(
-  server: Server,
+  server: MultiEndpointServer,
   merchant: string,
   days: number,
 ): Promise<bigint[]> {
@@ -255,7 +256,7 @@ async function fetchReportForMerchant(
 
   // Fallback to RPC
   logger.info(`Using RPC fallback for merchant ${merchant}`);
-  const server = new Server(RPC_URL);
+  const server = new MultiEndpointServer();
 
   try {
     const [revenueStroops, subscriberCount, dailyRevenueStroops] =

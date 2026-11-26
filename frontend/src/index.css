@@ -219,6 +219,12 @@ select:focus {
   border-color: var(--color-primary);
 }
 
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 input::placeholder {
   color: var(--color-text-subtle);
 }
@@ -1623,6 +1629,37 @@ button.allowance-health-badge:focus-visible {
   color: var(--color-danger-text);
 }
 
+.mst-status-badge--refunded {
+  background: var(--color-primary);
+  color: white;
+}
+
+.mst-refund-btn {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.mst-refund-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.mst-refund-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+}
+
+.mst-refund-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
 /* Skeleton */
 .mst-row--skeleton .mst-cell {
   padding: var(--space-3) var(--space-4);
@@ -1782,6 +1819,18 @@ button.allowance-health-badge:focus-visible {
 
 .admin-dashboard__section {
   margin-top: var(--space-4);
+}
+
+.fee-admin-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.fee-admin-panel__summary dt,
+.fee-admin-panel__summary dd {
+  margin: 0;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -2143,4 +2192,304 @@ button.allowance-health-badge:focus-visible {
 
 .subscription-export__empty {
   font-style: italic;
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Accessibility: High Contrast / Forced Colors Mode
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (forced-colors: active) {
+  /* Buttons */
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-info {
+    border: 1px solid ButtonText !important;
+  }
+
+  button:disabled,
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-danger:disabled,
+  .btn-info:disabled {
+    border-color: GrayText !important;
+    color: GrayText !important;
+  }
+
+  button:hover:not(:disabled),
+  .btn-primary:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled) {
+    border-color: Highlight !important;
+  }
+
+  /* Badges */
+  .badge,
+  .allowance-health-badge,
+  .mst-status-badge,
+  .tx-queue-panel__badge {
+    border: 1px solid CanvasText;
+  }
+
+  .badge-active,
+  .allowance-health-badge--healthy,
+  .mst-status-badge--active {
+    border: 2px solid Highlight;
+  }
+
+  .badge-failed,
+  .badge-graceperiodelapsed,
+  .allowance-health-badge--none,
+  .mst-status-badge--overdue {
+    border: 2px solid LinkText;
+  }
+
+  .badge-warning,
+  .allowance-health-badge--low {
+    border: 2px dashed Highlight;
+  }
+
+  .badge-testnet,
+  .badge-mainnet {
+    border: 1px solid ButtonText;
+  }
+
+  /* Focus Indicators */
+  :focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  button:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Accessibility: Motion Audit & Prefers-Reduced-Motion
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton,
+  [data-theme="light"] .skeleton {
+    animation: none !important;
+    background: var(--color-surface-raised) !important;
+  }
+
+  .modal-card {
+    animation: none !important;
+  }
+
+  .sparkline-point {
+    transition: none !important;
+/* ─────────────────────────────────────────────────────────────────────────────
+   ChargeReceipt Component (#1465)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.charge-receipt {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.receipt__letterhead {
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.receipt__app-name {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  margin: 0 0 var(--space-1);
+}
+
+.receipt__app-tagline {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.receipt__title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.receipt__title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  margin: 0;
+}
+
+.receipt__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.receipt__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.receipt__table tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.receipt__table tr:last-child {
+  border-bottom: none;
+}
+
+.receipt__label {
+  padding: var(--space-3) var(--space-2) var(--space-3) 0;
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  width: 40%;
+}
+
+.receipt__label--secondary {
+  font-weight: var(--font-normal);
+  font-size: var(--text-xs);
+  padding-top: 0;
+}
+
+.receipt__value {
+  padding: var(--space-3) 0 var(--space-3) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  text-align: right;
+  vertical-align: top;
+}
+
+.receipt__value--mono {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: var(--text-xs);
+}
+
+.receipt__value--break {
+  word-break: break-all;
+  word-wrap: break-word;
+}
+
+.receipt__value--amount {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+}
+
+.receipt__row--total th,
+.receipt__row--total td {
+  border-top: 2px solid var(--color-border-light);
+  padding-top: var(--space-4);
+  font-weight: var(--font-bold);
+}
+
+.receipt__link {
+  color: var(--color-primary);
+  word-break: break-all;
+  text-decoration: underline;
+}
+
+.receipt__link:hover {
+  color: var(--color-primary-hover);
+}
+
+.receipt__footer {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.receipt-modal {
+  width: 100%;
+  max-width: 680px;
+}
+
+/* ── Print helpers ─────────────────────────────────────────────────────────── */
+
+/*
+ * receipt-screen-only: visible on screen, hidden when printing.
+ * receipt-print-only:  hidden on screen, visible when printing.
+ */
+.receipt-screen-only {
+  /* visible by default */
+}
+
+.receipt-print-only {
+  display: none;
+}
+
+@media print {
+  /* Hide everything except the receipt */
+  body > *:not(.modal-overlay),
+  .modal-overlay > *:not(.receipt-modal) {
+    display: none !important;
+  }
+
+  .modal-overlay {
+    position: static;
+    background: transparent;
+  }
+
+  .receipt-modal {
+    box-shadow: none;
+    border: none;
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .charge-receipt {
+    max-width: 100%;
+  }
+
+  .receipt-screen-only {
+    display: none !important;
+  }
+
+  .receipt-print-only {
+    display: block !important;
+  }
+
+  /* Ensure text prints in black on white */
+  .charge-receipt,
+  .charge-receipt * {
+    color: #000 !important;
+    background: #fff !important;
+    border-color: #ccc !important;
+  }
+
+  .receipt__link {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+
+  /* Show the full URL in print */
+  .receipt__link::after {
+    content: " (" attr(href) ")";
+    font-size: 0.7rem;
+    word-break: break-all;
+  }
+
+  /* Avoid page breaks inside a row */
+  .receipt__table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

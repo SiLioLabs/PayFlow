@@ -3,12 +3,14 @@
  * onboard-merchant.ts — Admin merchant onboarding automation for FlowPay.
  *
  * Usage:
- *   npx tsx scripts/onboard-merchant.ts G... [--contractId <contractId>] [--rpcUrl <rpcUrl>]
- *   npx tsx scripts/onboard-merchant.ts --batch merchants.csv [--contractId <contractId>] [--rpcUrl <rpcUrl>]
+ *   npx tsx scripts/onboard-merchant.ts G... [--contractId <contractId>] [--rpcUrl <rpcUrl>] [--dry-run]
+ *   npx tsx scripts/onboard-merchant.ts --batch merchants.csv [--contractId <contractId>] [--rpcUrl <rpcUrl>] [--dry-run]
  *
  * CLI Overrides:
  *   --contractId <contractId>               Optional. Override the default manifest contractId.
  *   --rpcUrl <rpcUrl>                       Optional. Override the default manifest rpcUrl.
+ *   --dry-run                               Optional. Simulate whitelist checks and report the
+ *                                           exact `whitelist_batch_add` operation without submitting.
  *
  * Environment:
  *   ADMIN_SECRET_KEY                         Required. Admin secret for signed whitelist txs.
@@ -16,7 +18,8 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { Server } from "@stellar/stellar-sdk/rpc";
+import { fileURLToPath } from "node:url";
+import { MultiEndpointServer } from "./rpc-client.js";
 import {
   appendJsonLine,
   addressToScVal,
@@ -26,6 +29,7 @@ import {
   loadSorobanConfig,
   projectPath,
   readContractValue,
+  simulateRead,
   vecAddressToScVal,
   readJsonFile,
   SorobanConfig,
@@ -37,6 +41,11 @@ interface CliArgs {
   batchFile?: string;
   contractId?: string;
   rpcUrl?: string;
+  dryRun?: boolean;
+}
+
+export interface OnboardOptions {
+  dryRun?: boolean;
 }
 
 interface MerchantOutcome {
@@ -48,11 +57,12 @@ interface MerchantOutcome {
 
 const LOG_PATH = projectPath("data", "merchants.jsonl");
 
-function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[]): CliArgs {
   let address: string | undefined;
   let batchFile: string | undefined;
   let contractId: string | undefined;
   let rpcUrl: string | undefined;
+  let dryRun = false;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -62,6 +72,8 @@ function parseArgs(argv: string[]): CliArgs {
       contractId = argv[++i];
     } else if (arg === "--rpcUrl") {
       rpcUrl = argv[++i];
+    } else if (arg === "--dry-run") {
+      dryRun = true;
     } else if (!arg.startsWith("--") && !address) {
       address = arg;
     } else {
@@ -73,7 +85,7 @@ function parseArgs(argv: string[]): CliArgs {
     throw new Error("Provide a merchant address or --batch merchants.csv.");
   }
 
-  return { address, batchFile, contractId, rpcUrl };
+  return { address, batchFile, contractId, rpcUrl, dryRun };
 }
 
 async function loadBatchAddresses(csvPath: string): Promise<string[]> {
@@ -89,7 +101,7 @@ async function loadBatchAddresses(csvPath: string): Promise<string[]> {
     .filter((value) => value.toLowerCase() !== "address");
 }
 
-async function isMerchantFrozen(config: SorobanConfig, server: Server, address: string): Promise<boolean> {
+async function isMerchantFrozen(config: SorobanConfig, server: MultiEndpointServer, address: string): Promise<boolean> {
   return readContractValue<boolean>(
     config,
     server,
@@ -99,7 +111,7 @@ async function isMerchantFrozen(config: SorobanConfig, server: Server, address: 
   );
 }
 
-async function isMerchantWhitelisted(config: SorobanConfig, server: Server, address: string): Promise<boolean> {
+async function isMerchantWhitelisted(config: SorobanConfig, server: MultiEndpointServer, address: string): Promise<boolean> {
   return readContractValue<boolean>(
     config,
     server,
@@ -146,7 +158,25 @@ async function logMerchant(
   });
 }
 
-export async function onboardMerchant(config: SorobanConfig, server: Server, address: string): Promise<MerchantOutcome> {
+/**
+ * Build the exact contract-call arguments for `whitelist_batch_add`.
+ *
+ * Contract interface (`contract/src/lib.rs`):
+ *   `whitelist_batch_add(merchants: Vec<Address>) -> u32`
+ * takes a single `Vec<Address>` param, so the call arity is exactly one
+ * ScVal (a vec of addresses). Used by `--dry-run` reporting and tests to
+ * pin the arity against the compiled interface.
+ */
+export function buildWhitelistBatchArgs(address: string) {
+  return [vecAddressToScVal([address])];
+}
+
+export async function onboardMerchant(
+  config: SorobanConfig,
+  server: MultiEndpointServer,
+  address: string,
+  options: OnboardOptions = {},
+): Promise<MerchantOutcome> {
   if (!isValidStellarAddress(address)) {
     return {
       address,
@@ -178,11 +208,20 @@ export async function onboardMerchant(config: SorobanConfig, server: Server, add
     };
   }
 
-  const tx = await invokeContract(config, server, "whitelist_batch_add", [
-    vecAddressToScVal([address]),
-  ]);
-  const verified = await isMerchantWhitelisted(address);
-  const tx = await invokeContract(config, server, "whitelist_batch_add", [vecAddressToScVal([address])]);
+  const args = buildWhitelistBatchArgs(address);
+
+  if (options.dryRun) {
+    await simulateRead(config, server, "whitelist_batch_add", args);
+    return {
+      address,
+      status: "onboarded",
+      txHash: null,
+      message:
+        "Dry-run: merchant would be whitelisted via whitelist_batch_add([address]) (1 arg).",
+    };
+  }
+
+  const tx = await invokeContract(config, server, "whitelist_batch_add", args);
   const verified = await isMerchantWhitelisted(config, server, address);
   if (!verified) {
     throw new Error(`Whitelist verification failed after tx ${tx.hash}`);
@@ -233,13 +272,20 @@ async function main(): Promise<void> {
   });
   const server = createServer(config);
 
-  const addresses = args.batchFile ? await loadBatchAddresses(args.batchFile) : [args.address as string];
   const outcomes: MerchantOutcome[] = [];
   let hadExecutionError = false;
 
+  if (args.dryRun) {
+    console.log(
+      "Dry-run: reporting exact whitelist_batch_add operations without submitting.",
+    );
+  }
+
   for (const address of addresses) {
     try {
-      const outcome = await onboardMerchant(config, server, address);
+      const outcome = await onboardMerchant(config, server, address, {
+        dryRun: args.dryRun,
+      });
       outcomes.push(outcome);
       console.log(`${address}: ${outcome.message}`);
     } catch (error) {
@@ -262,19 +308,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(
-    "onboard-merchant failed:",
-    error instanceof Error ? error.message : error,
-  );
-  process.exit(1);
-});
-import { fileURLToPath } from "node:url";
-
-const isEntry = process.argv[1] && (
-  process.argv[1] === fileURLToPath(import.meta.url) ||
-  process.argv[1].replace(/\\/g, "/").endsWith("scripts/onboard-merchant.ts")
-);
+const isEntry = process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isEntry) {
   main().catch((error) => {

@@ -8,7 +8,7 @@
  * - Offline analytics queries work without RPC
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import assert from "node:assert";
 import * as fs from "fs";
 import * as path from "path";
@@ -209,11 +209,11 @@ function createRealisticFixture(): string {
 describe("merchant-queries", () => {
   let fixtureDbPath: string;
 
-  before(() => {
+  beforeAll(() => {
     fixtureDbPath = createRealisticFixture();
   });
 
-  after(() => {
+  afterAll(() => {
     if (fs.existsSync(fixtureDbPath)) {
       fs.unlinkSync(fixtureDbPath);
     }
@@ -221,7 +221,7 @@ describe("merchant-queries", () => {
 
   describe("openMerchantDb", () => {
     it("returns DatabaseSync for existing file", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       assert.ok(db);
       db.close();
     });
@@ -229,7 +229,7 @@ describe("merchant-queries", () => {
 
   describe("checkFreshness", () => {
     it("returns fresh status when last_ledger_timestamp is recent", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const lastLedgerStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger'").get() as { value: string } | undefined;
       assert.strictEqual(lastLedgerStr?.value, "100010");
 
@@ -246,7 +246,7 @@ describe("merchant-queries", () => {
       setMeta(staleDbPath, "last_ledger", "50000");
       setMeta(staleDbPath, "last_ledger_timestamp", String(now - 7200));
 
-      const db = new DatabaseSync(staleDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(staleDbPath, { open: true, readOnly: true });
       const timestampStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger_timestamp'").get() as { value: string };
       const stalenessSeconds = now - parseInt(timestampStr.value, 10);
       assert.ok(stalenessSeconds > 3600);
@@ -257,7 +257,7 @@ describe("merchant-queries", () => {
 
     it("returns null last_ledger when meta table is empty", () => {
       const emptyDbPath = createFixtureDb();
-      const db = new DatabaseSync(emptyDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(emptyDbPath, { open: true, readOnly: true });
       const row = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger'").get();
       assert.strictEqual(row, undefined);
       db.close();
@@ -267,7 +267,7 @@ describe("merchant-queries", () => {
 
   describe("fetchAnalyticsEvents", () => {
     it("returns only subscribed, charged, and cancelled events", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const events = db.prepare(
         "SELECT event_name FROM events WHERE event_name IN ('subscribed', 'charged', 'cancelled') ORDER BY timestamp ASC",
       ).all() as { event_name: string }[];
@@ -279,7 +279,7 @@ describe("merchant-queries", () => {
     });
 
     it("orders events by timestamp ascending", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const events = db.prepare(
         "SELECT timestamp FROM events WHERE event_name IN ('subscribed', 'charged', 'cancelled') ORDER BY timestamp ASC",
       ).all() as { timestamp: number }[];
@@ -292,7 +292,7 @@ describe("merchant-queries", () => {
 
   describe("merchant metrics computation", () => {
     it("computes correct total revenue for merchant A", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const merchantA = "GAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
       const events = db.prepare(
         "SELECT raw_data, fee_amount FROM events WHERE event_name = 'charged' AND merchant = ?",
@@ -312,7 +312,7 @@ describe("merchant-queries", () => {
     });
 
     it("computes correct subscriber count for merchant A", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const merchantA = "GAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
       const subscribers = db.prepare(
         "SELECT DISTINCT address FROM events WHERE event_name = 'subscribed' AND merchant = ?",
@@ -322,7 +322,7 @@ describe("merchant-queries", () => {
     });
 
     it("detects cancellations within comparison window for merchant B", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
       const merchantB = "GBBBBBBBBBBBBCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
       const now = Math.floor(Date.now() / 1000);
       const thirtyDaysAgo = now - 30 * 86400;
@@ -337,7 +337,7 @@ describe("merchant-queries", () => {
 
     it("handles empty database gracefully", () => {
       const emptyDbPath = createFixtureDb();
-      const db = new DatabaseSync(emptyDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(emptyDbPath, { open: true, readOnly: true });
       const count = db.prepare("SELECT COUNT(*) as cnt FROM events").get() as { cnt: number };
       assert.strictEqual(count.cnt, 0);
       db.close();
@@ -347,7 +347,7 @@ describe("merchant-queries", () => {
 
   describe("offline functionality", () => {
     it("works fully offline against fixture DB", () => {
-      const db = new DatabaseSync(fixtureDbPath, { open: true, readonly: true });
+      const db = new DatabaseSync(fixtureDbPath, { open: true, readOnly: true });
 
       // Check freshness
       const lastLedgerStr = db.prepare("SELECT value FROM meta WHERE key = 'last_ledger'").get() as { value: string };

@@ -37,6 +37,7 @@ vi.mock("@stellar/stellar-sdk/rpc", () => {
 // ── Imports after mocks ───────────────────────────────────────────────────────
 import { validateRpcUrl, normalizeRpcUrl, RpcHealthProvider } from "../context/RpcHealthContext";
 import RpcSettings from "../components/RpcSettings";
+import { CUSTOM_RPC_URL_KEY } from "../constants";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,7 +115,7 @@ describe("normalizeRpcUrl", () => {
 // ── localStorage persistence ──────────────────────────────────────────────────
 
 describe("RpcSettings localStorage persistence", () => {
-  const STORAGE_KEY = "flowpay_custom_rpc_url";
+  const STORAGE_KEY = CUSTOM_RPC_URL_KEY;
 
   beforeEach(() => {
     localStorage.clear();
@@ -297,7 +298,7 @@ describe("RpcSettings modal", () => {
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() => {
-      const stored = localStorage.getItem("flowpay_custom_rpc_url");
+      const stored = localStorage.getItem(CUSTOM_RPC_URL_KEY);
       expect(stored).not.toBeNull();
     });
   });

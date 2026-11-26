@@ -1,6 +1,6 @@
 # Contract API Reference
 
-This document tracks the current public contract surface in [contract/src/lib.rs](../contract/src/lib.rs). For error codes, see [ERROR-CODES.md](./ERROR-CODES.md), which contains the CONTRACT-34 table. For events, see [EVENTS.md](./EVENTS.md). For the propose/commit and propose/accept pattern shared by `transfer_admin`/`accept_admin`, `propose_fee`/`commit_fee`, `propose_grace_period`/`commit_grace_period`, and `propose_upgrade`/`commit_upgrade`, see [architecture/two-step-auth.md](./architecture/two-step-auth.md).
+This document tracks the current public contract surface in [contract/src/lib.rs](../contract/src/lib.rs). For error codes, see [ERROR-CODES.md](./ERROR-CODES.md), which contains the CONTRACT-34 table. For events, see [EVENTS.md](./EVENTS.md). For the propose/commit and propose/accept pattern shared by `transfer_admin`/`accept_admin`, `propose_fee`/`commit_fee`, `propose_grace_period`/`commit_grace_period`, and `propose_upgrade`/`commit_upgrade`, see [architecture/TWO-STEP-AUTH.md](./architecture/TWO-STEP-AUTH.md). **For the batch-size and page-size limits enforced by the batch and pagination entrypoints, see [LIMITS.md](./LIMITS.md), which tabulates every cap from a single source of truth in [contract/src/caps.rs](../contract/src/caps.rs).**
 
 ---
 
@@ -26,6 +26,9 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [extend\_subscription\_ttl](#extend_subscription_ttl)
   - [pay\_per\_use](#pay_per_use)
   - [cancel](#cancel)
+  - [refund_last_charge](#refund_last_charge)
+  - [skip_next_charge](#skip_next_charge)
+  - [get_storage_footprint](#get_storage_footprint)
   - [pause](#pause)
   - [pause\_until](#pause_until)
   - [resume](#resume)
@@ -34,7 +37,6 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [is\_contract\_paused](#is_contract_paused)
   - [get\_admin](#get_admin)
   - [get\_token](#get_token)
-  - [upgrade](#upgrade)
   - [propose_upgrade](#propose_upgrade)
   - [cancel_pending_upgrade](#cancel_pending_upgrade)
   - [commit_upgrade](#commit_upgrade)
@@ -75,14 +77,19 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [get\_active\_subscriber\_page](#get_active_subscriber_page)
   - [clear\_subscriber\_index\_entry](#clear_subscriber_index_entry)
   - [get\_merchant\_revenue](#get_merchant_revenue)
+  - [withdraw\_merchant\_revenue](#withdraw_merchant_revenue)
   - [get\_merchant\_revenue\_history](#get_merchant_revenue_history)
   - [clear\_merchant\_revenue\_history](#clear_merchant_revenue_history)
   - [get\_merchant\_subscriber\_count](#get_merchant_subscriber_count)
+  - [get\_merchant\_sub\_count](#get_merchant_sub_count)
   - [reset\_merchant\_revenue](#reset_merchant_revenue)
   - [set\_daily\_limit](#set_daily_limit)
   - [remove\_daily\_limit](#remove_daily_limit)
   - [get\_daily\_limit](#get_daily_limit)
   - [get\_daily\_spent](#get_daily_spent)
+  - [get\_day\_start](#get_day_start)
+  - [get\_daily\_limit\_status](#get_daily_limit_status)
+  - [get\_referral](#get_referrer)
   - [get\_referrer](#get_referrer)
   - [migrate](#migrate)
   - [get\_schema\_version](#get_schema_version)
@@ -97,10 +104,13 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [set\_initial\_admin](#set_initial_admin)
   - [contract\_health\_check](#contract_health_check)
   - [clear\_charge\_history](#clear_charge_history)
+  - [prune\_charge\_history](#clear_charge_history)
+  - [get\_charge\_history\_ttl](#get_charge_history_ttl)
   - [get\_charge\_history\_page](#get_charge_history_page)
   - [transfer\_subscription](#transfer_subscription)
   - [validate\_subscription](#validate_subscription)
   - [repair\_subscription](#repair_subscription)
+  - [Supplemental entrypoints](#supplemental-entrypoints)
 - [Units & Conversions](#units--conversions)
 - [Events Reference](#events-reference)
 - [Error Codes](#error-codes)
@@ -109,7 +119,9 @@ This document tracks the current public contract surface in [contract/src/lib.rs
 
 ## Bounded API delta (Issue 110)
 
-This revision documents only the following symbols against `contract/src/lib.rs`, `contract/src/charge_exec.rs`, `contract/src/batch.rs`, `contract/src/fee.rs`, `contract/src/errors.rs`, and `contract/src/storage.rs`. It is **not** a full API audit.
+**NOTE:** This document now provides complete coverage of all 130 public contract entrypoints exposed by `#[contractimpl]`. The previous scoping note referenced below has been superseded by this comprehensive revision.
+
+Previous partial coverage tracked these symbols from Issue 110:
 
 - [x] `contract_health_check`
 - [x] `HealthReport`
@@ -125,8 +137,6 @@ This revision documents only the following symbols against `contract/src/lib.rs`
 
 Related ops: [`EVENTS.md`](./EVENTS.md) (`paused`, `subscription_auto_resumed`, `charged`, `batch_charge_skips`), [`KEEPER.md`](./KEEPER.md) (`batch_charge`), [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md) (fee bounds / health gates).
 
----
-
 ## Data Types
 
 ### `Subscription`
@@ -138,11 +148,12 @@ pub struct Subscription {
   pub interval: u64,
   pub last_charged: u64,
   pub active: bool,
-  pub paused: bool,
-  pub token: Address,
-  pub referrer: Option<Address>,
-  pub label: Symbol,
-  pub trial_duration: u64,
+  pub paused: bool,              // true if paused, false otherwise
+  pub token: Address,            // SAC token used for this subscription
+  pub referrer: Option<Address>, // optional referral address
+  pub label: Symbol,             // user-assigned label for this subscription
+  pub trial_duration: u64,       // optional trial duration in seconds
+  pub created_at: u64,           // timestamp of subscription creation
 }
 ```
 
@@ -177,7 +188,7 @@ pub enum ChargeResult {
 | `Inactive`           | Cancelled / inactive      | Same                                                            |
 | `Paused`             | Still paused              | Same                                                            |
 | `GracePeriodElapsed` | Past grace window         | Same                                                            |
-New variants must be **appended** so off-chain parsers keep decoding 0–5. Do not confuse `AllowanceInsufficient` with [`ChargeSimResult::InsufficientAllowance`](#chargesimresult) or `ContractError::InsufficientAllowance` (8) — those are different symbols.
+New variants must be **appended** so off-chain parsers keep decoding 0–6. Do not confuse `AllowanceInsufficient` with [`ChargeSimResult::InsufficientAllowance`](#chargesimresult) or `ContractError::InsufficientAllowance` (8) — those are different symbols.
 
 | Variant | Meaning on `batch_charge` | Meaning on `get_batch_charge_estimate` |
 | --- | --- | --- |
@@ -278,7 +289,7 @@ pub struct HealthReport {
   pub contract_paused: bool,
   pub token_configured: bool,
   pub admin_configured: bool,
-  pub instance_ttl_ledgers: u32,
+  pub instance_bump_age_ledgers: Option<u32>,
   pub active_subscription_count: u64,
   pub schema_version: u32,
   pub fee_collector_set: bool,
@@ -289,18 +300,18 @@ pub struct HealthReport {
 
 | Field                           | Type   | Meaning                                                                                                                                                                                 |
 | ------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `is_healthy`                    | `bool` | `!contract_paused && token_configured && admin_configured && instance_ttl_ledgers > 17_280`                                                                                             |
+| `is_healthy`                    | `bool` | `!contract_paused && token_configured && admin_configured`. Does **not** include instance TTL.                                                                                          |
 | `contract_paused`               | `bool` | Protocol pause flag                                                                                                                                                                     |
 | `token_configured`              | `bool` | Instance token is set                                                                                                                                                                   |
 | `admin_configured`              | `bool` | Admin is set                                                                                                                                                                            |
-| `instance_ttl_ledgers`          | `u32`  | **On-chain:** hardcoded `100_000` (Soroban does not expose `get_ttl()` outside tests). **Test/testutils:** real instance TTL. Do not treat the on-chain value as precise remaining TTL. |
+| `instance_bump_age_ledgers` | `Option<u32>` | Elapsed ledgers since the last committed TTL maintenance request. Void until recorded. The host can satisfy a maintenance request without extending expiration. |
 | `active_subscription_count`     | `u64`  | Active subscription counter                                                                                                                                                             |
 | `schema_version`                | `u32`  | Migration schema version                                                                                                                                                                |
 | `fee_collector_set`             | `bool` | Protocol fee collector is set                                                                                                                                                           |
 | `global_volume_utilization_pct` | `u32`  | `(accumulated * 100) / cap`, clamped to ≤ 100; `0` if cap is 0. Cap is `GlobalVolumeCapOverride` or `GLOBAL_MAX_VOLUME_PER_HOUR`.                                                       |
-| `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with unwithdrawn revenue `> 0`                                                                                                                             |
+| `pending_merchant_rev_count`    | `u32`  | Merchants in `MerchantIndex` with accumulated revenue (`MerchantRevenue`) `> 0`. This is a **tracking metric**, not a custodial balance — revenue settles directly into merchant wallets on every charge via SAC `transfer_from`. See [`MERCHANT-INTEGRATION.md` § 5](./MERCHANT-INTEGRATION.md#5-non-custodial-settlement--revenue-tracking). |
 
-**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, admin, or TTL flags are understood. `fee_collector_set` and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses the stored cap override when present; charge-time enforcement still uses the compile-time constant (see [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#2-volume-cap)).
+**How to interpret:** treat `is_healthy == false` as “do not send production traffic” until pause, token, or admin flags are understood. `instance_bump_age_ledgers`, `fee_collector_set`, and volume utilization are informational and do **not** enter the `is_healthy` formula. `global_volume_utilization_pct` uses `effective_global_volume_cap` (override when set, compile-time constant otherwise) — the same value charge enforcement uses (see [`LIMITS.md` — Global Hourly Volume Cap](./LIMITS.md#global-hourly-volume-cap)).
 
 ### `DataKey`
 
@@ -337,6 +348,114 @@ pub enum DataKey {
 }
 ```
 
+### `SubscriptionHealth`
+
+Returned by [`get_subscription_health`](#get_subscription_health). Provides composite health checks in one call for frontend UIs.
+
+```rust
+pub struct SubscriptionHealth {
+  pub active: bool,
+  pub charge_due: bool,
+  pub within_grace: bool,
+  pub has_sufficient_allowance: bool,
+  pub is_paused: bool,
+  pub trial_active: bool,
+  pub daily_limit_set: bool,
+}
+```
+
+| Field                       | Type   | Meaning                                                                |
+| --------------------------- | ------ | ---------------------------------------------------------------------- |
+| `active`                    | `bool` | Subscription is active (not cancelled)                                 |
+| `charge_due`                | `bool` | Current time ≥ next charge time (eligible for charging now)            |
+| `within_grace`              | `bool` | If overdue, still within grace period window                           |
+| `has_sufficient_allowance`  | `bool` | Token allowance covers subscription amount                             |
+| `is_paused`                 | `bool` | Subscription is paused (user or admin pause)                           |
+| `trial_active`              | `bool` | Currently in trial period (first charge not yet due)                   |
+| `daily_limit_set`           | `bool` | User has configured a daily spending limit                             |
+
+Returns default/zero values when no subscription exists (all fields `false`). See [`SUBSCRIBER-LIFECYCLE.md`](./SUBSCRIBER-LIFECYCLE.md) and [`docs/frontend/COMPONENTS.md`](./frontend/COMPONENTS.md) for UI integration patterns.
+
+### `DailyLimitStatus`
+
+Returned by [`get_daily_limit_status`](#get_daily_limit_status). Provides consistent snapshot of daily spending window from one storage read.
+
+```rust
+pub struct DailyLimitStatus {
+  pub limit: Option<i128>,
+  pub spent: i128,
+  pub day_start: Option<u64>,
+  pub remaining: Option<i128>,
+}
+```
+
+| Field        | Type            | Meaning                                                                 |
+| ------------ | --------------- | ----------------------------------------------------------------------- |
+| `limit`      | `Option<i128>`  | Configured daily limit in stroops, or `None` if no limit set            |
+| `spent`      | `i128`          | Amount spent in current 24h window (0 if no spending yet)               |
+| `day_start`  | `Option<u64>`   | Unix timestamp of current window start, or `None` if no spending yet    |
+| `remaining`  | `Option<i128>`  | `limit - spent` (clamped ≥ 0), or `None` if no limit set                |
+
+See [`DAILY-LIMITS.md`](./DAILY-LIMITS.md) for spending-limit mechanics and TTL behavior.
+
+### `ContractConfig`
+
+Returned by [`get_contract_config`](#get_contract_config). Snapshot of contract-wide configuration settings.
+
+```rust
+pub struct ContractConfig {
+  pub fee_bps: u32,
+  pub fee_collector: Option<Address>,
+  pub grace_period: u64,
+  pub min_interval: u64,
+  pub max_batch_size: u32,
+  pub global_volume_cap: i128,
+  pub whitelist_enabled: bool,
+  pub paused: bool,
+  pub schema_version: u32,
+  pub version: String,
+}
+```
+
+| Field                | Type              | Meaning                                                           |
+| -------------------- | ----------------- | ----------------------------------------------------------------- |
+| `fee_bps`            | `u32`             | Protocol fee in basis points (0-10000); 100 bps = 1%              |
+| `fee_collector`      | `Option<Address>` | Address receiving protocol fees, or `None` if fee not configured  |
+| `grace_period`       | `u64`             | Seconds after due time before subscription lapses                 |
+| `min_interval`       | `u64`             | Minimum allowed subscription interval (seconds)                   |
+| `max_batch_size`     | `u32`             | Configured batch charge cap (default 50, ceiling 200)             |
+| `global_volume_cap`  | `i128`            | Effective hourly volume cap (override or default 50T stroops)     |
+| `whitelist_enabled`  | `bool`            | Whether merchant whitelist enforcement is active                  |
+| `paused`             | `bool`            | Contract-wide pause flag (admin circuit breaker)                  |
+| `schema_version`     | `u32`             | Migration schema version                                          |
+| `version`            | `String`          | Release semver of the running WASM (same as `get_version`)        |
+
+Useful for frontend config caching and keeper initialization.
+
+### `CancelResult`
+
+Returned by [`batch_cancel`](#batch_cancel). Encodes the outcome for each address in the batch.
+
+```rust
+pub enum CancelResult {
+  Cancelled,
+  NoSubscription,
+  AlreadyCancelled,
+  PausedCancelled,
+  MerchantFrozen,
+}
+```
+
+| Variant            | Meaning                                                              |
+| ------------------ | -------------------------------------------------------------------- |
+| `Cancelled`        | Subscription was active and cancelled successfully                   |
+| `NoSubscription`   | No subscription found for this address                               |
+| `AlreadyCancelled` | Subscription already inactive (previously cancelled)                 |
+| `PausedCancelled`  | Subscription was paused; cancel succeeded but state was unusual      |
+| `MerchantFrozen`   | Subscription's merchant was frozen; cancel succeeded but unusual state |
+
+Wire encoding: discriminant `u32` (0=Cancelled, 1=NoSubscription, 2=AlreadyCancelled, 3=PausedCancelled, 4=MerchantFrozen). **Append-only invariant:** new variants must be appended to preserve off-chain parser compatibility. See [`docs/CANCEL-RESULTS.md`](./CANCEL-RESULTS.md).
+
 ---
 
 ## Functions
@@ -362,6 +481,24 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source deployer --network testnet -- initialize --token <TOKEN_ADDRESS> --admin <ADMIN_ADDRESS>
+```
+
+### `bump_instance_ttl`
+
+```
+bump_instance_ttl(env: Env)
+```
+
+Permissionlessly refreshes the shared instance storage TTL. Keeper liveness probes may call it during read- or simulation-heavy periods. It does not inspect pause state, transfer funds, or mutate protocol state.
+
+Auth: none.
+
+Returns: `()`.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <ANY_KEY> --network testnet -- bump_instance_ttl
 ```
 
 ### `subscribe`
@@ -442,6 +579,47 @@ CLI example:
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge --user <USER_ADDRESS>
 ```
+
+### `charge_with_tip`
+
+```
+charge_with_tip(env: Env, user: Address, keeper: Address)
+```
+
+Same as `charge`, but pays `keeper` a tip out of the protocol fee: `fee * keeper_tip_bps / 10000`,
+taken from the subscriber's allowance. The fee collector receives the rest of the fee.
+The merchant's net and the gross charge are unchanged. The tip is zero when
+`keeper_tip_bps` is 0 or no protocol fee applies.
+
+Auth: `keeper.require_auth()`. The subscriber's auth is not needed, as with `charge`.
+
+Returns: `()`.
+
+Side effects: everything `charge` does, plus a [`keeper_tip`](./EVENTS.md#keeper_tip) event when a tip is paid.
+
+Errors: the same as `charge`. A missing keeper signature fails the invocation.
+
+Operator guidance: [`KEEPER.md`](./KEEPER.md#keeper-tip-charge_with_tip).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge_with_tip --user <USER_ADDRESS> --keeper <KEEPER_ADDRESS>
+```
+
+### `set_keeper_tip_bps` / `get_keeper_tip_bps`
+
+```
+set_keeper_tip_bps(env: Env, bps: u32)
+get_keeper_tip_bps(env: Env) -> u32
+```
+
+`set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
+fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
+maximum fail with `InvalidKeeperTipBps` (53), and a rejected value is not stored. It emits
+[`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
+
+`get_keeper_tip_bps` is read-only.
 
 ### `simulate_charge`
 
@@ -572,6 +750,55 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- pay_per_use --user <USER_ADDRESS> --amount 1000000
 ```
 
+### `pay_per_use_to`
+
+Immediate pay-per-use charge that routes payment to an explicit `recipient` instead of the subscription's merchant. Shares the user's daily spending limit and allowance budget with `pay_per_use`.
+
+```
+pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address)
+```
+
+| Name        | Type      | Description                                                      |
+| ----------- | --------- | ---------------------------------------------------------------- |
+| `user`      | `Address` | Subscriber and transaction signer.                               |
+| `amount`    | `i128`    | One-time payment amount in stroops.                              |
+| `recipient` | `Address` | Address receiving the net payment (after protocol fee if configured). |
+
+**Auth:** `user.require_auth()`.
+
+**Returns:** `()`.
+
+**Errors:**
+
+| Condition                                                           | Code | Symbol                   |
+| ------------------------------------------------------------------- | ---- | ------------------------ |
+| `amount <= 0`                                                       | 2    | `AmountMustBePositive`   |
+| `amount > MAX_AMOUNT`                                               | 15   | `AmountExceedsMaximum`   |
+| No subscription for `user`                                          | 4    | `NoSubscriptionFound`    |
+| Subscription is cancelled                                           | 5    | `SubscriptionInactive`   |
+| Subscription is paused                                              | 17   | `SubscriptionPaused`     |
+| Contract paused                                                     | 18   | `ContractPaused`         |
+| Allowance insufficient                                              | 8    | `InsufficientAllowance`  |
+| Daily limit exceeded                                                | 25   | `DailyLimitExceeded`     |
+| `recipient` is the contract's own address                           | 32   | `InvalidRecipient`       |
+| Whitelist enabled and `recipient` not whitelisted                   | 10   | `MerchantNotWhitelisted` |
+
+**Side Effects:**
+
+- Transfers `amount` from `user` to `recipient` (after protocol fee split if configured).
+- Updates `recipient`'s merchant revenue tracking (not the subscription's merchant).
+- Increments user's daily spend counter.
+- Emits `pay_per_use` event with `recipient` in place of `sub.merchant`.
+
+**Use cases:**  
+Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-handling-events), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- pay_per_use_to --user <USER_ADDRESS> --amount 1000000 --recipient <RECIPIENT_ADDRESS>
+```
+
 ### `cancel`
 
 ```
@@ -593,6 +820,73 @@ CLI example:
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- cancel --user <USER_ADDRESS>
 ```
+
+### `refund_last_charge`
+
+Merchant-initiated refund of the subscriber's most recent **scheduled** charge. Unlike `cancel_and_refund_prorated`, this does **not** cancel the subscription: the subscriber keeps the plan and the next cycle charges normally.
+
+```
+refund_last_charge(env: Env, user: Address, merchant: Address)
+```
+
+| Name       | Type      | Description                                            |
+| ---------- | --------- | ------------------------------------------------------ |
+| `user`     | `Address` | Subscriber receiving the refund.                       |
+| `merchant` | `Address` | Subscription's merchant; must sign and fund the refund. |
+
+**Auth:** `merchant.require_auth()`. Only the subscription's own merchant may refund (`RefundMerchantMismatch`, #38).
+
+**Returns:** `()`.
+
+**Behavior:** transfers the recorded gross charge (`LastChargeRecord.amount`) from the merchant to the subscriber, reverses the merchant revenue by the booked net, reverses `TotalProtocolFees` by the booked fee (`fee + net == amount`), clears the `LastCharge` record, and emits `refunded`. Because the record is cleared, a second refund fails with `NoLastChargeToRefund` (#50); a later `charge` or `batch_charge` records a new snapshot.
+
+**Errors:** `NoSubscriptionFound` (#4), `RefundMerchantMismatch` (#38), `InsufficientMerchantBalance` (#40), `NoLastChargeToRefund` (#50).
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- refund_last_charge --user <USER_ADDRESS> --merchant <MERCHANT_ADDRESS>
+```
+
+### `skip_next_charge`
+
+Skips exactly one upcoming billing cycle without pausing or cancelling. Advances `last_charged` by one `interval`, so `next_charge_at` moves one full interval later.
+
+```
+skip_next_charge(env: Env, user: Address)
+```
+
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
+| `user` | `Address` | Subscriber and signer. |
+
+**Auth:** `user.require_auth()`.
+
+**Returns:** `()`.
+
+**Abuse limit:** at most one skip per billing interval. The previous skip timestamp is stored in `LastSkipAt(user)`; a second call before `last_skip + interval` fails with `SkipCooldownActive` (#54).
+
+**Errors:** `NoSubscriptionFound` (#4), `SubscriptionInactive` (#5), `SubscriptionPaused` (#17), `SkipCooldownActive` (#54), `ArithmeticOverflow` (#36).
+
+**Side effects:** overwrites `last_charged`, stores `LastSkipAt(user)`, refreshes the subscription TTL, and emits `charge_skipped`.
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- skip_next_charge --user <USER_ADDRESS>
+```
+
+### `get_storage_footprint`
+
+Returns every per-subscriber storage key the contract can create, with presence flags and (test builds only) remaining TTLs, for rent estimation.
+
+```
+get_storage_footprint(env: Env, user: Address) -> StorageFootprint
+```
+
+Each entry is `{ key: Symbol, present: bool, ttl_ledgers: u32 }`. Keys reported: `subscription`, `referral`, `metadata`, `charge_history`, `index_slot`, `pause_expiry`, `last_charge`, `last_skip`, `daily_limit`, `daily_spent`, `day_start`. The full key/TTL mapping lives in [architecture/STORAGE-AND-TTL.md](./architecture/STORAGE-AND-TTL.md).
+
+**Auth:** none. `ttl_ledgers` is `0` in production (Soroban does not expose `get_ttl()` on-chain); `0` must not be interpreted as expired. Tests report real TTLs.
 
 ### `pause`
 
@@ -618,7 +912,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet
 
 ### `pause_until`
 
-Bounded user pause. The subscription auto-resumes on a later `charge` or `batch_charge` when ledger time `>= expiry`. Unlike indefinite [`pause`](#pause), this path sets `paused = true` **and** `active = false`.
+Bounded user pause. The subscription auto-resumes on a later `charge` or `batch_charge` when ledger time `>= expiry`. Like indefinite [`pause`](#pause), this sets `paused = true` and leaves `active = true` — pausing never deactivates a subscription (issue #1009; `active = false` is reserved for cancellation). The call also TTL-extends both the `Subscription` and `PauseExpiry` entries so they archive together.
 
 ```
 pause_until(env: Env, user: Address, expiry: u64)
@@ -644,6 +938,8 @@ pause_until(env: Env, user: Address, expiry: u64)
 | `!sub.active`   | 16   | `SubscriptionNotActive` |
 
 **Pause-expiry read API:** there is **no** public `get_pause_expiry`, `get_pause`, or `paused_until` contract method. Expiry is stored via internal `storage::set_pause_expiry` / `storage::get_pause_expiry` only.
+
+For the full pause state model, auto-resume semantics, TTL considerations, and keeper/indexer guidance see [architecture/PAUSE-LIFECYCLE.md](./architecture/PAUSE-LIFECYCLE.md).
 
 CLI example:
 
@@ -759,28 +1055,6 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_token
-```
-
-### `upgrade`
-
-```
-upgrade(env: Env, new_wasm_hash: BytesN<32>)
-```
-
-| Name            | Type         | Description             |
-| --------------- | ------------ | ----------------------- |
-| `new_wasm_hash` | `BytesN<32>` | New contract WASM hash. |
-
-Auth: none in the current implementation.
-
-Returns: `()`.
-
-Errors: none beyond host/deployer failures.
-
-CLI example:
-
-```bash
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- upgrade --new_wasm_hash <WASM_HASH>
 ```
 
 ### `propose_upgrade`
@@ -943,6 +1217,8 @@ get_trial_end(env: Env, user: Address) -> Option<u64>
 Returns `None` if no subscription exists for `user`.
 
 **Storage read:** `DataKey::Subscription(user)` in persistent storage (reads `last_charged` field).
+
+**Bounded extensions:** `extend_trial(user, additional_seconds)` adds at most `MAX_TRIAL_EXTENSION` (90 days) per call, and the resulting trial end may not exceed `now + MAX_TOTAL_TRIAL` (365 days). Extensions beyond either bound fail with `TrialExtensionExceedsMaximum` (#48), preventing an effectively unlimited free subscription.
 
 **See also:** [`subscribe`](#subscribe) for the `trial_period` parameter; [`next_charge_at`](#next_charge_at) which returns `Some(last_charged + interval)` once the trial ends.
 
@@ -1218,7 +1494,7 @@ Auth: none.
 
 Returns: `Vec<(Address, u32)>` (top N merchants ranked by active subscriber count in descending order).
 
-Panics: `ContractError::BatchTooLarge` if `limit > 20`.
+Panics: `ContractError::BatchTooLarge` if `limit > 20`. The 20 is `caps::TOP_MERCHANTS_PAGE_SIZE`; see [LIMITS.md](./LIMITS.md#pagination).
 
 CLI example:
 
@@ -1232,7 +1508,9 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_top_merchant
 freeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
+
+When an operator is configured with `set_operator`, the configured operator may also call `freeze_merchant`, `unfreeze_merchant`, `pause_contract`, and `unpause_contract`. Operator authority does not extend to upgrades, fee configuration, or other admin setters.
 
 Returns: `()`.
 
@@ -1248,7 +1526,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 unfreeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
 
 Returns: `()`.
 
@@ -1391,7 +1669,7 @@ set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 
 **Returns:** `()`.
 
-**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35).
+**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35). The admin dashboard's Protocol Fee panel reads these bounds and blocks an out-of-range proposal or commit before signing with the contract's error wording.
 
 **Errors:** `ContractError::InvalidFeeBounds` (34) if `min_bps > max_bps` or `max_bps > 10_000`. Unauthorized callers fail admin auth.
 
@@ -1435,7 +1713,7 @@ A non-`Charged` result for one user never aborts the rest of the batch. Insuffic
 
 The public wrapper calls `ensure_contract_not_paused` first: a paused protocol panics `ContractPaused` (18) for the whole invoke (not a per-user result).
 
-Errors: `ContractError::BatchTooLarge` (20) if `users.len()` exceeds `get_max_batch_size` (default 50). Ordinary per-user outcomes are enum values.
+Errors: `ContractError::BatchTooLarge` (20) if `users.len()` exceeds `get_max_batch_size` (default 50, ceiling 200). `get_max_batch_size` is sourced from a single implementation in [contract/src/caps.rs](../contract/src/caps.rs) (the same key and default used by `contract/src/batch.rs`). Ordinary per-user outcomes are enum values. Full cap table: [LIMITS.md](./LIMITS.md#batch-operations).
 
 Keeper ops: [`KEEPER.md`](./KEEPER.md).
 
@@ -1443,6 +1721,31 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- batch_charge --users '["<USER_A>","<USER_B>"]'
+```
+
+### `get_charges_due_between`
+
+```
+get_charges_due_between(env: Env, from: u64, to: u64, offset: u64, limit: u32) -> Vec<(Address, u64)>
+```
+
+Auth: none (read-only).
+
+Returns the subscribers whose next charge falls in `[from, to]` (inclusive), each paired with
+that due timestamp. The timestamp equals `next_charge_at` for that subscriber. Only active,
+unpaused subscriptions are returned, and cancelled (tombstoned) slots are skipped.
+Grace-lapsed subscriptions are not filtered out.
+
+Bounded scan: each call reads at most `limit` index slots, starting at `offset`. `limit` is capped
+at 50 (`BatchTooLarge` otherwise), the same cap as `get_next_charge_batch`. The window is applied
+after the slot read, so a page can return fewer rows than `limit`, or none. To cover the whole index,
+advance `offset` by `limit` until `offset >= get_subscriber_count()`. An inverted window
+(`from > to`) or `limit == 0` returns an empty list.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_charges_due_between --from 1700000000 --to 1700086400 --offset 0 --limit 50
 ```
 
 ### `get_batch_charge_estimate`
@@ -1463,14 +1766,18 @@ get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Success behavior:** for each user, missing sub → `NoSubscription`. If paused, `try_auto_resume` may persist an auto-resume. Then `precheck_charge` runs. If that returns `Ok`, the estimate reads SAC `allowance(user, contract)` against gross `sub.amount` and returns `Charged` or `AllowanceInsufficient`.
 
-**Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics.
+**Errors:** `ContractError::BatchTooLarge` (20) when `users.len()` exceeds either the configured live cap (`get_max_batch_size()`, default 50) or the shared 200-address ceiling. Ordinary per-user outcomes are enum values, not panics. See [LIMITS.md](./LIMITS.md#batch-operations).
 
 **Operational caveats (from `lib.rs`):**
 
 1. Calls real `try_auto_resume`, which **writes** the subscription, clears pause expiry, and emits `subscription_auto_resumed` — **not a pure view**.
 2. Does **not** check protocol pause (`is_contract_paused`). `simulate_charge` returns `ContractPaused` instead.
 3. Allowance **is** checked (same gross-amount test as live `batch_charge`). A keeper file-header comment that says otherwise is stale.
-4. Cap 200 vs live batch max (default 50 via `MaxBatchSize`).
+4. Enforces the same batch cap as live (`get_max_batch_size()`, plus the 200-address ceiling).
+5. A repeated address is reported as `Charged` at every position, while live charges the first occurrence and returns `Skipped` for later ones. De-duplicate batches.
+6. Transfer-time failures (subscriber balance, hourly global volume cap, SAC errors) abort live `batch_charge` but are not modelled; preflight them before acting on an estimate.
+
+Fees do not change outcomes: allowance is checked against gross and `fee + net == gross`, so only balances differ. The complete list of tolerated differences, and the randomized property test that enforces it, is in [`architecture/BATCH-ESTIMATE-VS-LIVE.md`](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 Use `simulate_charge` when you need a no-write, pause-aware single-user dry-run. Keepers that charge should still call `batch_charge` ([`KEEPER.md`](./KEEPER.md)). Auto-resume event: [`EVENTS.md`](./EVENTS.md).
 
@@ -1479,6 +1786,8 @@ CLI example:
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_batch_charge_estimate --users '["<USER_A>","<USER_B>"]'
 ```
+
+For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, repeated addresses, execution-time failures, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 ### `get_active_count`
 
@@ -1537,6 +1846,8 @@ get_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address>
 Auth: none.
 
 Returns: `Vec<Address>`.
+
+**Shared scan implementation:** `get_subscriber_page`, `get_active_subscriber_page`, and `get_next_charge_batch` all delegate their index-bounds lookup, `SubscriberIndex` slot reads, and tombstone skipping to a common internal helper (`scan_subscriber_slots` in `subscriber_scan.rs`). Each caller then applies its own per-address filter on the returned list. This means all three functions share identical tombstone-skip and out-of-bounds behavior.
 
 CLI example:
 
@@ -1617,6 +1928,22 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_revenue --merchant <MERCHANT_ADDRESS>
 ```
 
+### `withdraw_merchant_revenue`
+
+```
+withdraw_merchant_revenue(env: Env, merchant: Address)
+```
+
+Auth: `merchant.require_auth()`.
+
+Returns: `()`. Transfers the accumulated revenue balance from contract storage to the merchant's wallet and resets the stored balance to zero.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- withdraw_merchant_revenue --merchant <MERCHANT_ADDRESS>
+```
+
 ### `get_merchant_revenue_history`
 
 ```
@@ -1659,6 +1986,8 @@ Auth: none.
 
 Returns: `u64`.
 
+**Alias:** this is the canonical reader for `DataKey::MerchantSubCount`; it delegates to the single implementation in `contract/src/merchant_stats.rs`. [`get_merchant_sub_count`](#get_merchant_sub_count) is a thin alias over the same body.
+
 CLI example:
 
 ```bash
@@ -1674,6 +2003,8 @@ get_merchant_sub_count(env: Env, merchant: Address) -> u32
 Auth: none.
 
 Returns: `u32` — active subscriber count for `merchant` (same `MerchantSubCount` storage as `get_merchant_subscriber_count`, narrowed to `u32`).
+
+**Alias:** thin delegation to [`get_merchant_subscriber_count`](#get_merchant_subscriber_count); both read `DataKey::MerchantSubCount` through the same `merchant_stats` implementation, so the two can never disagree.
 
 CLI example:
 
@@ -1738,6 +2069,22 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- remove_daily_limit --user <USER_ADDRESS>
 ```
 
+### `get_daily_limit`
+
+```
+get_daily_limit(env: Env, user: Address) -> Option<i128>
+```
+
+Auth: none.
+
+Returns: `Option<i128>` — the configured positive daily spending limit, or `None` if the user has not set one. The limit is stored in temporary storage and expires after approximately one day.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit --user <USER_ADDRESS>
+```
+
 ### `get_daily_spent`
 
 See the [full reference entry below](#get_daily_spent).
@@ -1745,18 +2092,34 @@ See the [full reference entry below](#get_daily_spent).
 ### `get_day_start`
 
 ```
-get_day_start(env: Env, user: Address) -> bool
+get_day_start(env: Env, user: Address) -> Option<u64>
 ```
 
 Auth: none.
 
-Returns: `bool` — `true` if `DataKey::DayStart(user)` exists (current ~24h spend window is active), `false` otherwise. This is a presence marker, not a wall-clock timestamp.
+Returns: `Option<u64>` — `Some(timestamp)` while the current ~24h spend window is active, where `timestamp` is the ledger timestamp of the window's first `pay_per_use` / `pay_per_use_to`; `None` if no window has started or `DataKey::DayStart(user)` has expired. The window ends when that temporary entry's TTL expires, not at a fixed `timestamp + 86400`.
 
 CLI example:
 _See also: [Daily Spending Limits Deep-Dive](./DAILY-LIMITS.md)._
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_day_start --user <USER_ADDRESS>
+```
+
+### `get_daily_limit_status`
+
+```
+get_daily_limit_status(env: Env, user: Address) -> DailyLimitStatus
+```
+
+Auth: none.
+
+Returns: `DailyLimitStatus { limit: Option<i128>, spent: i128, day_start: Option<u64>, remaining: Option<i128> }` — the values of `get_daily_limit`, `get_daily_spent` and `get_day_start` read together, plus `remaining`, which is `None` when no limit is set and `max(limit - spent, 0)` otherwise.
+
+_See also: [Daily Spending Limits Deep-Dive](./DAILY-LIMITS.md#state-inspection)._
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_daily_limit_status --user <USER_ADDRESS>
 ```
 
 ### `get_referrer`
@@ -1768,6 +2131,8 @@ get_referrer(env: Env, user: Address) -> Option<Address>
 Auth: none.
 
 Returns: `Option<Address>`.
+
+**Alias:** `get_referral` and `get_referrer` are byte-identical readers of `DataKey::Referral(user)`; `get_referrer` is the canonical implementation and `get_referral` is a thin delegation to it. Both names remain exported.
 
 CLI example:
 
@@ -1781,19 +2146,80 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_referrer --u
 migrate(env: Env, users: Vec<Address>)
 ```
 
-Auth: none.
+Auth: admin (`require_auth` on the stored admin).
 
 Returns: `()`.
+
+Migrates the listed accounts in batches. It is idempotent per account: an account
+that an earlier batch already processed is skipped, so re-sending a batch is safe.
+Each processed account counts once toward `get_migration_progress().migrated_accounts`.
+
+**`migrate` does not advance the schema version.** It stays at its pre-upgrade value
+until `finalize_migration` succeeds, so `SchemaMigrationRequired` (42) keeps blocking
+new subscriptions during the run.
+
+Errors: `NotInitialized` (7) when no admin is set; admin auth failures panic.
 
 CLI example:
 
 ```bash
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
 ```
+
+### `finalize_migration`
+
+```
+finalize_migration(env: Env, expected_total: u64)
+```
+
+Auth: admin.
+
+Returns: `()`.
+
+Advances the schema version to the current version, which unblocks new subscriptions.
+It succeeds only when `migrated_accounts >= expected_total`, where `expected_total` is
+the number of accounts the operator believes need migrating. Once complete, repeated
+calls do nothing and emit nothing. On success it emits
+[`migration_completed`](./EVENTS.md#migration_completed).
+
+Errors: `MigrationIncomplete` (53) when fewer than `expected_total` accounts have been
+Errors: `MigrationIncomplete` (52) when fewer than `expected_total` accounts have been
+processed.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- finalize_migration --expected_total 1200
+```
+
+### `get_migration_progress`
+
+```
+get_migration_progress(env: Env) -> MigrationProgress
+```
+
+Auth: none (read-only).
+
+Returns a struct with `schema_version`, `target_version`, `migrated_accounts` (u64) and
+`complete` (bool). Use `migrated_accounts` as the resume position when feeding the
+operator's account list to `migrate`. [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts)
+does this.
 
 ### `get_schema_version`
 
 See the [full reference entry below](#get_schema_version).
+
+### `get_version`
+
+```
+get_version(env: Env) -> String
+```
+
+Auth: none (read-only).
+
+Returns the release semver of the running WASM, embedded at build time from `contract/Cargo.toml` (`env!("CARGO_PKG_VERSION")`). The same value is returned as `version` in [`get_contract_config`](#get_contract_config). `get_schema_version` tracks the storage layout; `get_version` ties a deployed contract to a release. `scripts/deploy-pipeline.ts` reads it and records it in `deployments/manifest.json` as `contractVersion`.
+
+**Errors:** none defined.
 
 ### `set_metadata`
 
@@ -1823,6 +2249,8 @@ Auth: none.
 
 Returns: `Option<String>`.
 
+**Alias:** `get_metadata` and [`get_subscription_label`](#get_subscription_label) are byte-identical readers of `DataKey::SubscriptionMeta(user)`; `get_metadata` is the canonical implementation and `get_subscription_label` is a thin delegation to it. Both names remain exported.
+
 CLI example:
 
 ```bash
@@ -1838,6 +2266,8 @@ get_subscription_label(env: Env, user: Address) -> Option<String>
 Auth: none.
 
 Returns: `Option<String>`.
+
+**Alias:** thin delegation to [`get_metadata`](#get_metadata); both read `DataKey::SubscriptionMeta(user)` through the same implementation.
 
 CLI example:
 
@@ -1955,16 +2385,64 @@ contract_health_check(env: Env) -> HealthReport
 
 **Returns:** [`HealthReport`](#healthreport).
 
-**Success behavior:** builds the struct; does not panic on the normal path. `is_healthy` is true only when the contract is not paused, token and admin are set, and `instance_ttl_ledgers > 17_280`.
+**Success behavior:** builds the struct; does not panic on the normal path. `is_healthy` is true only when the contract is not paused and token and admin are set. Instance TTL is not part of that decision.
 
 **Errors:** none defined.
 
-**Operational notes:** on-chain `instance_ttl_ledgers` is a hardcoded `100_000`. Off-chain `scripts/health-check.ts` is a **shallow** RPC simulation of `get_schema_version` and `get_active_count` only — it does not call this method. See [`MAINNET-DEPLOYMENT.md`](./MAINNET-DEPLOYMENT.md#3-health).
+**Operational notes.** The deep monitor alerts when maintenance age is missing or exceeds 17,280 ledgers. Shallow monitoring probes the schema version and active count. See [deployment health checks](./MAINNET-DEPLOYMENT.md#3-health).
 
 CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- contract_health_check
+```
+
+### `get_subscription_health`
+
+```
+get_subscription_health(env: Env, user: Address) -> SubscriptionHealth
+```
+
+Auth: none.
+
+Returns: [`SubscriptionHealth`](#subscriptionhealth) — a composite snapshot of the subscription's current state for frontend display.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_subscription_health --user <USER_ADDRESS>
+```
+
+### `get_contract_config`
+
+```
+get_contract_config(env: Env) -> ContractConfig
+```
+
+Auth: none.
+
+Returns: [`ContractConfig`](#contractconfig) — a snapshot of contract-wide configuration settings (token, admin, fee, grace period, min interval, whitelist mode, paused flag, schema version).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_contract_config
+```
+
+### `batch_cancel`
+
+```
+batch_cancel(env: Env, users: Vec<Address>) -> Vec<CancelResult>
+```
+
+Auth: each `user.require_auth()` in the batch.
+
+Returns: `Vec<`[`CancelResult`](#cancelresult)`>` — one entry per address indicating whether the cancellation succeeded or why it was skipped.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- batch_cancel --users '["<USER1>","<USER2>"]'
 ```
 
 ### `clear_charge_history`
@@ -1977,10 +2455,28 @@ Auth: `user.require_auth()`.
 
 Returns: `()`.
 
+**Alias:** `clear_charge_history` and `prune_charge_history` are byte-identical; `clear_charge_history` is the canonical implementation and `prune_charge_history` is a thin delegation to it. Both names remain exported.
+
 CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- clear_charge_history --user <USER_ADDRESS>
+```
+
+### `get_charge_history_ttl`
+
+```
+get_charge_history_ttl(env: Env, user: Address) -> u32
+```
+
+**Auth:** none.
+
+**Returns:** In **test/testutils** builds, the persistent TTL of `ChargeHistory(user)`, or `0` if the key is absent. **On-chain / production always returns `0`** because Soroban does not expose `get_ttl()` outside tests. Do not treat the production value as a live remaining-TTL measurement, and do not treat `0` as “history expired”.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_charge_history_ttl --user <USER_ADDRESS>
 ```
 
 ### `get_charge_history_page`
@@ -2013,7 +2509,7 @@ end = min(offset + effective_limit, ordered_history.len())
 return ordered_history[offset..end]
 ```
 
-`limit` is silently capped at 12 — passing `limit: 100` is safe and simply returns everything available. `offset` is never validated against the history length beyond the empty-result check above; there is no `IndexOutOfBounds`-style error anywhere in this path.
+`limit` is silently capped at 12 — passing `limit: 100` is safe and simply returns everything available. This 12 is a retention length (`MAX_HISTORY`), not a batch or page cap; see [LIMITS.md](./LIMITS.md#pagination). `offset` is never validated against the history length beyond the empty-result check above; there is no `IndexOutOfBounds`-style error anywhere in this path.
 
 > **`ascending` parameter.** Passing `ascending = true` returns records in oldest-to-newest order. Passing `ascending = false` returns records in newest-to-oldest order (most recent first).
 
@@ -2151,7 +2647,7 @@ async function loadAllChargeHistory(user: string): Promise<number[]> {
 }
 ```
 
-See [INTEGRATION-GUIDE.md § 8 — Paginating Charge History](./INTEGRATION-GUIDE.md#8-paginating-charge-history) for the same pattern in a full integration walkthrough.
+See [INTEGRATION-GUIDE.md § 9 — Paginating Charge History](./INTEGRATION-GUIDE.md#9-paginating-charge-history) for the same pattern in a full integration walkthrough.
 
 ### `transfer_subscription`
 
@@ -2169,792 +2665,6 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- transfer_subscription --user <USER_ADDRESS> --new_user <NEW_USER_ADDRESS>
-```
-
----
-
-## Units & Conversions
-
-All amounts are in stroops. 1 XLM = 10,000,000 stroops. Intervals are
-
-## Events Reference
-
-See [EVENTS.md](./EVENTS.md) for the complete event schema reference. For building keepers, analytics, notifications, or reconciliation jobs on top of those events, see [EVENT-DRIVEN-GUIDE.md](./EVENT-DRIVEN-GUIDE.md).
-
-**Parameters**
-
-| Name     | Type      | Description                                   |
-| -------- | --------- | --------------------------------------------- |
-| `user`   | `Address` | The payer. Must match the transaction signer. |
-| `amount` | `i128`    | Stroops to transfer. Must be > 0.             |
-
-**Auth:** `user.require_auth()`.
-
-**What it does:**
-
-1. Loads the subscription for `user`
-2. Asserts `active == true`
-3. Calls `transfer_from(contract, user, merchant, amount)` on the token contract
-
-**Events emitted**
-
-```
-topic:  ("pay_per_use", user)
-data:   (merchant, amount)
-```
-
-**Errors**
-
-| Condition                 | Panic message                  |
-| ------------------------- | ------------------------------ |
-| `amount <= 0`             | `"amount must be positive"`    |
-| No subscription exists    | `"no subscription found"`      |
-| Subscription is cancelled | `"subscription is not active"` |
-| Subscription is paused    | `"subscription is paused"`     |
-| Insufficient allowance    | Host error from token contract |
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- pay_per_use \
-  --user <USER_ADDRESS> \
-  --amount 1000000
-```
-
----
-
-### `pause`
-
-Temporarily halts charges for a subscription. The subscription record is preserved and can be resumed at any time. Both `charge()` and `pay_per_use()` will panic while paused.
-
-```
-pause(env: Env, user: Address)
-```
-
-**Parameters**
-
-| Name   | Type      | Description                                        |
-| ------ | --------- | -------------------------------------------------- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-
-**Auth:** `user.require_auth()`.
-
-**Events emitted**
-
-```
-topic:  ("paused", user)
-data:   ()
-```
-
-**Errors**
-
-| Condition                   | Panic message                      |
-| --------------------------- | ---------------------------------- |
-| No subscription exists      | `"no subscription found"`          |
-| Subscription is cancelled   | `"subscription is not active"`     |
-| Subscription already paused | `"subscription is already paused"` |
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- pause \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `resume`
-
-Resumes a paused subscription, re-enabling `charge()` and `pay_per_use()`.
-
-```
-resume(env: Env, user: Address)
-```
-
-**Parameters**
-
-| Name   | Type      | Description                                        |
-| ------ | --------- | -------------------------------------------------- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-
-**Auth:** `user.require_auth()`.
-
-**Events emitted**
-
-```
-topic:  ("resumed", user)
-data:   ()
-```
-
-**Errors**
-
-| Condition                  | Panic message                  |
-| -------------------------- | ------------------------------ |
-| No subscription exists     | `"no subscription found"`      |
-| Subscription is cancelled  | `"subscription is not active"` |
-| Subscription is not paused | `"subscription is not paused"` |
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- resume \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `cancel`
-
-Deactivates a subscription. The subscription record remains in storage with `active = false`. No further charges can be made.
-
-```
-cancel(env: Env, user: Address)
-```
-
-**Parameters**
-
-| Name   | Type      | Description                                        |
-| ------ | --------- | -------------------------------------------------- |
-| `user` | `Address` | The subscriber. Must match the transaction signer. |
-
-**Auth:** `user.require_auth()`.
-
-**Events emitted**
-
-```
-topic:  ("cancelled", user)
-data:   ()
-```
-
-**Errors**
-
-| Condition              | Panic message             |
-| ---------------------- | ------------------------- |
-| No subscription exists | `"no subscription found"` |
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- cancel \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `get_subscription`
-
-Read-only view function. Returns the subscription for a given user, or `None` if none exists.
-
-```
-get_subscription(env: Env, user: Address) -> Option<Subscription>
-```
-
-**Parameters**
-
-| Name   | Type      | Description                        |
-| ------ | --------- | ---------------------------------- |
-| `user` | `Address` | The subscriber address to look up. |
-
-**Auth:** None.
-
-**Returns:** `Option<Subscription>` — `None` if no subscription exists for this address.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_subscription \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `next_charge_at`
-
-See the [full reference entry above](#next_charge_at).
-
----
-
-### `batch_charge`
-
-Charges multiple subscribers in a single transaction. Individual failures do not abort the batch — every address is processed and its outcome is returned.
-
-```
-batch_charge(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
-```
-
-**Parameters**
-
-| Name    | Type           | Description                                       |
-| ------- | -------------- | ------------------------------------------------- |
-| `users` | `Vec<Address>` | List of subscriber addresses to attempt charging. |
-
-**Auth:** None. Same permissionless model as `charge()`.
-
-**Returns:** `Vec<ChargeResult>` — one entry per input address, in order.
-
-```rust
-pub enum ChargeResult {
-    Charged,            // funds transferred successfully
-    Skipped,            // interval has not elapsed yet
-    NoSubscription,     // no subscription found for this address
-    Inactive,           // subscription is cancelled
-    Paused,             // subscription is paused
-    GracePeriodElapsed, // charge window has closed
-}
-```
-
-**Storage written:** `DataKey::Subscription(user)` updated for each `Charged` result. `DataKey::MerchantRevenue(merchant)` incremented for each `Charged` result.
-
-**Events emitted:** `("charged", user)` for each successfully charged user.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <KEEPER_KEY> \
-  --network testnet \
-  -- batch_charge \
-  --users '["<USER_A>","<USER_B>","<USER_C>"]'
-```
-
----
-
-### `get_active_count`
-
-Returns the current number of active subscriptions. Incremented by `subscribe()`, decremented by `cancel()`.
-
-```
-get_active_count(env: Env) -> u64
-```
-
-**Auth:** None.
-
-**Returns:** `u64` — total active subscriptions.
-
-**Storage read:** `DataKey::ActiveCount` in instance storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_active_count
-```
-
----
-
-### `get_merchant_revenue`
-
-Returns the cumulative amount charged to a merchant's subscribers across all `charge()` and `pay_per_use()` calls.
-
-```
-get_merchant_revenue(env: Env, merchant: Address) -> i128
-```
-
-**Parameters**
-
-| Name       | Type      | Description                    |
-| ---------- | --------- | ------------------------------ |
-| `merchant` | `Address` | The merchant address to query. |
-
-**Auth:** None.
-
-**Returns:** `i128` — total stroops received by this merchant. Returns `0` if no charges have occurred.
-
-**Storage read:** `DataKey::MerchantRevenue(merchant)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_merchant_revenue \
-  --merchant <MERCHANT_ADDRESS>
-```
-
----
-
-### `set_daily_limit`
-
-Sets a daily spending cap for `pay_per_use()` for the calling user. The limit is stored in temporary storage and resets automatically after approximately one day (~17,280 ledgers at 5 s/ledger).
-
-_For a detailed conceptual guide on how limits and TTL expirations work, see [Daily Spending Limits](./DAILY-LIMITS.md)._
-
-```
-set_daily_limit(env: Env, user: Address, limit: i128)
-```
-
-**Parameters**
-
-| Name    | Type      | Description                                                         |
-| ------- | --------- | ------------------------------------------------------------------- |
-| `user`  | `Address` | The subscriber. Must match the transaction signer.                  |
-| `limit` | `i128`    | Maximum stroops spendable via `pay_per_use()` per day. Must be > 0. |
-
-**Auth:** `user.require_auth()`.
-
-**Storage written:** `DataKey::DailyLimit(user)` in temporary storage with TTL of ~1 day.
-
-**Enforcement:** Every `pay_per_use()` call checks `DailySpent(user) + amount <= DailyLimit(user)` before transferring. The running total is tracked in `DataKey::DailySpent(user)` (also temporary, same TTL).
-
-**Errors**
-
-| Condition                | Panic message                     |
-| ------------------------ | --------------------------------- |
-| `limit <= 0`             | `"limit must be positive"`        |
-| Spend would exceed limit | `"daily spending limit exceeded"` |
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- set_daily_limit \
-  --user <USER_ADDRESS> \
-  --limit 50000000
-```
-
----
-
-### `get_daily_limit`
-
-Read-only view. Returns the current daily spending cap for a user's `pay_per_use()` calls, or `None` if no cap has been set.
-
-```
-get_daily_limit(env: Env, user: Address) -> Option<i128>
-```
-
-**Parameters**
-
-| Name   | Type      | Description                      |
-| ------ | --------- | -------------------------------- |
-| `user` | `Address` | The subscriber address to query. |
-
-**Auth:** None.
-
-**Returns:** `Option<i128>` — the daily limit in stroops, or `None` if no limit has been set for this user. A `None` result means `pay_per_use()` is uncapped for this user.
-
-**Storage read:** `DataKey::DailyLimit(user)` in temporary storage (TTL ≈ 1 day, ~17,280 ledgers at 5 s/ledger). Returns `None` automatically once the TTL expires, which resets the cap each day without manual intervention.
-
-**See also:** [`set_daily_limit`](#set_daily_limit) to configure the cap; [`remove_daily_limit`](#remove_daily_limit) to clear it; [`get_daily_spent`](#get_daily_spent) to check how much has been consumed today.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_daily_limit \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `get_daily_spent`
-
-Read-only view. Returns the total amount spent today by a user via `pay_per_use()` calls.
-
-```
-get_daily_spent(env: Env, user: Address) -> i128
-```
-
-**Parameters**
-
-| Name   | Type      | Description                      |
-| ------ | --------- | -------------------------------- |
-| `user` | `Address` | The subscriber address to query. |
-
-**Auth:** None.
-
-**Returns:** `i128` — stroops spent today via `pay_per_use()`. Returns `0` when no spend has been recorded in the current window or when the daily tracking TTL has expired.
-
-**How the window works:** The first `pay_per_use()` call of the day anchors a `DataKey::DayStart(user)` marker in temporary storage with a TTL of ~17,280 ledgers (≈1 day). `get_daily_spent` returns `0` whenever that marker is absent — either because the user has never called `pay_per_use()`, or because the 24-hour window has expired and both `DayStart` and `DailySpent` have been automatically pruned.
-
-**Storage read:** `DataKey::DayStart(user)` presence check first; then `DataKey::DailySpent(user)` — both in temporary storage.
-
-**See also:** [`set_daily_limit`](#set_daily_limit) to configure the daily cap; [`get_daily_limit`](#get_daily_limit) to read the configured cap; [`pay_per_use`](#pay_per_use) which increments this counter on each call.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_daily_spent \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `extend_subscription_ttl`
-
-Extends the TTL of a user's subscription record in persistent storage.
-
-```
-extend_subscription_ttl(env: Env, user: Address)
-```
-
-**Parameters**
-
-| Name   | Type      | Description                               |
-| ------ | --------- | ----------------------------------------- |
-| `user` | `Address` | The subscriber address to extend TTL for. |
-
-**Auth:** None.
-
-**Storage written:** Extends TTL of `DataKey::Subscription(user)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- extend_subscription_ttl \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `get_trial_end`
-
-See the [full reference entry above](#get_trial_end).
-
----
-
-Adds a merchant to the whitelist. Only the contract admin can call this.
-
-```
-add_merchant(env: Env, merchant: Address)
-```
-
-**Parameters**
-
-| Name       | Type      | Description                        |
-| ---------- | --------- | ---------------------------------- |
-| `merchant` | `Address` | The merchant address to whitelist. |
-
-**Auth:** Admin only.
-
-**Storage written:** `DataKey::MerchantWhitelist(merchant)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_KEY> \
-  --network testnet \
-  -- add_merchant \
-  --merchant <MERCHANT_ADDRESS>
-```
-
----
-
-### `remove_merchant`
-
-Removes a merchant from the whitelist. Only the contract admin can call this.
-
-```
-remove_merchant(env: Env, merchant: Address)
-```
-
-**Parameters**
-
-| Name       | Type      | Description                                        |
-| ---------- | --------- | -------------------------------------------------- |
-| `merchant` | `Address` | The merchant address to remove from the whitelist. |
-
-**Auth:** Admin only.
-
-**Storage written:** Removes `DataKey::MerchantWhitelist(merchant)` from persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_KEY> \
-  --network testnet \
-  -- remove_merchant \
-  --merchant <MERCHANT_ADDRESS>
-```
-
----
-
-### `set_whitelist_enabled`
-
-Enables or disables the merchant whitelist. Only the contract admin can call this.
-
-```
-set_whitelist_enabled(env: Env, enabled: bool)
-```
-
-**Parameters**
-
-| Name      | Type   | Description                                     |
-| --------- | ------ | ----------------------------------------------- |
-| `enabled` | `bool` | True to enable the whitelist, false to disable. |
-
-**Auth:** Admin only.
-
-**Storage written:** `DataKey::WhitelistEnabled` in instance storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_KEY> \
-  --network testnet \
-  -- set_whitelist_enabled \
-  --enabled true
-```
-
----
-
-### `get_merchant_revenue_history`
-
-Returns per-day revenue for the given merchant for the last `days` days, oldest to newest.
-
-```
-get_merchant_revenue_history(env: Env, merchant: Address, days: u32) -> Vec<i128>
-```
-
-**Parameters**
-
-| Name       | Type      | Description                                |
-| ---------- | --------- | ------------------------------------------ |
-| `merchant` | `Address` | The merchant address to query.             |
-| `days`     | `u32`     | The number of days of history to retrieve. |
-
-**Auth:** None.
-
-**Returns:** `Vec<i128>` — Daily revenue in stroops, ordered oldest to newest.
-
-**Storage read:** `DataKey::MerchantRevenueDay(merchant, day)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_merchant_revenue_history \
-  --merchant <MERCHANT_ADDRESS> \
-  --days 7
-```
-
----
-
-### `get_referrer`
-
-Returns the referrer address recorded for a subscriber.
-
-```
-get_referrer(env: Env, user: Address) -> Option<Address>
-```
-
-**Parameters**
-
-| Name   | Type      | Description                      |
-| ------ | --------- | -------------------------------- |
-| `user` | `Address` | The subscriber address to query. |
-
-**Auth:** None.
-
-**Returns:** `Option<Address>` — `None` if no referrer was recorded.
-
-**Storage read:** `DataKey::Referral(user)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_referrer \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `migrate`
-
-Upgrades contract storage to the latest schema version. Safe to call multiple times.
-
-```
-migrate(env: Env)
-```
-
-**Auth:** None (admin restriction can be added in future versions).
-
-**Storage written:** `DataKey::SchemaVersion` in instance storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- migrate
-```
-
----
-
-### `get_schema_version`
-
-Read-only view. Returns the current storage schema version of the contract.
-
-```
-get_schema_version(env: Env) -> u32
-```
-
-**Auth:** None.
-
-**Returns:** `u32` — the schema version stored in instance storage. **Default: `1`** when `DataKey::SchemaVersion` has never been written (i.e. before the first `migrate()` call or on freshly deployed contracts).
-
-**What schema versions mean:**
-
-| Version | Description                                                                 |
-| ------- | --------------------------------------------------------------------------- |
-| `1`     | Initial schema. `Subscription` struct does not include the `paused` field.  |
-| `2`     | Current schema. `Subscription` includes `paused: bool`. Set by `migrate()`. |
-
-**When to call this:** Use `get_schema_version` to verify a deployment is on the current schema before running `migrate()`, and to confirm a migration completed successfully. A keeper or admin script can check this before submitting `migrate(users)` to avoid redundant transactions — `migrate()` is a no-op when already at version 2, but reading the version first avoids the gas cost entirely.
-
-**Storage read:** `DataKey::SchemaVersion` in instance storage. Falls back to `1u32` when absent.
-
-**See also:** [`migrate`](#migrate) which bumps this value from 1 → 2; the [Deployment — State Migration](./DEPLOYMENT.md#state-migration) guide for the full migration history and CLI steps.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_schema_version
-```
-
----
-
----
-
-### `set_metadata`
-
-Attaches a short label string (e.g. plan name) to the caller's subscription.
-
-```
-set_metadata(env: Env, user: Address, label: String)
-```
-
-**Parameters**
-
-| Name    | Type      | Description                                        |
-| ------- | --------- | -------------------------------------------------- |
-| `user`  | `Address` | The subscriber. Must match the transaction signer. |
-| `label` | `String`  | Short display label (e.g. `"pro"`, `"basic"`).     |
-
-**Auth:** `user.require_auth()`.
-
-**Storage written:** `DataKey::SubscriptionMeta(user)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <USER_KEY> \
-  --network testnet \
-  -- set_metadata \
-  --user <USER_ADDRESS> \
-  --label pro
-```
-
----
-
-### `get_metadata`
-
-Returns the metadata label for a subscriber.
-
-```
-get_metadata(env: Env, user: Address) -> Option<String>
-```
-
-**Parameters**
-
-| Name   | Type      | Description                      |
-| ------ | --------- | -------------------------------- |
-| `user` | `Address` | The subscriber address to query. |
-
-**Auth:** None.
-
-**Returns:** `Option<String>` — `None` if no label has been set.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_metadata \
-  --user <USER_ADDRESS>
-```
-
----
-
-### `get_charge_history`
-
-Returns the last (up to 12) charge timestamps for a subscriber, ordered oldest → newest.
-
-```
-get_charge_history(env: Env, user: Address) -> Vec<u64>
-```
-
-**Parameters**
-
-| Name   | Type      | Description                      |
-| ------ | --------- | -------------------------------- |
-| `user` | `Address` | The subscriber address to query. |
-
-**Auth:** None.
-
-**Returns:** `Vec<u64>` — UNIX timestamps of successful `charge()` calls. Empty if no charges have occurred.
-
-**Storage read:** `DataKey::ChargeHistory(user)` in persistent storage.
-
-**CLI example**
-
-```bash
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  -- get_charge_history \
-  --user <USER_ADDRESS>
 ```
 
 ---
@@ -3009,6 +2719,57 @@ repair_subscription(env: Env, user: Address) -> u32
 
 ---
 
+### Supplemental entrypoints
+
+The following contract methods are smaller configuration, lookup, maintenance, or compatibility entrypoints. They are listed here explicitly so every public entrypoint is represented in the reference.
+
+| Function | Authorization | Purpose |
+| --- | --- | --- |
+| `get_max_batch_size` | None | Reads the configured/default maximum batch size. |
+| `set_max_batch_size` | Admin | Sets the batch-size override, subject to the protocol ceiling. |
+| `get_max_whitelist_batch_size` | None | Reads the whitelist batch-size limit. |
+| `set_max_whitelist_batch_size` | Admin | Sets the whitelist batch-size override, subject to its ceiling. |
+| `get_contract_config` | None | Returns the contract's configuration snapshot. |
+| `bump_subscription` | None | Extends the storage TTL for one subscription. |
+| `batch_extend_subscription_ttl` | None | Extends storage TTLs for the supplied subscriptions. |
+| `pay_per_use_to` | User | Makes a pay-per-use payment to the specified recipient. |
+| `get_subscription_age` | None | Returns the subscription's age in seconds, or `None` if absent. |
+| `extend_trial` | User | Extends the caller's trial by the requested number of seconds. |
+| `cancel_and_refund_prorated` | User and merchant | Cancels a subscription and transfers the prorated refund. |
+| `batch_pause_subscriptions` | Admin | Pauses the supplied subscriptions, subject to the batch cap. |
+| `batch_cancel` | Admin | Cancels the supplied subscriptions and returns per-user results. |
+| `get_pending_admin` | None | Returns the proposed admin awaiting acceptance. |
+| `clear_fee` | Admin | Removes the configured protocol fee collector and rate. |
+| `get_fee_collector` | None | Returns the protocol fee collector, if configured. |
+| `get_total_protocol_fees` | None | Returns cumulative protocol fees collected. |
+| `whitelist_batch_add` | Admin | Adds merchants to the whitelist in a bounded batch. |
+| `whitelist_batch_remove` | Admin | Removes merchants from the whitelist in a bounded batch. |
+| `get_whitelist_page` | None | Returns a bounded page of whitelisted merchants. |
+| `get_whitelist_size` | None | Returns the number of indexed whitelist entries. |
+| `get_merchant_page` | None | Returns a bounded page of indexed merchants. |
+| `get_merchant_statuses` | None | Returns whitelist/frozen status for the supplied merchants. |
+| `set_merchant_fee_recipient` | Merchant | Sets the merchant's custom protocol-fee recipient. |
+| `get_merchant_fee_recipient` | None | Reads a merchant's custom protocol-fee recipient, if set. |
+| `get_merchant_freeze_reason` | None | Returns a merchant's recorded freeze reason, if any. |
+| `get_merchant_revenue_day_page` | None | Returns a bounded page of daily merchant revenue. |
+| `get_next_charge_batch` | None | Returns the next page of charge-eligible subscribers for a keeper. |
+| `extend_subscriber_index_ttl` | Admin | Extends storage TTLs for the subscriber index. |
+| `extend_merchant_state_ttl` | Admin | Extends storage TTLs for indexed merchant state. |
+| `withdraw_merchant_revenue` | Merchant | Transfers the merchant's available revenue to its account. |
+| `get_merchant_revenue_summary` | None | Returns the merchant's aggregate revenue summary. |
+| `get_subscription_health` | None | Returns health indicators for a subscriber's subscription. |
+| `get_merchant_sub_counts` | None | Returns subscriber counts for multiple merchants. |
+| `get_referral` | None | Compatibility alias for `get_referrer`. |
+| `get_charge_history_count` | None | Returns the number of retained charge timestamps. |
+| `prune_charge_history` | Admin | Clears a subscriber's charge history. |
+| `get_global_volume_cap` | None | Returns the effective global hourly volume cap. |
+| `get_global_volume_window` | None | Returns accumulated volume and the current window start. |
+| `set_global_volume_cap` | Admin | Sets or removes the global hourly volume-cap override. |
+| `get_subscription_token` | None | Returns the token used by a subscriber's subscription. |
+| `get_subscriber_merchant` | None | Returns only the merchant address for a subscriber. |
+
+---
+
 ## Units & Conversions
 
 All amounts are in **stroops** — the smallest unit of a Stellar token.
@@ -3046,7 +2807,6 @@ For a complete reference of all events with detailed schemas and examples, see [
 | `referred`                 | `("referred", user_address)`                             | `referrer_address`                    |
 | `subscription_transferred` | `("subscription_transferred", from_address, to_address)` | `(merchant, amount, interval, token)` |
 | `subscription_repaired`    | `("subscription_repaired", user_address)`                | `fixed_inconsistencies: u32`          |
-| `subscription_repaired` | `("subscription_repaired", user_address)` | `fixed_inconsistencies: u32` |
 | `subscriber_index_cleared` | `("subscriber_index_cleared", user_address)` | `index: u64` |
 
 ---
@@ -3055,38 +2815,14 @@ For a complete reference of all events with detailed schemas and examples, see [
 
 All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
 
-| Code | Variant                  | Description                                                                     |
-| ---- | ------------------------ | ------------------------------------------------------------------------------- |
-| 1    | `AlreadyInitialized`     | `initialize()` was called on an already-initialized contract.                   |
-| 2    | `AmountMustBePositive`   | A payment or subscription amount was zero or negative.                          |
-| 3    | `IntervalMustBePositive` | A subscription interval was zero.                                               |
-| 4    | `NoSubscriptionFound`    | No subscription record exists for the given user.                               |
-| 5    | `SubscriptionInactive`   | The subscription exists but is cancelled or paused.                             |
-| 6    | `IntervalNotElapsed`     | `charge()` was called before the billing interval elapsed.                      |
-| 7    | `NotInitialized`         | A contract function was called before `initialize()`.                           |
-| 8    | `InsufficientAllowance`  | The user's token allowance is below the subscription amount.                    |
-| 9    | `GracePeriodElapsed`     | The charge grace period has passed; the subscription cannot be charged.         |
-| 10   | `MerchantNotWhitelisted` | The merchant is not on the whitelist (when whitelist is enabled).               |
-| 11   | `ContractPaused`         | The contract is paused; all user-facing write operations are blocked.           |
-| 24   | `DailyLimitExceeded`     | A `pay_per_use()` call would exceed the user's configured daily spending limit. |
-| 33   | `InvalidVolumeCap`       | `set_global_volume_cap` was called with a non-positive cap.                     |
-| 34   | `InvalidFeeBounds`       | `set_fee_bounds` min/max is inconsistent or `max_bps > 10000`.                  |
-| 35   | `FeeOutOfBoundsAtCommit` | `commit_fee` pending bps is outside current fee bounds.                         |
-| Code | Variant | Description |
-| --- | --- | --- |
-| 1 | `AlreadyInitialized` | `initialize()` was called on an already-initialized contract. |
-| 2 | `AmountMustBePositive` | A payment or subscription amount was zero or negative. |
-| 3 | `IntervalMustBePositive` | A subscription interval was zero. |
-| 4 | `NoSubscriptionFound` | No subscription record exists for the given user. |
-| 5 | `SubscriptionInactive` | The subscription exists but is cancelled or paused. |
-| 6 | `IntervalNotElapsed` | `charge()` was called before the billing interval elapsed. |
-| 7 | `NotInitialized` | A contract function was called before `initialize()`. |
-| 8 | `InsufficientAllowance` | The user's token allowance is below the subscription amount. |
-| 9 | `GracePeriodElapsed` | The charge grace period has passed; the subscription cannot be charged. |
-| 10 | `MerchantNotWhitelisted` | The merchant is not on the whitelist (when whitelist is enabled). |
-| 11 | `ContractPaused` | The contract is paused; all user-facing write operations are blocked. |
-| 24 | `DailyLimitExceeded` | A `pay_per_use()` call would exceed the user's configured daily spending limit. |
-| 33 | `InvalidVolumeCap` | `set_global_volume_cap` was called with a non-positive cap. |
-| 34 | `InvalidFeeBounds` | `set_fee_bounds` min/max is inconsistent or `max_bps > 10000`. |
-| 35 | `FeeOutOfBoundsAtCommit` | `commit_fee` pending bps is outside current fee bounds. |
-| 41 | `CannotClearActiveSubscriber` | `clear_subscriber_index_entry` refused because the slot occupant is still active. |
+For the complete error codes reference with detailed recovery steps and prevention guidance, see [ERROR-CODES.md](./ERROR-CODES.md).
+
+## Merchant fee overrides and emergency operator
+
+`set_merchant_fee_bps(env, merchant, bps: Option<u32>)` is admin-only. The configured rate must be within the current `MinFeeBps` / `MaxFeeBps`; pass `None` to clear the override and inherit the global rate. `get_merchant_fee_bps` returns the override and `get_effective_fee_bps` returns the applied rate. Successful `charged` event payloads include `fee_bps`.
+
+`set_operator(env, operator: Option<Address>)` is admin-only and emits `operator_changed`. The designated operator may call only the emergency controls `pause_contract`, `unpause_contract`, `freeze_merchant`, and `unfreeze_merchant`. Admin authority remains valid and all fee setters and upgrade methods remain admin-only.
+
+## Referral reward withdrawals
+
+The default referral policy reserves 10% of each protocol fee for the first 12 successful recurring charges. Admins configure it with `set_referral_reward_policy(bps, max_charges)`; `bps` is capped at 5,000. `get_referral_reward_balance(token, referrer)` reports the token-specific claim. `withdraw_referral_rewards(token, referrer)` requires referrer authorization and transfers the accrued balance from the contract reserve.
