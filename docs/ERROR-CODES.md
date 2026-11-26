@@ -52,7 +52,7 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 34   | `InvalidFeeBounds`          | Validation   | Fee bounds min/max invalid         |
 | 35   | `FeeOutOfBoundsAtCommit`    | Validation   | Pending fee outside bounds         |
 | 36   | `ArithmeticOverflow`        | State        | Checked arithmetic would overflow  |
-| 37   | *(unassigned)*              | Reserved     | Gap in the sequence; never emitted |
+| 37   | `Reserved37` (deprecated)   | Reserved     | Reserved slot; never emitted       |
 | 38   | `RefundMerchantMismatch`    | Validation   | Refund caller is not merchant     |
 | 39   | `RefundAmountMustBePositive`| Validation   | Prorated refund is zero           |
 | 40   | `InsufficientMerchantBalance`| Limit       | Merchant cannot fund refund       |
@@ -66,13 +66,27 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
 | 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
 | 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
+| 51   | `TrialAlreadyUsed`          | State        | `subscribe`/`subscribe_with_referral` trial requested for a (user, merchant) pair that already consumed its one trial |
+| 52   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 53   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 54   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
 | 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
 | 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
 | 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
 | 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
 | 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
 
-> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+> **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Codes 31 and 37 have deprecated `Reserved31` / `Reserved37` Rust enum variants that claim the reserved wire-map slots; neither is emitted by contract logic. The numeric sequence has **no undeclared gaps**: `scripts/check-error-codes.mjs` fails if a code between 1 and the highest code is missing from `errors.rs`, and fails if any deprecated variant is referenced outside `errors.rs`. New errors must use the next free code and update this table, frontend handling, and mapping tests together. Removal timeline for 30 and 31: [Deprecation schedule](#deprecation-schedule). Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
+
+## Deprecation Schedule
+
+| Code | Variant | Status | Removal criteria | Earliest removal |
+| ---- | ------- | ------ | ---------------- | ---------------- |
+| 30 | `ContractPausedError` | Deprecated alias of `ContractPaused` (18); never emitted | (1) No WASM that can emit 30 is deployed on any network listed in `deployments/` (every instance runs a build where all pause guards emit 18), **and** (2) the frontend and keeper treat 30 only as a legacy alias of 18, **and** (3) one full MINOR release has shipped with this schedule published | The first MAJOR release after both criteria hold, and no earlier than 2027-06-01 |
+| 31 | `Reserved31` | Reserved slot; never emitted | Same as code 30. Removing the variant must not free the number: the code stays listed here as `*(retired)*` so it is never reassigned | Same as code 30 |
+| 37 | `Reserved37` | Reserved slot; never emitted | Not scheduled for removal. It exists only to stop code 37 from being reused | n/a |
+
+Removing a deprecated variant is a **BREAKING** change (it alters the Rust enum and the published ABI). The removal PR must note it in `CHANGELOG.md` and keep the numeric code reserved in this table. Until then, CI blocks any new emission: `check-error-codes.mjs` fails if `ContractError::ContractPausedError`, `ContractError::Reserved31` or `ContractError::Reserved37` appears in contract code outside `errors.rs`. Tests are exempt when they compare against the deprecated code.
 
 ---
 
@@ -675,9 +689,9 @@ is not representable at all.
 ---
 
 
-### 37 — *(unassigned)*
+### 37 — `Reserved37` (deprecated)
 
-Code 37 is an intentional gap in the sequence. No error variant is defined for this discriminant. Do not use code 37 in clients or fork-contracts; new errors must take the next available code after 46. If you see code 37 from a contract, it is from a custom fork, not the canonical PayFlow WASM.
+Code 37 was skipped when the catalog was extended and has never been emitted by a released WASM. It is now claimed by the deprecated `Reserved37` variant so that no future error can reuse the number and change what existing clients decode. Do not use code 37 in clients or forked contracts; new errors take the next free code. If you see code 37 from a contract, it comes from a custom fork, not the canonical PayFlow WASM.
 
 ---
 
@@ -897,7 +911,7 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
 2. Refund only once per charge; a new charge creates a new refundable snapshot.
-### 48 — `InvalidAdminAddress`
+### 54 — `InvalidAdminAddress`
 
 | Field               | Detail |
 | ------------------- | ------ |

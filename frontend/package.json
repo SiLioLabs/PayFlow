@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
+    "test": "vitest run",
     "test": "vitest run && node --test scripts/check-bundle-size.node-test.mjs",
     "test:e2e": "playwright test",
     "catalogue": "ladle serve",

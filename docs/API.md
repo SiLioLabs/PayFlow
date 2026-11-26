@@ -413,6 +413,7 @@ pub struct ContractConfig {
   pub whitelist_enabled: bool,
   pub paused: bool,
   pub schema_version: u32,
+  pub version: String,
 }
 ```
 
@@ -427,6 +428,7 @@ pub struct ContractConfig {
 | `whitelist_enabled`  | `bool`            | Whether merchant whitelist enforcement is active                  |
 | `paused`             | `bool`            | Contract-wide pause flag (admin circuit breaker)                  |
 | `schema_version`     | `u32`             | Migration schema version                                          |
+| `version`            | `String`          | Release semver of the running WASM (same as `get_version`)        |
 
 Useful for frontend config caching and keeper initialization.
 
@@ -614,7 +616,7 @@ get_keeper_tip_bps(env: Env) -> u32
 
 `set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
 fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
-maximum fail with `InvalidKeeperTipBps` (49), and a rejected value is not stored. It emits
+maximum fail with `InvalidKeeperTipBps` (53), and a rejected value is not stored. It emits
 [`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
 
 `get_keeper_tip_bps` is read-only.
@@ -1667,7 +1669,7 @@ set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 
 **Returns:** `()`.
 
-**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35).
+**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35). The admin dashboard's Protocol Fee panel reads these bounds and blocks an out-of-range proposal or commit before signing with the contract's error wording.
 
 **Errors:** `ContractError::InvalidFeeBounds` (34) if `min_bps > max_bps` or `max_bps > 10_000`. Unauthorized callers fail admin auth.
 
@@ -1764,14 +1766,18 @@ get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult>
 
 **Success behavior:** for each user, missing sub → `NoSubscription`. If paused, `try_auto_resume` may persist an auto-resume. Then `precheck_charge` runs. If that returns `Ok`, the estimate reads SAC `allowance(user, contract)` against gross `sub.amount` and returns `Charged` or `AllowanceInsufficient`.
 
-**Errors:** `ContractError::BatchTooLarge` (20) if `users.len() > 200` (hardcoded; not `get_max_batch_size`). Ordinary per-user outcomes are enum values, not panics. Note this is the shared ceiling, so it is higher than the default live charge cap: see [LIMITS.md](./LIMITS.md#batch-operations).
+**Errors:** `ContractError::BatchTooLarge` (20) when `users.len()` exceeds either the configured live cap (`get_max_batch_size()`, default 50) or the shared 200-address ceiling. Ordinary per-user outcomes are enum values, not panics. See [LIMITS.md](./LIMITS.md#batch-operations).
 
 **Operational caveats (from `lib.rs`):**
 
 1. Calls real `try_auto_resume`, which **writes** the subscription, clears pause expiry, and emits `subscription_auto_resumed` — **not a pure view**.
 2. Does **not** check protocol pause (`is_contract_paused`). `simulate_charge` returns `ContractPaused` instead.
 3. Allowance **is** checked (same gross-amount test as live `batch_charge`). A keeper file-header comment that says otherwise is stale.
-4. Cap 200 vs live batch max (default 50 via `MaxBatchSize`).
+4. Enforces the same batch cap as live (`get_max_batch_size()`, plus the 200-address ceiling).
+5. A repeated address is reported as `Charged` at every position, while live charges the first occurrence and returns `Skipped` for later ones. De-duplicate batches.
+6. Transfer-time failures (subscriber balance, hourly global volume cap, SAC errors) abort live `batch_charge` but are not modelled; preflight them before acting on an estimate.
+
+Fees do not change outcomes: allowance is checked against gross and `fee + net == gross`, so only balances differ. The complete list of tolerated differences, and the randomized property test that enforces it, is in [`architecture/BATCH-ESTIMATE-VS-LIVE.md`](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 Use `simulate_charge` when you need a no-write, pause-aware single-user dry-run. Keepers that charge should still call `batch_charge` ([`KEEPER.md`](./KEEPER.md)). Auto-resume event: [`EVENTS.md`](./EVENTS.md).
 
@@ -1781,7 +1787,7 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_batch_charge_estimate --users '["<USER_A>","<USER_B>"]'
 ```
 
-For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, batch size cap differences, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
+For a full comparison of estimate vs live semantics (transfers, auto-resume side-effects, protocol-pause handling, repeated addresses, execution-time failures, and result-enum mapping) see [architecture/BATCH-ESTIMATE-VS-LIVE.md](./architecture/BATCH-ESTIMATE-VS-LIVE.md).
 
 ### `get_active_count`
 
@@ -2177,6 +2183,7 @@ calls do nothing and emit nothing. On success it emits
 [`migration_completed`](./EVENTS.md#migration_completed).
 
 Errors: `MigrationIncomplete` (53) when fewer than `expected_total` accounts have been
+Errors: `MigrationIncomplete` (52) when fewer than `expected_total` accounts have been
 processed.
 
 CLI example:
@@ -2201,6 +2208,18 @@ does this.
 ### `get_schema_version`
 
 See the [full reference entry below](#get_schema_version).
+
+### `get_version`
+
+```
+get_version(env: Env) -> String
+```
+
+Auth: none (read-only).
+
+Returns the release semver of the running WASM, embedded at build time from `contract/Cargo.toml` (`env!("CARGO_PKG_VERSION")`). The same value is returned as `version` in [`get_contract_config`](#get_contract_config). `get_schema_version` tracks the storage layout; `get_version` ties a deployed contract to a release. `scripts/deploy-pipeline.ts` reads it and records it in `deployments/manifest.json` as `contractVersion`.
+
+**Errors:** none defined.
 
 ### `set_metadata`
 

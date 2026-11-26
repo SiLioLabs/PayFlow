@@ -749,6 +749,17 @@ pub fn publish_merchant_fee_recipient_set(env: &Env, merchant: &Address, recipie
     );
 }
 
+pub fn publish_merchant_max_per_use_set(env: &Env, merchant: &Address, max_amount: i128) {
+    publish_versioned(
+        env,
+        (
+            Symbol::new(env, "merchant_max_per_use_set"),
+            merchant.clone(),
+        ),
+        max_amount,
+    );
+}
+
 pub fn publish_merchant_fee_recipient_cleared(env: &Env, merchant: &Address) {
     publish_versioned(
         env,

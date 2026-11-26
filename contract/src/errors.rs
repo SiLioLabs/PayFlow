@@ -87,6 +87,13 @@ pub enum ContractError {
     /// Returned when a checked arithmetic operation overflows (trial extension,
     /// fee calculation, protocol-fee accrual, or global volume accumulation)
     ArithmeticOverflow = 36,
+    /// Reserved: code 37 was skipped when the catalog was extended and has
+    /// never been emitted by any released WASM. Declaring it keeps the slot
+    /// claimed so a future variant cannot reuse 37 and silently change what
+    /// existing clients decode. Never emit it; add new errors at the next
+    /// free code. `scripts/check-error-codes.mjs` fails on any undeclared gap.
+    #[deprecated(note = "code 37 is reserved and must not be emitted")]
+    Reserved37 = 37,
     /// Returned when a refund is requested by a merchant different from the subscription merchant
     RefundMerchantMismatch = 38,
     /// Returned when prorated cancellation would produce no refund
@@ -126,12 +133,24 @@ pub enum ContractError {
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 51,
     /// Returned by `finalize_migration` while fewer accounts have been migrated
     /// than the operator-supplied total, so the schema version cannot be advanced.
     MigrationIncomplete = 53,
+    MigrationIncomplete = 52,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
-    InvalidKeeperTipBps = 49,
+    InvalidKeeperTipBps = 53,
     /// Returned when an admin transfer targets the current admin or this contract.
+    InvalidAdminAddress = 54,
+    InvalidAdminAddress = 48,
+    /// Returned by `pay_per_use_with_nonce` when the (user, nonce) pair has
+    /// already been recorded, rejecting a replayed retry without charging again.
+    NonceAlreadyUsed = 51,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 52,
     InvalidAdminAddress = 52,
     /// Merchant fee override exceeds current configured protocol bounds.
     InvalidMerchantFeeBps = 55,

@@ -72,6 +72,13 @@ pub const TOP_MERCHANTS_PAGE_SIZE: u32 = 20;
 /// previously had no cap and could trap on `offset + limit` overflow.
 pub const WHITELIST_PAGE_SIZE: u32 = 50;
 
+/// Cap on the `users` vector accepted by the `get_subscriptions` batch read.
+///
+/// Fixed at 50 and not configurable at runtime, matching the other
+/// fixed (non-configurable) batch caps above (e.g.
+/// [`MAX_MERCHANT_SUB_COUNT_BATCH`]).
+pub const MAX_SUBSCRIPTIONS_BATCH: u32 = 50;
+
 /// Clamp a configured batch limit to the shared hard ceiling.
 ///
 /// Returns `DEFAULT_BATCH_SIZE` when no override is configured, otherwise the

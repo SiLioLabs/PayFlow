@@ -73,9 +73,7 @@ function parseContractErrors(): ContractVariant[] {
  * Codes that CONTRACT_ERRORS maps but errors.rs does not define, with the
  * reason. Kept explicit so a stray key fails the test instead of hiding.
  */
-const RESERVED_CODES: Record<number, string> = {
-  37: "Historical gap in the error catalog; no variant claims this code and none is planned.",
-};
+const RESERVED_CODES: Record<number, string> = {};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -193,7 +191,7 @@ describe("CONTRACT_ERRORS conformance with contract/src/errors.rs", () => {
       expect(
         deprecatedVariants.map((v) => v.code).sort((a, b) => a - b),
         "The deprecated codes this test documents changed; update this file and the errors.ts header table."
-      ).toEqual([30, 31]);
+      ).toEqual([30, 31, 37]);
     });
 
     for (const { name, code } of deprecatedVariants) {

@@ -164,6 +164,16 @@ pub enum DataKey {
     MigratedAccount(Address),
     // Feature: number of accounts processed by `migrate` in the current upgrade
     MigratedAccountCount,
+    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
+    // trial grant time so cancel + re-subscribe cannot reset eligibility)
+    TrialUsed(Address, Address),
+    // Feature: pay_per_use idempotency nonces (temporary storage, bounded TTL)
+    PayPerUseNonce(Address, u64),
+    // Feature: one-trial-per-user-per-merchant tracking (persistent, set at
+    // trial grant time so cancel + re-subscribe cannot reset eligibility)
+    TrialUsed(Address, Address),
+    // Feature: per-merchant maximum pay_per_use amount
+    MerchantMaxPerUse(Address),
     // New keys are appended to preserve the established DataKey discriminants.
     Operator,
     MerchantFeeBps(Address),
@@ -194,7 +204,8 @@ pub const MERCHANT_STATE_TTL_LEDGERS: u32 = 1_555_200; // ~90 days (assuming 5s 
 
 pub use caps::{
     MAX_BATCH_PAUSE_SUBSCRIPTIONS, MAX_BATCH_SIZE_CEILING, MAX_MERCHANT_SUB_COUNT_BATCH,
-    MAX_WHITELIST_BATCH_SIZE, REVENUE_DAY_PAGE_SIZE, SUBSCRIBER_PAGE_SIZE, TOP_MERCHANTS_PAGE_SIZE,
+    MAX_SUBSCRIPTIONS_BATCH, MAX_WHITELIST_BATCH_SIZE, REVENUE_DAY_PAGE_SIZE, SUBSCRIBER_PAGE_SIZE,
+    TOP_MERCHANTS_PAGE_SIZE,
 };
 
 /// The default cap for the admin batch charge/extend entrypoints, sourced from
@@ -370,7 +381,13 @@ pub struct ContractConfig {
     pub whitelist_enabled: bool,
     pub paused: bool,
     pub schema_version: u32,
+    /// Release version of this WASM (`contract/Cargo.toml` `version`), same as `get_version`.
+    pub version: String,
 }
+
+/// Semver of the build, embedded at compile time from `contract/Cargo.toml`
+/// so a deployed WASM can be tied to a release.
+pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // ─────────────────────────────────────────────────────────────
 // Contract
@@ -500,6 +517,7 @@ impl FlowPay {
                 .instance()
                 .get(&DataKey::SchemaVersion)
                 .unwrap_or(1),
+            version: String::from_str(&env, CONTRACT_VERSION),
         }
     }
 
@@ -756,7 +774,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `InvalidKeeperTipBps` (53) when `bps > MAX_KEEPER_TIP_BPS`.
     /// - `NotInitialized` (7) when no admin is set.
     pub fn set_keeper_tip_bps(env: Env, bps: u32) {
         admin::require_admin(&env);
@@ -866,6 +884,33 @@ impl FlowPay {
     /// emits `pay_per_use` with `recipient` in place of `sub.merchant`.
     pub fn pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address) {
         pay_per_use_inner(&env, user, amount, Some(recipient), 0);
+    }
+
+    /// Idempotent variant of `pay_per_use`: a client retry after a timeout
+    /// can safely resend the same `(user, nonce)` without double-charging.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber address. Must authorize the call.
+    /// - `amount`: One-time amount to transfer. Must be greater than zero.
+    /// - `nonce`: Caller-chosen request identity. Replaying an already-seen
+    ///   `(user, nonce)` pair panics with `NonceAlreadyUsed` instead of
+    ///   charging again.
+    ///
+    /// # Errors
+    ///
+    /// Panics with `NonceAlreadyUsed` if `(user, nonce)` was already recorded
+    /// (within its ~1-day TTL); otherwise the same errors as `pay_per_use`.
+    ///
+    /// # Side Effects
+    ///
+    /// Same as `pay_per_use`, plus records `(user, nonce)` in temporary
+    /// storage (bounded TTL) once the charge succeeds.
+    pub fn pay_per_use_with_nonce(env: Env, user: Address, amount: i128, nonce: u64) {
+        bump_instance_ttl(&env);
+        spending_limit::enforce_nonce_unused(&env, &user, nonce);
+        pay_per_use_inner(&env, user.clone(), amount, None);
+        spending_limit::record_nonce(&env, &user, nonce);
     }
 
     pub fn get_day_start(env: Env, user: Address) -> Option<u64> {
@@ -1489,6 +1534,36 @@ impl FlowPay {
             .get(&storage::subscription_key(&env, &user))
     }
 
+    /// Returns the gross SAC allowance required for `cycles` billing cycles of `user`'s subscription.
+    ///
+    /// Matches the exact validation logic in `charge` and `validation::has_sufficient_allowance`:
+    /// allowance must cover the gross subscription amount per cycle.
+    pub fn get_required_allowance(env: Env, user: Address, cycles: u32) -> i128 {
+        let sub: Option<Subscription> = env.storage().persistent().get(&DataKey::Subscription(user));
+        match sub {
+            Some(s) => s.amount.saturating_mul(cycles as i128),
+            None => 0,
+        }
+    /// Returns subscriptions for multiple users in a single call, preserving
+    /// input order (`result[i]` corresponds to `users[i]`; `None` where no
+    /// subscription exists, mirroring `get_subscription`).
+    ///
+    /// Capped at `MAX_SUBSCRIPTIONS_BATCH` (50); panics with `BatchTooLarge`
+    /// above that.
+    pub fn get_subscriptions(env: Env, users: Vec<Address>) -> Vec<Option<Subscription>> {
+        if users.len() > MAX_SUBSCRIPTIONS_BATCH {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+
+        let mut result = Vec::new(&env);
+        for user in users.iter() {
+            let sub: Option<Subscription> =
+                env.storage().persistent().get(&DataKey::Subscription(user));
+            result.push_back(sub);
+        }
+        result
+    }
+
     pub fn get_subscription_age(env: Env, user: Address) -> Option<u64> {
         let sub: Subscription = env
             .storage()
@@ -1837,6 +1912,19 @@ impl FlowPay {
     /// Returns the configured merchant fee recipient, or None when unset.
     pub fn get_merchant_fee_recipient(env: Env, merchant: Address) -> Option<Address> {
         fee::get_merchant_fee_recipient(&env, &merchant)
+    }
+
+    /// Sets a per-call maximum `pay_per_use`/`pay_per_use_to` amount for a
+    /// merchant. The caller must be the merchant. Enforced alongside the
+    /// existing global `MAX_AMOUNT` cap, not in place of it.
+    pub fn set_merchant_max_per_use(env: Env, merchant: Address, max_amount: i128) {
+        ensure_contract_not_paused(&env);
+        charge_exec::set_merchant_max_per_use(&env, &merchant, max_amount);
+    }
+
+    /// Returns the configured merchant per-call maximum, or None when unset.
+    pub fn get_merchant_max_per_use(env: Env, merchant: Address) -> Option<i128> {
+        charge_exec::get_merchant_max_per_use(&env, &merchant)
     }
 
     /// Freezes a merchant, blocking new subscriptions while leaving existing
@@ -2497,6 +2585,7 @@ impl FlowPay {
     /// # Errors
     ///
     /// `MigrationIncomplete` (53) when `migrated_accounts < expected_total`.
+    /// `MigrationIncomplete` (52) when `migrated_accounts < expected_total`.
     pub fn finalize_migration(env: Env, expected_total: u64) {
         migration::finalize(&env, expected_total);
     }
@@ -2511,6 +2600,14 @@ impl FlowPay {
     /// Returns the current storage schema version.
     pub fn get_schema_version(env: Env) -> u32 {
         migration::get_schema_version(&env)
+    }
+
+    /// Returns the release version of the running WASM (the `version` in
+    /// `contract/Cargo.toml`, embedded at build time). Unlike
+    /// `get_schema_version`, which tracks the storage layout, this ties a
+    /// deployed contract to a release. Read-only, no auth required.
+    pub fn get_version(env: Env) -> String {
+        String::from_str(&env, CONTRACT_VERSION)
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -3029,6 +3126,7 @@ fn pay_per_use_inner(env: &Env, user: Address, amount: i128, recipient: Option<A
         }
     }
 
+    charge_exec::enforce_merchant_max_per_use(env, &recipient, amount);
     spending_limit::enforce_limit(env, &user, amount);
 
     let fee_amount = fee::transfer_pay_per_use(env, &user, &sub.token, amount, &recipient);
@@ -3068,6 +3166,42 @@ fn subscribe_inner(
         referrer.clone(),
     );
     let merchant = &sub.merchant;
+    bump_instance_ttl(env);
+    migration::require_current_version(env);
+    validation::require_valid_subscribe_addresses(env, &user, &merchant);
+    user.require_auth();
+
+    if whitelist::is_whitelist_enabled(env) && !whitelist::is_whitelisted(env, &merchant) {
+        env.panic_with_error(ContractError::MerchantNotWhitelisted);
+    }
+
+    if whitelist::is_frozen(env, &merchant) {
+        env.panic_with_error(ContractError::MerchantFrozen);
+    }
+
+    // Prevent new subscriptions when contract is paused
+    ensure_contract_not_paused(env);
+
+    validation::require_valid_amount(env, amount);
+    validation::validate_interval(env, interval);
+
+    if !validation::is_contract_address(&token) {
+        env.panic_with_error(ContractError::InvalidTokenAddress);
+    }
+
+    validation::check_allowance(env, &user, &token, amount);
+
+    let now = env.ledger().timestamp();
+    let trial_duration = trial_period.unwrap_or(0);
+    if trial_duration > 0 {
+        // Marked used here, at grant time — not on trial completion — so a
+        // cancel followed by re-subscribing with a new trial_period cannot
+        // reset eligibility and grant unlimited free trials.
+        trial::require_trial_unused(env, &user, &merchant);
+        trial::mark_trial_used(env, &user, &merchant);
+    }
+    let last_charged = now + trial_duration;
+
     let existing = storage::get_subscription(env, &user);
     // sub.active required here: paused subscriptions must not be charged/acted upon —
     // only count/index a new subscription when re-subscribing from a cancelled state.
