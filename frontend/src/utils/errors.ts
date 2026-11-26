@@ -177,6 +177,15 @@ export function friendlyError(raw: string): string {
  * Returns the code in `#N` form so it can be matched against both
  * `CONTRACT_ERRORS["error(contract, #N)"]` and the bare-code aliases.
  */
+/**
+ * Returns the canonical user-facing message for a numeric contract error code.
+ * Use this when the UI can detect a contract condition before signing, so the
+ * client-side wording matches what the contract would report.
+ */
+export function contractErrorMessage(code: number): string {
+  return CONTRACT_ERRORS[`error(contract, #${code})`] ?? `Contract error #${code}.`;
+}
+
 export function extractContractErrorCode(raw: string): string | null {
   const contractMatch = raw.match(/error\(\s*contract\s*,\s*#(\d+)\s*\)/i);
   if (contractMatch) return `#${contractMatch[1]}`;
