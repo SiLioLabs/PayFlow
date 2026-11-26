@@ -294,6 +294,7 @@ App
 │               ├── AdminRepairPanel (src/components/admin/AdminRepairPanel.tsx)
 │               │   └── AddressInput
 │               ├── ProtocolStatsPanel
+│               ├── FeeAdminPanel
 │               ├── BatchPausePanel
 │               │   └── AddressListInput
 │               └── BatchWhitelistPanel

@@ -1821,6 +1821,18 @@ button.allowance-health-badge:focus-visible {
   margin-top: var(--space-4);
 }
 
+.fee-admin-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.fee-admin-panel__summary dt,
+.fee-admin-panel__summary dd {
+  margin: 0;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Address Book Modal
    ───────────────────────────────────────────────────────────────────────────── */

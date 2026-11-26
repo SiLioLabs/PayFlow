@@ -614,7 +614,7 @@ get_keeper_tip_bps(env: Env) -> u32
 
 `set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
 fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
-maximum fail with `InvalidKeeperTipBps` (49), and a rejected value is not stored. It emits
+maximum fail with `InvalidKeeperTipBps` (53), and a rejected value is not stored. It emits
 [`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
 
 `get_keeper_tip_bps` is read-only.
@@ -1667,7 +1667,7 @@ set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 
 **Returns:** `()`.
 
-**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35).
+**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35). The admin dashboard's Protocol Fee panel reads these bounds and blocks an out-of-range proposal or commit before signing with the contract's error wording.
 
 **Errors:** `ContractError::InvalidFeeBounds` (34) if `min_bps > max_bps` or `max_bps > 10_000`. Unauthorized callers fail admin auth.
 
@@ -2176,7 +2176,7 @@ the number of accounts the operator believes need migrating. Once complete, repe
 calls do nothing and emit nothing. On success it emits
 [`migration_completed`](./EVENTS.md#migration_completed).
 
-Errors: `MigrationIncomplete` (48) when fewer than `expected_total` accounts have been
+Errors: `MigrationIncomplete` (52) when fewer than `expected_total` accounts have been
 processed.
 
 CLI example:

@@ -64,6 +64,13 @@ describe("AdminDashboard", () => {
     });
   });
 
+  it("renders the protocol fee section", async () => {
+    render(<AdminDashboard publicKey="GADMIN123" onSign={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("Protocol Fee")).toBeTruthy();
+    });
+  });
+
   it("renders the batch whitelist section", async () => {
     render(<AdminDashboard publicKey="GADMIN123" onSign={vi.fn()} />);
     await waitFor(() => {
