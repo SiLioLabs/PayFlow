@@ -1,7 +1,7 @@
 import React from "react";
 
 /** A single skeleton block. Width defaults to 100%. */
-function SkeletonBlock({
+export function SkeletonBlock({
   width = "100%",
   height = "var(--space-4)",
   style,

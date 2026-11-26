@@ -75,17 +75,11 @@ export default function ConfirmModal({
           <button
             type="button"
             className="btn-danger"
-            onClick={onConfirm}
-            disabled={confirmDisabled}
-            data-testid={confirmTestId}
-          >
-            {confirmLabel}
-            className="btn-danger"
             onClick={handleConfirm}
             disabled={blocked}
             data-testid={confirmTestId}
           >
-            Confirm
+            {confirmLabel}
           </button>
         </div>
       </div>

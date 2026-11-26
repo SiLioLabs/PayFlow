@@ -141,4 +141,9 @@ pub enum ContractError {
     /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
     /// for a (user, merchant) pair that has already consumed its one trial.
     TrialAlreadyUsed = 52,
+    InvalidAdminAddress = 52,
+    /// Merchant fee override exceeds current configured protocol bounds.
+    InvalidMerchantFeeBps = 50,
+    /// Operator cannot be the contract itself.
+    InvalidOperatorAddress = 51,
 }

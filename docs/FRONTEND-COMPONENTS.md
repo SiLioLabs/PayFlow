@@ -64,6 +64,7 @@ This document provides the component-by-component API reference for PayFlow's Re
   - [AdminRepairPanel](#adminrepairpanel)
   - [BatchPausePanel](#batchpausepanel)
   - [BatchWhitelistPanel](#batchwhitelistpanel)
+  - [FeeAdminPanel](#feeadminpanel)
   - [ProtocolStatsPanel](#protocolstatspanel)
 - [Hooks Reference](#hooks-reference)
 - [Services Reference](#services-reference)
@@ -618,7 +619,7 @@ Subscriber self-service data integrity diagnostic panel to detect orphaned state
 
 **File:** `frontend/src/components/SubscriptionCard.tsx`
 
-Detailed card displaying an active subscription, trial badges, allowance health, and management actions (pause, resume, cancel, transfer).
+Detailed subscription display composed from focused status badges, action controls, and modal containers. `useSubscriptionCardState` owns allowance/trial/pause data and transaction state; `SubscriptionActions` owns pause/cancel confirmation UI; `SubscriptionStatusBadge` renders subscription, trial, and allowance status.
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -828,6 +829,20 @@ Admin tool for adding or removing multiple merchant addresses from the contract 
 | `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
 | `isAdmin` | `boolean` | yes | Whether connected wallet is authorized admin. |
 | `onInit` | `(signal: AbortSignal) => Promise<void>` | no | Async initialization hook. |
+
+---
+
+### FeeAdminPanel
+
+**File:** `frontend/src/components/admin/FeeAdminPanel.tsx`
+
+Admin UI for the two-step protocol fee change. Shows the live fee (`get_fee`), the configured bounds (`get_fee_bounds`) and any proposal made in the current session, and signs `propose_fee`, `commit_fee`, `clear_fee` and `set_fee_bounds`. Collector, bps and bounds are validated client-side with the contract's own error wording before the wallet prompt; proposals outside the bounds are blocked with `FeeOutOfBoundsAtCommit` (35). The contract has no pending-fee getter, so proposals staged in another session are not displayed (committing them still works).
+
+| Prop | Type | Required | Description |
+| --- | --- | --- | --- |
+| `adminKey` | `string` | yes | Admin's public key. |
+| `onSign` | `(xdr: string) => Promise<string>` | yes | Transaction signing helper. |
+| `isAdmin` | `boolean` | yes | Whether connected wallet is authorized admin. |
 
 ---
 

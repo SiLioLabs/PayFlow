@@ -789,7 +789,7 @@ pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address)
 - Emits `pay_per_use` event with `recipient` in place of `sub.merchant`.
 
 **Use cases:**  
-Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-marketplace--multi-merchant-routing), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
+Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-handling-events), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
 
 CLI example:
 
@@ -1506,7 +1506,9 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_top_merchant
 freeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
+
+When an operator is configured with `set_operator`, the configured operator may also call `freeze_merchant`, `unfreeze_merchant`, `pause_contract`, and `unpause_contract`. Operator authority does not extend to upgrades, fee configuration, or other admin setters.
 
 Returns: `()`.
 
@@ -1522,7 +1524,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 unfreeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
 
 Returns: `()`.
 
@@ -1665,7 +1667,7 @@ set_fee_bounds(env: Env, min_bps: u32, max_bps: u32)
 
 **Returns:** `()`.
 
-**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35).
+**Bounds semantics:** `propose_fee` does **not** apply these bounds (it only rejects `bps > 10_000` and an invalid collector). `commit_fee` rejects pending bps outside `[min_bps, max_bps]` with `FeeOutOfBoundsAtCommit` (35). The admin dashboard's Protocol Fee panel reads these bounds and blocks an out-of-range proposal or commit before signing with the contract's error wording.
 
 **Errors:** `ContractError::InvalidFeeBounds` (34) if `min_bps > max_bps` or `max_bps > 10_000`. Unauthorized callers fail admin auth.
 
@@ -1918,6 +1920,22 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_revenue --merchant <MERCHANT_ADDRESS>
+```
+
+### `withdraw_merchant_revenue`
+
+```
+withdraw_merchant_revenue(env: Env, merchant: Address)
+```
+
+Auth: `merchant.require_auth()`.
+
+Returns: `()`. Transfers the accumulated revenue balance from contract storage to the merchant's wallet and resets the stored balance to zero.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- withdraw_merchant_revenue --merchant <MERCHANT_ADDRESS>
 ```
 
 ### `get_merchant_revenue_history`
@@ -2360,6 +2378,54 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- contract_health_check
 ```
 
+### `get_subscription_health`
+
+```
+get_subscription_health(env: Env, user: Address) -> SubscriptionHealth
+```
+
+Auth: none.
+
+Returns: [`SubscriptionHealth`](#subscriptionhealth) — a composite snapshot of the subscription's current state for frontend display.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_subscription_health --user <USER_ADDRESS>
+```
+
+### `get_contract_config`
+
+```
+get_contract_config(env: Env) -> ContractConfig
+```
+
+Auth: none.
+
+Returns: [`ContractConfig`](#contractconfig) — a snapshot of contract-wide configuration settings (token, admin, fee, grace period, min interval, whitelist mode, paused flag, schema version).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_contract_config
+```
+
+### `batch_cancel`
+
+```
+batch_cancel(env: Env, users: Vec<Address>) -> Vec<CancelResult>
+```
+
+Auth: each `user.require_auth()` in the batch.
+
+Returns: `Vec<`[`CancelResult`](#cancelresult)`>` — one entry per address indicating whether the cancellation succeeded or why it was skipped.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- batch_cancel --users '["<USER1>","<USER2>"]'
+```
+
 ### `clear_charge_history`
 
 ```
@@ -2731,3 +2797,13 @@ For a complete reference of all events with detailed schemas and examples, see [
 All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
 
 For the complete error codes reference with detailed recovery steps and prevention guidance, see [ERROR-CODES.md](./ERROR-CODES.md).
+
+## Merchant fee overrides and emergency operator
+
+`set_merchant_fee_bps(env, merchant, bps: Option<u32>)` is admin-only. The configured rate must be within the current `MinFeeBps` / `MaxFeeBps`; pass `None` to clear the override and inherit the global rate. `get_merchant_fee_bps` returns the override and `get_effective_fee_bps` returns the applied rate. Successful `charged` event payloads include `fee_bps`.
+
+`set_operator(env, operator: Option<Address>)` is admin-only and emits `operator_changed`. The designated operator may call only the emergency controls `pause_contract`, `unpause_contract`, `freeze_merchant`, and `unfreeze_merchant`. Admin authority remains valid and all fee setters and upgrade methods remain admin-only.
+
+## Referral reward withdrawals
+
+The default referral policy reserves 10% of each protocol fee for the first 12 successful recurring charges. Admins configure it with `set_referral_reward_policy(bps, max_charges)`; `bps` is capped at 5,000. `get_referral_reward_balance(token, referrer)` reports the token-specific claim. `withdraw_referral_rewards(token, referrer)` requires referrer authorization and transfers the accrued balance from the contract reserve.

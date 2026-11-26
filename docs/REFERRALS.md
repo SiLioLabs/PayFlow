@@ -33,12 +33,13 @@ This document is the **canonical** referral guide for PayFlow: data model, subsc
 
 ## Overview
 
-Referrals are **on-chain attribution**, not an on-chain reward vault. A subscriber may pass an optional referrer address when they subscribe. The contract stores that relationship and emits a `referred` event; payouts (bonuses, commissions) are built by integrators off-chain.
+Referrals record on-chain attribution and can earn a bounded share of protocol fees. A subscriber may pass an optional referrer at subscribe time; the protocol accrues rewards from successful recurring charges and lets the referrer withdraw the reserved token balance.
 
 | Where state lives                          | What                                                  |
 | ------------------------------------------ | ----------------------------------------------------- |
 | Persistent `DataKey::Referral(subscriber)` | Referrer `Address` (`contract/src/referral.rs`)       |
 | `Subscription.referrer: Option<Address>`   | Snapshot written at subscribe (`contract/src/lib.rs`) |
+| `ReferralReward(token, referrer)`           | Withdrawable reward liability, reserved in contract token balance |
 
 | Component                                        | Interaction                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------------------- |
@@ -48,23 +49,24 @@ Referrals are **on-chain attribution**, not an on-chain reward vault. A subscrib
 | Frontend `ReferralPanel`                         | Share link `/?ref=<ADDRESS>&merchant=<ADDRESS>`, referred-count display, self-referral warning |
 | Frontend `SubscribeForm`                         | Parses link params, pre-fills referrer/merchant, passes referrer into `buildSubscribeTx` |
 
-This is an attribution layer only. Protocol fees (`fee.rs`) do not pay referrers.
+The default reward is 10% of the protocol fee for the first 12 successful charges. Admin may configure a share up to 50% and a positive charge duration. The share is taken from the protocol fee, never from merchant net.
 
 ---
 
 ## Design Summary
 
-PayFlow's referral feature is an **on-chain attribution layer**, not an on-chain reward vault.
+PayFlow's referral feature combines attribution with protocol-fee rewards.
 
 | Concern                                | On-chain? | Where                                                                   |
 | -------------------------------------- | --------- | ----------------------------------------------------------------------- |
 | Record who referred a subscriber       | Yes       | `DataKey::Referral(user)` + `Subscription.referrer`                     |
 | Emit attribution event                 | Yes       | `referred` event                                                        |
 | Reject self-referral                   | Yes       | `ContractError::SelfReferral` (code `11`)                               |
-| Split protocol fees to a fee collector | Yes       | `fee.rs` (`FeeCollector` / `FeeBps`) — **not** referrer-aware           |
-| Pay referrer bonuses / commissions     | **No**    | Off-chain (or a separate reward contract) using events + `get_referrer` |
+| Split protocol fees to collector/referrer | Yes     | `fee.rs` (`FeeCollector` / `FeeBps`) plus bounded reward reserve       |
+| Accrue a share of the protocol fee      | Yes       | `ReferralReward(token, referrer)`; first N successful recurring charges |
+| Withdraw accrued rewards               | Yes       | `withdraw_referral_rewards(token, referrer)`; referrer signature required |
 
-The contract stores a single optional referrer address per subscriber and emits a `referred` event when that address is set. Integrators use that attribution signal to run signup bonuses, recurring commissions, or tiered rewards outside the core FlowPay transfer path.
+The contract stores one optional referrer per subscriber and emits `referred` when attribution is set. Integrators may still add signup bonuses or tiered rewards outside the core fee-share policy.
 
 ---
 
@@ -282,7 +284,11 @@ user ──transfer_from──▶ FeeCollector   (fee)
 user ──transfer_from──▶ Merchant       (net)
 ```
 
-This split is **independent of referrals**. The referrer address is never an argument to `fee::transfer_subscription_charge`. Referrers do not automatically receive a share of protocol fees or merchant revenue inside FlowPay.
+When a referral exists and is within the configured charge duration, the protocol fee is split into a collector amount and a reward reserve. The reserved share is transferred into the contract and recorded by token and referrer; keeper tips are calculated first and do not reduce merchant net. The referral reward is accrued once inside the successful charge transaction, so a failed token transfer rolls the accrual back.
+
+Default policy: 1,000 bps (10%) of the protocol fee, for 12 successful recurring charges. `set_referral_reward_policy(bps, max_charges)` is admin-only; `bps` is capped at 5,000 and `max_charges` must be positive. Cancellation ends future eligibility and clears the subscriber's duration counter, but does not erase already accrued rewards. Subscription transfer carries the duration counter to the new subscriber.
+
+`get_referral_reward_balance(token, referrer)` reads the claimable amount. `withdraw_referral_rewards(token, referrer)` requires referrer authorization, clears the liability before transferring, and emits `referral_reward_withdrawn`. Reward accounting is token-specific because subscriptions can use different SAC tokens.
 
 ### Building referral payouts (integrator responsibility)
 

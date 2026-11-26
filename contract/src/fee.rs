@@ -14,6 +14,37 @@ pub fn get_fee_bps(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
 }
 
+/// Fee override for a merchant, or `None` to inherit the global rate.
+pub fn get_merchant_fee_bps(env: &Env, merchant: &Address) -> Option<u32> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MerchantFeeBps(merchant.clone()))
+}
+
+pub fn effective_fee_bps(env: &Env, merchant: &Address) -> u32 {
+    get_merchant_fee_bps(env, merchant).unwrap_or_else(|| get_fee_bps(env))
+}
+
+pub fn set_merchant_fee_bps(env: &Env, merchant: &Address, bps: Option<u32>) {
+    let min_bps: u32 = env.storage().instance().get(&DataKey::MinFeeBps).unwrap_or(0);
+    let max_bps: u32 = env.storage().instance().get(&DataKey::MaxFeeBps).unwrap_or(10_000);
+    if bps.is_some_and(|rate| rate < min_bps || rate > max_bps) {
+        env.panic_with_error(ContractError::InvalidMerchantFeeBps);
+    }
+    let key = DataKey::MerchantFeeBps(merchant.clone());
+    if let Some(rate) = bps {
+        env.storage().persistent().set(&key, &rate);
+        env.storage().persistent().extend_ttl(
+            &key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    } else {
+        env.storage().persistent().remove(&key);
+    }
+    crate::events::publish_merchant_fee_bps_set(env, merchant, bps);
+}
+
 /// Stores a custom fee recipient address for a specific merchant.
 /// Immediately bumps the TTL to ~1 year so the entry survives long-running
 /// deployments without manual extension.
@@ -242,7 +273,7 @@ pub fn transfer_subscription_charge(
     // Preflight: one allowance check covering every leg (fee + net == gross).
     validation::check_allowance(env, user, &sub.token, sub.amount);
 
-    let bps = get_fee_bps(env);
+    let bps = effective_fee_bps(env, &sub.merchant);
     let fee_collector =
         get_merchant_fee_recipient(env, &sub.merchant).or_else(|| get_fee_collector(env));
 
@@ -255,7 +286,9 @@ pub fn transfer_subscription_charge(
                 let tip = keeper.map_or(0, |_| {
                     calculate_fee_amount(env, fee, get_keeper_tip_bps(env))
                 });
-                let to_collector = fee - tip;
+                let reward =
+                    crate::referral::accrue_charge_reward(env, user, &sub.token, fee - tip);
+                let to_collector = fee - tip - reward;
                 let token_client = token::Client::new(env, &sub.token);
                 if to_collector > 0 {
                     token_client.transfer_from(
@@ -275,7 +308,15 @@ pub fn transfer_subscription_charge(
                         );
                     }
                 }
-                accumulate_protocol_fees(env, to_collector);
+                if reward > 0 {
+                    token_client.transfer_from(
+                        &env.current_contract_address(),
+                        user,
+                        &env.current_contract_address(),
+                        &reward,
+                    );
+                }
+                accumulate_protocol_fees(env, to_collector + reward);
                 (fee, Some(collector), tip)
             } else {
                 (0, None, 0)
@@ -310,7 +351,7 @@ pub fn transfer_pay_per_use(
     // Preflight: one allowance check covering both legs (fee + net == gross).
     validation::check_allowance(env, user, token, amount);
 
-    let bps = get_fee_bps(env);
+    let bps = effective_fee_bps(env, recipient);
     let fee_collector =
         get_merchant_fee_recipient(env, recipient).or_else(|| get_fee_collector(env));
 

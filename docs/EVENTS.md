@@ -271,6 +271,7 @@ Events related to charges and payments.
 
 - **Trigger**: `charge()` or `batch_charge()`
 - **Topic keys**: `["charged", user_address]`
+- **Schema marker**: `v3` (appended after existing topics)
 - **Payload schema**:
   ```rust
   {
@@ -280,7 +281,8 @@ Events related to charges and payments.
     net: i128,
     charged_at: u64,
     ledger_sequence: u32,
-    paid_to: Option<Address>
+    paid_to: Option<Address>,
+    fee_bps: u32
   }
   ```
 - **JSON example**:
@@ -294,11 +296,13 @@ Events related to charges and payments.
       "net": 49500000,
       "charged_at": 1719388800,
       "ledger_sequence": 12345,
-      "paid_to": "GCOLLECTOR...XYZ"
+      "paid_to": "GCOLLECTOR...XYZ",
+      "fee_bps": 100
     }
   }
   ```
-- **Fee destination (`paid_to`)**: Records the address receiving the protocol fee leg (`MerchantFeeRecipient` if configured for the merchant, otherwise the global `FeeCollector`). Appended at the end of `ChargeEventData` as `Option<Address>` for auditability; evaluates to `null` (`None`) when no fee is charged.
+- **Fee destination (`paid_to`)**: Records the address receiving the collector share (`MerchantFeeRecipient` if configured for the merchant, otherwise the global `FeeCollector`). It is `None` when no protocol fee is charged.
+- **Effective rate (`fee_bps`)**: The merchant override when configured, otherwise the global rate. The marker advances to `v3` so consumers can distinguish this payload from v2.
 
 ### batch_charge_skips
 
