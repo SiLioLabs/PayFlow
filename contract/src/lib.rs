@@ -36,7 +36,11 @@ mod subscription_history;
 mod subscription_metadata;
 mod test;
 #[cfg(test)]
+mod test_keeper;
+#[cfg(test)]
 mod test_migration;
+#[cfg(test)]
+mod test_pause_matrix;
 mod trial;
 mod upgrade;
 mod validation;
@@ -144,6 +148,22 @@ pub enum DataKey {
     MaxWhitelistBatchSize,
     // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
     PendingMerchantRevCount,
+    // Feature: per-user billing extras (last charge snapshot + last skip)
+    BillingState(Address),
+    // Feature: keeper tip, in bps of the protocol fee paid to a `charge_with_tip` caller
+    KeeperTipBps,
+    // Feature: paged schema migration. Per-account marker set once `migrate` has
+    // processed that account, so re-sending a batch never migrates it twice.
+    MigratedAccount(Address),
+    // Feature: number of accounts processed by `migrate` in the current upgrade
+    MigratedAccountCount,
+    // New keys are appended to preserve the established DataKey discriminants.
+    Operator,
+    MerchantFeeBps(Address),
+    ReferralReward(Address, Address),
+    ReferralRewardChargeCount(Address),
+    ReferralRewardBps,
+    ReferralRewardMaxCharges,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -209,6 +229,68 @@ pub struct Subscription {
     pub label: Symbol,             // user-assigned label for this subscription
     pub trial_duration: u64,       // optional trial duration in seconds
     pub created_at: u64,           // timestamp of subscription creation
+}
+
+/// Snapshot of the most recent scheduled charge, used by
+/// `refund_last_charge` to reverse the merchant's revenue and the protocol's
+/// fee accounting by exactly the amounts booked at charge time.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LastChargeRecord {
+    /// Merchant that received the charge's net leg.
+    pub merchant: Address,
+    /// SAC token used for that charge (guards a resubscribe under a new token).
+    pub token: Address,
+    /// Gross amount moved from the subscriber.
+    pub amount: i128,
+    /// Protocol fee booked for that charge (0 when no fee was configured).
+    pub fee: i128,
+    /// Amount added to the merchant's revenue for that charge.
+    pub net: i128,
+    /// Ledger timestamp at which the charge executed.
+    pub charged_at: u64,
+}
+
+/// One per-subscriber storage key in the rent footprint returned by
+/// `get_storage_footprint`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StorageEntryFootprint {
+    /// Short name of the per-user key (e.g. `subscription`, `referral`).
+    pub key: Symbol,
+    /// Whether the entry currently exists in storage.
+    pub present: bool,
+    /// Remaining TTL in ledgers. Real value under `cfg(test)` / the
+    /// `testutils` feature; always `0` in production because Soroban does not
+    /// expose `get_ttl()` on-chain. `0` must not be read as "expired".
+    pub ttl_ledgers: u32,
+}
+
+/// Per-subscriber auxiliary billing state, stored under a single key so the
+/// `DataKey` enum stays within Soroban's 50-variant XDR limit.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BillingState {
+    /// Most recent scheduled charge, flattened. `last_charge_merchant` is
+    /// `Some` exactly when a charge snapshot exists; the other fields are then
+    /// meaningful. Flattening avoids `Option<LastChargeRecord>`, which the
+    /// contracttype macro cannot encode as a nested struct option.
+    pub last_charge_merchant: Option<Address>,
+    pub last_charge_token: Option<Address>,
+    pub last_charge_amount: i128,
+    pub last_charge_fee: i128,
+    pub last_charge_net: i128,
+    pub last_charge_at: u64,
+    /// Timestamp of the last `skip_next_charge` call (cooldown guard).
+    pub last_skip_at: Option<u64>,
+}
+
+/// Rent-estimation helper result: every per-subscriber key the contract can
+/// create, with presence flags and (in test builds) TTLs.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StorageFootprint {
+    pub entries: Vec<StorageEntryFootprint>,
 }
 
 #[contracttype]
@@ -579,42 +661,46 @@ impl FlowPay {
     /// and charge history, refreshes subscription TTL, updates `last_charged`,
     /// and emits `charged`.
     pub fn charge(env: Env, user: Address) {
-        bump_instance_ttl(&env);
-        ensure_contract_not_paused(&env);
-        let key = DataKey::Subscription(user.clone());
+        charge_inner(env, user, None);
+    }
 
-        let mut sub: Subscription = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+    /// Same as `charge`, but pays `keeper` a tip out of the protocol fee.
+    ///
+    /// The tip is `keeper_tip_bps` (see `get_keeper_tip_bps`) of the protocol fee
+    /// for this charge, paid from the subscriber's allowance alongside the fee. It
+    /// is a no-op when the tip is 0 or no protocol fee applies. The merchant's net
+    /// amount and the gross charge are unchanged.
+    ///
+    /// # Auth
+    ///
+    /// Requires `keeper.require_auth()`, so a keeper can only be credited by its own
+    /// signed transaction. The subscriber's authorization is not needed, as with `charge`.
+    ///
+    /// # Side Effects
+    ///
+    /// Everything `charge` does, plus a `keeper_tip` event when a tip is paid.
+    pub fn charge_with_tip(env: Env, user: Address, keeper: Address) {
+        keeper.require_auth();
+        charge_inner(env, user, Some(keeper));
+    }
 
-        let now = env.ledger().timestamp();
+    /// Admin-only: sets the keeper tip as basis points of the protocol fee.
+    ///
+    /// Must be at most `MAX_KEEPER_TIP_BPS` (5_000, i.e. at most half of the
+    /// protocol fee). 0 disables tips; that is the default.
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `NotInitialized` (7) when no admin is set.
+    pub fn set_keeper_tip_bps(env: Env, bps: u32) {
+        admin::require_admin(&env);
+        fee::set_keeper_tip_bps(&env, bps);
+    }
 
-        if sub.paused {
-            if charge_exec::try_auto_resume(&env, &user, &mut sub, now) {
-                // Auto-resumed; fall through to charge immediately
-            } else {
-                env.panic_with_error(ContractError::SubscriptionPaused);
-            }
-        } else if !sub.active {
-            // sub.active required here: paused subscriptions must not be charged/acted upon
-            env.panic_with_error(ContractError::SubscriptionInactive);
-        }
-
-        let next = charge_exec::compute_next_charge_at(&sub)
-            .unwrap_or_else(|| env.panic_with_error(ContractError::SubscriptionPaused));
-
-        if now < next {
-            env.panic_with_error(ContractError::IntervalNotElapsed);
-        }
-
-        let grace_period = grace::get_grace_period(&env);
-        if grace_period > 0 && now > next.saturating_add(grace_period) {
-            env.panic_with_error(ContractError::GracePeriodElapsed);
-        }
-
-        charge_exec::execute_charge(&env, &user, &key, &mut sub, now);
+    /// Returns the keeper tip in bps of the protocol fee. Defaults to 0 (disabled).
+    pub fn get_keeper_tip_bps(env: Env) -> u32 {
+        fee::get_keeper_tip_bps(&env)
     }
 
     pub fn extend_subscription_ttl(env: Env, user: Address) {
@@ -822,6 +908,157 @@ impl FlowPay {
         token_client.transfer(&merchant, &user, &refund);
         cancel_inner(&env, &user);
         events::publish_cancelled_with_refund(&env, &user, refund);
+    }
+
+    /// Merchant-initiated refund of the subscriber's most recent scheduled
+    /// charge, **without** cancelling the subscription.
+    ///
+    /// This complements `cancel_and_refund_prorated`: that entrypoint refunds a
+    /// prorated unused period and ends the subscription, while this one reverses
+    /// one already-collected cycle and keeps the subscriber active.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `merchant`, and only the subscription's own
+    /// merchant may refund it (`RefundMerchantMismatch`).
+    ///
+    /// # Side Effects
+    ///
+    /// - Transfers the recorded gross charge from the merchant back to `user`.
+    /// - Reverses the booked merchant revenue (net) and protocol fees (fee) so
+    ///   `fee + net == amount` holds for the refund as it did for the charge.
+    /// - Clears the last-charge record, so a second refund fails with
+    ///   `NoLastChargeToRefund` (no double refunds).
+    /// - Emits `refunded`.
+    pub fn refund_last_charge(env: Env, user: Address, merchant: Address) {
+        bump_instance_ttl(&env);
+        merchant.require_auth();
+
+        let sub = storage::get_subscription(&env, &user)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+        if sub.merchant != merchant {
+            env.panic_with_error(ContractError::RefundMerchantMismatch);
+        }
+
+        let record = storage::get_last_charge(&env, &user)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoLastChargeToRefund));
+        // Guards a resubscribe to a different merchant: the stale record still
+        // belongs to the merchant that was actually paid.
+        if record.merchant != merchant {
+            env.panic_with_error(ContractError::RefundMerchantMismatch);
+        }
+        if record.amount <= 0 {
+            env.panic_with_error(ContractError::NoLastChargeToRefund);
+        }
+
+        // Merchant-funded refund: validate the source balance before moving
+        // funds so an underfunded merchant cannot reach an opaque SAC failure.
+        let token_client = token::Client::new(&env, &record.token);
+        if token_client.balance(&merchant) < record.amount {
+            env.panic_with_error(ContractError::InsufficientMerchantBalance);
+        }
+
+        token_client.transfer(&merchant, &user, &record.amount);
+
+        // Reverse the same legs booked by `charge_exec::execute_charge`.
+        merchant_stats::decrement_revenue(&env, &merchant, record.net);
+        fee::decrement_protocol_fees(&env, record.fee);
+        storage::clear_last_charge(&env, &user);
+        extend_subscription_ttl(&env, &user);
+
+        events::publish_refunded(
+            &env,
+            &user,
+            &merchant,
+            record.amount,
+            record.fee,
+            record.net,
+            record.charged_at,
+        );
+    }
+
+    /// Skips exactly one upcoming billing cycle for `user` without pausing or
+    /// cancelling the subscription.
+    ///
+    /// Advances `last_charged` by one `interval`, which moves
+    /// `next_charge_at` one interval later. The subscriber may call this at most
+    /// once per billing interval (`SkipCooldownActive`), so a subscriber cannot
+    /// chain skips into an indefinite free subscription.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `user`.
+    ///
+    /// # Errors
+    ///
+    /// Panics if no subscription exists (`NoSubscriptionFound`), it is paused
+    /// (`SubscriptionPaused`) or cancelled (`SubscriptionInactive`), the skip
+    /// cooldown has not elapsed (`SkipCooldownActive`), or the timestamp
+    /// arithmetic overflows (`ArithmeticOverflow`).
+    ///
+    /// # Side Effects
+    ///
+    /// Overwrites `last_charged`, records the skip timestamp, refreshes the
+    /// subscription TTL, and emits `charge_skipped`.
+    pub fn skip_next_charge(env: Env, user: Address) {
+        bump_instance_ttl(&env);
+        user.require_auth();
+
+        let key = DataKey::Subscription(user.clone());
+        let mut sub: Subscription = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+        if sub.paused {
+            env.panic_with_error(ContractError::SubscriptionPaused);
+        }
+        if !sub.active {
+            env.panic_with_error(ContractError::SubscriptionInactive);
+        }
+        if sub.interval == 0 {
+            env.panic_with_error(ContractError::IntervalMustBePositive);
+        }
+
+        let now = env.ledger().timestamp();
+
+        // Abuse bound: at most one skip per billing interval.
+        if let Some(last_skip) = storage::get_last_skip_at(&env, &user) {
+            let cooldown_end = last_skip
+                .checked_add(sub.interval)
+                .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+            if now < cooldown_end {
+                env.panic_with_error(ContractError::SkipCooldownActive);
+            }
+        }
+
+        let new_last_charged = sub
+            .last_charged
+            .checked_add(sub.interval)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+        let next_charge_at = new_last_charged
+            .checked_add(sub.interval)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
+
+        sub.last_charged = new_last_charged;
+        env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
+        storage::set_last_skip_at(&env, &user, now);
+
+        events::publish_charge_skipped(&env, &user, sub.interval, new_last_charged, next_charge_at);
+    }
+
+    /// Returns the per-subscriber storage footprint for rent estimation.
+    ///
+    /// Lists every key the contract can create for `user` (subscription,
+    /// referral, metadata, charge history, subscriber-index slot, pause expiry,
+    /// last charge, last skip, and the temporary daily-limit keys) with presence
+    /// flags. TTLs are reported only in test/testutils builds; production
+    /// returns `0` because Soroban does not expose `get_ttl()` on-chain.
+    pub fn get_storage_footprint(env: Env, user: Address) -> StorageFootprint {
+        storage::get_storage_footprint(&env, &user)
     }
 
     /// Pauses `user`'s subscription without cancelling it.
@@ -1516,6 +1753,20 @@ impl FlowPay {
         fee::set_merchant_fee_recipient(&env, &merchant, &recipient);
     }
 
+    /// Admin sets or clears a merchant-specific protocol fee override.
+    pub fn set_merchant_fee_bps(env: Env, merchant: Address, bps: Option<u32>) {
+        admin::require_admin(&env);
+        fee::set_merchant_fee_bps(&env, &merchant, bps);
+    }
+
+    pub fn get_merchant_fee_bps(env: Env, merchant: Address) -> Option<u32> {
+        fee::get_merchant_fee_bps(&env, &merchant)
+    }
+
+    pub fn get_effective_fee_bps(env: Env, merchant: Address) -> u32 {
+        fee::effective_fee_bps(&env, &merchant)
+    }
+
     /// Returns the configured merchant fee recipient, or None when unset.
     pub fn get_merchant_fee_recipient(env: Env, merchant: Address) -> Option<Address> {
         fee::get_merchant_fee_recipient(&env, &merchant)
@@ -1525,13 +1776,13 @@ impl FlowPay {
     /// subscribers' charge and pay_per_use calls unaffected. Independent of
     /// whitelist status — idempotent.
     pub fn freeze_merchant(env: Env, merchant: Address, reason: Option<String>) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         whitelist::freeze(&env, &merchant, reason);
     }
 
     /// Unfreezes a merchant, allowing new subscriptions again. Idempotent.
     pub fn unfreeze_merchant(env: Env, merchant: Address) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         whitelist::unfreeze(&env, &merchant);
     }
 
@@ -1704,6 +1955,56 @@ impl FlowPay {
                                 result.push_back(addr);
                             }
                         }
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// Returns the subscribers whose next charge falls inside the window
+    /// `[from, to]` (inclusive), paired with that due timestamp.
+    ///
+    /// Keepers use this to plan work ahead of time: instead of only asking what
+    /// is due *now* (`get_next_charge_batch`), a keeper can ask what is due in
+    /// the next N seconds and sleep until the earliest returned timestamp.
+    ///
+    /// # Bounded scan
+    ///
+    /// Like `get_next_charge_batch`, each call reads at most `limit` index slots
+    /// and `limit` must be ≤ 50 (`BatchTooLarge` otherwise). The window is applied
+    /// after the slot read, so a page may return fewer rows than `limit`, or none,
+    /// while later slots still match. Walk the whole index by advancing `offset`
+    /// by `limit` until `offset >= get_subscriber_count()`.
+    ///
+    /// # Filtering
+    ///
+    /// Only subscriptions that `compute_next_charge_at` considers chargeable are
+    /// returned (active and not paused). Tombstoned (cancelled) slots are skipped.
+    /// Grace-lapsed subscriptions are *not* filtered out here; a window that starts
+    /// in the past still reports them and the caller decides what to do.
+    ///
+    /// Returns an empty Vec when `limit == 0` or `from > to`.
+    pub fn get_charges_due_between(
+        env: Env,
+        from: u64,
+        to: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Vec<(Address, u64)> {
+        if limit > SUBSCRIBER_PAGE_SIZE {
+            env.panic_with_error(ContractError::BatchTooLarge);
+        }
+        let mut result = Vec::new(&env);
+        if limit == 0 || from > to {
+            return result;
+        }
+        let candidates = subscriber_scan::scan_subscriber_slots(&env, offset, limit as u64);
+        for addr in candidates.iter() {
+            if let Some(sub) = storage::get_subscription(&env, &addr) {
+                if let Some(next) = charge_exec::compute_next_charge_at(&sub) {
+                    if next >= from && next <= to {
+                        result.push_back((addr, next));
                     }
                 }
             }
@@ -2073,14 +2374,57 @@ impl FlowPay {
         referral::get_referrer(&env, &user)
     }
 
+    /// Admin policy: share of protocol fee paid as referral credit and eligible charge count.
+    pub fn set_referral_reward_policy(env: Env, bps: u32, max_charges: u32) {
+        admin::require_admin(&env);
+        if bps > referral::MAX_REFERRAL_REWARD_BPS || max_charges == 0 {
+            env.panic_with_error(ContractError::InvalidMerchantFeeBps);
+        }
+        env.storage().instance().set(&DataKey::ReferralRewardBps, &bps);
+        env.storage().instance().set(&DataKey::ReferralRewardMaxCharges, &max_charges);
+        events::publish_referral_reward_policy(&env, bps, max_charges);
+    }
+
+    pub fn get_referral_reward_balance(env: Env, token: Address, referrer: Address) -> i128 {
+        referral::get_reward_balance(&env, &token, &referrer)
+    }
+
+    /// Withdraws accrued referral rewards for the supplied SAC token.
+    pub fn withdraw_referral_rewards(env: Env, token: Address, referrer: Address) -> i128 {
+        referral::withdraw_reward(&env, &token, &referrer)
+    }
+
     // ─────────────────────────────────────────────────────────────
     // State migration
     // ─────────────────────────────────────────────────────────────
 
-    /// Migrates contract storage to the latest schema version.
-    /// Safe to call multiple times — subsequent calls are no-ops.
+    /// Migrates the listed accounts toward the latest schema version. Admin only.
+    ///
+    /// Batch-safe and idempotent per account: an account already processed by an
+    /// earlier call is skipped. This does **not** advance `SchemaVersion`. Call
+    /// `finalize_migration` once every account is done. See `migration::migrate`.
     pub fn migrate(env: Env, users: Vec<Address>) {
         migration::migrate(&env, users);
+    }
+
+    /// Completes the schema migration. Admin only.
+    ///
+    /// Advances `SchemaVersion` to the current version, which unblocks new
+    /// subscriptions, but only once at least `expected_total` accounts have been
+    /// processed by `migrate`. Idempotent after completion.
+    ///
+    /// # Errors
+    ///
+    /// `MigrationIncomplete` (48) when `migrated_accounts < expected_total`.
+    pub fn finalize_migration(env: Env, expected_total: u64) {
+        migration::finalize(&env, expected_total);
+    }
+
+    /// Returns the migration progress: stored schema version, target version,
+    /// accounts processed so far, and whether the migration is complete.
+    /// Read-only, no auth required.
+    pub fn get_migration_progress(env: Env) -> migration::MigrationProgress {
+        migration::get_migration_progress(&env)
     }
 
     /// Returns the current storage schema version.
@@ -2158,16 +2502,34 @@ impl FlowPay {
 
     /// Pauses the contract. Only the admin can call this.
     pub fn pause_contract(env: Env) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         storage::set_contract_paused(&env, true);
         events::publish_contract_paused(&env);
     }
 
     /// Unpauses the contract. Only the admin can call this.
     pub fn unpause_contract(env: Env) {
-        admin::require_admin(&env);
+        admin::require_operator_or_admin(&env);
         storage::set_contract_paused(&env, false);
         events::publish_contract_unpaused(&env);
+    }
+
+    /// Admin assigns or clears the emergency operator role.
+    pub fn set_operator(env: Env, operator: Option<Address>) {
+        admin::require_admin(&env);
+        if operator.as_ref().is_some_and(|a| a == &env.current_contract_address()) {
+            env.panic_with_error(ContractError::InvalidOperatorAddress);
+        }
+        if let Some(ref address) = operator {
+            env.storage().instance().set(&DataKey::Operator, address);
+        } else {
+            env.storage().instance().remove(&DataKey::Operator);
+        }
+        events::publish_operator_changed(&env, &operator);
+    }
+
+    pub fn get_operator(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Operator)
     }
 
     // Admin setup
@@ -2747,6 +3109,48 @@ fn is_contract_paused(env: &Env) -> bool {
         .instance()
         .get(&DataKey::ContractPaused)
         .unwrap_or(false)
+}
+
+/// Shared body of `charge` and `charge_with_tip`. `keeper` is `None` for a plain
+/// charge; `Some(addr)` routes the keeper tip to `addr` (see `charge_with_tip`).
+/// Callers are responsible for any auth on `keeper`.
+fn charge_inner(env: Env, user: Address, keeper: Option<Address>) {
+    bump_instance_ttl(&env);
+    ensure_contract_not_paused(&env);
+    let key = DataKey::Subscription(user.clone());
+
+    let mut sub: Subscription = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+    let now = env.ledger().timestamp();
+
+    if sub.paused {
+        if charge_exec::try_auto_resume(&env, &user, &mut sub, now) {
+            // Auto-resumed; fall through to charge immediately
+        } else {
+            env.panic_with_error(ContractError::SubscriptionPaused);
+        }
+    } else if !sub.active {
+        // sub.active required here: paused subscriptions must not be charged/acted upon
+        env.panic_with_error(ContractError::SubscriptionInactive);
+    }
+
+    let next = charge_exec::compute_next_charge_at(&sub)
+        .unwrap_or_else(|| env.panic_with_error(ContractError::SubscriptionPaused));
+
+    if now < next {
+        env.panic_with_error(ContractError::IntervalNotElapsed);
+    }
+
+    let grace_period = grace::get_grace_period(&env);
+    if grace_period > 0 && now > next.saturating_add(grace_period) {
+        env.panic_with_error(ContractError::GracePeriodElapsed);
+    }
+
+    charge_exec::execute_charge(&env, &user, &key, &mut sub, now, keeper.as_ref());
 }
 
 fn ensure_contract_not_paused(env: &Env) {

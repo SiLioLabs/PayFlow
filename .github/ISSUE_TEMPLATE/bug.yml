@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible PayFlow defect
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requirements
+      description: Steps to reproduce, affected component, and environment.
+      placeholder: "1. ...\n2. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable conditions that make this bug resolved.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Contributor checks
+      options:
+        - label: I have checked existing issues and documentation.
+        - label: I can provide logs or a reproducible test case.

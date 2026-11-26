@@ -193,7 +193,7 @@ The grace period is a **contract-wide** setting (set by admin via the two-step `
 
 ### How are contract upgrades and storage migrations handled?
 
-Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entrypoint, which calls `env.deployer().update_current_contract_wasm()` and emits an `upgraded` event. If the new WASM introduces storage layout changes, call `migrate()` once after upgrading — it reads the current `SchemaVersion` from instance storage and applies any pending transformations sequentially (e.g., the v1→v2 migration adds the `paused` field to all provided `Subscription` records). Subsequent `migrate()` calls are safe no-ops. See [Deployment — State Migration](docs/DEPLOYMENT.md#state-migration) for the full migration history and CLI steps.
+Contract WASM can be replaced by the admin via the `upgrade(new_wasm_hash)` entrypoint, which calls `env.deployer().update_current_contract_wasm()` and emits an `upgraded` event. If the new WASM introduces storage layout changes, run `migrate(users)` in batches after upgrading (for example, the v1→v2 step adds the `paused` field to each provided `Subscription` record). Each account is processed once, so re-sent batches are safe. Then call `finalize_migration(total)` to advance the schema version and unblock new subscriptions. Check progress with `get_migration_progress()`. See [Deployment — State Migration](docs/DEPLOYMENT.md#state-migration) for the full workflow and CLI steps.
 
 ### What is the difference between Testnet and Mainnet deployments?
 
@@ -293,9 +293,15 @@ See [`docs/ONBOARDING.md`](docs/ONBOARDING.md) for a contributor walkthrough and
 | [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend architecture guide |
 | [`docs/FRONTEND-COMPONENTS.md`](docs/FRONTEND-COMPONENTS.md) | Component reference |
 | [`docs/KEEPER.md`](docs/KEEPER.md) | Keeper runtime and configuration |
-| [`docs/integrations/frontend_integration.md`](docs/integrations/frontend_integration.md) | Frontend integration guide |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Frontend integration guide |
 
 All docs live under [`docs/`](docs/).
+
+## Development notes
+
+- [Agent context](AGENTS.md) — workspace description used by AI coding assistants
+- [UI design](UIDesign.md) — Figma design file link
+- [TODO](TODO.md) — open developer tasks
 
 ## License
 

@@ -1,27 +1,32 @@
 # ── Stage 1: runtime ──────────────────────────────────────────────────────────
 # Minimal image with tsx for runtime TypeScript execution.
-FROM node:20-alpine AS runtime
+#
+# Node 24 is required: indexer.ts imports `node:sqlite`, which only became
+# flagless in the Node 24 line (Node 20 needs --experimental-sqlite and still
+# lacks APIs the indexer uses).
+FROM node:24-alpine AS runtime
 
 WORKDIR /app
 
 # Copy manifests and install production dependencies only.
 COPY package.json package-lock.json ./
-RUN npm ci --frozen-lockfile --omit=dev
+RUN npm ci --omit=dev
 
 # Install tsx globally before switching to non-root user.
 RUN npm install -g tsx
 
-# Create data directory for SQLite persistence (indexer writes events.db here).
-# Must be done before switching to non-root user.
-RUN mkdir -p /app/data
+# Create the data directory for SQLite persistence (indexer writes events.db
+# here) and hand it to the non-root user — a root-owned directory would make
+# every write fail once we switch to USER node below.
+RUN mkdir -p /app/data && chown -R node:node /app/data
 
 # Security: run as the built-in non-root "node" user.
 USER node
 
-# Copy all source files needed by the services.
-COPY --chown=node:node keeper.ts indexer.ts metrics-server.ts ./
-COPY --chown=node:node batch-optimizer.ts rpc-client.ts event-dedup.ts logger.ts ./
-COPY --chown=node:node tsconfig.json ./
+# Copy every runtime file (sources, migrations, fixtures, tsconfig). The set
+# of files included here is defined by .dockerignore — never by an explicit
+# COPY list, which silently broke the image whenever a new module was added.
+COPY --chown=node:node . ./
 
 # All configuration is supplied via environment variables at runtime.
 # See .env.example for the full list.

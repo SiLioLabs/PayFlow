@@ -53,6 +53,7 @@ pub enum CancelResult {
     NoSubscription,
     /// Subscription was already cancelled.
     AlreadyCancelled,
+    /// A paused subscription was cancelled; cancel succeeded but state was unusual.
     /// A paused (but active) subscription was cancelled.
     PausedCancelled,
     /// Subscription belongs to a frozen merchant and was cancelled.
@@ -176,7 +177,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         {
                             ChargeResult::AllowanceInsufficient
                         } else {
-                            charge_exec::execute_charge(env, &user, &key, &mut sub, now);
+                            charge_exec::execute_charge(env, &user, &key, &mut sub, now, None);
                             ChargeResult::Charged
                         }
                     }

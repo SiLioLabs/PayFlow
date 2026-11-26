@@ -87,6 +87,7 @@ function anchorsFor(file) {
 const linkRe = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const broken = [];
 const linkTargets = new Set(); // resolved .md paths that at least one link points to
+const linked = linkTargets; // alias used by markLinked
 let checked = 0;
 
 /** Records `target` as linked to, ignoring self-links. */

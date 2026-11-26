@@ -26,6 +26,9 @@ This document tracks the current public contract surface in [contract/src/lib.rs
   - [extend\_subscription\_ttl](#extend_subscription_ttl)
   - [pay\_per\_use](#pay_per_use)
   - [cancel](#cancel)
+  - [refund_last_charge](#refund_last_charge)
+  - [skip_next_charge](#skip_next_charge)
+  - [get_storage_footprint](#get_storage_footprint)
   - [pause](#pause)
   - [pause\_until](#pause_until)
   - [resume](#resume)
@@ -575,6 +578,47 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge --user <USER_ADDRESS>
 ```
 
+### `charge_with_tip`
+
+```
+charge_with_tip(env: Env, user: Address, keeper: Address)
+```
+
+Same as `charge`, but pays `keeper` a tip out of the protocol fee: `fee * keeper_tip_bps / 10000`,
+taken from the subscriber's allowance. The fee collector receives the rest of the fee.
+The merchant's net and the gross charge are unchanged. The tip is zero when
+`keeper_tip_bps` is 0 or no protocol fee applies.
+
+Auth: `keeper.require_auth()`. The subscriber's auth is not needed, as with `charge`.
+
+Returns: `()`.
+
+Side effects: everything `charge` does, plus a [`keeper_tip`](./EVENTS.md#keeper_tip) event when a tip is paid.
+
+Errors: the same as `charge`. A missing keeper signature fails the invocation.
+
+Operator guidance: [`KEEPER.md`](./KEEPER.md#keeper-tip-charge_with_tip).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- charge_with_tip --user <USER_ADDRESS> --keeper <KEEPER_ADDRESS>
+```
+
+### `set_keeper_tip_bps` / `get_keeper_tip_bps`
+
+```
+set_keeper_tip_bps(env: Env, bps: u32)
+get_keeper_tip_bps(env: Env) -> u32
+```
+
+`set_keeper_tip_bps` is admin-only. It sets the keeper tip in basis points of the protocol
+fee. The maximum is 5000 bps (half the fee), and the default is 0 (off). Values above the
+maximum fail with `InvalidKeeperTipBps` (49), and a rejected value is not stored. It emits
+[`keeper_tip_bps_set`](./EVENTS.md#keeper_tip_bps_set).
+
+`get_keeper_tip_bps` is read-only.
+
 ### `simulate_charge`
 
 Dry-run of a single `charge()` for `user`. **No storage writes** and **no token transfer**. Outcomes are [`ChargeSimResult`](#chargesimresult) variants, not panics.
@@ -745,7 +789,7 @@ pay_per_use_to(env: Env, user: Address, amount: i128, recipient: Address)
 - Emits `pay_per_use` event with `recipient` in place of `sub.merchant`.
 
 **Use cases:**  
-Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-marketplace--multi-merchant-routing), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
+Multi-merchant marketplaces, tipping, service routing. See [MERCHANT-INTEGRATION.md § 4](./MERCHANT-INTEGRATION.md#4-handling-events), [INTEGRATION-GUIDE.md § pay_per_use_to](./INTEGRATION-GUIDE.md), and [MULTI-TOKEN.md](./MULTI-TOKEN.md).
 
 CLI example:
 
@@ -774,6 +818,73 @@ CLI example:
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- cancel --user <USER_ADDRESS>
 ```
+
+### `refund_last_charge`
+
+Merchant-initiated refund of the subscriber's most recent **scheduled** charge. Unlike `cancel_and_refund_prorated`, this does **not** cancel the subscription: the subscriber keeps the plan and the next cycle charges normally.
+
+```
+refund_last_charge(env: Env, user: Address, merchant: Address)
+```
+
+| Name       | Type      | Description                                            |
+| ---------- | --------- | ------------------------------------------------------ |
+| `user`     | `Address` | Subscriber receiving the refund.                       |
+| `merchant` | `Address` | Subscription's merchant; must sign and fund the refund. |
+
+**Auth:** `merchant.require_auth()`. Only the subscription's own merchant may refund (`RefundMerchantMismatch`, #38).
+
+**Returns:** `()`.
+
+**Behavior:** transfers the recorded gross charge (`LastChargeRecord.amount`) from the merchant to the subscriber, reverses the merchant revenue by the booked net, reverses `TotalProtocolFees` by the booked fee (`fee + net == amount`), clears the `LastCharge` record, and emits `refunded`. Because the record is cleared, a second refund fails with `NoLastChargeToRefund` (#50); a later `charge` or `batch_charge` records a new snapshot.
+
+**Errors:** `NoSubscriptionFound` (#4), `RefundMerchantMismatch` (#38), `InsufficientMerchantBalance` (#40), `NoLastChargeToRefund` (#50).
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- refund_last_charge --user <USER_ADDRESS> --merchant <MERCHANT_ADDRESS>
+```
+
+### `skip_next_charge`
+
+Skips exactly one upcoming billing cycle without pausing or cancelling. Advances `last_charged` by one `interval`, so `next_charge_at` moves one full interval later.
+
+```
+skip_next_charge(env: Env, user: Address)
+```
+
+| Name   | Type      | Description            |
+| ------ | --------- | ---------------------- |
+| `user` | `Address` | Subscriber and signer. |
+
+**Auth:** `user.require_auth()`.
+
+**Returns:** `()`.
+
+**Abuse limit:** at most one skip per billing interval. The previous skip timestamp is stored in `LastSkipAt(user)`; a second call before `last_skip + interval` fails with `SkipCooldownActive` (#49).
+
+**Errors:** `NoSubscriptionFound` (#4), `SubscriptionInactive` (#5), `SubscriptionPaused` (#17), `SkipCooldownActive` (#49), `ArithmeticOverflow` (#36).
+
+**Side effects:** overwrites `last_charged`, stores `LastSkipAt(user)`, refreshes the subscription TTL, and emits `charge_skipped`.
+
+**CLI example**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- skip_next_charge --user <USER_ADDRESS>
+```
+
+### `get_storage_footprint`
+
+Returns every per-subscriber storage key the contract can create, with presence flags and (test builds only) remaining TTLs, for rent estimation.
+
+```
+get_storage_footprint(env: Env, user: Address) -> StorageFootprint
+```
+
+Each entry is `{ key: Symbol, present: bool, ttl_ledgers: u32 }`. Keys reported: `subscription`, `referral`, `metadata`, `charge_history`, `index_slot`, `pause_expiry`, `last_charge`, `last_skip`, `daily_limit`, `daily_spent`, `day_start`. The full key/TTL mapping lives in [architecture/STORAGE-AND-TTL.md](./architecture/STORAGE-AND-TTL.md).
+
+**Auth:** none. `ttl_ledgers` is `0` in production (Soroban does not expose `get_ttl()` on-chain); `0` must not be interpreted as expired. Tests report real TTLs.
 
 ### `pause`
 
@@ -1105,6 +1216,8 @@ Returns `None` if no subscription exists for `user`.
 
 **Storage read:** `DataKey::Subscription(user)` in persistent storage (reads `last_charged` field).
 
+**Bounded extensions:** `extend_trial(user, additional_seconds)` adds at most `MAX_TRIAL_EXTENSION` (90 days) per call, and the resulting trial end may not exceed `now + MAX_TOTAL_TRIAL` (365 days). Extensions beyond either bound fail with `TrialExtensionExceedsMaximum` (#48), preventing an effectively unlimited free subscription.
+
 **See also:** [`subscribe`](#subscribe) for the `trial_period` parameter; [`next_charge_at`](#next_charge_at) which returns `Some(last_charged + interval)` once the trial ends.
 
 **CLI example**
@@ -1393,7 +1506,9 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_top_merchant
 freeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
+
+When an operator is configured with `set_operator`, the configured operator may also call `freeze_merchant`, `unfreeze_merchant`, `pause_contract`, and `unpause_contract`. Operator authority does not extend to upgrades, fee configuration, or other admin setters.
 
 Returns: `()`.
 
@@ -1409,7 +1524,7 @@ soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testne
 unfreeze_merchant(env: Env, merchant: Address)
 ```
 
-Auth: admin only.
+Auth: admin, or the configured operator when one is set.
 
 Returns: `()`.
 
@@ -1606,6 +1721,31 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <KEEPER_KEY> --network testnet -- batch_charge --users '["<USER_A>","<USER_B>"]'
 ```
 
+### `get_charges_due_between`
+
+```
+get_charges_due_between(env: Env, from: u64, to: u64, offset: u64, limit: u32) -> Vec<(Address, u64)>
+```
+
+Auth: none (read-only).
+
+Returns the subscribers whose next charge falls in `[from, to]` (inclusive), each paired with
+that due timestamp. The timestamp equals `next_charge_at` for that subscriber. Only active,
+unpaused subscriptions are returned, and cancelled (tombstoned) slots are skipped.
+Grace-lapsed subscriptions are not filtered out.
+
+Bounded scan: each call reads at most `limit` index slots, starting at `offset`. `limit` is capped
+at 50 (`BatchTooLarge` otherwise), the same cap as `get_next_charge_batch`. The window is applied
+after the slot read, so a page can return fewer rows than `limit`, or none. To cover the whole index,
+advance `offset` by `limit` until `offset >= get_subscriber_count()`. An inverted window
+(`from > to`) or `limit == 0` returns an empty list.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_charges_due_between --from 1700000000 --to 1700086400 --offset 0 --limit 50
+```
+
 ### `get_batch_charge_estimate`
 
 Batch **estimate** (not a transfer). Returns `Vec<ChargeResult>` — the live batch enum — **not** [`ChargeSimResult`](#chargesimresult).
@@ -1780,6 +1920,22 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_revenue --merchant <MERCHANT_ADDRESS>
+```
+
+### `withdraw_merchant_revenue`
+
+```
+withdraw_merchant_revenue(env: Env, merchant: Address)
+```
+
+Auth: `merchant.require_auth()`.
+
+Returns: `()`. Transfers the accumulated revenue balance from contract storage to the merchant's wallet and resets the stored balance to zero.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <MERCHANT_KEY> --network testnet -- withdraw_merchant_revenue --merchant <MERCHANT_ADDRESS>
 ```
 
 ### `get_merchant_revenue_history`
@@ -1984,15 +2140,63 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_referrer --u
 migrate(env: Env, users: Vec<Address>)
 ```
 
-Auth: none.
+Auth: admin (`require_auth` on the stored admin).
 
 Returns: `()`.
+
+Migrates the listed accounts in batches. It is idempotent per account: an account
+that an earlier batch already processed is skipped, so re-sending a batch is safe.
+Each processed account counts once toward `get_migration_progress().migrated_accounts`.
+
+**`migrate` does not advance the schema version.** It stays at its pre-upgrade value
+until `finalize_migration` succeeds, so `SchemaMigrationRequired` (42) keeps blocking
+new subscriptions during the run.
+
+Errors: `NotInitialized` (7) when no admin is set; admin auth failures panic.
 
 CLI example:
 
 ```bash
-soroban contract invoke --id <CONTRACT_ID> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- migrate --users '["<USER_ADDRESS>"]'
 ```
+
+### `finalize_migration`
+
+```
+finalize_migration(env: Env, expected_total: u64)
+```
+
+Auth: admin.
+
+Returns: `()`.
+
+Advances the schema version to the current version, which unblocks new subscriptions.
+It succeeds only when `migrated_accounts >= expected_total`, where `expected_total` is
+the number of accounts the operator believes need migrating. Once complete, repeated
+calls do nothing and emit nothing. On success it emits
+[`migration_completed`](./EVENTS.md#migration_completed).
+
+Errors: `MigrationIncomplete` (48) when fewer than `expected_total` accounts have been
+processed.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network testnet -- finalize_migration --expected_total 1200
+```
+
+### `get_migration_progress`
+
+```
+get_migration_progress(env: Env) -> MigrationProgress
+```
+
+Auth: none (read-only).
+
+Returns a struct with `schema_version`, `target_version`, `migrated_accounts` (u64) and
+`complete` (bool). Use `migrated_accounts` as the resume position when feeding the
+operator's account list to `migrate`. [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts)
+does this.
 
 ### `get_schema_version`
 
@@ -2172,6 +2376,54 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- contract_health_check
+```
+
+### `get_subscription_health`
+
+```
+get_subscription_health(env: Env, user: Address) -> SubscriptionHealth
+```
+
+Auth: none.
+
+Returns: [`SubscriptionHealth`](#subscriptionhealth) — a composite snapshot of the subscription's current state for frontend display.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_subscription_health --user <USER_ADDRESS>
+```
+
+### `get_contract_config`
+
+```
+get_contract_config(env: Env) -> ContractConfig
+```
+
+Auth: none.
+
+Returns: [`ContractConfig`](#contractconfig) — a snapshot of contract-wide configuration settings (token, admin, fee, grace period, min interval, whitelist mode, paused flag, schema version).
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_contract_config
+```
+
+### `batch_cancel`
+
+```
+batch_cancel(env: Env, users: Vec<Address>) -> Vec<CancelResult>
+```
+
+Auth: each `user.require_auth()` in the batch.
+
+Returns: `Vec<`[`CancelResult`](#cancelresult)`>` — one entry per address indicating whether the cancellation succeeded or why it was skipped.
+
+CLI example:
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- batch_cancel --users '["<USER1>","<USER2>"]'
 ```
 
 ### `clear_charge_history`
@@ -2545,3 +2797,13 @@ For a complete reference of all events with detailed schemas and examples, see [
 All error conditions are returned as `ContractError` values. Client SDKs can decode these programmatically. Each variant is identified by its `u32` discriminant.
 
 For the complete error codes reference with detailed recovery steps and prevention guidance, see [ERROR-CODES.md](./ERROR-CODES.md).
+
+## Merchant fee overrides and emergency operator
+
+`set_merchant_fee_bps(env, merchant, bps: Option<u32>)` is admin-only. The configured rate must be within the current `MinFeeBps` / `MaxFeeBps`; pass `None` to clear the override and inherit the global rate. `get_merchant_fee_bps` returns the override and `get_effective_fee_bps` returns the applied rate. Successful `charged` event payloads include `fee_bps`.
+
+`set_operator(env, operator: Option<Address>)` is admin-only and emits `operator_changed`. The designated operator may call only the emergency controls `pause_contract`, `unpause_contract`, `freeze_merchant`, and `unfreeze_merchant`. Admin authority remains valid and all fee setters and upgrade methods remain admin-only.
+
+## Referral reward withdrawals
+
+The default referral policy reserves 10% of each protocol fee for the first 12 successful recurring charges. Admins configure it with `set_referral_reward_policy(bps, max_charges)`; `bps` is capped at 5,000. `get_referral_reward_balance(token, referrer)` reports the token-specific claim. `withdraw_referral_rewards(token, referrer)` requires referrer authorization and transfers the accrued balance from the contract reserve.

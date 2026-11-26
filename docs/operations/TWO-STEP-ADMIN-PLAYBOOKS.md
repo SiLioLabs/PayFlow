@@ -111,7 +111,7 @@ soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- contract_hea
 # Expected: is_healthy true (unless intentionally paused)
 
 soroban contract invoke --id "$CONTRACT_ID" --network "$NETWORK" -- get_schema_version
-# If layout changed: run migrate() once (admin), then re-check version == CURRENT_VERSION (3)
+# If layout changed: run migrate() in batches (admin), then finalize_migration(total) (admin), then re-check version == CURRENT_VERSION (3)
 ```
 
 Restart keepers; drain any DLQ per [`KEEPER-RUNBOOK.md`](KEEPER-RUNBOOK.md).

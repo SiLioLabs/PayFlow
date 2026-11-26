@@ -157,6 +157,7 @@
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
+    "timestamp": 7200,
     "timestamp": 3601,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,

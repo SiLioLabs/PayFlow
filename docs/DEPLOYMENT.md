@@ -188,29 +188,26 @@ CONTRACT_ID=<CONTRACT_ID> npx tsx health-check.ts
 
 ## State Migration
 
-`migrate(users)` is **admin-only** (`admin::require_admin`). It takes a page of subscriber addresses. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs). Already-migrated slots are no-ops; repeating `migrate` at version 3 does not bump the version again.
+The migration is **resumable** and has two admin steps. `migrate(users)` processes accounts in batches. `finalize_migration(expected_total)` completes the upgrade. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs).
 
-Paged workflow (also documented on `require_current_version` / `migrate` in that file):
-
-1. Upgrade WASM. `schema_version` stays at the pre-upgrade value until migration finishes.
-2. Page subscribers with `get_subscriber_page` (capped at 50 addresses per call).
-3. Invoke `migrate` for each page.
-4. Confirm `get_schema_version() == 3` before treating the instance as caught up.
-`migrate(users)` is admin-only. It takes a **page of subscriber addresses**, not an empty invoke. Current target is `CURRENT_VERSION` **3** in [`contract/src/migration.rs`](../contract/src/migration.rs). Subsequent calls are no-ops for already-migrated slots.
+- `migrate(users)` is admin-only and batch-safe. Each account is processed once, even if a batch is re-sent. It **does not advance `schema_version`**, so new subscriptions stay blocked (error 42) until `finalize_migration` succeeds.
+- `get_migration_progress()` returns `migrated_accounts`, the number of distinct accounts processed. An interrupted run resumes from that position in the operator's account list.
+- `finalize_migration(expected_total)` is admin-only. It advances the version only when `migrated_accounts >= expected_total`, and returns `MigrationIncomplete` (48) otherwise. It is idempotent after completion.
 
 Recommended operator workflow after a WASM upgrade that changes storage layout:
 
-1. Upgrade WASM (`propose_upgrade` / `commit_upgrade`). Schema version stays at the pre-upgrade value until `migrate` finishes.
-2. Page subscribers with `get_subscriber_page` (contract pages up to 50 addresses per call).
-3. Call `migrate` for each page.
-4. Confirm `get_schema_version() == 3` before accepting new subscription writes.
+1. Upgrade WASM (`propose_upgrade` / `commit_upgrade`). `schema_version` stays at the pre-upgrade value until `finalize_migration` succeeds.
+2. Build the complete list of legacy subscriber addresses from a snapshot. Keep the order stable and remove duplicates. The total is the list length.
+3. Read progress with `get_migration_progress`, then call `migrate` with the next batches of up to 50 addresses, starting at `migrated_accounts`.
+4. When `migrated_accounts` equals the list length, call `finalize_migration(<list length>)`.
+5. Confirm `get_schema_version() == 3` before accepting new subscription writes.
 
 ```bash
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --source admin \
   --network testnet \
-  -- get_subscriber_page --offset 0 --limit 50
+  -- get_migration_progress
 
 soroban contract invoke \
   --id <CONTRACT_ID> \
@@ -220,11 +217,17 @@ soroban contract invoke \
 
 soroban contract invoke \
   --id <CONTRACT_ID> \
+  --source admin \
+  --network testnet \
+  -- finalize_migration --expected_total 1200
+
+soroban contract invoke \
+  --id <CONTRACT_ID> \
   --network testnet \
   -- get_schema_version
 ```
 
-Optional helper: [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts) (`npx tsx scripts/migrate-contract.ts [--dry-run]`), using `VITE_CONTRACT_ID` / `VITE_RPC_URL` / `VITE_NETWORK_PASSPHRASE`. Prefer the CLI invokes above unless you have validated that script in your environment.
+Helper: [`scripts/migrate-contract.ts`](../scripts/migrate-contract.ts). It reads progress, resumes at `migrated_accounts`, and simulates each batch and the final `finalize_migration`. It is given the account list with `--accounts <file.json>` and uses `CONTRACT_ID` / `VITE_CONTRACT_ID`. It **never submits** a transaction, because signing needs the admin key. Submit the batches with your admin tooling, then re-run the script to finalize. Prefer the CLI invokes above unless you have validated the script in your environment.
 
 If subscription writes fail with **error 42**, follow [SchemaMigrationRequired (error 42)](#schemamigrationrequired-error-42) — do not treat it as a random subscribe bug.
 
@@ -263,8 +266,8 @@ This is **intentional**, not a keeper or wallet defect.
 ### Remedy (order)
 
 1. Confirm version: `get_schema_version` (and optional `contract_health_check`).
-2. Keep **admin** access — you still need it for `migrate`.
-3. Run the [paged `migrate(users)` procedure](#state-migration) until `get_schema_version() == 3`.
+2. Keep **admin** access — you still need it for `migrate` and `finalize_migration`.
+3. Run the [paged `migrate(users)` procedure](#state-migration), then `finalize_migration`, until `get_schema_version() == 3`.
 4. Retry the subscription write.
 
 Do not redeploy a new contract ID solely because of 42. Do not skip paging on a large `SubscriberIndex`.
@@ -374,7 +377,7 @@ FlowPay does not support automatic rollback. To revert to a previous WASM, run t
      --network <NETWORK> \
      -- upgrade <PREVIOUS_WASM_HASH>
    ```
-4. **Run migration** if the restored WASM still requires schema catch-up (paged `migrate(users)` — [State Migration](#state-migration)):
+4. **Run migration** if the restored WASM still requires schema catch-up (paged `migrate(users)`, then `finalize_migration(<total>)` — [State Migration](#state-migration)):
    ```bash
    soroban contract invoke --id <CONTRACT_ID> --source admin --network <NETWORK> -- migrate --users '["<USER_ADDRESS>"]'
 1. **Re-upload the previous WASM** if the hash is no longer on-chain:
@@ -382,7 +385,7 @@ FlowPay does not support automatic rollback. To revert to a previous WASM, run t
    soroban contract upload --source admin --network testnet --wasm <previous.wasm>
    ```
 2. **Propose** the previous hash, verify `get_pending_upgrade`, then **commit**.
-3. **Run `migrate`** only if the restored WASM still requires schema catch-up for current storage.
+3. **Run `migrate` and then `finalize_migration`** only if the restored WASM still requires schema catch-up for current storage.
 4. **Verify** with `contract_health_check` and `CONTRACT_ID=<CONTRACT_ID> npx tsx scripts/health-check.ts --deep`.
 
 To abort a bad proposal **before** commit:
@@ -408,6 +411,63 @@ soroban contract invoke \
 | `VITE_NETWORK_PASSPHRASE` | No       | Testnet passphrase                    | Stellar network passphrase |
 
 Source: [`frontend/.env.example`](../frontend/.env.example).
+
+---
+
+## Error reporting (optional, disabled by default)
+
+The root `ErrorBoundary` in `main.tsx` accepts an optional `onError` reporter. It is **disabled by default** — no error data leaves the browser unless you explicitly opt in.
+
+### Opt-in
+
+Set `VITE_ERROR_REPORT_URL` in `frontend/.env` (or your host environment):
+
+```bash
+VITE_ERROR_REPORT_URL=https://errors.example.com/report
+```
+
+When set, the boundary POSTs a JSON payload to that URL whenever a React component tree crash is caught:
+
+```json
+{
+  "message": "Cannot read properties of undefined (reading 'amount')",
+  "name": "TypeError",
+  "componentStack": "\n    at SubscriptionCard\n    at Dashboard\n    ...",
+  "timestamp": "2025-01-15T15:04:05.000Z"
+}
+```
+
+### Privacy — what is redacted before sending
+
+Before the payload is built, the boundary runs `redactError` on `message` and `componentStack`. The following patterns are replaced with `[redacted]`:
+
+| Pattern | Example | Replaced by |
+| ------- | ------- | ----------- |
+| Stellar secret key (`S` + 55 base32 chars) | `SABC...XYZ` | `[redacted]` |
+| Contract ID (`C` + 55 base32 chars) | `CABC...XYZ` | `[redacted]` |
+| Public key (`G` + 55 base32 chars) | `GABC...XYZ` | `[redacted]` |
+
+Secret keys are matched first so they cannot be mis-classified as public keys. No wallet address or signing key ever appears in a report.
+
+### Pluggable reporter interface
+
+The reporter is any function matching `(report: ErrorReport) => void`. To use a custom reporter instead of the built-in `fetch`-based one, pass it directly to `<ErrorBoundary onError={myReporter}>` in `main.tsx`:
+
+```tsx
+import ErrorBoundary, { type ErrorReporter } from "./components/ErrorBoundary";
+
+const myReporter: ErrorReporter = (report) => {
+  // e.g. send to Sentry, Datadog, or a custom backend
+  mySdk.captureError(report);
+};
+
+// In main.tsx:
+<ErrorBoundary onError={myReporter}>
+  <App />
+</ErrorBoundary>
+```
+
+Errors thrown inside the reporter are silently swallowed so a broken reporting endpoint cannot affect the user experience.
 
 ---
 

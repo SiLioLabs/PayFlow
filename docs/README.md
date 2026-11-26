@@ -26,7 +26,7 @@ Use this page to navigate the guides under `docs/`. Every link below resolves to
 
 | Document | Purpose |
 |----------|---------|
-| [`integrations/frontend_integration.md`](integrations/frontend_integration.md) | Frontend integration guide — read-only vs authenticated invocations, subscription status enums, paginated index processing, client-side rendering patterns, error handling, best practices |
+| [`FRONTEND.md`](FRONTEND.md) | Frontend integration guide — read-only vs authenticated invocations, subscription status enums, paginated index processing, client-side rendering patterns, error handling, best practices |
 
 This guide is aligned with [`FRONTEND.md`](FRONTEND.md) and the codebase under `frontend/src/` (notably `stellar.ts` and `frontend/src/components`).
 
@@ -34,31 +34,33 @@ This guide is aligned with [`FRONTEND.md`](FRONTEND.md) and the codebase under `
 
 | Document | Purpose |
 |----------|---------|
-| [`development/ci-workflows.md`](development/ci-workflows.md) | Current CI behavior and recommended Vitest / scripts typecheck YAML |
-| [`development/network-matrix.md`](development/network-matrix.md) | Aligning frontend, scripts, and contract tests on the same network |
-| [`development/performance-benchmarking.md`](development/performance-benchmarking.md) | Contract benchmark interpretation and regression detection |
-| [`development/testing_runbook.md`](development/testing_runbook.md) | Contract test patterns: ledger time, mocking, panic testing |
+| [`development/CI-WORKFLOWS.md`](development/CI-WORKFLOWS.md) | Current CI behavior and recommended Vitest / scripts typecheck YAML |
+| [`development/NETWORK-MATRIX.md`](development/NETWORK-MATRIX.md) | Aligning frontend, scripts, and contract tests on the same network |
+| [`development/PERFORMANCE-BENCHMARKING.md`](development/PERFORMANCE-BENCHMARKING.md) | Contract benchmark interpretation and regression detection |
+| [`development/TESTING-RUNBOOK.md`](development/TESTING-RUNBOOK.md) | Contract test patterns: ledger time, mocking, panic testing |
+| [`development/SECURITY-AUDITS.md`](development/SECURITY-AUDITS.md) | cargo-audit and npm-audit setup, audit.toml allowlist format, adding exceptions |
 
 ## Operations
 
 | Document | Purpose |
 |----------|---------|
-| [`operations/keeper_runbook.md`](operations/keeper_runbook.md) | Keeper runbook |
-| [`operations/troubleshooting.md`](operations/troubleshooting.md) | Troubleshooting runbook |
-| [`operations/two_step_admin_playbooks.md`](operations/two_step_admin_playbooks.md) | Two-step admin playbooks |
+| [`operations/KEEPER-RUNBOOK.md`](operations/KEEPER-RUNBOOK.md) | Keeper runbook |
+| [`operations/TROUBLESHOOTING.md`](operations/TROUBLESHOOTING.md) | Troubleshooting runbook |
+| [`operations/TWO-STEP-ADMIN-PLAYBOOKS.md`](operations/TWO-STEP-ADMIN-PLAYBOOKS.md) | Two-step admin playbooks |
+| [`operations/INDEXER-BACKUP-RESTORE.md`](operations/INDEXER-BACKUP-RESTORE.md) | SQLite indexer backup and restore procedure |
 
 ## Security
 
 | Document | Purpose |
 |----------|---------|
-| [`security/audit-preparation.md`](security/audit-preparation.md) | Security audit preparation guide |
-| [`security/threat_matrix.md`](security/threat_matrix.md) | Threat matrix |
+| [`security/AUDIT-PREPARATION.md`](security/AUDIT-PREPARATION.md) | Security audit preparation guide |
+| [`security/THREAT-MATRIX.md`](security/THREAT-MATRIX.md) | Threat matrix |
 
 ## Specification
 
 | Document | Purpose |
 |----------|---------|
-| [`spec/lifecycle_spec.md`](spec/lifecycle_spec.md) | Subscription lifecycle specification |
+| [`spec/LIFECYCLE-SPEC.md`](spec/LIFECYCLE-SPEC.md) | Subscription lifecycle specification |
 
 ## Root documents
 
@@ -115,6 +117,7 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Keeper bot operations handbook](operations/KEEPER-RUNBOOK.md)
 - [Troubleshooting runbook](operations/TROUBLESHOOTING.md)
 - [Two-step admin operator playbooks](operations/TWO-STEP-ADMIN-PLAYBOOKS.md)
+- [Incident response runbook](operations/INCIDENT-RESPONSE-RUNBOOK.md) — severity, containment, upgrade, accounting, and communications
 - [Scripts environment variable reference](SCRIPTS-ENVIRONMENT.md)
 - [Scripts reference](../scripts/README.md) and [operational fixes](../scripts/README-OPERATIONAL-FIXES.md)
 - [Deployment guide](DEPLOYMENT.md)
@@ -141,6 +144,7 @@ Start here. Documents are grouped by what you are trying to do; every Markdown f
 - [Testing guide](TESTING.md)
 - [Development testing runbook](development/TESTING-RUNBOOK.md)
 - [Local checks to run before a PR](development/CI-WORKFLOWS.md)
+- [Security audit setup and exceptions](development/SECURITY-AUDITS.md)
 - [Local development network matrix](development/NETWORK-MATRIX.md)
 - [Performance benchmarking](development/PERFORMANCE-BENCHMARKING.md)
 - [Changelog](../CHANGELOG.md)
@@ -159,6 +163,7 @@ These checks keep the docs in sync with the code. Run them from the repository r
 | `npm run check:contract-api` | [API.md](API.md) references every public `pub fn` in `contract/src/lib.rs`. |
 | `cd scripts && npx tsx lint-duplicates.ts` (or `npm run lint:duplicates`) | Every script under `scripts/` parses and has no duplicate declarations or object keys (baseline in `scripts/.duplicate-lint-baseline.json`). |
 | `cd scripts && node lint-duplicates.mjs` | No `.ts` file under `scripts/` has two non-type imports from the same module. |
+| `npm run check:env-docs` | Generated environment-table sections and `scripts/.env.example` match the Zod `ConfigSchema`. |
 
 Copy-paste all of the root-level checks at once:
 
@@ -168,5 +173,9 @@ node scripts/emit-caps-table.mjs --check
 node scripts/gen-undocumented-scripts.mjs --check
 node scripts/check-quicklinks.mjs
 node scripts/check-error-codes.mjs
+<<<<<<< HEAD
+npm run check:env-docs
+=======
 npm run check:contract-api
+>>>>>>> origin/master
 ```

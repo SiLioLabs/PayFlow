@@ -1,8 +1,9 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useRef, useState, lazy, Suspense } from "react";
 import { useWallet, AVAILABLE_WALLETS } from "./hooks/useWallet";
 import { useAccessibility } from "./hooks/useAccessibility";
 import { useRpcHealthContext } from "./context/RpcHealthContext";
 import { ToastProvider } from "./context/ToastContext";
+import { I18nProvider } from "./i18n";
 import { useToast } from "./hooks/useToast";
 import SubscribeForm from "./components/SubscribeForm";
 import Dashboard from "./components/Dashboard";
@@ -11,19 +12,37 @@ import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { useAdmin } from "./hooks/useAdmin";
 import { useContractId } from "./hooks/useContractId";
 import { useContractPaused } from "./hooks/useContractPaused";
-import MerchantDashboard from "./components/MerchantDashboard";
 import WalletSelectModal from "./components/WalletSelectModal";
 import WalletBar from "./components/WalletBar";
 import TabBar from "./components/TabBar";
 import OfflineBanner from "./components/OfflineBanner";
 import ContractPauseBanner from "./components/ContractPauseBanner";
 import NetworkBadge from "./components/NetworkBadge";
-import AdminDashboard from "./pages/AdminDashboard";
 import type { WalletAdapter } from "./services/wallets/WalletAdapter";
 import ConnectWallet from "./components/ConnectWallet";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay";
 import { ShortcutRegistryContext } from "./context/ShortcutRegistry";
 import { hasSubscribeLinkParams } from "./utils/subscribeLink";
+import { SkeletonBlock } from "./components/Skeleton";
+
+// Lazy-load the two heaviest route components so they are excluded from the
+// initial bundle (Issue #445 follow-up). MerchantDashboard and AdminDashboard
+// are only rendered when the user navigates to their respective tabs.
+const MerchantDashboard = lazy(() => import("./components/MerchantDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+
+/** Accessible loading fallback used while a lazy route chunk is resolving. */
+function RouteFallback({ label }: { label: string }) {
+  return (
+    <div role="status" aria-live="polite" aria-label={`Loading ${label}`}>
+      <div className="card" style={{ padding: "var(--space-6)" }}>
+        <SkeletonBlock width="40%" height="var(--space-5)" style={{ marginBottom: "var(--space-4)" }} />
+        <SkeletonBlock width="80%" height="var(--space-4)" style={{ marginBottom: "var(--space-3)" }} />
+        <SkeletonBlock width="60%" height="var(--space-4)" />
+      </div>
+    </div>
+  );
+}
 
 type Tab = "dashboard" | "subscribe" | "merchant" | "admin";
 
@@ -130,7 +149,7 @@ function AppInner() {
 
       {/* Header — NetworkBadge is persistent in shell so users always see Testnet/Mainnet */}
       <div style={{ marginBottom: 32, textAlign: "center" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ FlowPay</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#a78bfa" }}>⚡ PayFlow</h1>
         <p style={{ color: "#64748b", marginTop: 6, fontSize: 14 }}>
           Decentralized recurring payments on Stellar
         </p>
@@ -298,13 +317,15 @@ function AppInner() {
               hidden={tab !== "merchant"}
             >
               {tab === "merchant" && (
-                <MerchantDashboard
-                  key={publicKey}
-                  merchantKey={publicKey}
-                  onSign={signAndSubmit}
-                  refreshTrigger={refresh}
-                  isPaused={isPaused}
-                />
+                <Suspense fallback={<RouteFallback label="merchant dashboard" />}>
+                  <MerchantDashboard
+                    key={publicKey}
+                    merchantKey={publicKey}
+                    onSign={signAndSubmit}
+                    refreshTrigger={refresh}
+                    isPaused={isPaused}
+                  />
+                </Suspense>
               )}
             </div>
             {isAdmin && (
@@ -315,12 +336,14 @@ function AppInner() {
                 hidden={tab !== "admin"}
               >
                 {tab === "admin" && (
-                  <AdminDashboard
-                    key={publicKey}
-                    publicKey={publicKey}
-                    onSign={signAndSubmit}
-                    gatePassed={gatePassed}
-                  />
+                  <Suspense fallback={<RouteFallback label="admin dashboard" />}>
+                    <AdminDashboard
+                      key={publicKey}
+                      publicKey={publicKey}
+                      onSign={signAndSubmit}
+                      gatePassed={gatePassed}
+                    />
+                  </Suspense>
                 )}
               </div>
             )}
@@ -350,8 +373,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppInner />
-    </ToastProvider>
+    <I18nProvider>
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
+    </I18nProvider>
   );
 }

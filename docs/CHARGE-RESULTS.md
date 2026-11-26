@@ -499,6 +499,14 @@ not transfer one subscriber's funds, it is never written to the DLQ. Alerting on
 it has to come from the event channel, which is what
 [`scripts/alert-failed-charges.ts`](../scripts/alert-failed-charges.ts) does.
 
+Each alert entry's `subscription_amount` is the user's **current** subscription
+amount in stroops, as a string because amounts are `i128`. It comes from the latest
+`subscribed` or `sub_amount_updated` event for that user in the indexer DB, and each
+user is looked up once per run. `batch_charge_skips` only carries counters, not
+addresses. So aggregate entries are reported as `user_address: "batch_summary"`
+with `failed_count` set and `subscription_amount: null`, rather than a made-up
+amount. `null` also means no subscription event was found for the user.
+
 ---
 
 ## `null` vs failure

@@ -90,10 +90,15 @@ The table below lists all 45 components in the root `components/` directory:
 | **StroopInput** | `components/StroopInput.tsx` | Dual-unit amount input field (XLM / Stroops) | `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
 | **SubscribeForm** | `components/SubscribeForm.tsx` | Checkout form with fee/allowance summary, trial length, and referral link pre-fill | `App` (tab: `"subscribe"`) | Canonical |
 | **SubscriberRecoveryPanel** | `components/SubscriberRecoveryPanel.tsx` | Subscription data integrity diagnostic panel | `Dashboard` | Canonical |
+| **SubscriptionActions** | `components/SubscriptionActions.tsx` | Pause, resume, cancel, and transfer controls with confirmation dialogs | `SubscriptionCard` | Internal |
+| **SubscriptionActionDialogs** | `components/SubscriptionActionDialogs.tsx` | Accessible pause and cancel confirmation dialogs | `SubscriptionActions` | Internal |
 | **SubscriptionCard** | `components/SubscriptionCard.tsx` | Active subscription details, health, and actions | `Dashboard` | Canonical |
+| **SubscriptionCardModals** | `components/SubscriptionCardModals.tsx` | Allowance and ownership-transfer modal containers | `SubscriptionCard` | Internal |
+| **SubscriptionCardStatus** | `components/SubscriptionCardStatus.tsx` | Transaction status and recovery display | `SubscriptionCard` | Internal |
 | **SubscriptionExport** | `components/SubscriptionExport.tsx` | CSV and JSON export utility for subscriptions | `Dashboard`, `MerchantDashboard` | Canonical |
 | **SubscriptionHealthWidget** | `components/SubscriptionHealthWidget.tsx` | Subscription health status indicator | `SubscriptionCard` | Canonical |
 | **SubscriptionHistory** | `components/SubscriptionHistory.tsx` | Lazy-loaded historical charge ledger | `Dashboard` | Canonical |
+| **SubscriptionStatusBadge** | `components/SubscriptionStatusBadge.tsx` | Subscription, trial, and allowance status badges | `SubscriptionCard` | Internal |
 | **TabBar** | `components/TabBar.tsx` | Navigation tab bar with keyboard support | `App` | Canonical |
 | **ThemeToggle** | `components/ThemeToggle.tsx` | Dark / light theme toggle switch | `WalletBar`, `ConnectWallet` | Canonical |
 | **Toast** | `components/Toast.tsx` | Floating toast notifications container | `Dashboard`, `SubscribeForm`, `DailyLimitModal`, `IncreaseAllowanceModal` | Canonical |
@@ -101,6 +106,8 @@ The table below lists all 45 components in the root `components/` directory:
 | **TxQueuePanel** | `components/TxQueuePanel.tsx` | Pending background transaction drawer | `WalletBar` | Canonical |
 | **WalletBar** | `components/WalletBar.tsx` | Connected wallet bar with balance and utilities | `App` (when `publicKey` connected) | Canonical |
 | **WalletSelectModal** | `components/WalletSelectModal.tsx` | Multi-wallet provider selection modal | `App` | Canonical |
+
+`SubscriptionCard` keeps subscription data and transaction state in `hooks/useSubscriptionCardState.ts`; its extracted action, badge, and modal components are internal implementation details, not separate application entry points.
 
 ---
 

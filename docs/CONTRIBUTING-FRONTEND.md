@@ -62,6 +62,15 @@ npm run typecheck
 | `npm run lint` | Runs ESLint static analysis |
 | `npm run format` | Formats codebase with Prettier |
 | `npm run typecheck` | Runs `tsc --noEmit` to verify type safety |
+| `npm run build:check` | Builds the production frontend and fails if any JavaScript chunk exceeds its size budget |
+
+---
+
+### Bundle Size Budgets
+
+Run `npm run build:check` from the repository root or `frontend/` before submitting frontend changes. It builds the frontend and checks each emitted JavaScript asset's raw file size: `stellar-sdk-*` is limited to 500 KiB, `react-vendor-*` to 200 KiB, and every other JavaScript chunk to 300 KiB. These limits are per chunk, not a total bundle limit.
+
+If a deliberate change requires a larger chunk, update the corresponding limits in [`frontend/scripts/check-bundle-size.mjs`](../frontend/scripts/check-bundle-size.mjs), keep the increase as small as practical, and include the reason in the PR. The check covers every JavaScript chunk, including new chunks via the fallback limit.
 
 ---
 
