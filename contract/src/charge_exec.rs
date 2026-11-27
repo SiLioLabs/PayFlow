@@ -7,6 +7,7 @@ use crate::grace;
 use crate::merchant_stats;
 use crate::spending_limit;
 use crate::storage;
+use crate::subscription_count;
 use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
@@ -224,6 +225,10 @@ pub(crate) fn dry_run_skip_precheck(
         return (DryRunSkipOutcome::GracePeriodElapsed, None);
     }
 
+    if end_condition_reached(storage::get_subscription_terms(env, user).as_ref(), now) {
+        return (DryRunSkipOutcome::Inactive, None);
+    }
+
     (DryRunSkipOutcome::ProceedToAllowance, Some(sub))
 }
 
@@ -388,8 +393,12 @@ pub fn try_auto_resume(env: &Env, user: &Address, sub: &mut Subscription, now: u
 }
 
 /// Batch pre-check: returns `Ok(())` when a charge may proceed, or the skip result.
+///
+/// `terms` are the subscriber's fixed-term end conditions, if any (see
+/// [`end_condition_reached`]).
 pub fn precheck_charge(
     sub: &Subscription,
+    terms: Option<&SubscriptionTerms>,
     now: u64,
     grace_period: u64,
 ) -> Result<(), ChargeResult> {
@@ -406,7 +415,25 @@ pub fn precheck_charge(
     if grace_period > 0 && now > next.saturating_add(grace_period) {
         return Err(ChargeResult::GracePeriodElapsed);
     }
+    if end_condition_reached(terms, now) {
+        return Err(ChargeResult::Inactive);
+    }
     Ok(())
+}
+
+/// Returns `true` when a fixed-term subscription may not be charged any more:
+/// its `end_at` is in the past or it has already collected `max_cycles`
+/// charges. Open-ended subscriptions (`terms == None`) never reach an end.
+///
+/// Every charge path (`charge`, `charge_with_tip`, `batch_charge`) and every
+/// dry run (`simulate_charge`, `get_batch_charge_estimate`) consults this, so
+/// they agree on when a subscription has run its course.
+pub fn end_condition_reached(terms: Option<&SubscriptionTerms>, now: u64) -> bool {
+    let Some(terms) = terms else {
+        return false;
+    };
+    terms.end_at.is_some_and(|end| now > end)
+        || terms.max_cycles.is_some_and(|max| terms.charges_made >= max)
 }
 
 /// Fee-aware transfer, bookkeeping, and persistence shared by `charge()`,
@@ -442,6 +469,21 @@ pub fn execute_charge(
     );
 
     sub.last_charged = now;
+
+    // Fixed-term subscriptions count this charge and complete once it uses up
+    // `max_cycles` or lands at/after `end_at` (issue #1400).
+    let mut completed_after: Option<u32> = None;
+    if let Some(mut terms) = storage::get_subscription_terms(env, user) {
+        terms.charges_made = terms.charges_made.saturating_add(1);
+        let cycles_done = terms.max_cycles.is_some_and(|max| terms.charges_made >= max);
+        let past_end = terms.end_at.is_some_and(|end| now >= end);
+        if cycles_done || past_end {
+            sub.active = false;
+            completed_after = Some(terms.charges_made);
+        }
+        storage::set_subscription_terms(env, user, &terms);
+    }
+
     env.storage().persistent().set(key, sub);
     extend_subscription_ttl(env, user);
     subscription_history::record_charge(env, user, now);
@@ -455,6 +497,15 @@ pub fn execute_charge(
         paid_to,
         fee::effective_fee_bps(env, &sub.merchant),
     );
+
+    if let Some(total_charges) = completed_after {
+        // Same counter bookkeeping as `cancel_inner` on the active -> inactive edge.
+        subscription_count::decrement(env);
+        subscription_count::remove_subscriber_index(env, user);
+        merchant_stats::decrement_subscriber_count_with_user(env, &sub.merchant, user);
+        crate::referral::remove_referral(env, user);
+        events::publish_subscription_completed(env, user, total_charges);
+    }
 
     if tip > 0 {
         if let Some(keeper_addr) = keeper {

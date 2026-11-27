@@ -9740,7 +9740,7 @@ fn test_referral_reward_accrues_once_per_charge_and_can_be_withdrawn() {
     client.propose_fee(&collector, &1_000);
     client.commit_fee();
     let amount = 10_000_000i128;
-    let interval = 1_000u64;
+    let interval = crate::min_interval::DEFAULT_MIN_INTERVAL;
     client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &Some(referrer.clone()));
 
     env.ledger().with_mut(|l| l.timestamp += interval + 1);
@@ -9773,7 +9773,12 @@ fn test_merchant_fee_override_bounds_and_operator_assignment() {
     assert_eq!(client.get_merchant_fee_bps(&merchant), Some(250));
     assert_eq!(client.get_effective_fee_bps(&merchant), 250);
     assert_eq!(client.get_effective_fee_bps(&Address::generate(&env)), 0, "unset merchants inherit the global rate");
-    assert!(matches!(client.try_set_merchant_fee_bps(&merchant, &Some(50)), Err(Ok(ContractError::InvalidMerchantFeeBps))));
+    assert_eq!(
+        client.try_set_merchant_fee_bps(&merchant, &Some(50)),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            crate::errors::ContractErrorExt::InvalidMerchantFeeBps as u32
+        )))
+    );
     client.set_merchant_fee_bps(&merchant, &None);
     assert_eq!(client.get_merchant_fee_bps(&merchant), None);
 
@@ -11203,6 +11208,7 @@ fn test_subscription_health_non_existent_user() {
             is_paused: false,
             trial_active: false,
             daily_limit_set: false,
+            remaining_cycles: None,
         }
     );
 }
@@ -16016,14 +16022,11 @@ fn test_legacy_paused_subscription_remains_listed() {
     let client = FlowPayClient::new(&env, &contract_id);
 
     // Subscribe so the user is in the subscriber index.
-    // Subscribe so the user is in the subscriber index.
-    let interval: u64 = 3600;
     let interval: u64 = 86_400;
     client.subscribe(
         &user,
         &merchant,
         &1_0000000,
-        &86400,
         &interval,
         &token_addr,
         &None,
@@ -16034,14 +16037,6 @@ fn test_legacy_paused_subscription_remains_listed() {
     let page_before = client.get_active_subscriber_page(&0u64, &10u32);
     assert!(page_before.contains(&user), "user must be listed before mutation");
 
-    // Simulate a legacy "paused && !active" row by directly writing storage.
-    // This reproduces the state that pre-#1009 `pause_until` could write.
-    // We do NOT call cancel() — the cancellation counter path is intentionally
-    // bypassed so we can isolate the flag semantics.
-    env.as_contract(&contract_id, || {
-        let key = crate::DataKey::Subscription(user.clone());
-        let mut sub: crate::Subscription = env.storage().persistent().get(&key).unwrap();
-        // Legacy state: paused=true, active=false (NOT a cancelled row).
     // Simulate a legacy `paused && !active` row by writing the subscription
     // directly into storage with active=false, paused=true. This reproduces the
     // state that pre-#1009 `pause_until` could write. We do NOT call cancel(),
@@ -16057,7 +16052,6 @@ fn test_legacy_paused_subscription_remains_listed() {
     // Confirm the raw stored state.
     let raw = client.get_subscription(&user).unwrap();
     assert!(!raw.active, "raw active must be false (legacy state)");
-    assert!(raw.paused,  "raw paused must be true (legacy state)");
     assert!(raw.paused, "raw paused must be true (legacy state)");
 
     // Design invariant: get_active_subscriber_page uses sub.active, so a
@@ -16078,10 +16072,6 @@ fn test_legacy_paused_subscription_remains_listed() {
         raw_page.contains(&user),
         "legacy row must still appear in the raw get_subscriber_page"
     );
-    assert!(!client
-        .get_active_subscriber_page(&0u64, &10u32)
-        .contains(&user));
-    assert!(client.get_subscriber_page(&0u64, &10u32).contains(&user));
 }
 
 #[test]
@@ -16093,7 +16083,6 @@ fn test_cancelled_subscription_not_listed() {
         &user,
         &merchant,
         &1_0000000,
-        &3600u64,
         &interval,
         &token_addr,
         &None,
@@ -16943,6 +16932,7 @@ fn test_storage_footprint_covers_every_per_user_key() {
         "charge_history",
         "index_slot",
         "pause_expiry",
+        "terms",
         "last_charge",
         "last_skip",
         "daily_limit",
@@ -16964,7 +16954,7 @@ fn test_storage_footprint_covers_every_per_user_key() {
 
     // Keys the user has not created yet are reported absent.
     assert!(!footprint.entries.get(2).unwrap().present); // metadata
-    assert!(!footprint.entries.get(9).unwrap().present); // daily_limit
+    assert!(!footprint.entries.get(10).unwrap().present); // daily_limit
 }
 
 /// Tests that a charge after multiple missed intervals collects exactly one billing cycle

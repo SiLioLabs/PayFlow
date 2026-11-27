@@ -73,8 +73,13 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
 | 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
 | 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
-| 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
-| 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
+| 53   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 54   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 55   | `InvalidMerchantFeeBps`     | Validation   | Merchant override (or referral reward policy) is outside configured bounds |
+| 56   | `PauseExceedsMaxDuration`   | Limit / timing | `pause_until` expiry is more than `max_pause_seconds` away |
+| 57   | `InvalidEndCondition`       | Validation   | `subscribe_with_end_conditions` with `max_cycles = 0` or `end_at` not in the future |
+
+> **Two enums, one catalog:** Soroban limits an exported error enum to 50 cases. Codes 1–50 and 52 are `ContractError`; codes 51 and 53+ are `ContractErrorExt`. Both are in the contract spec, and codes are unique across them. Codes 53–55 previously collided with 48–50 (`MigrationIncomplete`, `InvalidKeeperTipBps`, `InvalidMerchantFeeBps`) and were given their own numbers.
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Codes 31 and 37 have deprecated `Reserved31` / `Reserved37` Rust enum variants that claim the reserved wire-map slots; neither is emitted by contract logic. The numeric sequence has **no undeclared gaps**: `scripts/check-error-codes.mjs` fails if a code between 1 and the highest code is missing from `errors.rs`, and fails if any deprecated variant is referenced outside `errors.rs`. New errors must use the next free code and update this table, frontend handling, and mapping tests together. Removal timeline for 30 and 31: [Deprecation schedule](#deprecation-schedule). Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -871,7 +876,6 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
-### 52 — `InvalidAdminAddress`
 ### 48 — `TrialExtensionExceedsMaximum`
 
 | Field               | Detail |
@@ -932,9 +936,9 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | Category       | Codes                                                        | Typical owners                |
 | -------------- | ------------------------------------------------------------ | ----------------------------- |
 | Auth / access  | 8, 10, 22                                                    | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48 | Client / admin tooling   |
-| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49                                 | Keeper + user                 |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45, 50, 53 | Deployer, user, admin, keeper |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48, 51, 52, 54, 55, 57 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49, 56                             | Keeper + user                 |
 
 ---
 

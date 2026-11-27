@@ -41,6 +41,14 @@
  *   48 MigrationIncomplete
  *   49 InvalidKeeperTipBps
  *   52 InvalidAdminAddress
+ *   53 MigrationIncomplete            (ContractErrorExt)
+ *   54 InvalidKeeperTipBps            (ContractErrorExt)
+ *   55 InvalidMerchantFeeBps          (ContractErrorExt)
+ *   56 PauseExceedsMaxDuration        (ContractErrorExt)
+ *   57 InvalidEndCondition            (ContractErrorExt)
+ *
+ * Codes 51 and 53+ live in the `ContractErrorExt` enum because Soroban caps an
+ * exported error enum at 50 cases; the numbering is one shared catalog.
  *
  * Codes 30, 31 and 37 (deprecated / reserved) are documented
  * and mapped, not dropped — see the inline notes at those codes below.

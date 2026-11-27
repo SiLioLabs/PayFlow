@@ -225,7 +225,7 @@ pub fn finalize(env: &Env, expected_total: u64) {
 
     let processed = get_migrated_account_count(env);
     if processed < expected_total {
-        env.panic_with_error(ContractError::MigrationIncomplete);
+        env.panic_with_error(crate::errors::ContractErrorExt::MigrationIncomplete);
     }
 
     set_schema_version(env, CURRENT_VERSION);

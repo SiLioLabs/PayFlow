@@ -558,6 +558,43 @@ CLI example:
 soroban contract invoke --id <CONTRACT_ID> --source <USER_KEY> --network testnet -- subscribe_with_metadata --user <USER_ADDRESS> --merchant <MERCHANT_ADDRESS> --amount 50000000 --interval 2592000 --token <TOKEN_ADDRESS> --label pro
 ```
 
+### `subscribe_with_end_conditions`
+
+Same as [`subscribe`](#subscribe), plus optional end conditions for a fixed-term subscription (issue #1400).
+
+```
+subscribe_with_end_conditions(env: Env, user: Address, merchant: Address, amount: i128, interval: u64,
+    token: Address, trial_period: Option<u64>, referrer: Option<Address>,
+    max_cycles: Option<u32>, end_at: Option<u64>)
+```
+
+| Name         | Type          | Description |
+| ------------ | ------------- | ----------- |
+| `max_cycles` | `Option<u32>` | Number of scheduled charges to collect. The charge that reaches it deactivates the subscription. `None` = no limit. |
+| `end_at`     | `Option<u64>` | Unix timestamp. Charges after it are rejected; a charge at or after it deactivates the subscription. `None` = no end date. |
+
+All other parameters match `subscribe`.
+
+**Auth:** `user.require_auth()`.
+
+**Behavior:**
+
+- The conditions are stored as `SubscriptionTerms` under their own key, not on `Subscription`, so records written by earlier versions decode unchanged. Read them with [`get_subscription_terms`](#get_subscription_terms).
+- Every subscribe replaces the terms. A plain `subscribe` clears them, so the subscription is open-ended again.
+- On completion the subscription goes `active = false`, the active/merchant counters and subscriber indexes are updated exactly as on `cancel`, and `sub_completed(user) -> total_charges` is emitted.
+- Once an end condition is reached, `charge`/`charge_with_tip` fail with `SubscriptionInactive` (5); `batch_charge`, `get_batch_charge_estimate` and `simulate_charge` report `Inactive`.
+- `get_subscription_health(user).remaining_cycles` reports `max_cycles - charges_made` (or `None` without a cycle limit).
+
+**Errors:** everything `subscribe` returns, plus `InvalidEndCondition` (57) when `max_cycles == Some(0)` or `end_at <= now`.
+
+### `get_subscription_terms`
+
+```
+get_subscription_terms(env: Env, user: Address) -> Option<SubscriptionTerms>
+```
+
+Returns `{ max_cycles, end_at, charges_made }` for a fixed-term subscription, or `None` for an open-ended one. No auth.
+
 ### `charge`
 
 ```
@@ -904,6 +941,8 @@ Returns: `()`.
 
 Errors: `ContractError::NoSubscriptionFound`, `ContractError::SubscriptionNotActive`.
 
+When the admin has set a pause cap ([`set_max_pause_seconds`](#set_max_pause_seconds--get_max_pause_seconds)), `pause` stores an expiry of `now + max_pause_seconds`, and the subscription auto-resumes on the first charge at or after it. With no cap (the default) the pause is indefinite.
+
 CLI example:
 
 ```bash
@@ -934,12 +973,26 @@ pause_until(env: Env, user: Address, expiry: u64)
 | Condition       | Code | Symbol                  |
 | --------------- | ---- | ----------------------- |
 | `expiry <= now` | 27   | `InvalidPauseExpiry`    |
+| `expiry - now > max_pause_seconds` (cap set) | 56 | `PauseExceedsMaxDuration` |
 | No subscription | 4    | `NoSubscriptionFound`   |
 | `!sub.active`   | 16   | `SubscriptionNotActive` |
 
 **Pause-expiry read API:** there is **no** public `get_pause_expiry`, `get_pause`, or `paused_until` contract method. Expiry is stored via internal `storage::set_pause_expiry` / `storage::get_pause_expiry` only.
 
 For the full pause state model, auto-resume semantics, TTL considerations, and keeper/indexer guidance see [architecture/PAUSE-LIFECYCLE.md](./architecture/PAUSE-LIFECYCLE.md).
+
+### `set_max_pause_seconds` / `get_max_pause_seconds`
+
+```
+set_max_pause_seconds(env: Env, max_seconds: u64)
+get_max_pause_seconds(env: Env) -> u64
+```
+
+Admin-configurable cap on pause length (issue #1401). `0` (the default) means no cap. With a cap set, `pause` expires after `max_seconds` and `pause_until` rejects an expiry more than `max_seconds` away with `PauseExceedsMaxDuration` (56). Existing pauses are not shortened. The value is also reported as `get_contract_config().max_pause_seconds`.
+
+**Auth:** `set_max_pause_seconds` requires the admin. The getter needs no auth.
+
+**Events:** `max_pause_set -> (old, new)`.
 
 CLI example:
 
@@ -1992,6 +2045,20 @@ CLI example:
 
 ```bash
 soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_subscriber_count --merchant <MERCHANT_ADDRESS>
+```
+
+### `get_merchant_subscribers`
+
+```
+get_merchant_subscribers(env: Env, merchant: Address, offset: u64, limit: u32) -> Vec<Address>
+```
+
+Pages through the merchant's active subscribers (issue #1399). `offset` is a slot index; `limit` is capped at `SUBSCRIBER_PAGE_SIZE` (50), and `limit = 0` returns an empty page. Auth: none.
+
+The index is updated on the same edges as `get_merchant_subscriber_count` (subscribe, cancel, merchant switch, fixed-term completion), so a full walk returns that many addresses when nothing changes between pages. Removal swaps the last entry into the vacated slot, so order is not stable across cancels. Each entry's TTL is refreshed with its subscription's TTL.
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_merchant_subscribers --merchant <MERCHANT_ADDRESS> --offset 0 --limit 50
 ```
 
 ### `get_merchant_sub_count`
