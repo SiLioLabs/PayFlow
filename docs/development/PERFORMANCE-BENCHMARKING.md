@@ -132,6 +132,20 @@ Subscribes 10 independent users (all due for billing), advances the ledger past 
 
 Not a standalone cost measurement — a **relative regression guard**. It measures `subscribe()` and `charge()` in the same environment and asserts `charge_cpu <= subscribe_cpu * 3`. The intent is to catch a change that makes `charge()` disproportionately expensive relative to `subscribe()` even if both individually stay under their absolute thresholds. Measured ratio: **1.95×** (well under the 3× ceiling).
 
+### Batch and scan paths
+
+These benchmarks cover the remaining batch entrypoints and the subscriber-index scan, including its worst case. Each one also asserts the call did what it should, then fails with `<bench> CPU (<n>) exceeds budget threshold (<budget>)` when the measured cost goes over its pinned constant.
+
+| Benchmark | Measures | Threshold constant (`bench.rs`) |
+| --------- | -------- | ------------------------------- |
+| `bench_batch_cancel_25_users` | `batch_cancel()` over the max batch of 25 active subscribers | `MAX_BATCH_CANCEL_25_INSTRUCTIONS` = 20,000,000 |
+| `bench_batch_pause_subscriptions_25_users` | `batch_pause_subscriptions()` over 25 active subscribers | `MAX_BATCH_PAUSE_25_INSTRUCTIONS` = 16,000,000 |
+| `bench_get_next_charge_batch_dense_50` | `get_next_charge_batch(0, 50)` with every slot live and due | `MAX_NEXT_CHARGE_BATCH_DENSE_50_INSTRUCTIONS` = 8,000,000 |
+| `bench_get_next_charge_batch_sparse_50` | Worst-case sparse index: 49 of 50 scanned slots tombstoned | `MAX_NEXT_CHARGE_BATCH_SPARSE_50_INSTRUCTIONS` = 8,000,000 |
+| `bench_transfer_subscription` | One `transfer_subscription()` to a fresh address | `MAX_TRANSFER_SUBSCRIPTION_INSTRUCTIONS` = 1,200,000 |
+
+These thresholds are provisional. They were sized from the existing per-user baselines (about 886k instructions per user in `batch_charge`) with headroom. Each benchmark prints its measured CPU, memory and budget. Re-pin a constant to the measured value plus about 15% once it has been recorded on the current SDK, following the re-pinning notes at the top of `bench.rs`.
+
 ---
 
 ## Regression Detection

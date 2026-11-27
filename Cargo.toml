@@ -3,7 +3,7 @@ members = ["contract", "vesting"]
 resolver = "2"
 
 [workspace.dependencies]
-soroban-sdk = "=21.7.7"
+soroban-sdk = "=30.0.0"
 
 [profile.release]
 opt-level = "z"

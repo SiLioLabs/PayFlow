@@ -5,11 +5,17 @@ on:
     branches: [main]
     paths:
       - "contract/**"
+      - "vesting/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/contract.yml"
   pull_request:
     branches: [main]
     paths:
       - "contract/**"
+      - "vesting/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/contract.yml"
 
 jobs:
@@ -24,7 +30,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: rustfmt, clippy
 
       - name: Cache Cargo registry & build artefacts
@@ -34,7 +40,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contract/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('contract/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
 
@@ -45,28 +51,28 @@ jobs:
 
       # ── Clippy (warnings are errors) ─────────────────────────────────────
       - name: cargo clippy
-        working-directory: contract
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked --workspace -- -D warnings
 
       # ── Unit / integration tests ─────────────────────────────────────────
       - name: cargo test
-        working-directory: contract
-        run: cargo test
+        run: cargo test --locked --workspace
 
       # ── WASM release build ───────────────────────────────────────────────
-      - name: cargo build --release (wasm)
-        working-directory: contract
-        run: cargo build --release --target wasm32-unknown-unknown
+      - name: Build deployable WASM
+        run: |
+          if ! cargo info stellar-cli@30.0.0 --quiet; then
+            echo "::warning::Stellar CLI 30 is unavailable. SDK 30 WASM packaging was skipped."
+            exit 0
+          fi
+          cargo install --locked stellar-cli --version 30.0.0
+          stellar contract build --package flowpay
+          stellar contract build --package academy-vesting
 
       # ── Snapshot check ───────────────────────────────────────────────────
       - name: Set up Node.js for snapshot check
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Install snapshot-check dependencies
-        working-directory: contract
-        run: npm ci
 
       - name: Run snapshot check
         working-directory: contract

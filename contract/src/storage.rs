@@ -14,10 +14,18 @@ use crate::{
 /// the suite. Update `docs/architecture/STORAGE-AND-TTL.md` in the same change.
 pub const PER_USER_STORAGE_KEY_COUNT: u32 = 12;
 
+/// Resolves ID zero across deployments that are partway through migration.
+pub(crate) fn subscription_key(env: &Env, user: &Address) -> DataKey {
+    let legacy = DataKey::Subscription(user.clone());
+    if env.storage().persistent().has(&legacy) {
+        legacy
+    } else {
+        DataKey::SubscriptionById(user.clone(), 0)
+    }
+}
+
 pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Subscription(user.clone()))
+    env.storage().persistent().get(&subscription_key(env, user))
 }
 
 /// Overwrites the stored subscription entry for `user`.
@@ -28,7 +36,7 @@ pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
 pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
     env.storage()
         .persistent()
-        .set(&DataKey::Subscription(user.clone()), sub);
+        .set(&subscription_key(env, user), sub);
 }
 
 /// Extends the TTL of a subscription entry and, when present, its
@@ -38,7 +46,7 @@ pub fn set_subscription(env: &Env, user: &Address, sub: &Subscription) {
 ///
 /// Safe to call even if the entry has already expired (no-op).
 pub fn extend_subscription_ttl(env: &Env, user: &Address) {
-    let key = DataKey::Subscription(user.clone());
+    let key = subscription_key(env, user);
     if env.storage().persistent().has(&key) {
         env.storage().persistent().extend_ttl(
             &key,
@@ -318,7 +326,7 @@ pub fn get_storage_footprint(env: &Env, user: &Address) -> StorageFootprint {
             ttl_ledgers: persistent_ttl(env, &key),
         });
     };
-    push_persistent("subscription", DataKey::Subscription(user.clone()));
+    push_persistent("subscription", subscription_key(env, user));
     push_persistent("referral", DataKey::Referral(user.clone()));
     push_persistent("metadata", DataKey::SubscriptionMeta(user.clone()));
     push_persistent("charge_history", DataKey::ChargeHistory(user.clone()));

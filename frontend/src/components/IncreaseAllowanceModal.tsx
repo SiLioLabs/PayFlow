@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { buildApproveTx, getAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
+import { buildApproveTx, getAllowance, getRequiredAllowance, TOKEN_CONTRACT_ID, CONTRACT_ID } from "../stellar";
 import { useToast } from "../hooks/useToast";
 import ToastContainer from "./Toast";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -49,7 +49,16 @@ export default function IncreaseAllowanceModal({
       try {
         const allowance = await getAllowance(userKey);
         setCurrentAllowance(allowance);
-        setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+        try {
+          const req = await getRequiredAllowance(userKey, 6);
+          if (req !== null && req > 0n) {
+            setAmountStroops(req > allowance ? req : allowance + subscriptionAmount);
+          } else {
+            setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+          }
+        } catch {
+          setAmountStroops(getRecommendedAllowance(subscriptionAmount, allowance));
+        }
       } catch {
         setCurrentAllowance(0n);
         setAmountStroops(getRecommendedAllowance(subscriptionAmount, 0n));

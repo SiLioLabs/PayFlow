@@ -15,8 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING** `contract_health_check` returns the optional `instance_bump_age_ledgers` field in place of `instance_ttl_ledgers`. Update consumers and submit a TTL maintenance call to initialize telemetry on idle upgraded deployments.
+- Schema v4 moves legacy subscriptions to ID zero through `migrate` and `finalize_migration`. Additional subscriptions have independent per-user IDs and token-specific settlement analytics.
+- Soroban SDK 30 requires Stellar CLI 30 or later to build deployable contract Wasm.
+- Emergency operators use `set_contract_paused_as`, `freeze_merchant_as`, and `unfreeze_merchant_as` with their address and signature. Admin entrypoints retain their argument lists.
+- **BREAKING** Disambiguate conflicting error codes. Migration incomplete is 53, skip cooldown is 54, and invalid merchant fee basis points is 55.
+
 ### Added
 
+- Add `get_version()`, which returns the release semver embedded from `contract/Cargo.toml` (`CARGO_PKG_VERSION`), and a matching `version` field on `ContractConfig` (`get_contract_config`). `scripts/deploy-pipeline.ts` gains a `contract-version` gate and records `contractVersion`/`buildVersion` in `deployments/manifest.json`. **ABI:** `ContractConfig` has a new trailing field, so clients that decode it must regenerate bindings.
+- Reserve error code 37 with a deprecated `Reserved37` variant so the slot can never be reused. `scripts/check-error-codes.mjs` now fails on any undeclared numeric gap and on any deprecated error variant referenced from contract code. The Documentation Guards workflow now also runs on `contract/src/**` changes.
+- Publish a deprecation schedule for `ContractPausedError` (30) and `Reserved31` (31) in `docs/ERROR-CODES.md`: removal criteria and earliest removal release.
+- Add instruction-budget benchmarks for `batch_cancel` (25), `batch_pause_subscriptions` (25), `get_next_charge_batch` (dense and worst-case sparse 50-slot pages) and `transfer_subscription`, with documented `MAX_*_INSTRUCTIONS` thresholds.
 - Add `get_charges_due_between(from, to, offset, limit)`, a bounded keeper read of subscribers due inside a time window, with their `next_charge_at`. The bundled keeper uses it to wake up when the next subscription comes due, and never sleeps longer than `INTERVAL_SECONDS`.
 - Add an optional keeper tip. `set_keeper_tip_bps` (admin, capped at 5000 bps of the protocol fee; default 0) and `charge_with_tip(user, keeper)` pay the keeper out of the protocol fee. Emits `keeper_tip_bps_set` and `keeper_tip`.
 - Add `finalize_migration(expected_total)` and `get_migration_progress()`. Migration is now resumable and tracks processed accounts.

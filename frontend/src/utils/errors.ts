@@ -16,7 +16,7 @@
  *    2 AmountMustBePositive           18 ContractPaused             34 InvalidFeeBounds
  *    3 IntervalMustBePositive         19 IntervalTooShort           35 FeeOutOfBoundsAtCommit
  *    4 NoSubscriptionFound            20 BatchTooLarge              36 ArithmeticOverflow
- *    5 SubscriptionInactive            21 ZeroBalanceAvailable       37 — catalog gap, no variant
+ *    5 SubscriptionInactive            21 ZeroBalanceAvailable       37 Reserved37 (reserved)
  *    6 IntervalNotElapsed             22 MerchantFrozen             38 RefundMerchantMismatch
  *    7 NotInitialized                 23 NoPendingProposal          39 RefundAmountMustBePositive
  *    8 InsufficientAllowance          24 SubscriptionAlreadyActive  40 InsufficientMerchantBalance
@@ -31,9 +31,15 @@
  *   46 IntervalExceedsMaximum
  *   47 FreezeReasonTooLong
  *   48 TrialExtensionExceedsMaximum
- *   49 SkipCooldownActive
+ *   54 SkipCooldownActive
  *   50 NoLastChargeToRefund
- *   51 InvalidOperatorAddress         (ContractErrorExt)
+ *   53 MigrationIncomplete
+ *   51 TrialAlreadyUsed
+ *   52 MigrationIncomplete
+ *   53 InvalidKeeperTipBps
+ *   54 InvalidAdminAddress
+ *   48 MigrationIncomplete
+ *   49 InvalidKeeperTipBps
  *   52 InvalidAdminAddress
  *   53 MigrationIncomplete            (ContractErrorExt)
  *   54 InvalidKeeperTipBps            (ContractErrorExt)
@@ -44,7 +50,7 @@
  * Codes 51 and 53+ live in the `ContractErrorExt` enum because Soroban caps an
  * exported error enum at 50 cases; the numbering is one shared catalog.
  *
- * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
+ * Codes 30, 31 and 37 (deprecated / reserved) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
  */
 export const CONTRACT_ERRORS: Record<string, string> = {
@@ -98,9 +104,9 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #34)": "Invalid fee bounds.",
   "error(contract, #35)": "Fee out of bounds at commit.",
   "error(contract, #36)": "Arithmetic overflow.",
-  // Code 37 — historical gap in the catalog: no `ContractError` variant holds
-  // this code and none is planned. Kept mapped so a stray 37 cannot reach the
-  // user as raw panic text; remove only if a variant ever claims this code.
+  // Code 37 — `Reserved37`, a deprecated variant that only holds
+  // this slot so it is never reused; never emitted. Kept mapped so a stray 37 cannot reach the
+  // user as raw panic text.
   "error(contract, #37)": "This error code is not used by the current contract.",
   "error(contract, #38)": "Refund can only be issued by the subscription's merchant.",
   "error(contract, #39)": "Prorated refund amount is zero; nothing to refund.",
@@ -114,19 +120,29 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #46)": "Billing interval must not exceed 400 years.",
   "error(contract, #47)": "Merchant freeze reason must be 128 bytes or fewer.",
   "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
-  "error(contract, #49)": "You can only skip one billing cycle per interval.",
+  "error(contract, #54)": "You can only skip one billing cycle per interval.",
   "error(contract, #50)": "There is no charge available to refund.",
-  "error(contract, #51)": "Operator cannot be the contract address.",
-  "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
   // 53 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
   "error(contract, #53)": "Storage migration is not finished yet; process every account first.",
-  // 54 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
-  "error(contract, #54)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  // 51 `TrialAlreadyUsed` — subscribe trial requested for a (user, merchant)
+  // pair that already consumed its one trial (cancel + re-subscribe cannot
+  // reset eligibility).
+  "error(contract, #51)": "You've already used your free trial with this merchant.",
+  // 52 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #52)": "Storage migration is not finished yet; process every account first.",
+  // 53 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
+  "error(contract, #53)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  // 54 `InvalidAdminAddress` — admin transfer target is the current admin or this contract.
+  "error(contract, #54)": "Choose an admin address different from the current admin and contract.",
+  // 48 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
+  // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
+  "error(contract, #49)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
   "error(contract, #55)": "Merchant fee must be within the configured protocol fee bounds.",
-  // 56 `PauseExceedsMaxDuration` — pause longer than the admin-set maximum.
-  "error(contract, #56)": "This pause is longer than the maximum pause duration allowed.",
-  // 57 `InvalidEndCondition` — max_cycles of 0 or an end date that is not in the future.
-  "error(contract, #57)": "Subscription end conditions are invalid: cycles must be at least 1 and the end date must be in the future.",
+  "error(contract, #51)": "Operator cannot be the contract address.",
+  "error(contract, #56)": "Subscription ID is already in use.",
+  "error(contract, #57)": "This action requires the contract admin or operator.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").
@@ -188,6 +204,15 @@ export function friendlyError(raw: string): string {
  * Returns the code in `#N` form so it can be matched against both
  * `CONTRACT_ERRORS["error(contract, #N)"]` and the bare-code aliases.
  */
+/**
+ * Returns the canonical user-facing message for a numeric contract error code.
+ * Use this when the UI can detect a contract condition before signing, so the
+ * client-side wording matches what the contract would report.
+ */
+export function contractErrorMessage(code: number): string {
+  return CONTRACT_ERRORS[`error(contract, #${code})`] ?? `Contract error #${code}.`;
+}
+
 export function extractContractErrorCode(raw: string): string | null {
   const contractMatch = raw.match(/error\(\s*contract\s*,\s*#(\d+)\s*\)/i);
   if (contractMatch) return `#${contractMatch[1]}`;

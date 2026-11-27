@@ -192,7 +192,7 @@ The migration is **resumable** and has two admin steps. `migrate(users)` process
 
 - `migrate(users)` is admin-only and batch-safe. Each account is processed once, even if a batch is re-sent. It **does not advance `schema_version`**, so new subscriptions stay blocked (error 42) until `finalize_migration` succeeds.
 - `get_migration_progress()` returns `migrated_accounts`, the number of distinct accounts processed. An interrupted run resumes from that position in the operator's account list.
-- `finalize_migration(expected_total)` is admin-only. It advances the version only when `migrated_accounts >= expected_total`, and returns `MigrationIncomplete` (53) otherwise. It is idempotent after completion.
+- `finalize_migration(expected_total)` is admin-only. It advances the version only when `migrated_accounts >= expected_total`, and returns `MigrationIncomplete` (52) otherwise. It is idempotent after completion.
 
 Recommended operator workflow after a WASM upgrade that changes storage layout:
 

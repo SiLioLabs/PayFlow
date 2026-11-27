@@ -1,7 +1,8 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::{
-    admin, errors::ContractError, events, referral, DataKey, Subscription, SUBSCRIPTION_TTL_LEDGERS,
+    admin, errors::ContractError, events, referral, storage, DataKey, Subscription,
+    SUBSCRIPTION_TTL_LEDGERS,
 };
 
 /// v1 Subscription format (missing `paused` field)
@@ -20,7 +21,7 @@ pub struct SubscriptionV1 {
 }
 
 /// Current storage schema version.
-pub const CURRENT_VERSION: u32 = 3;
+pub const CURRENT_VERSION: u32 = 4;
 
 /// Snapshot of the paged migration, returned by `get_migration_progress`.
 #[soroban_sdk::contracttype]
@@ -56,7 +57,7 @@ fn set_schema_version(env: &Env, version: u32) {
 pub fn get_migrated_account_count(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::MigratedAccountCount)
+        .get(&DataKey::MigratedToV4Count)
         .unwrap_or(0u64)
 }
 
@@ -101,7 +102,7 @@ pub fn require_current_version(env: &Env) {
 /// - **Does not advance `SchemaVersion`.** The version stays where it was until
 ///   `finalize` confirms the whole upgrade is done, so `SchemaMigrationRequired`
 ///   keeps blocking new writes until then.
-/// - **Idempotent per account.** Each processed account gets a `MigratedAccount`
+/// - **Idempotent per account.** Each processed account gets a `MigratedToV4`
 ///   marker. A later batch that lists the same account skips it, so a blob is
 ///   never converted twice and never counted twice.
 /// - **Resumable.** `get_migration_progress().migrated_accounts` is the number of
@@ -123,9 +124,13 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
         return;
     }
 
+    if users.len() > crate::MAX_BATCH_SIZE_CEILING {
+        env.panic_with_error(ContractError::BatchTooLarge);
+    }
+
     let mut newly_migrated: u64 = 0;
     for user in users.iter() {
-        let marker = DataKey::MigratedAccount(user.clone());
+        let marker = DataKey::MigratedToV4(user.clone());
         if env.storage().persistent().has(&marker) {
             // Processed in an earlier batch. Converting it again would try to
             // decode an already-rewritten blob as the older shape.
@@ -134,7 +139,12 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
 
         let key = DataKey::Subscription(user.clone());
 
-        if start_version < 2 {
+        let already_v3 = start_version >= 3
+            || env
+                .storage()
+                .persistent()
+                .has(&DataKey::MigratedAccount(user.clone()));
+        if start_version < 2 && !already_v3 {
             if let Some(v1_sub) = env.storage().persistent().get::<_, SubscriptionV1>(&key) {
                 let v2_sub = Subscription {
                     merchant: v1_sub.merchant,
@@ -153,11 +163,22 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
             }
         }
 
-        if start_version < 3 {
+        if !already_v3 {
             if let Some(mut sub) = env.storage().persistent().get::<_, Subscription>(&key) {
                 sub.referrer = referral::get_referrer(env, &user);
                 env.storage().persistent().set(&key, &sub);
             }
+        }
+
+        let persistent = env.storage().persistent();
+        if let Some(sub) = persistent.get::<_, Subscription>(&key) {
+            let primary = DataKey::SubscriptionById(user.clone(), 0);
+            if persistent.has(&primary) {
+                env.panic_with_error(ContractError::SubscriptionIdAlreadyExists);
+            }
+            persistent.set(&primary, &sub);
+            persistent.remove(&key);
+            storage::extend_subscription_ttl(env, &user);
         }
 
         env.storage().persistent().set(&marker, &true);
@@ -170,10 +191,12 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
     }
 
     if newly_migrated > 0 {
-        let total = get_migrated_account_count(env) + newly_migrated;
+        let total = get_migrated_account_count(env)
+            .checked_add(newly_migrated)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::ArithmeticOverflow));
         env.storage()
             .instance()
-            .set(&DataKey::MigratedAccountCount, &total);
+            .set(&DataKey::MigratedToV4Count, &total);
         events::publish_migration_progress(env, total);
     }
 }
@@ -191,6 +214,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
 /// # Errors
 ///
 /// - `MigrationIncomplete` (53) when fewer than `expected_total` accounts have
+/// - `MigrationIncomplete` (52) when fewer than `expected_total` accounts have
 ///   been processed.
 pub fn finalize(env: &Env, expected_total: u64) {
     admin::require_admin(env);

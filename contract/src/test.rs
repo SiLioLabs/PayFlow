@@ -13,6 +13,22 @@
 // a test here is renamed or removed. `contract/scripts/snapshot-check.mjs` fails
 // CI on orphaned, corrupt, gapped or stale snapshot files.
 
+// Include feature files in this module to preserve libtest names and SDK snapshot paths.
+include!("test/common.rs");
+include!("test/admin.rs");
+include!("test/batch.rs");
+include!("test/charge.rs");
+include!("test/config.rs");
+include!("test/daily_limit.rs");
+include!("test/fees.rs");
+include!("test/health.rs");
+include!("test/history.rs");
+include!("test/indexes.rs");
+include!("test/lifecycle.rs");
+include!("test/subscribe.rs");
+include!("test/upgrade.rs");
+include!("test/whitelist.rs");
+include!("test/multi_subscription.rs");
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
@@ -16940,3 +16956,134 @@ fn test_storage_footprint_covers_every_per_user_key() {
     assert!(!footprint.entries.get(2).unwrap().present); // metadata
     assert!(!footprint.entries.get(10).unwrap().present); // daily_limit
 }
+
+/// Tests that a charge after multiple missed intervals collects exactly one billing cycle
+/// and updates `next_charge_at` based on the execution timestamp (no double-charging).
+#[test]
+fn test_charge_after_multiple_missed_intervals_without_grace() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400; // 1 day
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let user_balance_before = token.balance(&user);
+    let merchant_balance_before = token.balance(&merchant);
+
+    // Simulate 10 missed intervals (keeper downtime, no grace period configured)
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval * 10;
+    });
+
+    let current_time = env.ledger().timestamp();
+    client.charge(&user);
+
+    // Verify exactly 1 cycle was charged (no catch-up double charging)
+    assert_eq!(user_balance_before - token.balance(&user), amount);
+    assert_eq!(token.balance(&merchant) - merchant_balance_before, amount);
+
+    // Verify next charge timestamp anchors from charge execution time
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.last_charged, current_time);
+    assert_eq!(client.get_next_charge_at(&user).unwrap(), current_time + interval);
+}
+
+/// Tests missed intervals behaviour when a grace window is active (e.g. 2, 3, 10 missed intervals).
+#[test]
+fn test_charge_after_multiple_missed_intervals_with_grace() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400; // 1 day
+    let grace_period: u64 = 3600; // 1 hour
+
+    install_admin(&env, &contract_id);
+    client.propose_grace_period(&grace_period);
+    client.commit_grace_period();
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    // Missed 2 intervals -> current timestamp > interval + grace_period
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval * 2;
+    });
+
+    // Should fail with GracePeriodElapsed because deadline was last_charged + interval + grace
+    let res = client.try_charge(&user);
+    assert_eq!(res.unwrap_err().unwrap(), ContractError::GracePeriodElapsed);
+}
+
+/// Tests that subscribe with an invalid (non-contract / G-address) token address is rejected with InvalidTokenAddress.
+#[test]
+fn test_subscribe_invalid_token_address_rejected() {
+    let (env, contract_id, _token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    use soroban_sdk::xdr::{AccountId, PublicKey, ScAddress, Uint256};
+    let account_id = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256([0; 32])));
+    let account_token = Address::try_from_val(&env, &ScAddress::Account(account_id)).unwrap();
+
+    let res = client.try_subscribe(
+        &user,
+        &merchant,
+        &1_0000000,
+        &86400,
+        &account_token,
+        &None,
+        &None,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), ContractError::InvalidTokenAddress);
+}
+
+/// Tests that standard SAC token charge transfers exactly match nominal amounts and contract balance does not retain funds.
+#[test]
+fn test_charge_standard_token_balances_match_books() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+
+    let amount: i128 = 2_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    let contract_balance_before = token.balance(&contract_id);
+    assert_eq!(contract_balance_before, 0);
+
+    client.charge(&user);
+
+    let contract_balance_after = token.balance(&contract_id);
+    assert_eq!(contract_balance_after, 0);
+    assert_eq!(token.balance(&merchant), amount);
+}
+
+/// Tests that get_required_allowance matches charge allowance requirements exactly across multiple cycles.
+#[test]
+fn test_get_required_allowance_matches_charge() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_5000000;
+    let interval: u64 = 86400;
+
+    // Non-existent subscription requires 0 allowance
+    assert_eq!(client.get_required_allowance(&user, &3), 0);
+
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    assert_eq!(client.get_required_allowance(&user, &0), 0);
+    assert_eq!(client.get_required_allowance(&user, &1), amount);
+    assert_eq!(client.get_required_allowance(&user, &6), amount * 6);
+}
+
+
+
+

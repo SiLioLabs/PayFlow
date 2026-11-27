@@ -6,7 +6,7 @@ use crate::events::BatchChargeSkipsEventData;
 use crate::grace;
 use crate::storage;
 use crate::validation;
-use crate::{DataKey, Subscription};
+use crate::Subscription;
 
 // ─────────────────────────────────────────────────────────────
 // Decode-compatibility note
@@ -147,7 +147,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
     let mut allowance_insufficient = 0u32;
 
     for user in users.iter() {
-        let key = DataKey::Subscription(user.clone());
+        let key = storage::subscription_key(env, &user);
 
         let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
@@ -386,7 +386,7 @@ mod tests {
         let env = Env::default();
         // Instance storage is only readable from inside a contract frame, so
         // the delegation is asserted under `as_contract`.
-        let contract_id = env.register_contract(None, crate::FlowPay);
+        let contract_id = env.register(crate::FlowPay, ());
         env.as_contract(&contract_id, || {
             assert_eq!(
                 get_max_batch_size(&env),
@@ -422,7 +422,7 @@ pub fn batch_extend_subscription_ttl(env: &Env, users: Vec<Address>) -> Vec<Addr
 
     let mut extended: Vec<Address> = Vec::new(env);
     for user in users.iter() {
-        let key = DataKey::Subscription(user.clone());
+        let key = storage::subscription_key(env, &user);
         if env.storage().persistent().has(&key) {
             crate::storage::extend_subscription_ttl(env, &user);
             extended.push_back(user.clone());
@@ -439,7 +439,7 @@ pub fn batch_cancel(env: &Env, users: Vec<Address>) -> Vec<CancelResult> {
     let mut results: Vec<CancelResult> = Vec::new(env);
 
     for user in users.iter() {
-        let key = DataKey::Subscription(user.clone());
+        let key = storage::subscription_key(env, &user);
         let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
         let result = match sub_opt {

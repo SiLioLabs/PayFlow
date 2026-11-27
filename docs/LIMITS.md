@@ -20,6 +20,7 @@ deployed contract.  The authoritative values live in:
 | `MAX_BATCH_SIZE_CEILING` | 200 | Hard ceiling on `set_max_batch_size` |
 | `MAX_BATCH_PAUSE` | 25 | Maximum subscriptions per batch pause call |
 | `MAX_WHITELIST_BATCH` | 50 | Maximum addresses per whitelist batch operation |
+| `MAX_SUBSCRIPTIONS_BATCH` | 50 | Maximum addresses per `get_subscriptions` batch read |
 
 ## Schema version
 
@@ -111,6 +112,7 @@ capped entrypoint below reads one of them, so this is the complete set.
 | `REVENUE_DAY_PAGE_SIZE`           | 30    | `get_merchant_revenue_day_page`              | No                     |
 | `TOP_MERCHANTS_PAGE_SIZE`         | 20    | `get_top_merchants_by_subs`                  | No                     |
 | `WHITELIST_PAGE_SIZE`             | 50    | `get_whitelist_page`                         | No                     |
+| `MAX_SUBSCRIPTIONS_BATCH`         | 50    | `get_subscriptions`                           | No                     |
 
 Two consequences worth internalising:
 
@@ -151,6 +153,7 @@ changes all the rows that share it.
 | `get_merchant_statuses`        | No     | `get_max_whitelist_batch_size()` (default 50, max 200) | `DataKey::MaxWhitelistBatchSize` |
 | `get_merchant_sub_counts`      | No     | 50, fixed                                        | `MAX_MERCHANT_SUB_COUNT_BATCH`       |
 | `prune_merchant_revenue_days`  | Yes    | 90, fixed                                        | `MAX_PRUNE_REVENUE_DAYS`             |
+| `get_subscriptions`            | No     | 50, fixed                                        | `MAX_SUBSCRIPTIONS_BATCH`            |
 
 Two rows surprise people:
 
@@ -221,7 +224,7 @@ silently, meaning a request for 500 addresses *succeeds* and returns 50:
 
 | Behaviour        | Entrypoints                                                      |
 | ---------------- | ---------------------------------------------------------------- |
-| **Panic** `BatchTooLarge` (20) | `batch_charge`, `batch_extend_subscription_ttl`, `batch_cancel`, `batch_pause_subscriptions`, `get_batch_charge_estimate`, `whitelist_batch_add`, `whitelist_batch_remove`, `get_merchant_statuses`, `get_merchant_sub_counts`, `get_next_charge_batch`, `get_top_merchants_by_subs`, `get_merchant_revenue_day_page` |
+| **Panic** `BatchTooLarge` (20) | `batch_charge`, `batch_extend_subscription_ttl`, `batch_cancel`, `batch_pause_subscriptions`, `get_batch_charge_estimate`, `whitelist_batch_add`, `whitelist_batch_remove`, `get_merchant_statuses`, `get_merchant_sub_counts`, `get_next_charge_batch`, `get_top_merchants_by_subs`, `get_merchant_revenue_day_page`, `get_subscriptions` |
 | **Silently clamps** | `get_subscriber_page`, `get_active_subscriber_page`, `get_charge_history_page`, `get_whitelist_page` |
 | **No limit**     | `get_merchant_revenue_history`                                     |
 

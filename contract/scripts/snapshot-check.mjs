@@ -67,10 +67,17 @@ function collectTests() {
     if (!entry.endsWith(".rs")) continue;
     const module = entry.replace(/\.rs$/, "");
     const source = readFileSync(join(srcDir, entry), "utf8");
-    const bodies = testBodies(source);
+    const sources = [source];
+    // Feature files included by test.rs share the module and snapshot directory.
+    for (const match of source.matchAll(/^include!\("([^"]+\.rs)"\);$/gm)) {
+      sources.push(readFileSync(resolve(srcDir, match[1]), "utf8"));
+    }
     const names = new Map();
-    for (const match of source.matchAll(TEST_FN)) {
-      names.set(match[1], CREATES_ENV.test(bodies.get(match[1]) ?? ""));
+    for (const file of sources) {
+      const bodies = testBodies(file);
+      for (const match of file.matchAll(TEST_FN)) {
+        names.set(match[1], CREATES_ENV.test(bodies.get(match[1]) ?? ""));
+      }
     }
     tests.set(module, names);
   }

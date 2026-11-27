@@ -207,6 +207,22 @@ export function allowanceGap(allowance: bigint, required: bigint): bigint {
 }
 
 /**
+ * Calculates the required allowance for a given number of upcoming billing cycles.
+ * Matches `get_required_allowance` on the FlowPay contract.
+ *
+ * @param subscriptionAmount  Gross subscription amount per cycle.
+ * @param cycles              Number of upcoming billing cycles.
+ */
+export function getRequiredAllowance(
+  subscriptionAmount: bigint,
+  cycles: number
+): bigint {
+  if (cycles <= 0 || subscriptionAmount <= 0n) return 0n;
+  return subscriptionAmount * BigInt(cycles);
+}
+
+
+/**
  * allowance-utils.ts — Shared concurrency, retry, and type utilities for
  * allowance audit scripts (check-allowances.ts, alert-expiring-allowances.ts).
  *

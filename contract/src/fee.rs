@@ -26,8 +26,16 @@ pub fn effective_fee_bps(env: &Env, merchant: &Address) -> u32 {
 }
 
 pub fn set_merchant_fee_bps(env: &Env, merchant: &Address, bps: Option<u32>) {
-    let min_bps: u32 = env.storage().instance().get(&DataKey::MinFeeBps).unwrap_or(0);
-    let max_bps: u32 = env.storage().instance().get(&DataKey::MaxFeeBps).unwrap_or(10_000);
+    let min_bps: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::MinFeeBps)
+        .unwrap_or(0);
+    let max_bps: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::MaxFeeBps)
+        .unwrap_or(10_000);
     if bps.is_some_and(|rate| rate < min_bps || rate > max_bps) {
         env.panic_with_error(crate::errors::ContractErrorExt::InvalidMerchantFeeBps);
     }
@@ -269,6 +277,7 @@ pub fn transfer_subscription_charge(
     user: &Address,
     sub: &Subscription,
     keeper: Option<&Address>,
+    accrue_referral: bool,
 ) -> (i128, i128, Option<Address>, i128) {
     // Preflight: one allowance check covering every leg (fee + net == gross).
     validation::check_allowance(env, user, &sub.token, sub.amount);
@@ -286,8 +295,11 @@ pub fn transfer_subscription_charge(
                 let tip = keeper.map_or(0, |_| {
                     calculate_fee_amount(env, fee, get_keeper_tip_bps(env))
                 });
-                let reward =
-                    crate::referral::accrue_charge_reward(env, user, &sub.token, fee - tip);
+                let reward = if accrue_referral {
+                    crate::referral::accrue_charge_reward(env, user, &sub.token, fee - tip)
+                } else {
+                    0
+                };
                 let to_collector = fee - tip - reward;
                 let token_client = token::Client::new(env, &sub.token);
                 if to_collector > 0 {

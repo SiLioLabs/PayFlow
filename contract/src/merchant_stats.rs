@@ -75,9 +75,11 @@ pub fn decrement_revenue(env: &Env, merchant: &Address, amount: i128) {
     let new_total = current.saturating_sub(amount);
     let key = DataKey::MerchantRevenue(merchant.clone());
     env.storage().persistent().set(&key, &new_total);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, MERCHANT_STATE_TTL_LEDGERS, MERCHANT_STATE_TTL_LEDGERS);
+    env.storage().persistent().extend_ttl(
+        &key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
 
     if current > 0 && new_total == 0 {
         decrement_pending_merchant_rev_count(env);
@@ -85,11 +87,7 @@ pub fn decrement_revenue(env: &Env, merchant: &Address, amount: i128) {
 
     let today = env.ledger().timestamp() / 86400;
     let day_key = DataKey::MerchantRevenueDay(merchant.clone(), today);
-    if let Some(day_total) = env
-        .storage()
-        .persistent()
-        .get::<_, i128>(&day_key)
-    {
+    if let Some(day_total) = env.storage().persistent().get::<_, i128>(&day_key) {
         env.storage()
             .persistent()
             .set(&day_key, &day_total.saturating_sub(amount));

@@ -72,11 +72,9 @@ pub enum ContractError {
     InvalidBatchSize = 29,
     /// Deprecated alias retained for clients that published code 30.
     /// New contract pause checks use `ContractPaused` (code 18).
-    #[deprecated(note = "use ContractPaused; code 30 is retained for wire compatibility")]
     ContractPausedError = 30,
     /// Reserved for the historical error-code gap. It is intentionally not
     /// emitted by the current contract; retaining it documents the stable wire map.
-    #[deprecated(note = "code 31 is reserved and must not be emitted")]
     Reserved31 = 31,
     /// Returned when a provided recipient address is invalid (e.g., contract address).
     InvalidRecipient = 32,
@@ -89,6 +87,13 @@ pub enum ContractError {
     /// Returned when a checked arithmetic operation overflows (trial extension,
     /// fee calculation, protocol-fee accrual, or global volume accumulation)
     ArithmeticOverflow = 36,
+    /// Reserved: code 37 was skipped when the catalog was extended and has
+    /// never been emitted by any released WASM. Declaring it keeps the slot
+    /// claimed so a future variant cannot reuse 37 and silently change what
+    /// existing clients decode. Never emit it; add new errors at the next
+    /// free code. `scripts/check-error-codes.mjs` fails on any undeclared gap.
+    #[deprecated(note = "code 37 is reserved and must not be emitted")]
+    Reserved37 = 37,
     /// Returned when a refund is requested by a merchant different from the subscription merchant
     RefundMerchantMismatch = 38,
     /// Returned when prorated cancellation would produce no refund
@@ -124,40 +129,35 @@ pub enum ContractError {
     TrialExtensionExceedsMaximum = 48,
     /// Returned when `skip_next_charge` is called again before the cooldown of
     /// one full billing interval has elapsed since the previous skip.
-    SkipCooldownActive = 49,
+    SkipCooldownActive = 54,
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
-    /// Returned when an admin transfer targets the current admin or this contract.
-    ///
-    /// Kept in `ContractError` (rather than [`ContractErrorExt`]) because
-    /// `transfer_admin` returns `Result<(), ContractError>`.
-    InvalidAdminAddress = 52,
-}
-
-/// Overflow catalog for codes past the 50-case limit Soroban places on an
-/// exported error enum. Codes are unique across both enums and continue the
-/// same numbering, so clients and `frontend/src/utils/errors.ts` treat them as
-/// one wire catalog. Raise these with `env.panic_with_error`, exactly like
-/// [`ContractError`].
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum ContractErrorExt {
-    /// Operator cannot be the contract itself.
-    InvalidOperatorAddress = 51,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 51,
     /// Returned by `finalize_migration` while fewer accounts have been migrated
     /// than the operator-supplied total, so the schema version cannot be advanced.
     MigrationIncomplete = 53,
+    MigrationIncomplete = 52,
     /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
-    InvalidKeeperTipBps = 54,
-    /// Merchant fee override is outside the configured protocol fee bounds, or
-    /// the referral reward policy is out of range.
+    InvalidKeeperTipBps = 53,
+    /// Returned when an admin transfer targets the current admin or this contract.
+    InvalidAdminAddress = 54,
+    InvalidAdminAddress = 48,
+    /// Returned by `pay_per_use_with_nonce` when the (user, nonce) pair has
+    /// already been recorded, rejecting a replayed retry without charging again.
+    NonceAlreadyUsed = 51,
+    /// Returned when `subscribe`/`subscribe_with_referral` requests a trial
+    /// for a (user, merchant) pair that has already consumed its one trial.
+    TrialAlreadyUsed = 52,
+    InvalidAdminAddress = 52,
+    /// Merchant fee override exceeds current configured protocol bounds.
     InvalidMerchantFeeBps = 55,
-    /// Returned when `pause` or `pause_until` would exceed the admin-configured
-    /// `max_pause_seconds`. Never returned while the cap is 0 (the default).
-    PauseExceedsMaxDuration = 56,
-    /// Returned by `subscribe_with_end_conditions` when `max_cycles` is
-    /// `Some(0)` or `end_at` is not in the future.
-    InvalidEndCondition = 57,
+    /// Operator cannot be the contract itself.
+    InvalidOperatorAddress = 51,
+    /// A live record already occupies the next allocated subscription ID.
+    SubscriptionIdAlreadyExists = 56,
+    /// The named emergency actor is neither the operator nor the admin.
+    Unauthorized = 57,
 }

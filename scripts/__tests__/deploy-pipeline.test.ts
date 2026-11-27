@@ -20,6 +20,9 @@ import {
   runHealthGate,
   runWasmHashGate,
   runSchemaVersionGate,
+  runContractVersionGate,
+  readCargoVersion,
+  recordContractVersion,
   writeSummary,
   runPipeline,
   type PipelineSummary,
@@ -244,6 +247,8 @@ describe("writeSummary", () => {
       wasmHash: "abc123",
       onChainHash: null,
       schemaVersion: 2,
+      contractVersion: "0.1.0",
+      buildVersion: "0.1.0",
       rpcHealthy: true,
       gates: [{ gate: "rpc-health", status: "pass", message: "ok" }],
       passed: true,
@@ -272,6 +277,8 @@ describe("writeSummary", () => {
       wasmHash: null,
       onChainHash: null,
       schemaVersion: null,
+      contractVersion: null,
+      buildVersion: null,
       rpcHealthy: false,
       gates: [],
       passed: true,
@@ -395,5 +402,52 @@ describe("checkContractId", () => {
 
   it("fails for random garbage", () => {
     expect(checkContractId("not-a-contract-id").status).toBe("fail");
+  });
+});
+
+// ── Contract version (#1412) ──────────────────────────────────────────────────
+
+describe("contract version", () => {
+  it("readCargoVersion reads the [package] version, not a dependency version", () => {
+    const toml = tmpFile(".toml");
+    fs.writeFileSync(
+      toml,
+      [
+        "[package]",
+        'name = "flowpay"',
+        'version = "1.4.2"',
+        "",
+        "[dependencies]",
+        'soroban-sdk = { version = "21.7.7" }',
+        "",
+      ].join("\n")
+    );
+    expect(readCargoVersion(toml)).toBe("1.4.2");
+    fs.unlinkSync(toml);
+  });
+
+  it("readCargoVersion matches contract/Cargo.toml by default", () => {
+    expect(readCargoVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("recordContractVersion keeps existing manifest fields", () => {
+    const manifest = tmpFile(".json");
+    fs.writeFileSync(manifest, JSON.stringify({ contractId: "CABC", network: "testnet" }));
+    recordContractVersion({ onChain: "0.1.0", build: "0.2.0" }, manifest, new Date("2026-01-01T00:00:00Z"));
+    const written = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    fs.unlinkSync(manifest);
+    expect(written).toEqual({
+      contractId: "CABC",
+      network: "testnet",
+      contractVersion: "0.1.0",
+      buildVersion: "0.2.0",
+      lastUpdatedAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("runContractVersionGate skips without a contract or source account", async () => {
+    const gate = await runContractVersionGate("", {} as never, "pass", "", "0.1.0");
+    expect(gate.status).toBe("skip");
+    expect(gate.buildVersion).toBe("0.1.0");
   });
 });

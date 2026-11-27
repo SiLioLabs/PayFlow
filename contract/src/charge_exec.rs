@@ -12,14 +12,53 @@ use crate::subscription_history;
 use crate::validation;
 use crate::whitelist;
 use crate::{
-    extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, SubscriptionTerms, MAX_AMOUNT,
+    extend_subscription_ttl, DataKey, LastChargeRecord, Subscription, SUBSCRIPTION_TTL_LEDGERS,
+    MAX_AMOUNT,
 };
+
+/// Sets `merchant`'s per-call maximum `pay_per_use` amount. Enforced
+/// alongside the global `MAX_AMOUNT` cap (`AmountExceedsMaximum`), not in
+/// place of it. The caller must authorize as `merchant`.
+pub fn set_merchant_max_per_use(env: &Env, merchant: &Address, max_amount: i128) {
+    merchant.require_auth();
+    validation::require_valid_amount(env, max_amount);
+    let key = DataKey::MerchantMaxPerUse(merchant.clone());
+    env.storage().persistent().set(&key, &max_amount);
+    env.storage().persistent().extend_ttl(
+        &key,
+        SUBSCRIPTION_TTL_LEDGERS / 2,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+    events::publish_merchant_max_per_use_set(env, merchant, max_amount);
+}
+
+/// Returns `merchant`'s configured per-call `pay_per_use` maximum, or `None`
+/// if unset (only the global `MAX_AMOUNT` cap applies).
+pub fn get_merchant_max_per_use(env: &Env, merchant: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MerchantMaxPerUse(merchant.clone()))
+}
+
+/// Panics with `AmountExceedsMaximum` if `merchant` has configured a
+/// per-call maximum and `amount` exceeds it. No-op if unset.
+pub fn enforce_merchant_max_per_use(env: &Env, merchant: &Address, amount: i128) {
+    if let Some(max_amount) = get_merchant_max_per_use(env, merchant) {
+        if amount > max_amount {
+            env.panic_with_error(crate::errors::ContractError::AmountExceedsMaximum);
+        }
+    }
+}
 
 /// ─────────────────────────────────────────────────────────────
 /// Shared dry-run precheck helper (Issue #801 — Issue 005)
 ///
 /// Full comparison of estimate vs live differences:
 /// docs/architecture/BATCH-ESTIMATE-VS-LIVE.md
+///
+/// Randomized parity property (every chargeable/skip state, boundary
+/// allowances, fees, repeated addresses):
+/// `scenario::scenario_property_estimate_matches_live_batch_outcomes`.
 /// ─────────────────────────────────────────────────────────────
 ///
 /// Both `simulate_charge` and `get_batch_charge_estimate` are
@@ -220,7 +259,7 @@ pub enum ChargeSimResult {
 ///     a broken presence invariant yields `ChargeResult::NoSubscription`
 ///     (mapped to `Inactive`) rather than an abort.
 pub fn simulate_charge(env: &Env, user: Address) -> ChargeSimResult {
-    let key = DataKey::Subscription(user.clone());
+    let key = storage::subscription_key(env, &user);
     let sub_opt: Option<Subscription> = env.storage().persistent().get(&key);
 
     let (outcome, sub_after_precheck) = dry_run_skip_precheck(env, &user, sub_opt, true);
@@ -274,7 +313,7 @@ pub fn simulate_pay_per_use(
         return PayPerUseSimResult::AmountExceedsMaximum;
     }
 
-    let key = DataKey::Subscription(user.clone());
+    let key = storage::subscription_key(env, &user);
     let sub: Option<Subscription> = env.storage().persistent().get(&key);
     let sub = match sub {
         None => return PayPerUseSimResult::Inactive,
@@ -301,6 +340,12 @@ pub fn simulate_pay_per_use(
         }
     }
 
+    if let Some(max_amount) = get_merchant_max_per_use(env, &recipient) {
+        if amount > max_amount {
+            return PayPerUseSimResult::AmountExceedsMaximum;
+        }
+    }
+
     if let Some(limit) = spending_limit::get_daily_limit(env, &user) {
         let spent = spending_limit::get_daily_spent(env, &user);
         if spent + amount > limit {
@@ -322,7 +367,7 @@ pub fn compute_next_charge_at(sub: &Subscription) -> Option<u64> {
     if !sub.active || sub.paused {
         return None;
     }
-    Some(sub.last_charged + sub.interval)
+    sub.last_charged.checked_add(sub.interval)
 }
 
 /// Attempts to auto-resume a paused subscription if the pause expiry has passed.
@@ -337,7 +382,7 @@ pub fn try_auto_resume(env: &Env, user: &Address, sub: &mut Subscription, now: u
                 sub.active = true;
                 env.storage()
                     .persistent()
-                    .set(&DataKey::Subscription(user.clone()), sub);
+                    .set(&storage::subscription_key(env, user), sub);
                 storage::clear_pause_expiry(env, user);
                 events::publish_subscription_auto_resumed(env, user);
                 return true;
@@ -406,7 +451,7 @@ pub fn execute_charge(
     keeper: Option<&Address>,
 ) -> i128 {
     let (fee_amount, net, paid_to, tip) =
-        fee::transfer_subscription_charge(env, user, sub, keeper);
+        fee::transfer_subscription_charge(env, user, sub, keeper, true);
 
     crate::check_and_update_global_volume(env, sub.amount);
     merchant_stats::increment_revenue_with_daily(env, &sub.merchant, net);

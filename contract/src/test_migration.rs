@@ -39,7 +39,7 @@ fn migration_setup() -> (Env, Address, Address, Address, Address, Address) {
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_addr = token_id.address();
 
-    let contract_id = env.register_contract(None, FlowPay);
+    let contract_id = env.register(FlowPay, ());
 
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
@@ -245,11 +245,10 @@ fn test_migration_paged_skips_users_without_subscriptions() {
     let ghost1 = Address::generate(&env);
     let ghost2 = Address::generate(&env);
 
-    let mut page: Vec<Address> = Vec::new(&env);
-    page.push_back(ghost1.clone());
-    page.push_back(ghost2.clone());
-    env.as_contract(&contract_id, || migration::migrate(&env, page)); // Must not panic.
-    env.as_contract(&contract_id, || migration::finalize(&env, 2));
+    let client = FlowPayClient::new(&env, &contract_id);
+    let page = Vec::from_array(&env, [ghost1, ghost2]);
+    client.migrate(&page);
+    client.finalize_migration(&2);
 
     let version = env.as_contract(&contract_id, || migration::get_schema_version(&env));
     assert_eq!(version, CURRENT_VERSION);
@@ -347,8 +346,8 @@ fn test_migration_get_schema_version_after_full_migrate() {
     let client = FlowPayClient::new(&env, &contract_id);
     assert_eq!(client.get_schema_version(), 0u32);
 
-    env.as_contract(&contract_id, || migration::migrate(&env, Vec::new(&env)));
-    env.as_contract(&contract_id, || migration::finalize(&env, 0));
+    client.migrate(&Vec::new(&env));
+    client.finalize_migration(&0);
 
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
 }
@@ -358,7 +357,13 @@ fn test_migration_get_schema_version_after_full_migrate() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Writes a v1-shaped subscription blob (no `paused`) directly into storage.
-fn write_v1_blob(env: &Env, contract_id: &Address, user: &Address, merchant: &Address, token: &Address) {
+fn write_v1_blob(
+    env: &Env,
+    contract_id: &Address,
+    user: &Address,
+    merchant: &Address,
+    token: &Address,
+) {
     let v1 = SubscriptionV1 {
         merchant: merchant.clone(),
         amount: 1_000_000i128,
@@ -421,7 +426,10 @@ fn test_migration_finalize_rejects_incomplete_run() {
         &None,
         &None,
     );
-    assert!(blocked.is_err(), "subscribe must stay blocked until finalize succeeds");
+    assert!(
+        blocked.is_err(),
+        "subscribe must stay blocked until finalize succeeds"
+    );
 }
 
 /// Once every expected account is processed, `finalize` clears
@@ -462,9 +470,8 @@ fn test_migration_duplicate_account_counted_once() {
     let client = FlowPayClient::new(&env, &contract_id);
     let mut users: Vec<Address> = Vec::new(&env);
     users.push_back(user.clone());
-    // Separate frames: each admin call authorizes its own invocation frame.
-    env.as_contract(&contract_id, || migration::migrate(&env, users.clone()));
-    env.as_contract(&contract_id, || migration::migrate(&env, users.clone()));
+    client.migrate(&users);
+    client.migrate(&users);
 
     assert_eq!(client.get_migration_progress().migrated_accounts, 1);
     assert!(client.try_finalize_migration(&2u64).is_err());
@@ -483,8 +490,13 @@ fn test_migration_v1_blob_converted_once_and_rerun_is_safe() {
     users.push_back(user.clone());
 
     client.migrate(&users);
-    let converted = client.get_subscription(&user).expect("blob must survive migration");
-    assert!(!converted.paused, "v1 blob must be rewritten with paused = false");
+    let converted = client
+        .get_subscription(&user)
+        .expect("blob must survive migration");
+    assert!(
+        !converted.paused,
+        "v1 blob must be rewritten with paused = false"
+    );
     assert_eq!(converted.merchant, merchant);
 
     // Second run of the same batch is a no-op for this account.

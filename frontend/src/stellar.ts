@@ -1502,6 +1502,33 @@ export function getProtocolFee(caller: string): Promise<ProtocolFee | null> {
   });
 }
 
+/** Mirrors contract `get_fee_bounds` — the inclusive bps range for a fee commit. */
+export interface FeeBounds {
+  minBps: number;
+  maxBps: number;
+}
+
+/**
+ * Reads the protocol fee bounds from `get_fee_bounds`. The contract defaults to
+ * `(0, 10000)` when governance has not configured explicit bounds.
+ */
+export function getFeeBounds(caller: string): Promise<FeeBounds | null> {
+  return dedupedCall(`getFeeBounds:${caller}`, async () => {
+    try {
+      const retval = await simulateContractRead(caller, "get_fee_bounds", []);
+      if (!retval || retval.switch().name === "scvVoid") return null;
+      const parts = retval.vec();
+      if (!parts || parts.length < 2) return null;
+      return {
+        minBps: decodeU32(parts[0]),
+        maxBps: decodeU32(parts[1]),
+      };
+    } catch {
+      return null;
+    }
+  });
+}
+
 export function calculateProtocolFee(gross: bigint, bps: number): bigint {
   if (bps <= 0 || gross <= 0n) return 0n;
   return (gross * BigInt(bps)) / 10_000n;
@@ -1569,6 +1596,9 @@ export function getContractHealthCheck(caller: string): Promise<ContractHealthCh
     }
   });
 }
+
+export { getRequiredAllowance } from "./services/reads";
+
 
 const VALIDATION_TIMEOUT_MS = 30_000;
 
@@ -1826,6 +1856,49 @@ export async function buildWhitelistBatchRemoveTx(
     ),
   ]);
 }
+// ── Two-step protocol fee ─────────────────────────────────────────────────────
+
+/**
+ * Builds an XDR transaction for the first step of a fee change.
+ * Admin-only. The proposal is held in temporary storage and only takes effect
+ * after `commit_fee`, provided it falls inside the current fee bounds.
+ */
+export async function buildProposeFeeTx(
+  adminPublicKey: string,
+  collector: string,
+  bps: number
+): Promise<string> {
+  return buildTx(adminPublicKey, "propose_fee", [
+    addressVal(collector),
+    nativeToScVal(bps, { type: "u32" }),
+  ]);
+}
+
+/** Builds an XDR transaction for `commit_fee` (second step of a fee change). Admin-only. */
+export async function buildCommitFeeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "commit_fee", []);
+}
+
+/** Builds an XDR transaction for `clear_fee`, removing the collector and bps. Admin-only. */
+export async function buildClearFeeTx(adminPublicKey: string): Promise<string> {
+  return buildTx(adminPublicKey, "clear_fee", []);
+}
+
+/**
+ * Builds an XDR transaction for `set_fee_bounds`. Admin-only.
+ * The contract requires `minBps <= maxBps <= 10_000`.
+ */
+export async function buildSetFeeBoundsTx(
+  adminPublicKey: string,
+  minBps: number,
+  maxBps: number
+): Promise<string> {
+  return buildTx(adminPublicKey, "set_fee_bounds", [
+    nativeToScVal(minBps, { type: "u32" }),
+    nativeToScVal(maxBps, { type: "u32" }),
+  ]);
+}
+
 // ── TTL / Archived-state helpers ──────────────────────────────────────────────
 
 /**
@@ -2011,6 +2084,12 @@ export function getMerchantFreezeReason(
       if (!retval || retval.switch().name === "scvVoid") return null;
 
       return ScValDecoder.decodeOption(retval, ScValDecoder.decodeString);
+    } catch {
+      return null;
+    }
+  });
+}
+
 // ── Issue #2: Contract Config ─────────────────────────────────────────────────
 
 export interface ContractConfig {
@@ -2046,6 +2125,12 @@ export function getContractConfig(caller: string): Promise<ContractConfig | null
         paused: ScValDecoder.decodeBool,
         schemaVersion: decodeU32,
       });
+    } catch {
+      return null;
+    }
+  });
+}
+
 // ── Issue #1: Pending Upgrade ─────────────────────────────────────────────────
 
 export interface PendingUpgrade {
@@ -2117,6 +2202,8 @@ export async function buildUnfreezeMerchantTx(
 ): Promise<string> {
   return buildTx(adminPublicKey, "unfreeze_merchant", [addressVal(merchant)]);
 }
+
+/**
  * Builds a transaction to propose a new WASM hash for upgrade.
  * Admin-only operation.
  */

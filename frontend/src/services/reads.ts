@@ -147,6 +147,40 @@ export function getDailyLimit(user: string): Promise<bigint | null> {
   });
 }
 
+export function getRequiredAllowance(user: string, cycles: number): Promise<bigint | null> {
+  return dedupedCall(`getRequiredAllowance:${user}:${cycles}`, async () => {
+    const s = getServer();
+    const contract = new Contract(CONTRACT_ID);
+    const account = await s.getAccount(user);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(
+        contract.call(
+          "get_required_allowance",
+          addressVal(user),
+          nativeToScVal(cycles, { type: "u32" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const result = await s.simulateTransaction(tx);
+    if ("error" in result) return null;
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return null;
+
+    try {
+      return ScValDecoder.decodeI128(retval);
+    } catch {
+      return null;
+    }
+  });
+}
+
 export function getDailySpent(user: string): Promise<bigint> {
   return dedupedCall(`getDailySpent:${user}`, async () => {
     const s = getServer();
