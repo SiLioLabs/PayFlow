@@ -128,15 +128,36 @@ pub enum ContractError {
     /// Returned when `refund_last_charge` is called but no scheduled charge has
     /// been recorded for the subscriber (or the last one was already refunded).
     NoLastChargeToRefund = 50,
-    /// Returned by `finalize_migration` while fewer accounts have been migrated
-    /// than the operator-supplied total, so the schema version cannot be advanced.
-    MigrationIncomplete = 48,
-    /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
-    InvalidKeeperTipBps = 49,
     /// Returned when an admin transfer targets the current admin or this contract.
+    ///
+    /// Kept in `ContractError` (rather than [`ContractErrorExt`]) because
+    /// `transfer_admin` returns `Result<(), ContractError>`.
     InvalidAdminAddress = 52,
-    /// Merchant fee override exceeds current configured protocol bounds.
-    InvalidMerchantFeeBps = 50,
+}
+
+/// Overflow catalog for codes past the 50-case limit Soroban places on an
+/// exported error enum. Codes are unique across both enums and continue the
+/// same numbering, so clients and `frontend/src/utils/errors.ts` treat them as
+/// one wire catalog. Raise these with `env.panic_with_error`, exactly like
+/// [`ContractError`].
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ContractErrorExt {
     /// Operator cannot be the contract itself.
     InvalidOperatorAddress = 51,
+    /// Returned by `finalize_migration` while fewer accounts have been migrated
+    /// than the operator-supplied total, so the schema version cannot be advanced.
+    MigrationIncomplete = 53,
+    /// Returned by `set_keeper_tip_bps` when the tip exceeds `MAX_KEEPER_TIP_BPS`.
+    InvalidKeeperTipBps = 54,
+    /// Merchant fee override is outside the configured protocol fee bounds, or
+    /// the referral reward policy is out of range.
+    InvalidMerchantFeeBps = 55,
+    /// Returned when `pause` or `pause_until` would exceed the admin-configured
+    /// `max_pause_seconds`. Never returned while the cap is 0 (the default).
+    PauseExceedsMaxDuration = 56,
+    /// Returned by `subscribe_with_end_conditions` when `max_cycles` is
+    /// `Some(0)` or `end_at` is not in the future.
+    InvalidEndCondition = 57,
 }

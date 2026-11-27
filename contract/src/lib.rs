@@ -41,14 +41,18 @@ mod test_keeper;
 mod test_migration;
 #[cfg(test)]
 mod test_pause_matrix;
+#[cfg(test)]
+mod test_subscription_limits;
 mod trial;
+mod types;
 mod upgrade;
 mod validation;
+mod views;
 mod whitelist;
 
 use crate::errors::ContractError;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contractimpl, token, Address, BytesN, Env, String, Symbol, Vec,
 };
 
 pub use batch::CancelResult;
@@ -56,316 +60,8 @@ pub use batch::ChargeResult;
 pub use charge_exec::ChargeSimResult;
 pub use charge_exec::PayPerUseSimResult;
 
-// ─────────────────────────────────────────────────────────────
-// Storage keys
-// ─────────────────────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    Subscription(Address),
-    Token,
-    // Admin
-    Admin,
-    // Grace period
-    GracePeriod,
-    // Merchant whitelist
-    MerchantWhitelist(Address),
-    WhitelistEnabled,
-    WhitelistIndex(u32),
-    WhitelistIndexSize,
-    // Reverse lookup of a merchant's whitelist slot, used for O(1) removal
-    WhitelistIndexSlot(Address),
-    // Merchant freeze: blocks new subscriptions, independent of whitelist status
-    MerchantFrozen(Address),
-    MerchantFreezeReason(Address),
-    // Protocol fee
-    FeeCollector,
-    FeeBps,
-    // Feature: subscription count
-    ActiveCount,
-    // Feature: merchant revenue stats
-    MerchantRevenue(Address),
-    // Per-day merchant revenue buckets (keyed by Unix day)
-    MerchantRevenueDay(Address, u64),
-    // Index of which days have revenue buckets for a merchant
-    MerchantRevenueDayIndex(Address),
-    // Feature: daily spending limits (temporary storage)
-    DailyLimit(Address),
-    DailySpent(Address),
-    DayStart(Address),
-    // Feature: referral tracking
-    Referral(Address),
-    // Feature: state migration
-    SchemaVersion,
-    // Feature: subscription metadata labels
-    SubscriptionMeta(Address),
-    // Feature: charge history
-    ChargeHistory(Address),
-    // Feature: global volume cap
-    GlobalVolumeWindow,
-    // Feature: batch size limit override
-    MaxBatchSize,
-    // Feature: contract pause
-    ContractPaused,
-    // Feature: minimum subscription interval floor
-    MinInterval,
-    // Feature: consolidated merchant revenue history (Vec<i128>)
-    MerchantRevenueHistory(Address),
-    // Feature: subscriber index (append-only log)
-    SubscriberIndex(u64),
-    SubscriberIndexSize,
-    // Reverse lookup of a subscriber's slot, used to prune on cancel
-    SubscriberIndexSlot(Address),
-    // Tombstone marking a pruned (cancelled) subscriber index slot
-    SubscriberIndexRemoved(u64),
-    // Feature: per-merchant subscriber count
-    MerchantSubCount(Address),
-    // Feature: merchant index for governance/ranking
-    MerchantIndex(u32),
-    MerchantIndexSize,
-    MerchantKnown(Address),
-    // Pending admin for two-step transfer
-    PendingAdmin,
-    // Two-step auth for protocol fee
-    PendingFee,
-    // Per-merchant custom fee recipient (merchant -> destination)
-    MerchantFeeRecipient(Address),
-    // Two-step auth for grace period
-    PendingGracePeriod,
-    // Two-step auth for upgrade
-    PendingUpgrade,
-    // Feature: pause expiry (bounded pause with auto-resume)
-    PauseExpiry(Address),
-    // Feature: cumulative protocol fees collected across all merchants
-    TotalProtocolFees,
-    // Feature: configurable global hourly volume cap override
-    GlobalVolumeCapOverride,
-    // Feature: configurable min/max fee bps bounds
-    MinFeeBps,
-    MaxFeeBps,
-    // Feature: configurable whitelist batch size limit override
-    MaxWhitelistBatchSize,
-    // Feature: counter for merchants with pending (unwithdrawn) revenue > 0
-    PendingMerchantRevCount,
-    // Feature: per-user billing extras (last charge snapshot + last skip)
-    BillingState(Address),
-    // Feature: keeper tip, in bps of the protocol fee paid to a `charge_with_tip` caller
-    KeeperTipBps,
-    // Feature: paged schema migration. Per-account marker set once `migrate` has
-    // processed that account, so re-sending a batch never migrates it twice.
-    MigratedAccount(Address),
-    // Feature: number of accounts processed by `migrate` in the current upgrade
-    MigratedAccountCount,
-    // New keys are appended to preserve the established DataKey discriminants.
-    Operator,
-    MerchantFeeBps(Address),
-    ReferralReward(Address, Address),
-    ReferralRewardChargeCount(Address),
-    ReferralRewardBps,
-    ReferralRewardMaxCharges,
-}
-
-// ─────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────
-
-pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
-
-/// TTL for merchant state keys (revenue, per-day buckets, revenue history,
-/// subscriber counts, whitelist entries, freeze markers, merchant index):
-/// ~90 days at 5 s/ledgers.
-///
-/// Deliberately shorter than [`SUBSCRIPTION_TTL_LEDGERS`] (~1 year): the
-/// subscription that produced the revenue outlives the merchant's analytics
-/// keys. The 90-day vs 1-year mismatch is intended — merchant state is a
-/// derived, recomputable cache tied to the merchant's lifetime, while the
-/// subscription is the source of truth and must persist for the full billing
-/// cycle. If this value is ever retuned, every writer below must change with
-/// it; it is not a separate runtime knob. See docs/architecture/STORAGE-AND-TTL.md.
-pub const MERCHANT_STATE_TTL_LEDGERS: u32 = 1_555_200; // ~90 days (assuming 5s blocks)
-
-pub use caps::{
-    MAX_BATCH_PAUSE_SUBSCRIPTIONS, MAX_BATCH_SIZE_CEILING, MAX_MERCHANT_SUB_COUNT_BATCH,
-    MAX_WHITELIST_BATCH_SIZE, REVENUE_DAY_PAGE_SIZE, SUBSCRIBER_PAGE_SIZE, TOP_MERCHANTS_PAGE_SIZE,
-};
-
-/// The default cap for the admin batch charge/extend entrypoints, sourced from
-/// [`caps::DEFAULT_BATCH_SIZE`] so there is exactly one place to change it.
-pub use caps::DEFAULT_BATCH_SIZE as MAX_BATCH_SIZE;
-pub const GLOBAL_MAX_VOLUME_PER_HOUR: i128 = 50_000_000_000_000; // 50 trillion stroops
-pub const HOUR_IN_SECONDS: u64 = 3600;
-pub const MAX_AMOUNT: i128 = 100_000_000_000;
-pub const MAX_SUBSCRIPTION_AMOUNT: i128 = 100_000_000_000_000;
-/// Maximum permitted subscription billing interval in seconds (400 years).
-///
-/// Rationale: `last_charged + interval` and `last_charged + interval + grace_period`
-/// are `u64` additions. An interval near `u64::MAX` wraps those expressions,
-/// causing every charge call for that subscription to abort. Inside `batch_charge`
-/// that abort was historically transaction-wide (a self-inflicted DoS). Even after
-/// per-user abort isolation the keeper cannot collect from such a subscription,
-/// making it an operational hazard.
-///
-/// 400 years (≈ 12 623 040 000 s) is far beyond any real billing cycle and keeps
-/// all timestamp arithmetic safely within the representable `u64` range for any
-/// foreseeable ledger timestamp. Mirrors the `MAX_SUBSCRIPTION_AMOUNT` precedent.
-pub const MAX_SUBSCRIPTION_INTERVAL: u64 = 12_623_040_000; // 400 years in seconds
-
-// ─────────────────────────────────────────────────────────────
-// Data types
-// ─────────────────────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct Subscription {
-    pub merchant: Address,
-    pub amount: i128,
-    pub interval: u64,
-    pub last_charged: u64,
-    pub active: bool,
-    pub paused: bool,              // true if paused, false otherwise
-    pub token: Address,            // SAC token used for this subscription
-    pub referrer: Option<Address>, // optional referral address
-    pub label: Symbol,             // user-assigned label for this subscription
-    pub trial_duration: u64,       // optional trial duration in seconds
-    pub created_at: u64,           // timestamp of subscription creation
-}
-
-/// Snapshot of the most recent scheduled charge, used by
-/// `refund_last_charge` to reverse the merchant's revenue and the protocol's
-/// fee accounting by exactly the amounts booked at charge time.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct LastChargeRecord {
-    /// Merchant that received the charge's net leg.
-    pub merchant: Address,
-    /// SAC token used for that charge (guards a resubscribe under a new token).
-    pub token: Address,
-    /// Gross amount moved from the subscriber.
-    pub amount: i128,
-    /// Protocol fee booked for that charge (0 when no fee was configured).
-    pub fee: i128,
-    /// Amount added to the merchant's revenue for that charge.
-    pub net: i128,
-    /// Ledger timestamp at which the charge executed.
-    pub charged_at: u64,
-}
-
-/// One per-subscriber storage key in the rent footprint returned by
-/// `get_storage_footprint`.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct StorageEntryFootprint {
-    /// Short name of the per-user key (e.g. `subscription`, `referral`).
-    pub key: Symbol,
-    /// Whether the entry currently exists in storage.
-    pub present: bool,
-    /// Remaining TTL in ledgers. Real value under `cfg(test)` / the
-    /// `testutils` feature; always `0` in production because Soroban does not
-    /// expose `get_ttl()` on-chain. `0` must not be read as "expired".
-    pub ttl_ledgers: u32,
-}
-
-/// Per-subscriber auxiliary billing state, stored under a single key so the
-/// `DataKey` enum stays within Soroban's 50-variant XDR limit.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct BillingState {
-    /// Most recent scheduled charge, flattened. `last_charge_merchant` is
-    /// `Some` exactly when a charge snapshot exists; the other fields are then
-    /// meaningful. Flattening avoids `Option<LastChargeRecord>`, which the
-    /// contracttype macro cannot encode as a nested struct option.
-    pub last_charge_merchant: Option<Address>,
-    pub last_charge_token: Option<Address>,
-    pub last_charge_amount: i128,
-    pub last_charge_fee: i128,
-    pub last_charge_net: i128,
-    pub last_charge_at: u64,
-    /// Timestamp of the last `skip_next_charge` call (cooldown guard).
-    pub last_skip_at: Option<u64>,
-}
-
-/// Rent-estimation helper result: every per-subscriber key the contract can
-/// create, with presence flags and (in test builds) TTLs.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct StorageFootprint {
-    pub entries: Vec<StorageEntryFootprint>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct SubscriptionHealth {
-    pub active: bool,
-    pub charge_due: bool,
-    pub within_grace: bool,
-    pub has_sufficient_allowance: bool,
-    pub is_paused: bool,
-    pub trial_active: bool,
-    pub daily_limit_set: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct DailyLimitStatus {
-    pub limit: Option<i128>,
-    pub spent: i128,
-    pub day_start: Option<u64>,
-    pub remaining: Option<i128>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct HealthReport {
-    pub is_healthy: bool,
-    pub contract_paused: bool,
-    pub token_configured: bool,
-    pub admin_configured: bool,
-    /// Placeholder TTL field. On-chain this is a hardcoded `100_000` because
-    /// Soroban does not expose `get_ttl()` outside test builds. Test/testutils
-    /// builds report the real instance TTL. Not an input to `is_healthy`.
-    pub instance_ttl_ledgers: u32,
-    pub active_subscription_count: u64,
-    pub schema_version: u32,
-    pub fee_collector_set: bool,
-    pub global_volume_utilization_pct: u32,
-    /// Number of merchants with unwithdrawn revenue > 0.
-    pub pending_merchant_rev_count: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct GlobalVolumeWindow {
-    pub current_window_start: u64,
-    pub accumulated_volume: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProtocolStats {
-    pub active_count: u64,
-    pub fee_bps: u32,
-    pub fee_collector: Option<Address>,
-    pub grace_period: u64,
-    pub whitelist_enabled: bool,
-    pub schema_version: u32,
-    pub contract_paused: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct ContractConfig {
-    pub fee_bps: u32,
-    pub fee_collector: Option<Address>,
-    pub grace_period: u64,
-    pub min_interval: u64,
-    pub max_batch_size: u32,
-    pub global_volume_cap: i128,
-    pub whitelist_enabled: bool,
-    pub paused: bool,
-    pub schema_version: u32,
-}
-
+// Re-export all shared types (DataKey, structs) from types.rs (issue #1398).
+pub use types::*;
 // ─────────────────────────────────────────────────────────────
 // Contract
 // ─────────────────────────────────────────────────────────────
@@ -398,7 +94,7 @@ pub(crate) fn cancel_inner(env: &Env, user: &Address) -> Subscription {
     if was_active {
         subscription_count::decrement(env);
         subscription_count::remove_subscriber_index(env, user);
-        merchant_stats::decrement_subscriber_count(env, &sub.merchant);
+        merchant_stats::decrement_subscriber_count_with_user(env, &sub.merchant, user);
         referral::remove_referral(env, user);
     }
 
@@ -481,21 +177,7 @@ impl FlowPay {
     }
 
     pub fn get_contract_config(env: Env) -> ContractConfig {
-        ContractConfig {
-            fee_bps: fee::get_fee_bps(&env),
-            fee_collector: fee::get_fee_collector(&env),
-            grace_period: grace::get_grace_period(&env),
-            min_interval: min_interval::get_min_interval(&env),
-            max_batch_size: batch::get_max_batch_size(&env),
-            global_volume_cap: effective_global_volume_cap(&env),
-            whitelist_enabled: whitelist::is_whitelist_enabled(&env),
-            paused: is_contract_paused(&env),
-            schema_version: env
-                .storage()
-                .instance()
-                .get(&DataKey::SchemaVersion)
-                .unwrap_or(1),
-        }
+        views::get_contract_config(&env)
     }
 
     pub fn get_batch_charge_estimate(env: Env, users: Vec<Address>) -> Vec<ChargeResult> {
@@ -521,7 +203,12 @@ impl FlowPay {
                         // Auto-resumed — fall through to allowance check below.
                         // Re-run precheck on the now-active sub to be safe, then
                         // mirror the same allowance check as the live batch path.
-                        match charge_exec::precheck_charge(&sub, now, grace_period) {
+                        match charge_exec::precheck_charge(
+                            &sub,
+                            storage::get_subscription_terms(&env, &user).as_ref(),
+                            now,
+                            grace_period,
+                        ) {
                             Err(skip) => skip,
                             Ok(()) => {
                                 if !validation::has_sufficient_allowance(
@@ -534,7 +221,12 @@ impl FlowPay {
                             }
                         }
                     } else {
-                        match charge_exec::precheck_charge(&sub, now, grace_period) {
+                        match charge_exec::precheck_charge(
+                            &sub,
+                            storage::get_subscription_terms(&env, &user).as_ref(),
+                            now,
+                            grace_period,
+                        ) {
                             Err(skip) => skip,
                             Ok(()) => {
                                 if !validation::has_sufficient_allowance(
@@ -602,6 +294,8 @@ impl FlowPay {
             token,
             trial_period,
             referrer,
+            None,
+            None,
         );
     }
 
@@ -629,9 +323,50 @@ impl FlowPay {
             token,
             trial_period,
             referrer,
+            None,
+            None,
         );
 
         let _ = subscription_metadata::set_metadata(&env, &user, label);
+    }
+
+    /// Creates a fixed-term subscription with optional `max_cycles` and/or
+    /// `end_at` end conditions (issue #1400).
+    ///
+    /// When `max_cycles` is `Some(n)` the subscription deactivates after `n`
+    /// successful scheduled charges and emits `subscription_completed`.
+    /// When `end_at` is `Some(ts)` the charge path rejects charges that arrive
+    /// after `ts`, then deactivates the subscription.
+    /// Either, both, or neither condition may be set; existing subscriptions
+    /// (created via `subscribe`) behave exactly as before.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from `user`.
+    pub fn subscribe_with_end_conditions(
+        env: Env,
+        user: Address,
+        merchant: Address,
+        amount: i128,
+        interval: u64,
+        token: Address,
+        trial_period: Option<u64>,
+        referrer: Option<Address>,
+        max_cycles: Option<u32>,
+        end_at: Option<u64>,
+    ) {
+        subscribe_inner(
+            &env,
+            user,
+            merchant,
+            amount,
+            interval,
+            token,
+            trial_period,
+            referrer,
+            max_cycles,
+            end_at,
+        );
     }
 
     /// Charges the next due recurring payment for `user`.
@@ -691,7 +426,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// - `InvalidKeeperTipBps` (49) when `bps > MAX_KEEPER_TIP_BPS`.
+    /// - `InvalidKeeperTipBps` (54) when `bps > MAX_KEEPER_TIP_BPS`.
     /// - `NotInitialized` (7) when no admin is set.
     pub fn set_keeper_tip_bps(env: Env, bps: u32) {
         admin::require_admin(&env);
@@ -1104,7 +839,20 @@ impl FlowPay {
 
         env.storage().persistent().set(&key, &sub);
         extend_subscription_ttl(&env, &user);
-        storage::set_pause_expiry(&env, &user, u64::MAX);
+
+        // Issue #1401: when max_pause_seconds > 0, cap the indefinite pause to
+        // that duration. When max_pause_seconds == 0 (default), use u64::MAX
+        // as before so existing behavior is fully preserved.
+        let now = env.ledger().timestamp();
+        let expiry = {
+            let max = get_max_pause_seconds(&env);
+            if max == 0 {
+                u64::MAX
+            } else {
+                now.saturating_add(max)
+            }
+        };
+        storage::set_pause_expiry(&env, &user, expiry);
 
         events::publish_paused(&env, &user);
     }
@@ -1140,6 +888,10 @@ impl FlowPay {
         if expiry <= now {
             env.panic_with_error(ContractError::InvalidPauseExpiry);
         }
+
+        // Issue #1401: enforce the admin-configured max pause duration.
+        // When max_pause_seconds == 0 (default), no limit applies.
+        enforce_max_pause(&env, now, expiry);
 
         let key = DataKey::Subscription(user.clone());
 
@@ -1418,6 +1170,13 @@ impl FlowPay {
         fee::get_total_protocol_fees(&env)
     }
 
+    /// Returns the fixed-term end conditions (`max_cycles`, `end_at`) and the
+    /// number of charges collected under them, or `None` for an open-ended
+    /// subscription.
+    pub fn get_subscription_terms(env: Env, user: Address) -> Option<SubscriptionTerms> {
+        storage::get_subscription_terms(&env, &user)
+    }
+
     pub fn get_subscription(env: Env, user: Address) -> Option<Subscription> {
         env.storage().persistent().get(&DataKey::Subscription(user))
     }
@@ -1453,23 +1212,7 @@ impl FlowPay {
     ///
     /// No auth required.
     pub fn is_charge_due(env: Env, user: Address) -> bool {
-        let sub = match storage::get_subscription(&env, &user) {
-            Some(s) => s,
-            None => return false,
-        };
-        let next = match charge_exec::compute_next_charge_at(&sub) {
-            Some(n) => n,
-            None => return false,
-        };
-        let now = env.ledger().timestamp();
-        if now < next {
-            return false;
-        }
-        let grace = grace::get_grace_period(&env);
-        if grace > 0 && now > next.saturating_add(grace) {
-            return false;
-        }
-        true
+        views::is_charge_due(&env, &user)
     }
 
     /// Returns the trial end timestamp if the user is in a trial period.
@@ -1913,10 +1656,7 @@ impl FlowPay {
     /// Pruned (cancelled) slots are skipped. Returns an empty Vec when
     /// `offset >= count` or `limit == 0`.
     pub fn get_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
-        let cap: u32 = caps::effective_page_size(Some(limit), SUBSCRIBER_PAGE_SIZE);
-        // Delegate bounds, index reads, and tombstone skipping to the shared helper.
-        // No per-address filter: this reader returns all non-tombstoned addresses.
-        subscriber_scan::scan_subscriber_slots(&env, offset, cap as u64)
+        views::get_subscriber_page(&env, offset, limit)
     }
 
     /// Returns a list of subscriber addresses that are currently due for charging.
@@ -2111,6 +1851,9 @@ impl FlowPay {
                 bump_merchant_state_ttl(&env, &DataKey::MerchantKnown(merchant.clone()));
                 bump_merchant_state_ttl(&env, &DataKey::MerchantRevenue(merchant.clone()));
                 bump_merchant_state_ttl(&env, &DataKey::MerchantSubCount(merchant.clone()));
+                // Index entries/slots are refreshed per subscriber in
+                // `storage::extend_subscription_ttl`; only the size lives here.
+                bump_merchant_state_ttl(&env, &DataKey::MerchantSubIndexSize(merchant.clone()));
                 if env
                     .storage()
                     .persistent()
@@ -2217,55 +1960,7 @@ impl FlowPay {
 
     /// Returns a composite health report for a user's subscription.
     pub fn get_subscription_health(env: Env, user: Address) -> SubscriptionHealth {
-        let sub = match storage::get_subscription(&env, &user) {
-            Some(s) => s,
-            None => {
-                return SubscriptionHealth {
-                    active: false,
-                    charge_due: false,
-                    within_grace: false,
-                    has_sufficient_allowance: false,
-                    is_paused: false,
-                    trial_active: false,
-                    daily_limit_set: false,
-                }
-            }
-        };
-
-        let active = sub.active;
-        let is_paused = sub.paused;
-        let charge_due = Self::is_charge_due(env.clone(), user.clone());
-
-        let next_charge = charge_exec::compute_next_charge_at(&sub);
-        let now = env.ledger().timestamp();
-        let grace = grace::get_grace_period(&env);
-
-        let within_grace = if let Some(next) = next_charge {
-            // Mirror is_charge_due semantics exactly:
-            // - when grace == 0 the charge is simply due (no grace window), so
-            //   within_grace is true whenever a charge is due.
-            // - when grace > 0 the subscriber is within the grace window when
-            //   now is between next and next + grace_period (inclusive).
-            now >= next && (grace == 0 || now <= next.saturating_add(grace))
-        } else {
-            false
-        };
-
-        let has_sufficient_allowance =
-            validation::has_sufficient_allowance(&env, &user, &sub.token, sub.amount);
-
-        let trial_active = trial::get_trial_end(env.clone(), user.clone()).is_some();
-        let daily_limit_set = spending_limit::get_daily_limit(&env, &user).is_some();
-
-        SubscriptionHealth {
-            active,
-            charge_due,
-            within_grace,
-            has_sufficient_allowance,
-            is_paused,
-            trial_active,
-            daily_limit_set,
-        }
+        views::get_subscription_health(&env, &user)
     }
 
     /// Clears the merchant's revenue history Vec from persistent storage.
@@ -2293,6 +1988,17 @@ impl FlowPay {
     /// No auth required.
     pub fn get_merchant_sub_counts(env: Env, merchants: Vec<Address>) -> Vec<(Address, u64)> {
         merchant_stats::get_merchant_sub_counts(&env, &merchants)
+    }
+
+    /// Returns a paginated list of subscriber addresses for `merchant` (issue #1399).
+    ///
+    /// `offset` is a slot index (not a count). `limit` is capped at 50 (`SUBSCRIBER_PAGE_SIZE`).
+    /// The result count will match `get_merchant_subscriber_count` when no concurrent
+    /// subscribes or cancels happen between calls.
+    ///
+    /// No auth required.
+    pub fn get_merchant_subscribers(env: Env, merchant: Address, offset: u64, limit: u32) -> Vec<Address> {
+        merchant_stats::get_merchant_subscribers(&env, &merchant, offset, limit)
     }
 
     /// Fully clears a merchant's revenue accounting. Only the contract admin can
@@ -2357,7 +2063,7 @@ impl FlowPay {
     /// `remaining` is `None` when no limit is configured and is clamped to
     /// zero when spending has reached or exceeded the configured limit.
     pub fn get_daily_limit_status(env: Env, user: Address) -> DailyLimitStatus {
-        spending_limit::get_daily_limit_status(&env, &user)
+        views::get_daily_limit_status(&env, &user)
     }
 
     // ─────────────────────────────────────────────
@@ -2378,7 +2084,7 @@ impl FlowPay {
     pub fn set_referral_reward_policy(env: Env, bps: u32, max_charges: u32) {
         admin::require_admin(&env);
         if bps > referral::MAX_REFERRAL_REWARD_BPS || max_charges == 0 {
-            env.panic_with_error(ContractError::InvalidMerchantFeeBps);
+            env.panic_with_error(crate::errors::ContractErrorExt::InvalidMerchantFeeBps);
         }
         env.storage().instance().set(&DataKey::ReferralRewardBps, &bps);
         env.storage().instance().set(&DataKey::ReferralRewardMaxCharges, &max_charges);
@@ -2415,7 +2121,7 @@ impl FlowPay {
     ///
     /// # Errors
     ///
-    /// `MigrationIncomplete` (48) when `migrated_accounts < expected_total`.
+    /// `MigrationIncomplete` (53) when `migrated_accounts < expected_total`.
     pub fn finalize_migration(env: Env, expected_total: u64) {
         migration::finalize(&env, expected_total);
     }
@@ -2481,19 +2187,7 @@ impl FlowPay {
 
     /// Returns a snapshot of all protocol-level state in a single call.
     pub fn get_protocol_stats(env: Env) -> ProtocolStats {
-        ProtocolStats {
-            active_count: subscription_count::get_active_count(&env),
-            fee_bps: fee::get_fee_bps(&env),
-            fee_collector: fee::get_fee_collector(&env),
-            grace_period: grace::get_grace_period(&env),
-            whitelist_enabled: whitelist::is_whitelist_enabled(&env),
-            schema_version: migration::get_schema_version(&env),
-            contract_paused: env
-                .storage()
-                .instance()
-                .get(&DataKey::ContractPaused)
-                .unwrap_or(false),
-        }
+        views::get_protocol_stats(&env)
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -2518,7 +2212,7 @@ impl FlowPay {
     pub fn set_operator(env: Env, operator: Option<Address>) {
         admin::require_admin(&env);
         if operator.as_ref().is_some_and(|a| a == &env.current_contract_address()) {
-            env.panic_with_error(ContractError::InvalidOperatorAddress);
+            env.panic_with_error(crate::errors::ContractErrorExt::InvalidOperatorAddress);
         }
         if let Some(ref address) = operator {
             env.storage().instance().set(&DataKey::Operator, address);
@@ -2564,52 +2258,7 @@ impl FlowPay {
 
     /// Returns a snapshot of contract health. Safe to call at any time — no auth required, no storage writes.
     pub fn contract_health_check(env: Env) -> HealthReport {
-        let contract_paused = storage::is_contract_paused(&env);
-        let token_configured = storage::get_token(&env).is_some();
-        let admin_configured = storage::get_admin_optional(&env).is_some();
-        let fee_collector_set = fee::get_fee_collector(&env).is_some();
-
-        #[cfg(any(test, feature = "testutils"))]
-        let instance_ttl_ledgers = {
-            use soroban_sdk::testutils::storage::Instance as _;
-            env.storage().instance().get_ttl()
-        };
-        #[cfg(not(any(test, feature = "testutils")))]
-        let instance_ttl_ledgers = 100_000; // placeholder: get_ttl is not available on-chain
-
-        let active_subscription_count = subscription_count::get_active_count(&env);
-        let schema_version = migration::get_schema_version(&env);
-
-        let window: Option<GlobalVolumeWindow> =
-            env.storage().instance().get(&DataKey::GlobalVolumeWindow);
-        let accumulated_volume = window.map(|w| w.accumulated_volume).unwrap_or(0);
-        let cap = effective_global_volume_cap(&env);
-
-        let pct = if cap > 0 {
-            ((accumulated_volume * 100) / cap) as u32
-        } else {
-            0
-        };
-        let global_volume_utilization_pct = if pct > 100 { 100 } else { pct };
-
-        let pending_merchant_rev_count = merchant_stats::get_pending_merchant_rev_count(&env);
-
-        // Healthy when not paused and fully configured. Instance TTL is reported
-        // separately and is not part of this decision (on-chain it is a constant).
-        let is_healthy = !contract_paused && token_configured && admin_configured;
-
-        HealthReport {
-            is_healthy,
-            contract_paused,
-            token_configured,
-            admin_configured,
-            instance_ttl_ledgers,
-            active_subscription_count,
-            schema_version,
-            fee_collector_set,
-            global_volume_utilization_pct,
-            pending_merchant_rev_count,
-        }
+        views::contract_health_check(&env)
     }
 
     /// Clears the charge history for a subscriber.
@@ -2703,6 +2352,16 @@ impl FlowPay {
         env.storage().persistent().set(&new_key, &sub);
         env.storage().persistent().remove(&old_key);
 
+        // Fixed-term end conditions follow the subscription. Any terms left on
+        // the target by an earlier, inactive subscription are replaced or cleared.
+        match storage::get_subscription_terms(&env, &user) {
+            Some(terms) => {
+                storage::set_subscription_terms(&env, &new_user, &terms);
+                storage::remove_subscription_terms(&env, &user);
+            }
+            None => storage::remove_subscription_terms(&env, &new_user),
+        }
+
         subscription_count::transfer_subscriber_index(&env, &user, &new_user);
         extend_subscription_ttl(&env, &new_user);
 
@@ -2710,6 +2369,9 @@ impl FlowPay {
         subscription_metadata::transfer_metadata(&env, &user, &new_user);
         subscription_history::transfer_charge_history(&env, &user, &new_user);
         referral::transfer_referral(&env, &user, &new_user);
+        // Update the per-merchant subscriber index: remove old user, add new user (#1399)
+        merchant_stats::merchant_sub_index_remove(&env, &sub.merchant, &user);
+        merchant_stats::merchant_sub_index_add(&env, &sub.merchant, &new_user);
 
         events::publish_subscription_transferred(&env, &user, &new_user);
         events::publish_subscription_transferred_detailed(&env, &user, &new_user, &sub);
@@ -2750,6 +2412,34 @@ impl FlowPay {
             .instance()
             .set(&DataKey::GlobalVolumeCapOverride, &new_cap);
         events::publish_global_volume_cap_set(&env, old_cap, new_cap);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Configurable maximum pause duration (issue #1401)
+    // ─────────────────────────────────────────────────────────────
+
+    /// Returns the admin-configured maximum pause duration in seconds.
+    /// Returns `0` when no limit has been set, which preserves backward-
+    /// compatible behavior (indefinite pauses are allowed).
+    pub fn get_max_pause_seconds(env: Env) -> u64 {
+        get_max_pause_seconds(&env)
+    }
+
+    /// Admin-only: sets the maximum permitted pause duration in seconds.
+    ///
+    /// When `max_seconds` is `0`, the cap is removed and indefinite pauses
+    /// are allowed again (backward-compatible default). A positive value
+    /// causes `pause` to cap its expiry at `now + max_seconds` and
+    /// `pause_until` to reject calls where `expiry - now > max_seconds`.
+    ///
+    /// This setting does not retroactively shorten existing pauses.
+    pub fn set_max_pause_seconds(env: Env, max_seconds: u64) {
+        admin::require_admin(&env);
+        let old = get_max_pause_seconds(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxPauseSeconds, &max_seconds);
+        events::publish_max_pause_seconds_set(&env, old, max_seconds);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -2841,25 +2531,7 @@ impl FlowPay {
     /// the index. The scan is bounded: at most `cap` slots are examined per
     /// call, preventing unbounded iteration even on sparse indexes.
     pub fn get_active_subscriber_page(env: Env, offset: u64, limit: u32) -> Vec<Address> {
-        let cap: u32 = caps::effective_page_size(Some(limit), SUBSCRIBER_PAGE_SIZE);
-        // Delegate bounds, index reads, and tombstone skipping to the shared helper,
-        // then apply the active-only filter at this call site.
-        let candidates = subscriber_scan::scan_subscriber_slots(&env, offset, cap as u64);
-        let mut result = Vec::new(&env);
-        for addr in candidates.iter() {
-            if let Some(sub) = storage::get_subscription(&env, &addr) {
-                // sub.active used intentionally: legacy `paused && !active` rows
-                // must remain excluded from this page per the design in storage.rs
-                // (`get_active_subscriber_page` lists current active subscriptions,
-                // not all non-cancelled rows). See `storage::is_cancelled` for the
-                // full semantics and `scenario_legacy_paused_inactive_row_reader_semantics`
-                // for the regression that locks this invariant.
-                if sub.active {
-                    result.push_back(addr);
-                }
-            }
-        }
-        result
+        views::get_active_subscriber_page(&env, offset, limit)
     }
 }
 
@@ -2961,6 +2633,8 @@ fn subscribe_inner(
     token: Address,
     trial_period: Option<u64>,
     referrer: Option<Address>,
+    max_cycles: Option<u32>,
+    end_at: Option<u64>,
 ) {
     bump_instance_ttl(env);
     migration::require_current_version(env);
@@ -2988,6 +2662,9 @@ fn subscribe_inner(
     validation::check_allowance(env, &user, &token, amount);
 
     let now = env.ledger().timestamp();
+    if max_cycles == Some(0) || end_at.is_some_and(|end| end <= now) {
+        env.panic_with_error(crate::errors::ContractErrorExt::InvalidEndCondition);
+    }
     let trial_duration = trial_period.unwrap_or(0);
     let last_charged = now + trial_duration;
 
@@ -3008,7 +2685,7 @@ fn subscribe_inner(
         // sub.active required here: paused subscriptions must not be charged/acted upon —
         // decrement the old merchant's count only when switching from an active subscription.
         if existing_sub.active && existing_sub.merchant != merchant {
-            merchant_stats::decrement_subscriber_count(env, &existing_sub.merchant);
+            merchant_stats::decrement_subscriber_count_with_user(env, &existing_sub.merchant, &user);
         }
     }
 
@@ -3030,6 +2707,22 @@ fn subscribe_inner(
         .persistent()
         .set(&DataKey::Subscription(user.clone()), &sub);
 
+    // Every subscribe replaces the end conditions: a plain `subscribe` after a
+    // fixed-term one must not inherit the old cycle count or end date.
+    if max_cycles.is_some() || end_at.is_some() {
+        storage::set_subscription_terms(
+            env,
+            &user,
+            &SubscriptionTerms {
+                max_cycles,
+                end_at,
+                charges_made: 0,
+            },
+        );
+    } else {
+        storage::remove_subscription_terms(env, &user);
+    }
+
     extend_subscription_ttl(env, &user);
 
     if should_increment {
@@ -3042,7 +2735,7 @@ fn subscribe_inner(
     // same-merchant re-subscribe of an active subscription is skipped so
     // `MerchantSubCount` cannot be inflated.
     if should_increment || merchant_changed {
-        merchant_stats::increment_subscriber_count(env, &sub.merchant);
+        merchant_stats::increment_subscriber_count_with_user(env, &sub.merchant, &user);
     }
     events::publish_subscribed(env, &user, &sub);
 }
@@ -3104,6 +2797,31 @@ pub(crate) fn effective_global_volume_cap(env: &Env) -> i128 {
         .unwrap_or(GLOBAL_MAX_VOLUME_PER_HOUR)
 }
 
+/// Returns the admin-configured maximum pause duration in seconds.
+/// Returns `0` when no limit has been set, which preserves the pre-feature
+/// behavior of allowing indefinite pauses.
+pub(crate) fn get_max_pause_seconds(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxPauseSeconds)
+        .unwrap_or(0u64)
+}
+
+/// Enforces the max pause duration against a proposed expiry timestamp.
+/// When `max_pause_seconds` is 0 (the default), no limit is enforced.
+/// Panics with `PauseExceedsMaxDuration` when the requested duration
+/// exceeds the configured cap.
+pub(crate) fn enforce_max_pause(env: &Env, now: u64, expiry: u64) {
+    let max = get_max_pause_seconds(env);
+    if max == 0 {
+        return; // unlimited — preserve backward-compatible behavior
+    }
+    let duration = expiry.saturating_sub(now);
+    if duration > max {
+        env.panic_with_error(crate::errors::ContractErrorExt::PauseExceedsMaxDuration);
+    }
+}
+
 fn is_contract_paused(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -3148,6 +2866,10 @@ fn charge_inner(env: Env, user: Address, keeper: Option<Address>) {
     let grace_period = grace::get_grace_period(&env);
     if grace_period > 0 && now > next.saturating_add(grace_period) {
         env.panic_with_error(ContractError::GracePeriodElapsed);
+    }
+
+    if charge_exec::end_condition_reached(storage::get_subscription_terms(&env, &user).as_ref(), now) {
+        env.panic_with_error(ContractError::SubscriptionInactive);
     }
 
     charge_exec::execute_charge(&env, &user, &key, &mut sub, now, keeper.as_ref());

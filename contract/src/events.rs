@@ -193,7 +193,7 @@ pub fn publish_charged(
 ) {
     // Charge payload gained `fee_bps`; mark only this event v3 so existing
     // consumers can continue decoding the v2 payload shape for other events.
-    let mut topics = (Symbol::new(env, "charged"), user.clone()).into_val(env);
+    let mut topics: Vec<Val> = (Symbol::new(env, "charged"), user.clone()).into_val(env);
     topics.push_back(Symbol::new(env, "v3").into_val(env));
     env.events().publish(
         topics,
@@ -826,6 +826,28 @@ pub fn publish_keeper_tip(env: &Env, keeper: &Address, user: &Address, tip: i128
     env.events().publish(
         (Symbol::new(env, "keeper_tip"), keeper.clone()),
         (user.clone(), tip),
+    );
+}
+
+/// Publishes `subscription_completed(user, total_charges)` when a fixed-term
+/// subscription reaches its `max_cycles` or `end_at` end condition and is
+/// deactivated automatically by the charge path (issue #1400).
+/// `total_charges` is the final value of `charges_made` after the last charge.
+pub fn publish_subscription_completed(env: &Env, user: &Address, total_charges: u32) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "sub_completed"), user.clone()),
+        total_charges,
+    );
+}
+
+/// Publishes `max_pause_seconds_set(old, new)` when the admin updates the
+/// maximum pause duration cap (issue #1401).
+pub fn publish_max_pause_seconds_set(env: &Env, old: u64, new: u64) {
+    publish_versioned(
+        env,
+        (Symbol::new(env, "max_pause_set"),),
+        (old, new),
     );
 }
 

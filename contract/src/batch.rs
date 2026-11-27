@@ -4,6 +4,7 @@ use crate::charge_exec::{self, ChargeSimResult};
 use crate::events;
 use crate::events::BatchChargeSkipsEventData;
 use crate::grace;
+use crate::storage;
 use crate::validation;
 use crate::{DataKey, Subscription};
 
@@ -156,7 +157,12 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                 if sub.paused {
                     charge_exec::try_auto_resume(env, &user, &mut sub, now);
                 }
-                match charge_exec::precheck_charge(&sub, now, grace_period) {
+                match charge_exec::precheck_charge(
+                    &sub,
+                    storage::get_subscription_terms(env, &user).as_ref(),
+                    now,
+                    grace_period,
+                ) {
                     Err(skip) => skip,
                     Ok(()) => {
                         // Pre-check allowance against the gross subscription

@@ -245,13 +245,11 @@ fn test_migration_paged_skips_users_without_subscriptions() {
     let ghost1 = Address::generate(&env);
     let ghost2 = Address::generate(&env);
 
-    env.as_contract(&contract_id, || {
-        let mut page: Vec<Address> = Vec::new(&env);
-        page.push_back(ghost1.clone());
-        page.push_back(ghost2.clone());
-        migration::migrate(&env, page); // Must not panic.
-        migration::finalize(&env, 2);
-    });
+    let mut page: Vec<Address> = Vec::new(&env);
+    page.push_back(ghost1.clone());
+    page.push_back(ghost2.clone());
+    env.as_contract(&contract_id, || migration::migrate(&env, page)); // Must not panic.
+    env.as_contract(&contract_id, || migration::finalize(&env, 2));
 
     let version = env.as_contract(&contract_id, || migration::get_schema_version(&env));
     assert_eq!(version, CURRENT_VERSION);
@@ -349,11 +347,8 @@ fn test_migration_get_schema_version_after_full_migrate() {
     let client = FlowPayClient::new(&env, &contract_id);
     assert_eq!(client.get_schema_version(), 0u32);
 
-    env.as_contract(&contract_id, || {
-        let users: Vec<Address> = Vec::new(&env);
-        migration::migrate(&env, users);
-        migration::finalize(&env, 0);
-    });
+    env.as_contract(&contract_id, || migration::migrate(&env, Vec::new(&env)));
+    env.as_contract(&contract_id, || migration::finalize(&env, 0));
 
     assert_eq!(client.get_schema_version(), CURRENT_VERSION);
 }
@@ -467,10 +462,9 @@ fn test_migration_duplicate_account_counted_once() {
     let client = FlowPayClient::new(&env, &contract_id);
     let mut users: Vec<Address> = Vec::new(&env);
     users.push_back(user.clone());
-    env.as_contract(&contract_id, || {
-        migration::migrate(&env, users.clone());
-        migration::migrate(&env, users.clone());
-    });
+    // Separate frames: each admin call authorizes its own invocation frame.
+    env.as_contract(&contract_id, || migration::migrate(&env, users.clone()));
+    env.as_contract(&contract_id, || migration::migrate(&env, users.clone()));
 
     assert_eq!(client.get_migration_progress().migrated_accounts, 1);
     assert!(client.try_finalize_migration(&2u64).is_err());

@@ -33,9 +33,16 @@
  *   48 TrialExtensionExceedsMaximum
  *   49 SkipCooldownActive
  *   50 NoLastChargeToRefund
- *   48 MigrationIncomplete
- *   49 InvalidKeeperTipBps
+ *   51 InvalidOperatorAddress         (ContractErrorExt)
  *   52 InvalidAdminAddress
+ *   53 MigrationIncomplete            (ContractErrorExt)
+ *   54 InvalidKeeperTipBps            (ContractErrorExt)
+ *   55 InvalidMerchantFeeBps          (ContractErrorExt)
+ *   56 PauseExceedsMaxDuration        (ContractErrorExt)
+ *   57 InvalidEndCondition            (ContractErrorExt)
+ *
+ * Codes 51 and 53+ live in the `ContractErrorExt` enum because Soroban caps an
+ * exported error enum at 50 cases; the numbering is one shared catalog.
  *
  * Codes 30 and 31 (deprecated / reserved) and 37 (catalog gap) are documented
  * and mapped, not dropped — see the inline notes at those codes below.
@@ -109,13 +116,17 @@ export const CONTRACT_ERRORS: Record<string, string> = {
   "error(contract, #48)": "Trial extension exceeds the maximum allowed duration.",
   "error(contract, #49)": "You can only skip one billing cycle per interval.",
   "error(contract, #50)": "There is no charge available to refund.",
-  // 48 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
-  "error(contract, #48)": "Storage migration is not finished yet; process every account first.",
-  // 49 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
-  "error(contract, #49)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
-  "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
-  "error(contract, #50)": "Merchant fee must be within the configured protocol fee bounds.",
   "error(contract, #51)": "Operator cannot be the contract address.",
+  "error(contract, #52)": "Choose an admin address different from the current admin and contract.",
+  // 53 `MigrationIncomplete` — `finalize_migration` before every account is migrated.
+  "error(contract, #53)": "Storage migration is not finished yet; process every account first.",
+  // 54 `InvalidKeeperTipBps` — keeper tip set above the 5000 bps cap.
+  "error(contract, #54)": "Keeper tip must be at most 5000 bps (half of the protocol fee).",
+  "error(contract, #55)": "Merchant fee must be within the configured protocol fee bounds.",
+  // 56 `PauseExceedsMaxDuration` — pause longer than the admin-set maximum.
+  "error(contract, #56)": "This pause is longer than the maximum pause duration allowed.",
+  // 57 `InvalidEndCondition` — max_cycles of 0 or an end date that is not in the future.
+  "error(contract, #57)": "Subscription end conditions are invalid: cycles must be at least 1 and the end date must be in the future.",
 
   // ── Bare-code aliases ──────────────────────────────────────────────────────
   // For transports that surface just the number ("#18", "ContractError #18").

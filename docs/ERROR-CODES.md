@@ -66,11 +66,15 @@ Use the [quick-reference table](#quick-reference-table) for lookups, then jump t
 | 48   | `TrialExtensionExceedsMaximum` | Validation | Trial extension over the per-call or total cap |
 | 49   | `SkipCooldownActive`        | Limit / timing | Second `skip_next_charge` before one interval elapsed |
 | 50   | `NoLastChargeToRefund`      | State        | No refundable scheduled charge recorded |
-| 48   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
-| 49   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 51   | `InvalidOperatorAddress`    | Validation   | Operator cannot be the contract address |
 | 52   | `InvalidAdminAddress`       | Validation   | New admin is current admin or contract address |
-| 50   | `InvalidMerchantFeeBps`     | Validation   | Merchant override is outside configured fee bounds |
-| 51   | `InvalidOperatorAddress`   | Validation   | Operator cannot be the contract address |
+| 53   | `MigrationIncomplete`       | State        | `finalize_migration` called before `expected_total` accounts were migrated |
+| 54   | `InvalidKeeperTipBps`       | Validation   | `set_keeper_tip_bps` above the 5000 bps cap |
+| 55   | `InvalidMerchantFeeBps`     | Validation   | Merchant override (or referral reward policy) is outside configured bounds |
+| 56   | `PauseExceedsMaxDuration`   | Limit / timing | `pause_until` expiry is more than `max_pause_seconds` away |
+| 57   | `InvalidEndCondition`       | Validation   | `subscribe_with_end_conditions` with `max_cycles = 0` or `end_at` not in the future |
+
+> **Two enums, one catalog:** Soroban limits an exported error enum to 50 cases. Codes 1–50 and 52 are `ContractError`; codes 51 and 53+ are `ContractErrorExt`. Both are in the contract spec, and codes are unique across them. Codes 53–55 previously collided with 48–50 (`MigrationIncomplete`, `InvalidKeeperTipBps`, `InvalidMerchantFeeBps`) and were given their own numbers.
 
 > **Compatibility:** code 18 (`ContractPaused`) is the sole canonical contract-paused error and is emitted by every pause guard. `ContractPausedError` remains a deprecated Rust enum variant at code 30 only for source/wire compatibility with clients that published that value; it is never emitted by current WASM. Code 31 has a deprecated `Reserved31` Rust enum variant documenting the reserved wire-map slot; it is not emitted by current contract logic. Code 37 remains unassigned; new errors must use a new code and update this table, frontend handling, and mapping tests together. Source of truth: [`contract/src/errors.rs`](../contract/src/errors.rs).
 
@@ -857,7 +861,6 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 ---
 
-### 52 — `InvalidAdminAddress`
 ### 48 — `TrialExtensionExceedsMaximum`
 
 | Field               | Detail |
@@ -897,7 +900,10 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 
 1. Confirm a scheduled `charge` or `batch_charge` has succeeded for the subscriber.
 2. Refund only once per charge; a new charge creates a new refundable snapshot.
-### 48 — `InvalidAdminAddress`
+
+---
+
+### 52 — `InvalidAdminAddress`
 
 | Field               | Detail |
 | ------------------- | ------ |
@@ -918,9 +924,9 @@ This is distinct from `AlreadyInitialized` (code 1), which guards the full `init
 | Category       | Codes                                                        | Typical owners                |
 | -------------- | ------------------------------------------------------------ | ----------------------------- |
 | Auth / access  | 8, 10, 22                                                    | User + admin                  |
-| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45 | Deployer, user, admin, keeper |
-| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48 | Client / admin tooling   |
-| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49                                 | Keeper + user                 |
+| State          | 1, 4, 5, 7, 16, 17, 18, 21, 23, 24, 30, 36, 41, 42, 44, 45, 50, 53 | Deployer, user, admin, keeper |
+| Validation     | 2, 3, 11, 12, 13, 14, 19, 26, 27, 29, 32, 33, 34, 35, 38, 39, 46, 47, 48, 51, 52, 54, 55, 57 | Client / admin tooling   |
+| Limit / timing | 6, 9, 15, 20, 25, 28, 40, 49, 56                             | Keeper + user                 |
 
 ---
 

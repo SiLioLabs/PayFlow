@@ -3,7 +3,7 @@ use soroban_sdk::{Address, Env, Symbol, Vec};
 use crate::errors::ContractError;
 use crate::{
     BillingState, DataKey, LastChargeRecord, StorageEntryFootprint, StorageFootprint, Subscription,
-    SUBSCRIPTION_TTL_LEDGERS,
+    SubscriptionTerms, MERCHANT_STATE_TTL_LEDGERS, SUBSCRIPTION_TTL_LEDGERS,
 };
 
 /// Number of per-subscriber keys reported by [`get_storage_footprint`].
@@ -12,7 +12,7 @@ use crate::{
 /// asserts the footprint length against this constant, so adding a new
 /// per-user `DataKey` without extending the footprint (and this count) fails
 /// the suite. Update `docs/architecture/STORAGE-AND-TTL.md` in the same change.
-pub const PER_USER_STORAGE_KEY_COUNT: u32 = 11;
+pub const PER_USER_STORAGE_KEY_COUNT: u32 = 12;
 
 pub fn get_subscription(env: &Env, user: &Address) -> Option<Subscription> {
     env.storage()
@@ -54,6 +54,57 @@ pub fn extend_subscription_ttl(env: &Env, user: &Address) {
             SUBSCRIPTION_TTL_LEDGERS,
         );
     }
+    // Keep this subscriber's entry in its merchant's subscriber index alive for
+    // as long as the subscription is maintained. `merchant_sub_index_remove`
+    // reads the slot on cancel, so an archived slot would make cancel fail.
+    if let Some(sub) = get_subscription(env, user) {
+        let slot_key = DataKey::MerchantSubIndexSlot(sub.merchant.clone(), user.clone());
+        if let Some(slot) = env.storage().persistent().get::<_, u64>(&slot_key) {
+            let entry_key = DataKey::MerchantSubIndex(sub.merchant.clone(), slot);
+            for key in [slot_key, entry_key] {
+                if env.storage().persistent().has(&key) {
+                    env.storage().persistent().extend_ttl(
+                        &key,
+                        SUBSCRIPTION_TTL_LEDGERS / 2,
+                        SUBSCRIPTION_TTL_LEDGERS,
+                    );
+                }
+            }
+        }
+    }
+    // Terms must live as long as the subscription they bound, or an expired
+    // terms entry would silently turn a fixed-term subscription open-ended.
+    let terms_key = DataKey::SubscriptionTerms(user.clone());
+    if env.storage().persistent().has(&terms_key) {
+        env.storage().persistent().extend_ttl(
+            &terms_key,
+            SUBSCRIPTION_TTL_LEDGERS / 2,
+            SUBSCRIPTION_TTL_LEDGERS,
+        );
+    }
+}
+
+/// Returns the fixed-term end conditions for `user`, or `None` for an
+/// open-ended subscription.
+pub fn get_subscription_terms(env: &Env, user: &Address) -> Option<SubscriptionTerms> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SubscriptionTerms(user.clone()))
+}
+
+/// Stores `terms` for `user`. The caller refreshes TTLs via
+/// `extend_subscription_ttl`.
+pub fn set_subscription_terms(env: &Env, user: &Address, terms: &SubscriptionTerms) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::SubscriptionTerms(user.clone()), terms);
+}
+
+/// Removes any end conditions for `user`, making the subscription open-ended.
+pub fn remove_subscription_terms(env: &Env, user: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SubscriptionTerms(user.clone()));
 }
 
 pub fn set_token(env: &Env, token: &Address) {
@@ -273,6 +324,7 @@ pub fn get_storage_footprint(env: &Env, user: &Address) -> StorageFootprint {
     push_persistent("charge_history", DataKey::ChargeHistory(user.clone()));
     push_persistent("index_slot", DataKey::SubscriberIndexSlot(user.clone()));
     push_persistent("pause_expiry", DataKey::PauseExpiry(user.clone()));
+    push_persistent("terms", DataKey::SubscriptionTerms(user.clone()));
 
     // `last_charge` and `last_skip` share one underlying `BillingState` key, so
     // their presence flags read the inner options while reporting that key's

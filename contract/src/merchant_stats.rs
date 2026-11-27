@@ -6,6 +6,7 @@ use crate::caps::{
 };
 use crate::DataKey;
 use crate::MERCHANT_STATE_TTL_LEDGERS;
+use crate::SUBSCRIPTION_TTL_LEDGERS;
 
 /// Maximum number of day-index entries retained per merchant after a prune or reset.
 /// Entries beyond this cap are dropped from the oldest end so the index stays bounded.
@@ -381,6 +382,13 @@ pub fn increment_subscriber_count(env: &Env, merchant: &Address) {
     );
 }
 
+/// Increments the per-merchant subscriber count and adds `user` to the
+/// per-merchant subscriber index (issue #1399).
+pub fn increment_subscriber_count_with_user(env: &Env, merchant: &Address, user: &Address) {
+    increment_subscriber_count(env, merchant);
+    merchant_sub_index_add(env, merchant, user);
+}
+
 /// Decrements the per-merchant subscriber count by 1 (floor 0).
 pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
     let count = get_merchant_subscriber_count(env, merchant);
@@ -393,6 +401,13 @@ pub fn decrement_subscriber_count(env: &Env, merchant: &Address) {
             MERCHANT_STATE_TTL_LEDGERS,
         );
     }
+}
+
+/// Decrements the per-merchant subscriber count and removes `user` from the
+/// per-merchant subscriber index (issue #1399).
+pub fn decrement_subscriber_count_with_user(env: &Env, merchant: &Address, user: &Address) {
+    decrement_subscriber_count(env, merchant);
+    merchant_sub_index_remove(env, merchant, user);
 }
 
 /// Resets a merchant's revenue accounting to a fully cleared state.
@@ -625,4 +640,154 @@ pub fn get_merchant_revenue_day_page(
         out.push_back((day, amount));
     }
     out
+}
+
+// ─────────────────────────────────────────────────────────────
+// Per-merchant subscriber index (issue #1399)
+// ─────────────────────────────────────────────────────────────
+//
+// Design mirrors the global `SubscriberIndex` / `SubscriberIndexSlot` pattern
+// (see `subscription_count.rs`): each merchant owns a compact, slot-indexed Vec
+// of subscriber addresses backed by three storage keys:
+//
+//   MerchantSubIndex(merchant, slot)  — the subscriber address at that slot
+//   MerchantSubIndexSlot(merchant, user) — the slot occupied by `user`, for O(1) removal
+//   MerchantSubIndexSize(merchant)   — total filled slots
+//
+// On removal the last-slot entry is swapped into the vacated slot (compact
+// swap-remove), keeping the index dense. This matches the `WhitelistIndex`
+// compaction pattern used elsewhere.
+
+/// Returns the number of slots in the per-merchant subscriber index.
+pub fn get_merchant_sub_index_size(env: &Env, merchant: &Address) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MerchantSubIndexSize(merchant.clone()))
+        .unwrap_or(0u64)
+}
+
+/// Adds `user` to `merchant`'s per-merchant subscriber index.
+/// Idempotent: if `user` is already in the index (slot key exists) this is a no-op.
+pub fn merchant_sub_index_add(env: &Env, merchant: &Address, user: &Address) {
+    let slot_key = DataKey::MerchantSubIndexSlot(merchant.clone(), user.clone());
+    if env.storage().persistent().has(&slot_key) {
+        return; // already indexed
+    }
+    let size = get_merchant_sub_index_size(env, merchant);
+    let entry_key = DataKey::MerchantSubIndex(merchant.clone(), size);
+    env.storage().persistent().set(&entry_key, user);
+    // Per-subscriber slot and entry keys must outlive the subscription itself so
+    // that cancel and transfer can remove the index entries even after the
+    // subscription has not been charged for a long time. Use SUBSCRIPTION_TTL_LEDGERS
+    // rather than MERCHANT_STATE_TTL_LEDGERS for the per-subscriber keys.
+    env.storage().persistent().extend_ttl(
+        &entry_key,
+        SUBSCRIPTION_TTL_LEDGERS,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+    env.storage().persistent().set(&slot_key, &size);
+    env.storage().persistent().extend_ttl(
+        &slot_key,
+        SUBSCRIPTION_TTL_LEDGERS,
+        SUBSCRIPTION_TTL_LEDGERS,
+    );
+    let size_key = DataKey::MerchantSubIndexSize(merchant.clone());
+    env.storage().persistent().set(&size_key, &(size + 1));
+    env.storage().persistent().extend_ttl(
+        &size_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
+}
+
+/// Removes `user` from `merchant`'s per-merchant subscriber index using
+/// compact swap-remove (O(1) removal, keeps index dense).
+/// Idempotent: if `user` is not in the index this is a no-op.
+pub fn merchant_sub_index_remove(env: &Env, merchant: &Address, user: &Address) {
+    let slot_key = DataKey::MerchantSubIndexSlot(merchant.clone(), user.clone());
+    let slot: u64 = match env.storage().persistent().get(&slot_key) {
+        Some(s) => s,
+        None => return, // not indexed
+    };
+
+    let size = get_merchant_sub_index_size(env, merchant);
+    let last = size.saturating_sub(1);
+
+    if slot != last {
+        // Swap the last entry into the vacated slot.
+        let last_key = DataKey::MerchantSubIndex(merchant.clone(), last);
+        if let Some(last_user) = env
+            .storage()
+            .persistent()
+            .get::<_, soroban_sdk::Address>(&last_key)
+        {
+            let vacated_key = DataKey::MerchantSubIndex(merchant.clone(), slot);
+            env.storage().persistent().set(&vacated_key, &last_user);
+            env.storage().persistent().extend_ttl(
+                &vacated_key,
+                SUBSCRIPTION_TTL_LEDGERS,
+                SUBSCRIPTION_TTL_LEDGERS,
+            );
+            // Update the swapped user's slot pointer.
+            let moved_slot_key = DataKey::MerchantSubIndexSlot(merchant.clone(), last_user);
+            env.storage().persistent().set(&moved_slot_key, &slot);
+            env.storage().persistent().extend_ttl(
+                &moved_slot_key,
+                SUBSCRIPTION_TTL_LEDGERS,
+                SUBSCRIPTION_TTL_LEDGERS,
+            );
+        }
+    }
+
+    // Remove the last slot entry and the removed user's slot key.
+    env.storage()
+        .persistent()
+        .remove(&DataKey::MerchantSubIndex(merchant.clone(), last));
+    env.storage().persistent().remove(&slot_key);
+
+    // Decrement size.
+    let size_key = DataKey::MerchantSubIndexSize(merchant.clone());
+    env.storage().persistent().set(&size_key, &last);
+    env.storage().persistent().extend_ttl(
+        &size_key,
+        MERCHANT_STATE_TTL_LEDGERS,
+        MERCHANT_STATE_TTL_LEDGERS,
+    );
+}
+
+/// Returns a paginated list of subscriber addresses for `merchant`.
+///
+/// `offset` is a slot index (not a result count). `limit` is capped at
+/// `SUBSCRIBER_PAGE_SIZE` (50). Missing or tombstoned slots are skipped
+/// so the caller never sees gaps in the result.
+///
+/// The returned count matches `get_merchant_subscriber_count` when no
+/// re-subscribes or transfers happened between calls; callers should not
+/// rely on exact counts matching across calls.
+pub fn get_merchant_subscribers(
+    env: &Env,
+    merchant: &Address,
+    offset: u64,
+    limit: u32,
+) -> Vec<soroban_sdk::Address> {
+    let cap = crate::caps::effective_page_size(Some(limit), crate::caps::SUBSCRIBER_PAGE_SIZE);
+    let size = get_merchant_sub_index_size(env, merchant);
+    let mut result = Vec::new(env);
+
+    if offset >= size || cap == 0 {
+        return result;
+    }
+
+    let end = (offset + cap as u64).min(size);
+    for slot in offset..end {
+        let key = DataKey::MerchantSubIndex(merchant.clone(), slot);
+        if let Some(user) = env
+            .storage()
+            .persistent()
+            .get::<_, soroban_sdk::Address>(&key)
+        {
+            result.push_back(user);
+        }
+    }
+    result
 }

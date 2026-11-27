@@ -9,14 +9,17 @@ pub fn require_admin(env: &Env) {
     admin.require_auth();
 }
 
-/// Authorize the emergency operator or the admin, who retains full control.
+/// Authorize the emergency operator when one is configured, otherwise the admin.
+///
+/// Soroban exposes no implicit invoker, so the contract cannot tell which of
+/// the two signed a call. While an operator is set it is the required signer;
+/// the admin keeps ultimate control because only the admin can clear or
+/// replace the operator via `set_operator`.
 pub fn require_operator_or_admin(env: &Env) {
     let operator: Option<Address> = env.storage().instance().get(&DataKey::Operator);
-    let invoker = env.invoker();
-    if operator.as_ref().is_some_and(|configured| configured == &invoker) {
-        invoker.require_auth();
-    } else {
-        get_admin(env).require_auth();
+    match operator {
+        Some(operator) => operator.require_auth(),
+        None => get_admin(env).require_auth(),
     }
 }
 

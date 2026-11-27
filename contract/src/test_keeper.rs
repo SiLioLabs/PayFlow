@@ -308,8 +308,8 @@ fn test_keeper_tip_bps_is_capped() {
     let over = client.try_set_keeper_tip_bps(&(MAX_KEEPER_TIP_BPS + 1));
     assert_eq!(
         over,
-        Err(Ok(soroban_sdk::Error::from_contract_error(49))),
-        "tips above the cap must fail with InvalidKeeperTipBps (49)"
+        Err(Ok(soroban_sdk::Error::from_contract_error(54))),
+        "tips above the cap must fail with InvalidKeeperTipBps (54)"
     );
     assert_eq!(client.get_keeper_tip_bps(), 0, "a rejected value must not be stored");
 

@@ -29,7 +29,7 @@ pub fn set_merchant_fee_bps(env: &Env, merchant: &Address, bps: Option<u32>) {
     let min_bps: u32 = env.storage().instance().get(&DataKey::MinFeeBps).unwrap_or(0);
     let max_bps: u32 = env.storage().instance().get(&DataKey::MaxFeeBps).unwrap_or(10_000);
     if bps.is_some_and(|rate| rate < min_bps || rate > max_bps) {
-        env.panic_with_error(ContractError::InvalidMerchantFeeBps);
+        env.panic_with_error(crate::errors::ContractErrorExt::InvalidMerchantFeeBps);
     }
     let key = DataKey::MerchantFeeBps(merchant.clone());
     if let Some(rate) = bps {
@@ -245,7 +245,7 @@ pub fn get_keeper_tip_bps(env: &Env) -> u32 {
 /// Sets the keeper tip. Rejects values above `MAX_KEEPER_TIP_BPS`.
 pub fn set_keeper_tip_bps(env: &Env, bps: u32) {
     if bps > MAX_KEEPER_TIP_BPS {
-        env.panic_with_error(ContractError::InvalidKeeperTipBps);
+        env.panic_with_error(crate::errors::ContractErrorExt::InvalidKeeperTipBps);
     }
     let old = get_keeper_tip_bps(env);
     env.storage().instance().set(&DataKey::KeeperTipBps, &bps);
